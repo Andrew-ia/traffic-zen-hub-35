@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import Campaigns from "./pages/Campaigns";
+import CampaignDetails from "./pages/CampaignDetails";
+import AdDetails from "./pages/AdDetails";
 import Reports from "./pages/Reports";
 import Budget from "./pages/Budget";
 import Calendar from "./pages/Calendar";
@@ -29,6 +31,8 @@ const App = () => (
         <MainLayout>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
+            <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/budget" element={<Budget />} />

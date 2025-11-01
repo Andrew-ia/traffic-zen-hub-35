@@ -1,59 +1,110 @@
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { useReportsData } from "@/hooks/useReportsData";
+import type { PerformancePoint } from "@/hooks/usePerformanceMetrics";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-const platformData = [
-  { name: "Facebook", valor: 12500 },
-  { name: "Google", valor: 18200 },
-  { name: "Instagram", valor: 9800 },
-  { name: "LinkedIn", valor: 6400 },
-  { name: "TikTok", valor: 5200 },
-];
+function formatCurrency(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  }).format(value);
+}
+
+function formatPercentDelta(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function computeDelta(current: number, previous: number) {
+  if (!previous || previous === 0) {
+    return current === 0 ? 0 : 100;
+  }
+  return ((current - previous) / previous) * 100;
+}
 
 export default function Reports() {
+  const {
+    data: reports,
+    isLoading,
+    error,
+  } = useReportsData();
+
+  const chartData: PerformancePoint[] = useMemo(() => {
+    if (!reports?.timeSeries) return [];
+    return reports.timeSeries.map((point) => ({
+      date: point.date,
+      impressions: point.impressions,
+      clicks: point.clicks,
+      conversions: point.conversions,
+      spend: point.spend,
+      conversionValue: point.conversionValue,
+      roas: point.roas,
+    }));
+  }, [reports]);
+
+  const platformData = useMemo(
+    () =>
+      reports?.platformBreakdown.map((item) => ({
+        name: item.name,
+        spend: item.spend,
+        conversions: item.conversions,
+      })) ?? [],
+    [reports],
+  );
+
+  const summary = reports?.summary;
+  const spendDelta = summary ? computeDelta(summary.current.spend, summary.previous.spend) : 0;
+  const ctrDelta = summary ? computeDelta(summary.current.ctr, summary.previous.ctr) : 0;
+  const cpaDelta = summary ? computeDelta(summary.previous.cpa, summary.current.cpa) : 0; // redução de CPA é positiva
+  const roasDelta = summary ? computeDelta(summary.current.roas, summary.previous.roas) : 0;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Relatórios</h1>
-        <p className="text-muted-foreground mt-1">
-          Análise detalhada do desempenho das campanhas
-        </p>
+        <p className="text-muted-foreground mt-1">Análise detalhada do desempenho das campanhas</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <PerformanceChart />
+        <PerformanceChart data={chartData} isLoading={isLoading} />
 
         <Card>
           <CardHeader>
             <CardTitle>Gastos por Plataforma</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={platformData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis 
-                  dataKey="name" 
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <YAxis 
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "var(--radius)",
-                  }}
-                />
-                <Bar 
-                  dataKey="valor" 
-                  fill="hsl(var(--primary))" 
-                  radius={[8, 8, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <Skeleton className="h-[350px] w-full" />
+            ) : platformData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados de gastos no período selecionado.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart data={platformData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickFormatter={(value) => formatCurrency(value).replace("R$", "").trim()}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "var(--radius)",
+                    }}
+                  />
+                  <Bar dataKey="spend" fill="hsl(var(--primary))" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -61,11 +112,33 @@ export default function Reports() {
       <div className="grid gap-6 md:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Taxa de Conversão</CardTitle>
+            <CardTitle>Investimento (30 dias)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">4.6%</div>
-            <p className="text-sm text-success mt-2">+0.8% vs período anterior</p>
+            {isLoading ? (
+              <Skeleton className="h-10 w-32" />
+            ) : (
+              <div className="text-3xl font-bold">{formatCurrency(summary?.current.spend ?? 0)}</div>
+            )}
+            <p className={`text-sm mt-2 ${spendDelta >= 0 ? "text-success" : "text-destructive"}`}>
+              {formatPercentDelta(spendDelta)} vs período anterior
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>CTR</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-10 w-24" />
+            ) : (
+              <div className="text-3xl font-bold">{`${(summary?.current.ctr ?? 0).toFixed(2)}%`}</div>
+            )}
+            <p className={`text-sm mt-2 ${ctrDelta >= 0 ? "text-success" : "text-destructive"}`}>
+              {formatPercentDelta(ctrDelta)} vs período anterior
+            </p>
           </CardContent>
         </Card>
 
@@ -74,21 +147,71 @@ export default function Reports() {
             <CardTitle>CPA Médio</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">R$ 28.50</div>
-            <p className="text-sm text-success mt-2">-12% vs período anterior</p>
+            {isLoading ? (
+              <Skeleton className="h-10 w-24" />
+            ) : (
+              <div className="text-3xl font-bold">{formatCurrency(summary?.current.cpa ?? 0)}</div>
+            )}
+            <p className={`text-sm mt-2 ${cpaDelta >= 0 ? "text-success" : "text-destructive"}`}>
+              {formatPercentDelta(cpaDelta)} vs período anterior
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>ROAS</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-10 w-24" />
+            ) : (
+              <div className="text-3xl font-bold">{(summary?.current.roas ?? 0).toFixed(2)}x</div>
+            )}
+            <p className={`text-sm mt-2 ${roasDelta >= 0 ? "text-success" : "text-destructive"}`}>
+              {formatPercentDelta(roasDelta)} vs período anterior
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>ROI</CardTitle>
+            <CardTitle>Conversões (30 dias)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">380%</div>
-            <p className="text-sm text-success mt-2">+45% vs período anterior</p>
+            {isLoading ? (
+              <Skeleton className="h-10 w-24" />
+            ) : (
+              <div className="text-3xl font-bold">{(summary?.current.conversions ?? 0).toLocaleString("pt-BR")}</div>
+            )}
+            <p className="text-sm text-muted-foreground mt-2">Total de eventos atribuídos</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Impressões (30 dias)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-10 w-32" />
+            ) : (
+              <div className="text-3xl font-bold">{(summary?.current.impressions ?? 0).toLocaleString("pt-BR")}</div>
+            )}
+            <p className="text-sm text-muted-foreground mt-2">Total de impressões agregadas</p>
           </CardContent>
         </Card>
       </div>
+
+      {error ? (
+        <Card>
+          <CardContent className="py-6">
+            <p className="text-destructive">Não foi possível carregar os dados de relatório. {error.message}</p>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

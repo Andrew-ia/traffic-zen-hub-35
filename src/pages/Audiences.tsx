@@ -1,7 +1,9 @@
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Users, Plus, Search, Download, Upload, Target } from "lucide-react";
 import {
   Table,
@@ -11,47 +13,44 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAudiences } from "@/hooks/useAudiences";
 
-const audiences = [
-  {
-    id: 1,
-    name: "Compradores Últimos 30 Dias",
-    type: "Custom Audience",
-    size: "12.5K",
-    platforms: ["Facebook", "Instagram"],
-    status: "Ativo",
-    lastUpdate: "Hoje",
-  },
-  {
-    id: 2,
-    name: "Lookalike 1% - Compradores",
-    type: "Lookalike",
-    size: "450K",
-    platforms: ["Facebook", "Google"],
-    status: "Ativo",
-    lastUpdate: "2 dias atrás",
-  },
-  {
-    id: 3,
-    name: "Visitantes Site - 90 Dias",
-    type: "Custom Audience",
-    size: "28.3K",
-    platforms: ["Facebook", "Google", "TikTok"],
-    status: "Ativo",
-    lastUpdate: "Hoje",
-  },
-  {
-    id: 4,
-    name: "Carrinho Abandonado",
-    type: "Custom Audience",
-    size: "5.8K",
-    platforms: ["Facebook", "Instagram"],
-    status: "Pausado",
-    lastUpdate: "5 dias atrás",
-  },
-];
+function formatNumber(value: number | null | undefined) {
+  if (!value) return "-";
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value.toLocaleString("pt-BR");
+}
+
+function formatDateLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function formatType(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("look")) return "Lookalike";
+  if (normalized.includes("custom")) return "Custom Audience";
+  if (normalized.includes("saved")) return "Saved Audience";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 export default function Audiences() {
+  const [search, setSearch] = useState("");
+  const {
+    data,
+    isLoading,
+    error,
+  } = useAudiences({ search });
+
+  const audiences = data?.rows ?? [];
+  const summary = data?.summary;
+
+  const activeAudiences = useMemo(() => audiences.filter((audience) => audience.status === "active"), [audiences]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -84,8 +83,8 @@ export default function Audiences() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">127</div>
-            <p className="text-xs text-muted-foreground mt-1">+12 este mês</p>
+            {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">{summary?.total ?? 0}</div>}
+            <p className="text-xs text-muted-foreground mt-1">{activeAudiences.length} ativos</p>
           </CardContent>
         </Card>
 
@@ -95,8 +94,8 @@ export default function Audiences() {
             <Target className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2.4M</div>
-            <p className="text-xs text-muted-foreground mt-1">Pessoas únicas</p>
+            {isLoading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{formatNumber(summary?.totalSize ?? 0)}</div>}
+            <p className="text-xs text-muted-foreground mt-1">Pessoas únicas estimadas</p>
           </CardContent>
         </Card>
 
@@ -106,8 +105,8 @@ export default function Audiences() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">23</div>
-            <p className="text-xs text-muted-foreground mt-1">Ativos</p>
+            {isLoading ? <Skeleton className="h-8 w-16" /> : <div className="text-2xl font-bold">{summary?.lookalikeCount ?? 0}</div>}
+            <p className="text-xs text-muted-foreground mt-1">Total cadastrados</p>
           </CardContent>
         </Card>
 
@@ -117,8 +116,8 @@ export default function Audiences() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">104</div>
-            <p className="text-xs text-muted-foreground mt-1">Ativos</p>
+            {isLoading ? <Skeleton className="h-8 w-16" /> : <div className="text-2xl font-bold">{summary?.customCount ?? 0}</div>}
+            <p className="text-xs text-muted-foreground mt-1">Total cadastrados</p>
           </CardContent>
         </Card>
       </div>
@@ -126,7 +125,12 @@ export default function Audiences() {
       <div className="flex items-center gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Buscar públicos..." className="pl-10" />
+          <Input
+            placeholder="Buscar públicos..."
+            className="pl-10"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
         <Button variant="outline">Filtros</Button>
       </div>
@@ -136,54 +140,71 @@ export default function Audiences() {
           <CardTitle>Públicos Personalizados</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Tamanho</TableHead>
-                <TableHead>Plataformas</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Última Atualização</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {audiences.map((audience) => (
-                <TableRow key={audience.id}>
-                  <TableCell className="font-medium">{audience.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{audience.type}</Badge>
-                  </TableCell>
-                  <TableCell>{audience.size}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      {audience.platforms.map((platform) => (
-                        <Badge key={platform} variant="secondary" className="text-xs">
-                          {platform}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={audience.status === "Ativo" ? "default" : "secondary"}>
-                      {audience.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {audience.lastUpdate}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm">
-                      Editar
-                    </Button>
-                  </TableCell>
+          {isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : audiences.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum público encontrado.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Alcance</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Última Atualização</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {audiences.map((audience) => {
+                  const isActive = audience.status.toLowerCase() === "active";
+                  return (
+                    <TableRow key={audience.id}>
+                      <TableCell className="font-medium">{audience.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{formatType(audience.audienceType)}</Badge>
+                      </TableCell>
+                      <TableCell>{formatNumber(audience.sizeEstimate)}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-xs">
+                          {audience.platformName ?? audience.platformKey ?? "-"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={isActive ? "default" : "secondary"}>
+                          {isActive ? "Ativo" : "Arquivado"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatDateLabel(audience.lastSyncedAt ?? audience.updatedAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm">
+                          Editar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
+
+      {error ? (
+        <Card>
+          <CardContent className="py-6">
+            <p className="text-destructive">Não foi possível carregar os públicos. {error.message}</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

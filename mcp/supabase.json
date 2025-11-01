@@ -1,0 +1,7 @@
+{
+  "url": "${SUPABASE_URL}",
+  "anonKey": "${SUPABASE_ANON_KEY}",
+  "serviceRoleKey": "${SUPABASE_SERVICE_ROLE_KEY}",
+  "projectId": "${SUPABASE_PROJECT_ID}",
+  "legacyJwtSecret": "${SUPABASE_LEGACY_JWT_SECRET}"
+}
