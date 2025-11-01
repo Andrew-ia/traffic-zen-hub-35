@@ -10,6 +10,12 @@ import Reports from "./pages/Reports";
 import Budget from "./pages/Budget";
 import Calendar from "./pages/Calendar";
 import Leads from "./pages/Leads";
+import Creatives from "./pages/Creatives";
+import Audiences from "./pages/Audiences";
+import UTMs from "./pages/UTMs";
+import Automations from "./pages/Automations";
+import Experiments from "./pages/Experiments";
+import Integrations from "./pages/Integrations";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +34,12 @@ const App = () => (
             <Route path="/budget" element={<Budget />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/leads" element={<Leads />} />
+            <Route path="/creatives" element={<Creatives />} />
+            <Route path="/audiences" element={<Audiences />} />
+            <Route path="/utms" element={<UTMs />} />
+            <Route path="/automations" element={<Automations />} />
+            <Route path="/experiments" element={<Experiments />} />
+            <Route path="/integrations" element={<Integrations />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

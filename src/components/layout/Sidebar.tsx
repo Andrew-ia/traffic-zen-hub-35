@@ -1,4 +1,4 @@
-import { LayoutDashboard, Target, TrendingUp, Calendar, Users, DollarSign, Menu, X } from "lucide-react";
+import { LayoutDashboard, Target, TrendingUp, Calendar, Users, DollarSign, Menu, X, Image, Zap, Link2, TestTube, Plug } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,12 @@ const navigation = [
   { name: "Orçamento", href: "/budget", icon: DollarSign },
   { name: "Calendário", href: "/calendar", icon: Calendar },
   { name: "Leads", href: "/leads", icon: Users },
+  { name: "Criativos", href: "/creatives", icon: Image },
+  { name: "Públicos", href: "/audiences", icon: Users },
+  { name: "UTMs", href: "/utms", icon: Link2 },
+  { name: "Automações", href: "/automations", icon: Zap },
+  { name: "Experimentos", href: "/experiments", icon: TestTube },
+  { name: "Integrações", href: "/integrations", icon: Plug },
 ];
 
 export function Sidebar() {
