@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "@aliyun-rds/supabase-mcp-server",
+        "--url",
+        "https://bichvnuepmgvdlrclmxb.supabase.co",
+        "--anon-key",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpY2h2bnVlcG1ndmRscmNsbXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5NjkwMjksImV4cCI6MjA3NzU0NTAyOX0.AS3_RVEapk2kCEZ0NlpXMC2Uzebd_sb0EqNeds0Cv44",
+        "--service-key",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpY2h2bnVlcG1ndmRscmNsbXhiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTk2OTAyOSwiZXhwIjoyMDc3NTQ1MDI5fQ.eJ1H61FpwZemzmGysagCa1f0d1eF43Grj4nqj-m0QZQ",
+        "--db-url",
+        "postgresql://postgres:%40Promptizi2025%40@db.bichvnuepmgvdlrclmxb.supabase.co:5432/postgres"
+      ]
+    }
+  }
+}

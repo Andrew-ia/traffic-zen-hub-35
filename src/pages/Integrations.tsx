@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import MetaSyncButton from "@/components/MetaSyncButton";
 import {
   Facebook,
   Instagram,
@@ -145,7 +146,10 @@ export default function Integrations() {
                   </div>
                 <div className="flex items-center gap-4">
                   {platform.id === 1 ? (
-                    <MetaCredentialsDialog />
+                    <>
+                      {platform.connected && <MetaSyncButton />}
+                      <MetaCredentialsDialog />
+                    </>
                   ) : platform.connected ? (
                     <>
                       <Switch checked={true} disabled />

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase",
+        "https://bichvnuepmgvdlrclmxb.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpY2h2bnVlcG1ndmRscmNsbXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5NjkwMjksImV4cCI6MjA3NzU0NTAyOX0.AS3_RVEapk2kCEZ0NlpXMC2Uzebd_sb0EqNeds0Cv44"
+      ]
+    }
+  }
+}
