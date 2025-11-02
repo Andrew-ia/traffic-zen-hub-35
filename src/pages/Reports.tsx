@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,17 +17,23 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function formatPercentDelta(value: number) {
-  if (!Number.isFinite(value)) return "-";
+function formatPercentDelta(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "N/A";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
 
-function computeDelta(current: number, previous: number) {
-  if (!previous || previous === 0) {
-    return current === 0 ? 0 : 100;
+function computeDelta(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  if (previous === 0) {
+    return current === 0 ? 0 : null;
   }
   return ((current - previous) / previous) * 100;
+}
+
+function getDeltaTone(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "text-muted-foreground";
+  return value >= 0 ? "text-success" : "text-destructive";
 }
 
 export default function Reports() {
@@ -61,10 +67,10 @@ export default function Reports() {
   );
 
   const summary = reports?.summary;
-  const spendDelta = summary ? computeDelta(summary.current.spend, summary.previous.spend) : 0;
-  const ctrDelta = summary ? computeDelta(summary.current.ctr, summary.previous.ctr) : 0;
-  const cpaDelta = summary ? computeDelta(summary.previous.cpa, summary.current.cpa) : 0; // redução de CPA é positiva
-  const roasDelta = summary ? computeDelta(summary.current.roas, summary.previous.roas) : 0;
+  const spendDelta = summary ? computeDelta(summary.current.spend, summary.previous.spend) : null;
+  const ctrDelta = summary ? computeDelta(summary.current.ctr, summary.previous.ctr) : null;
+  const cpaDelta = summary ? computeDelta(summary.previous.cpa, summary.current.cpa) : null; // redução de CPA é positiva
+  const roasDelta = summary ? computeDelta(summary.current.roas, summary.previous.roas) : null;
 
   return (
     <div className="space-y-6">
@@ -129,7 +135,7 @@ export default function Reports() {
             ) : (
               <div className="text-3xl font-bold">{formatCurrency(summary?.current.spend ?? 0)}</div>
             )}
-            <p className={`text-sm mt-2 ${spendDelta >= 0 ? "text-success" : "text-destructive"}`}>
+            <p className={`text-sm mt-2 ${getDeltaTone(spendDelta)}`}>
               {formatPercentDelta(spendDelta)} vs período anterior
             </p>
           </CardContent>
@@ -145,7 +151,7 @@ export default function Reports() {
             ) : (
               <div className="text-3xl font-bold">{`${(summary?.current.ctr ?? 0).toFixed(2)}%`}</div>
             )}
-            <p className={`text-sm mt-2 ${ctrDelta >= 0 ? "text-success" : "text-destructive"}`}>
+            <p className={`text-sm mt-2 ${getDeltaTone(ctrDelta)}`}>
               {formatPercentDelta(ctrDelta)} vs período anterior
             </p>
           </CardContent>
@@ -161,7 +167,7 @@ export default function Reports() {
             ) : (
               <div className="text-3xl font-bold">{formatCurrency(summary?.current.cpa ?? 0)}</div>
             )}
-            <p className={`text-sm mt-2 ${cpaDelta >= 0 ? "text-success" : "text-destructive"}`}>
+            <p className={`text-sm mt-2 ${getDeltaTone(cpaDelta)}`}>
               {formatPercentDelta(cpaDelta)} vs período anterior
             </p>
           </CardContent>
@@ -179,7 +185,7 @@ export default function Reports() {
             ) : (
               <div className="text-3xl font-bold">{(summary?.current.roas ?? 0).toFixed(2)}x</div>
             )}
-            <p className={`text-sm mt-2 ${roasDelta >= 0 ? "text-success" : "text-destructive"}`}>
+            <p className={`text-sm mt-2 ${getDeltaTone(roasDelta)}`}>
               {formatPercentDelta(roasDelta)} vs período anterior
             </p>
           </CardContent>
