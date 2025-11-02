@@ -624,45 +624,147 @@ async function upsertAd(client, platformAccountId, adSetId, ad, creativeAssetId 
   );
 }
 
-function extractActionValue(actions = [], actionValues = [], actionType) {
-  const actionEntry = actions.find((action) => action.action_type === actionType);
-  const valueEntry = actionValues.find((action) => action.action_type === actionType);
-  return {
-    count: actionEntry ? Number(actionEntry.value ?? 0) : 0,
-    value: valueEntry ? Number(valueEntry.value ?? 0) : 0,
-  };
-}
-
-function extractAllConversions(actions = [], actionValues = []) {
-  // Lista de tipos de conversão que devemos contar
-  const conversionTypes = [
-    'purchase',
-    'lead',
-    'complete_registration',
-    'omni_complete_registration',
-    'contact',
+const ACTION_ALIASES = {
+  conversationsStarted: [
     'onsite_conversion.messaging_conversation_started_7d',
     'onsite_conversion.whatsapp_conversation_started_7d',
-    'onsite_conversion.total_messaging_connection',
-    'onsite_conversion.messaging_first_reply',
-    'onsite_conversion.lead_grouped',
-    'onsite_conversion.post_save',
-    'offsite_conversion.fb_pixel_lead',
-  ];
+  ],
+  messagingConnections: ['onsite_conversion.total_messaging_connection'],
+  messagingFirstReply: ['onsite_conversion.messaging_first_reply'],
+  instagramProfileVisit: [
+    'onsite_conversion.instagram_profile_visit',
+    'visit_instagram_profile',
+    'onsite_conversion.profile_visit',
+    'profile_visit',
+  ],
+  postSave: ['onsite_conversion.post_save'],
+};
 
-  let totalCount = 0;
-  let totalValue = 0;
+const PRIMARY_CONVERSION_PRIORITY = [
+  ...ACTION_ALIASES.conversationsStarted,
+  ...ACTION_ALIASES.messagingConnections,
+  ...ACTION_ALIASES.messagingFirstReply,
+  'offsite_conversion.fb_pixel_lead',
+  'lead',
+  'purchase',
+  'omni_purchase',
+  'complete_registration',
+  'omni_complete_registration',
+];
 
-  // Somar todas as conversões relevantes
-  for (const type of conversionTypes) {
-    const { count, value } = extractActionValue(actions, actionValues, type);
-    totalCount += count;
-    totalValue += value;
+const SECONDARY_CONVERSION_PRIORITY = [
+  ...ACTION_ALIASES.instagramProfileVisit,
+  'landing_page_view',
+  'link_click',
+  'lead_generation',
+  'action.conversion',
+  'onsite_conversion.lead',
+  ...ACTION_ALIASES.postSave,
+];
+
+function buildActionIndex(actions = [], actionValues = []) {
+  const map = new Map();
+
+  const ensureEntry = (type) => {
+    if (!map.has(type)) {
+      map.set(type, { count: 0, value: 0 });
+    }
+    return map.get(type);
+  };
+
+  for (const action of actions ?? []) {
+    const type = action?.action_type;
+    if (!type) continue;
+    const count = Number(action?.value ?? 0);
+    if (!Number.isFinite(count)) continue;
+    ensureEntry(type).count += count;
+  }
+
+  for (const action of actionValues ?? []) {
+    const type = action?.action_type;
+    if (!type) continue;
+    const value = Number(action?.value ?? 0);
+    if (!Number.isFinite(value)) continue;
+    ensureEntry(type).value += value;
+  }
+
+  return map;
+}
+
+function findActionFromIndex(index, types) {
+  for (const type of types) {
+    const entry = index.get(type);
+    if (entry && entry.count > 0) {
+      return { actionType: type, count: entry.count, value: entry.value };
+    }
+  }
+  return null;
+}
+
+function resolvePrimaryConversionFromIndex(index, fallbackCount = 0) {
+  const prioritized = findActionFromIndex(index, PRIMARY_CONVERSION_PRIORITY);
+  if (prioritized) {
+    return prioritized;
+  }
+
+  const secondary = findActionFromIndex(index, SECONDARY_CONVERSION_PRIORITY);
+  if (secondary) {
+    return secondary;
+  }
+
+  let largest = null;
+  for (const [type, entry] of index.entries()) {
+    if (entry.count > 0 && (!largest || entry.count > largest.count)) {
+      largest = { actionType: type, count: entry.count, value: entry.value };
+    }
+  }
+
+  if (largest) {
+    return largest;
   }
 
   return {
-    count: totalCount,
-    value: totalValue,
+    actionType: null,
+    count: Number(fallbackCount ?? 0),
+    value: 0,
+  };
+}
+
+function sumAlias(index, aliasList) {
+  return aliasList.reduce((total, type) => total + (index.get(type)?.count ?? 0), 0);
+}
+
+function sumAliasValues(index, aliasList) {
+  return aliasList.reduce((total, type) => total + (index.get(type)?.value ?? 0), 0);
+}
+
+function collectDerivedMetrics(index) {
+  const conversationsStarted = sumAlias(index, ACTION_ALIASES.conversationsStarted);
+  const conversationsValue = sumAliasValues(index, ACTION_ALIASES.conversationsStarted);
+  const messagingConnections = sumAlias(index, ACTION_ALIASES.messagingConnections);
+  const messagingConnectionsValue = sumAliasValues(index, ACTION_ALIASES.messagingConnections);
+  const messagingFirstReplies = sumAlias(index, ACTION_ALIASES.messagingFirstReply);
+  const messagingFirstRepliesValue = sumAliasValues(index, ACTION_ALIASES.messagingFirstReply);
+  const instagramProfileVisits = sumAlias(index, ACTION_ALIASES.instagramProfileVisit);
+  const instagramProfileVisitsValue = sumAliasValues(index, ACTION_ALIASES.instagramProfileVisit);
+  const postSaves = sumAlias(index, ACTION_ALIASES.postSave);
+  const postSavesValue = sumAliasValues(index, ACTION_ALIASES.postSave);
+
+  return {
+    counts: {
+      conversations_started: conversationsStarted,
+      messaging_connections: messagingConnections,
+      messaging_first_replies: messagingFirstReplies,
+      instagram_profile_visits: instagramProfileVisits,
+      post_saves: postSaves,
+    },
+    values: {
+      conversations_started: conversationsValue,
+      messaging_connections: messagingConnectionsValue,
+      messaging_first_replies: messagingFirstRepliesValue,
+      instagram_profile_visits: instagramProfileVisitsValue,
+      post_saves: postSavesValue,
+    },
   };
 }
 
@@ -670,13 +772,48 @@ async function upsertMetrics(client, workspaceId, platformAccountId, rows, level
   for (const row of rows) {
     const metricDate = row.date_start;
 
-    // Buscar todas as conversões, não apenas purchase
-    const { count: conversions, value: conversionValue } = extractAllConversions(
-      row.actions,
-      row.action_values
-    );
+    const actionIndex = buildActionIndex(row.actions, row.action_values);
+    const primaryConversion = resolvePrimaryConversionFromIndex(actionIndex, Number(row.conversions ?? 0));
+    const derivedMetrics = collectDerivedMetrics(actionIndex);
 
-    const roasEntry = row.purchase_roas?.[0];
+    const conversions = primaryConversion.count;
+    const conversionValue = primaryConversion.value;
+
+    const spend = Number(row.spend ?? 0);
+    const impressions = Number(row.impressions ?? 0);
+    const clicks = Number(row.clicks ?? 0);
+
+    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+    const cpc = clicks > 0 ? spend / clicks : 0;
+    const cpa = conversions > 0 ? spend / conversions : 0;
+
+    let roas = 0;
+    if (spend > 0) {
+      if (conversionValue > 0) {
+        roas = conversionValue / spend;
+      } else if (Array.isArray(row.purchase_roas) && row.purchase_roas[0]?.value) {
+        roas = Number(row.purchase_roas[0].value ?? 0);
+      } else if (Number.isFinite(Number(row.roas))) {
+        roas = Number(row.roas ?? 0);
+      }
+    }
+
+    const extraMetricsPayload = {
+      reach: Number(row.reach ?? 0),
+      frequency: Number(row.frequency ?? 0),
+      unique_clicks: Number(row.unique_clicks ?? 0),
+      inline_link_clicks: Number(row.inline_link_clicks ?? 0),
+      inline_post_engagement: Number(row.inline_post_engagement ?? 0),
+      outbound_clicks: row.outbound_clicks ?? [],
+      outbound_clicks_ctr: row.outbound_clicks_ctr ?? [],
+      actions: row.actions ?? [],
+      action_values: row.action_values ?? [],
+      derived_metrics: {
+        counts: derivedMetrics.counts,
+        values: derivedMetrics.values,
+        primary_conversion_action: primaryConversion.actionType,
+      },
+    };
 
     let campaignId = null;
     let adSetId = null;
@@ -751,25 +888,15 @@ async function upsertMetrics(client, workspaceId, platformAccountId, rows, level
         metricDate,
         row.account_currency ?? "BRL",
         Number(row.impressions ?? 0),
-        Number(row.clicks ?? 0),
-        Number(row.spend ?? 0),
-        Number(row.ctr ?? 0),
-        Number(row.cpc ?? 0),
-        0,
-        roasEntry ? Number(roasEntry.value ?? 0) : Number(row.roas ?? 0),
+        clicks,
+        spend,
+        ctr,
+        cpc,
+        cpa,
+        roas,
         conversions,
         conversionValue,
-        JSON.stringify({
-          reach: Number(row.reach ?? 0),
-          frequency: Number(row.frequency ?? 0),
-          unique_clicks: Number(row.unique_clicks ?? 0),
-          inline_link_clicks: Number(row.inline_link_clicks ?? 0),
-          inline_post_engagement: Number(row.inline_post_engagement ?? 0),
-          outbound_clicks: row.outbound_clicks ?? [],
-          outbound_clicks_ctr: row.outbound_clicks_ctr ?? [],
-          actions: row.actions ?? [],
-          action_values: row.action_values ?? [],
-        }),
+        JSON.stringify(extraMetricsPayload),
       ],
     );
   }

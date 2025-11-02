@@ -17,6 +17,43 @@ import {
 
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID;
 
+function toNumber(value: unknown): number {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeTopPerformerEntry(entry: any): TopPerformer {
+  const totalSpend = toNumber(entry.total_spend ?? entry.spend);
+  const totalClicks = toNumber(entry.total_clicks ?? entry.clicks);
+  const totalImpressions = toNumber(entry.total_impressions ?? entry.impressions);
+  const totalConversions = toNumber(entry.total_conversions ?? entry.conversions);
+  const totalConversionValue = toNumber(entry.total_conversion_value ?? entry.conversion_value);
+
+  const avgCtrSource = toNumber(entry.avg_ctr);
+  const avgCpcSource = toNumber(entry.avg_cpc);
+
+  const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : avgCtrSource;
+  const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : avgCpcSource;
+
+  const primaryConversionAction =
+    entry.primary_conversion_action ??
+    entry?.derived_metrics?.primary_conversion_action ??
+    entry?.extra_metrics?.derived_metrics?.primary_conversion_action ??
+    null;
+
+  return {
+    ...entry,
+    total_spend: totalSpend,
+    total_clicks: totalClicks,
+    total_impressions: totalImpressions,
+    total_conversions: totalConversions,
+    total_conversion_value: totalConversionValue,
+    avg_ctr: avgCtr,
+    avg_cpc: avgCpc,
+    primary_conversion_action: primaryConversionAction,
+  } as TopPerformer;
+}
+
 interface TopPerformer {
   id: string;
   name: string;
@@ -25,6 +62,10 @@ interface TopPerformer {
   avg_cpc: number;
   total_conversions: number;
   total_spend: number;
+  total_clicks: number;
+  total_impressions: number;
+  total_conversion_value?: number;
+  primary_conversion_action?: string | null;
 }
 
 interface PlatformPerformance {
@@ -67,9 +108,11 @@ export function OptimizationInsights() {
             ad_set_id,
             ad_sets!inner(id, name, campaign_id, campaigns!inner(name)),
             spend,
+            impressions,
             clicks,
-            ctr,
-            cpc
+            conversions,
+            conversion_value,
+            extra_metrics
           `)
           .eq('workspace_id', WORKSPACE_ID)
           .gte('metric_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
@@ -79,6 +122,19 @@ export function OptimizationInsights() {
         const grouped = new Map<string, any>();
         fallbackData?.forEach((row: any) => {
           const key = row.ad_set_id;
+          const extraRaw = row.extra_metrics;
+          const extra =
+            typeof extraRaw === 'string'
+              ? (() => {
+                  try {
+                    return JSON.parse(extraRaw);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : extraRaw ?? {};
+          const derivedMetrics = extra?.derived_metrics ?? {};
+
           if (!grouped.has(key)) {
             grouped.set(key, {
               id: key,
@@ -86,33 +142,33 @@ export function OptimizationInsights() {
               campaign_name: row.ad_sets?.campaigns?.name || 'Unknown',
               total_spend: 0,
               total_clicks: 0,
-              avg_ctr: 0,
-              avg_cpc: 0,
-              count: 0,
-              total_conversions: 0
+              total_impressions: 0,
+              total_conversions: 0,
+              total_conversion_value: 0,
+              primary_conversion_action: derivedMetrics?.primary_conversion_action ?? null,
             });
           }
+
           const item = grouped.get(key);
           item.total_spend += Number(row.spend || 0);
           item.total_clicks += Number(row.clicks || 0);
-          item.avg_ctr += Number(row.ctr || 0);
-          item.avg_cpc += Number(row.cpc || 0);
-          item.count += 1;
+          item.total_impressions += Number(row.impressions || 0);
+          item.total_conversions += Number(row.conversions || 0);
+          item.total_conversion_value += Number(row.conversion_value || 0);
+
+          if (!item.primary_conversion_action && derivedMetrics?.primary_conversion_action) {
+            item.primary_conversion_action = derivedMetrics.primary_conversion_action;
+          }
         });
 
         return Array.from(grouped.values())
-          .map(item => ({
-            ...item,
-            avg_ctr: item.avg_ctr / item.count,
-            avg_cpc: item.avg_cpc / item.count,
-            total_conversions: item.total_clicks * 0.8 // Estimate
-          }))
-          .filter(item => item.avg_ctr > 1.5 && item.avg_cpc < 3.0)
+          .map((item) => normalizeTopPerformerEntry(item))
+          .filter((item) => item.avg_ctr > 1.5 && item.avg_cpc < 3.0)
           .sort((a, b) => b.avg_ctr - a.avg_ctr)
           .slice(0, 5);
       }
 
-      return data as TopPerformer[];
+      return (data ?? []).map((entry: any) => normalizeTopPerformerEntry(entry));
     },
     staleTime: 5 * 60 * 1000 // 5 minutes
   });
