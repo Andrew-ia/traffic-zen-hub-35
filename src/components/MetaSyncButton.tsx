@@ -31,6 +31,16 @@ export default function MetaSyncButton({
   const [syncType, setSyncType] = useState("all");
   const { toast } = useToast();
 
+  const parseJsonSafe = async (response: Response) => {
+    const raw = await response.text();
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+  };
+
   const handleSync = async () => {
     setSyncing(true);
 
@@ -51,6 +61,7 @@ export default function MetaSyncButton({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify({
           workspaceId,
@@ -60,13 +71,27 @@ export default function MetaSyncButton({
         }),
       });
 
+      const startPayload = await parseJsonSafe(response);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Falha ao iniciar sincronização');
+        const message =
+          (startPayload && typeof startPayload === 'object' && 'error' in startPayload
+            ? String(startPayload.error)
+            : typeof startPayload === 'string'
+              ? startPayload
+              : null) || 'Falha ao iniciar sincronização';
+
+        throw new Error(message);
       }
 
-      const { data } = await response.json();
-      const { jobId } = data;
+      const jobId =
+        startPayload && typeof startPayload === 'object' && 'data' in startPayload
+          ? (startPayload as any).data?.jobId
+          : undefined;
+
+      if (!jobId) {
+        throw new Error('Resposta inválida do servidor ao iniciar sincronização');
+      }
 
       // Poll for job status
       let attempts = 0;
@@ -79,13 +104,29 @@ export default function MetaSyncButton({
 
         attempts++;
 
-        const statusResponse = await fetch(`/api/integrations/sync/${jobId}`);
+        const statusResponse = await fetch(`/api/integrations/sync/${jobId}`, {
+          headers: {
+            Accept: 'application/json',
+          },
+        });
 
-        if (!statusResponse.ok) {
-          throw new Error('Erro ao verificar status da sincronização');
+        const statusPayload = await parseJsonSafe(statusResponse);
+
+        if (!statusResponse.ok || !statusPayload || typeof statusPayload !== 'object') {
+          const errorMessage =
+            (statusPayload && typeof statusPayload === 'object' && 'error' in statusPayload
+              ? String(statusPayload.error)
+              : typeof statusPayload === 'string'
+                ? statusPayload
+                : null) || 'Erro ao verificar status da sincronização';
+          throw new Error(errorMessage);
         }
 
-        const { data: statusData } = await statusResponse.json();
+        const statusData = (statusPayload as any).data;
+
+        if (!statusData) {
+          throw new Error('Formato de status inválido recebido do servidor');
+        }
 
         if (statusData.status === 'completed') {
           toast({
