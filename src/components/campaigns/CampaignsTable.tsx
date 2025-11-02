@@ -144,7 +144,11 @@ export function CampaignsTable({
             {!isLoading &&
               hasData &&
               campaigns.map((campaign) => (
-                <TableRow key={campaign.id}>
+                <TableRow
+                  key={campaign.id}
+                  onClick={() => navigate(`/campaigns/${campaign.id}`)}
+                  className="cursor-pointer transition hover:bg-muted/50"
+                >
                   <TableCell className="font-medium">{campaign.name}</TableCell>
                   <TableCell>{campaign.platformAccount ?? "-"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{campaign.objective ?? "-"}</TableCell>
@@ -157,7 +161,7 @@ export function CampaignsTable({
                   <TableCell>{formatCurrency(campaign.lifetimeBudget)}</TableCell>
                   <TableCell>{formatDate(campaign.startDate)}</TableCell>
                   <TableCell>{formatDate(campaign.endDate)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="ghost" size="icon" className="h-8 w-8">
                         {campaign.status.toLowerCase() === "active" ? (

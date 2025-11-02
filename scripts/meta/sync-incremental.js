@@ -39,14 +39,16 @@ function assertEnv(value, name) {
   return value;
 }
 
-function mapCampaignStatus(status) {
+function mapMetaStatus(status) {
   const normalized = (status || "").toUpperCase();
   switch (normalized) {
     case "ACTIVE":
     case "IN_PROCESS":
     case "PENDING":
+    case "WITH_ISSUES":
       return "active";
     case "PAUSED":
+    case "INACTIVE":
       return "paused";
     case "ARCHIVED":
     case "DELETED":
@@ -59,12 +61,25 @@ function mapCampaignStatus(status) {
   }
 }
 
-function mapAdSetStatus(status) {
-  return mapCampaignStatus(status);
+function resolveDeliveryStatus(primaryStatus, effectiveStatus) {
+  const effectiveMapped = effectiveStatus ? mapMetaStatus(effectiveStatus) : null;
+  if (effectiveMapped) {
+    if (effectiveMapped === "paused" || effectiveMapped === "archived") {
+      return effectiveMapped;
+    }
+    if (effectiveMapped === "active") {
+      return "active";
+    }
+  }
+  return mapMetaStatus(primaryStatus);
 }
 
-function mapAdStatus(status) {
-  return mapCampaignStatus(status);
+function mapAdSetStatus(status, effectiveStatus) {
+  return resolveDeliveryStatus(status, effectiveStatus);
+}
+
+function mapAdStatus(status, effectiveStatus) {
+  return resolveDeliveryStatus(status, effectiveStatus);
 }
 
 function centsToNumber(value) {
@@ -159,6 +174,8 @@ async function fetchAdSetsByCampaigns(accessToken, campaignIds) {
         "bid_strategy",
         "bid_amount",
         "targeting",
+        "promoted_object",
+        "destination_type",
         "created_time",
         "updated_time",
       ].join(","),
@@ -202,6 +219,161 @@ async function fetchAdsByAdSets(accessToken, adSetIds) {
   }
 
   return ads;
+}
+
+async function fetchCreativeDetails(accessToken, creativeId) {
+  const url = buildUrl(`${creativeId}`, {
+    fields: ["id", "name", "body", "thumbnail_url", "image_url", "object_story_spec", "asset_feed_spec", "status"].join(","),
+    access_token: accessToken,
+  });
+  return fetchJson(url);
+}
+
+function deriveCreativeType(creative) {
+  const story = creative.object_story_spec ?? {};
+  if (story.video_data) return "video";
+  if (story.carousel_data) return "carousel";
+  if (story.image_data) return "image";
+  if (creative.image_url) return "image";
+  return "text";
+}
+
+function buildCreativePayload(creative) {
+  const story = creative.object_story_spec ?? {};
+  const type = deriveCreativeType(creative);
+
+  let storageUrl = creative.image_url ?? null;
+  let thumbnailUrl = creative.thumbnail_url ?? storageUrl ?? null;
+  let textContent = creative.body ?? null;
+  let durationSeconds = null;
+  let aspectRatio = null;
+
+  if (story.video_data) {
+    storageUrl = story.video_data.video_url ?? storageUrl;
+    thumbnailUrl = story.video_data.image_url ?? thumbnailUrl;
+    textContent = story.video_data.message ?? textContent;
+  }
+
+  if (story.image_data) {
+    storageUrl = storageUrl ?? story.image_data.image_url ?? null;
+    thumbnailUrl = story.image_data.image_url ?? thumbnailUrl;
+    textContent = story.image_data.message ?? textContent;
+  }
+
+  if (story.link_data) {
+    textContent = textContent ?? story.link_data.message ?? null;
+  }
+
+  if (story.carousel_data?.cards?.length) {
+    textContent = textContent ?? story.carousel_data.cards.map((card) => card.title).filter(Boolean).join(" • ");
+  }
+
+  const metadata = {
+    metaCreativeId: creative.id,
+    object_story_spec: story,
+    asset_feed_spec: creative.asset_feed_spec ?? null,
+    body: creative.body ?? null,
+    thumbnail_url: creative.thumbnail_url ?? null,
+    image_url: creative.image_url ?? null,
+    status: creative.status ?? null,
+  };
+
+  return {
+    externalId: creative.id,
+    name: creative.name ?? `Creative ${creative.id}`,
+    type,
+    storageUrl,
+    thumbnailUrl,
+    textContent,
+    durationSeconds,
+    aspectRatio,
+    metadata,
+    hash: creative.id,
+  };
+}
+
+async function upsertCreativeAsset(client, workspaceId, creative) {
+  const metadataJson = JSON.stringify({
+    ...creative.metadata,
+  });
+
+  const existing = await client.query(
+    `
+      SELECT id
+      FROM creative_assets
+      WHERE workspace_id = $1
+        AND metadata->>'metaCreativeId' = $2
+      LIMIT 1
+    `,
+    [workspaceId, creative.externalId],
+  );
+
+  if (existing.rows[0]) {
+    const creativeId = existing.rows[0].id;
+    await client.query(
+      `
+        UPDATE creative_assets
+        SET
+          type = $2,
+          name = $3,
+          storage_url = $4,
+          thumbnail_url = $5,
+          duration_seconds = $6,
+          aspect_ratio = $7,
+          text_content = $8,
+          metadata = $9::jsonb,
+          hash = $10,
+          updated_at = now()
+        WHERE id = $1
+      `,
+      [
+        creativeId,
+        creative.type,
+        creative.name,
+        creative.storageUrl,
+        creative.thumbnailUrl,
+        creative.durationSeconds,
+        creative.aspectRatio,
+        creative.textContent,
+        metadataJson,
+        creative.hash,
+      ],
+    );
+    return creativeId;
+  }
+
+  const insert = await client.query(
+    `
+      INSERT INTO creative_assets (
+        workspace_id,
+        type,
+        name,
+        storage_url,
+        thumbnail_url,
+        duration_seconds,
+        aspect_ratio,
+        text_content,
+        hash,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+      RETURNING id
+    `,
+    [
+      workspaceId,
+      creative.type,
+      creative.name,
+      creative.storageUrl,
+      creative.thumbnailUrl,
+      creative.durationSeconds,
+      creative.aspectRatio,
+      creative.textContent,
+      creative.hash,
+      metadataJson,
+    ],
+  );
+
+  return insert.rows[0].id;
 }
 
 async function fetchInsightsForPeriod(accessToken, adAccountId, days, level) {
@@ -325,7 +497,7 @@ async function upsertCampaign(client, workspaceId, platformAccountId, campaign) 
       campaign.id,
       campaign.name,
       campaign.objective,
-      mapCampaignStatus(campaign.status),
+      resolveDeliveryStatus(campaign.status, campaign.effective_status),
       toDate(campaign.start_time),
       toDate(campaign.stop_time),
       centsToNumber(campaign.daily_budget),
@@ -358,12 +530,14 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
         daily_budget,
         lifetime_budget,
         targeting,
+        destination_type,
+        promoted_object,
         settings,
         last_synced_at,
         updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, now(), now()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb, $16::jsonb, now(), now()
       )
       ON CONFLICT (campaign_id, external_id)
       DO UPDATE SET
@@ -377,6 +551,8 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
         daily_budget = EXCLUDED.daily_budget,
         lifetime_budget = EXCLUDED.lifetime_budget,
         targeting = EXCLUDED.targeting,
+        destination_type = EXCLUDED.destination_type,
+        promoted_object = EXCLUDED.promoted_object,
         settings = EXCLUDED.settings,
         last_synced_at = now(),
         updated_at = now()
@@ -386,7 +562,7 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
       platformAccountId,
       adSet.id,
       adSet.name,
-      mapAdSetStatus(adSet.status),
+      mapAdSetStatus(adSet.status, adSet.effective_status),
       toDate(adSet.start_time),
       toDate(adSet.end_time),
       adSet.bid_strategy,
@@ -395,6 +571,8 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
       centsToNumber(adSet.daily_budget),
       centsToNumber(adSet.lifetime_budget),
       JSON.stringify(adSet.targeting ?? {}),
+      adSet.destination_type || null,
+      JSON.stringify(adSet.promoted_object ?? {}),
       JSON.stringify(settings),
     ],
   );
@@ -440,7 +618,7 @@ async function upsertAd(client, platformAccountId, adSetId, ad, creativeAssetId 
       creativeAssetId,
       ad.id,
       ad.name,
-      mapAdStatus(ad.status),
+      mapAdStatus(ad.status, ad.effective_status),
       JSON.stringify(metadata),
     ],
   );
@@ -455,14 +633,49 @@ function extractActionValue(actions = [], actionValues = [], actionType) {
   };
 }
 
+function extractAllConversions(actions = [], actionValues = []) {
+  // Lista de tipos de conversão que devemos contar
+  const conversionTypes = [
+    'purchase',
+    'lead',
+    'complete_registration',
+    'omni_complete_registration',
+    'contact',
+    'onsite_conversion.messaging_conversation_started_7d',
+    'onsite_conversion.whatsapp_conversation_started_7d',
+    'onsite_conversion.total_messaging_connection',
+    'onsite_conversion.messaging_first_reply',
+    'onsite_conversion.lead_grouped',
+    'onsite_conversion.post_save',
+    'offsite_conversion.fb_pixel_lead',
+  ];
+
+  let totalCount = 0;
+  let totalValue = 0;
+
+  // Somar todas as conversões relevantes
+  for (const type of conversionTypes) {
+    const { count, value } = extractActionValue(actions, actionValues, type);
+    totalCount += count;
+    totalValue += value;
+  }
+
+  return {
+    count: totalCount,
+    value: totalValue,
+  };
+}
+
 async function upsertMetrics(client, workspaceId, platformAccountId, rows, level, idMaps) {
   for (const row of rows) {
     const metricDate = row.date_start;
-    const { count: conversions, value: conversionValue } = extractActionValue(
+
+    // Buscar todas as conversões, não apenas purchase
+    const { count: conversions, value: conversionValue } = extractAllConversions(
       row.actions,
-      row.action_values,
-      "purchase"
+      row.action_values
     );
+
     const roasEntry = row.purchase_roas?.[0];
 
     let campaignId = null;
@@ -649,10 +862,38 @@ async function main() {
           );
           const adSetIdMap = new Map(adSetRows.map((row) => [row.external_id, row.id]));
 
+          // Collect unique creative IDs
+          const creativeIds = new Set();
+          for (const ad of ads) {
+            if (ad.creative?.id) {
+              creativeIds.add(ad.creative.id);
+            }
+          }
+
+          // Fetch and upsert creative details
+          const creativeIdToAssetId = new Map();
+          if (creativeIds.size > 0) {
+            console.log(`🎨 Buscando ${creativeIds.size} criativos únicos...`);
+            let fetchedCount = 0;
+            for (const creativeId of creativeIds) {
+              try {
+                const creativeData = await fetchCreativeDetails(accessToken, creativeId);
+                const creativePayload = buildCreativePayload(creativeData);
+                const assetId = await upsertCreativeAsset(client, workspaceId, creativePayload);
+                creativeIdToAssetId.set(creativeId, assetId);
+                fetchedCount++;
+              } catch (error) {
+                console.warn(`⚠️  Falha ao buscar criativo ${creativeId}:`, error.message);
+              }
+            }
+            console.log(`✅ ${fetchedCount} criativos salvos`);
+          }
+
           for (const ad of ads) {
             const adSetId = adSetIdMap.get(ad.adset_id);
             if (adSetId) {
-              await upsertAd(client, platformAccountId, adSetId, ad);
+              const creativeAssetId = ad.creative?.id ? creativeIdToAssetId.get(ad.creative.id) : null;
+              await upsertAd(client, platformAccountId, adSetId, ad, creativeAssetId);
             }
           }
           console.log(`💾 Anúncios sincronizados\n`);

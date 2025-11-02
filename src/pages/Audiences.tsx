@@ -46,7 +46,7 @@ export default function Audiences() {
     error,
   } = useAudiences({ search });
 
-  const audiences = data?.rows ?? [];
+  const audiences = useMemo(() => data?.rows ?? [], [data?.rows]);
   const summary = data?.summary;
 
   const activeAudiences = useMemo(() => audiences.filter((audience) => audience.status === "active"), [audiences]);

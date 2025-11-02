@@ -165,6 +165,39 @@ function extractActionValue(actions = [], actionValues = [], actionType) {
   };
 }
 
+function extractAllConversions(actions = [], actionValues = []) {
+  // Lista de tipos de conversão que devemos contar
+  const conversionTypes = [
+    'purchase',
+    'lead',
+    'complete_registration',
+    'omni_complete_registration',
+    'contact',
+    'onsite_conversion.messaging_conversation_started_7d',
+    'onsite_conversion.whatsapp_conversation_started_7d',
+    'onsite_conversion.total_messaging_connection',
+    'onsite_conversion.messaging_first_reply',
+    'onsite_conversion.lead_grouped',
+    'onsite_conversion.post_save',
+    'offsite_conversion.fb_pixel_lead',
+  ];
+
+  let totalCount = 0;
+  let totalValue = 0;
+
+  // Somar todas as conversões relevantes
+  for (const type of conversionTypes) {
+    const { count, value } = extractActionValue(actions, actionValues, type);
+    totalCount += count;
+    totalValue += value;
+  }
+
+  return {
+    count: totalCount,
+    value: totalValue,
+  };
+}
+
 function buildDimensionValues(row, dimensions) {
   const values = {};
   for (const dimension of dimensions) {
@@ -242,7 +275,7 @@ async function fetchBreakdownInsights(accessToken, adAccountId, since, until, le
 async function upsertBreakdownMetrics(client, workspaceId, platformAccountId, rows, level, idMaps, breakdownConfig) {
   for (const row of rows) {
     const metricDate = row.date_start;
-    const { count: conversions, value: conversionValue } = extractActionValue(row.actions, row.action_values, "purchase");
+    const { count: conversions, value: conversionValue } = extractAllConversions(row.actions, row.action_values);
     const roasEntry = row.purchase_roas?.[0];
 
     let campaignId = null;
@@ -375,7 +408,7 @@ async function upsertBreakdownMetrics(client, workspaceId, platformAccountId, ro
 async function upsertMetrics(client, workspaceId, platformAccountId, rows, level, idMaps) {
   for (const row of rows) {
     const metricDate = row.date_start;
-    const { count: conversions, value: conversionValue } = extractActionValue(row.actions, row.action_values, "purchase");
+    const { count: conversions, value: conversionValue } = extractAllConversions(row.actions, row.action_values);
     const roasEntry = row.purchase_roas?.[0];
 
     let campaignId = null;

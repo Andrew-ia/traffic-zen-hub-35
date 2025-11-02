@@ -4,6 +4,7 @@ import { MetricCard } from "@/components/dashboard/MetricCard";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
+import { ObjectivePerformanceSection } from "@/components/dashboard/ObjectivePerformance";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Eye, MousePointer, TrendingUp, DollarSign } from "lucide-react";
@@ -41,7 +42,7 @@ export default function Dashboard() {
   }, [statusFilter, debouncedSearch]);
 
   const { data: allCampaignData } = useCampaigns();
-  const allCampaigns = allCampaignData?.campaigns ?? [];
+  const allCampaigns = useMemo(() => allCampaignData?.campaigns ?? [], [allCampaignData?.campaigns]);
 
   const {
     data: filteredCampaignData,
@@ -61,11 +62,6 @@ export default function Dashboard() {
     () => allCampaigns.filter((campaign) => campaign.status?.toLowerCase() === "paused"),
     [allCampaigns],
   );
-  const archivedCampaigns = useMemo(
-    () => allCampaigns.filter((campaign) => campaign.status?.toLowerCase() === "archived"),
-    [allCampaigns],
-  );
-
   const totals = performance?.totals ?? {
     impressions: 0,
     clicks: 0,
@@ -73,6 +69,8 @@ export default function Dashboard() {
     spend: 0,
     conversionValue: 0,
     roas: 0,
+    primaryConversionAction: null,
+    primaryConversionLabel: "Conversões registradas",
   };
 
   return (
@@ -100,7 +98,7 @@ export default function Dashboard() {
         <MetricCard
           title="Conversões (30d)"
           value={formatCompactNumber(totals.conversions)}
-          change={`${archivedCampaigns.length} arquivadas`}
+          change={`Conexões: ${formatCompactNumber(totals.messagingConnections ?? 0)} • ${totals.primaryConversionLabel}`}
           icon={TrendingUp}
           trend={totals.conversions >= 0 ? "up" : "down"}
         />
@@ -151,6 +149,8 @@ export default function Dashboard() {
           </div>
         }
       />
+
+      <ObjectivePerformanceSection />
     </div>
   );
 }

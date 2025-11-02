@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
+import { OptimizationInsights } from "@/components/insights/OptimizationInsights";
 import { useReportsData } from "@/hooks/useReportsData";
 import type { PerformancePoint } from "@/hooks/usePerformanceMetrics";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -71,8 +73,15 @@ export default function Reports() {
         <p className="text-muted-foreground mt-1">Análise detalhada do desempenho das campanhas</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <PerformanceChart data={chartData} isLoading={isLoading} />
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+          <TabsTrigger value="insights">Insights & Ações</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <PerformanceChart data={chartData} isLoading={isLoading} />
 
         <Card>
           <CardHeader>
@@ -184,9 +193,11 @@ export default function Reports() {
             {isLoading ? (
               <Skeleton className="h-10 w-24" />
             ) : (
-              <div className="text-3xl font-bold">{(summary?.current.conversions ?? 0).toLocaleString("pt-BR")}</div>
+              <div className="text-3xl font-bold">{(summary?.current.conversationsStarted ?? summary?.current.conversions ?? 0).toLocaleString("pt-BR")}</div>
             )}
-            <p className="text-sm text-muted-foreground mt-2">Total de eventos atribuídos</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Conexões de mensagem: {(summary?.current.messagingConnections ?? 0).toLocaleString("pt-BR")}
+            </p>
           </CardContent>
         </Card>
 
@@ -205,13 +216,19 @@ export default function Reports() {
         </Card>
       </div>
 
-      {error ? (
-        <Card>
-          <CardContent className="py-6">
-            <p className="text-destructive">Não foi possível carregar os dados de relatório. {error.message}</p>
-          </CardContent>
-        </Card>
-      ) : null}
+          {error ? (
+            <Card>
+              <CardContent className="py-6">
+                <p className="text-destructive">Não foi possível carregar os dados de relatório. {error.message}</p>
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="insights">
+          <OptimizationInsights />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

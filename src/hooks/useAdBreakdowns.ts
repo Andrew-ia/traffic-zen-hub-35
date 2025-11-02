@@ -1,5 +1,12 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  CONVERSATION_CONNECTION_ACTION,
+  CONVERSATION_STARTED_ACTION,
+  getActionValueForType,
+  type MetaExtraMetrics,
+} from "@/lib/conversionMetrics";
+import { keepLatestBreakdownRows } from "@/lib/breakdownMetrics";
 
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
 
@@ -12,6 +19,8 @@ export interface AdBreakdownItem {
   impressions: number;
   clicks: number;
   conversions: number;
+  conversationsStarted: number;
+  messagingConnections: number;
   spend: number;
   conversionValue: number;
   roas: number;
@@ -27,6 +36,8 @@ export interface AdBreakdownResult {
     impressions: number;
     clicks: number;
     conversions: number;
+    conversationsStarted: number;
+    messagingConnections: number;
     spend: number;
     conversionValue: number;
   };
@@ -69,13 +80,19 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
         .from("performance_metric_breakdowns")
         .select(
           `
+            metric_date,
+            granularity,
+            ad_set_id,
+            ad_id,
+            synced_at,
             breakdown_value_key,
             dimension_values,
             impressions,
             clicks,
             conversions,
             spend,
-            conversion_value
+            conversion_value,
+            extra_metrics
           `,
         )
         .eq("workspace_id", WORKSPACE_ID)
@@ -90,9 +107,26 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
         throw error;
       }
 
+      const latestRows = keepLatestBreakdownRows(
+        (data ?? []) as Array<{
+          metric_date?: string | null;
+          granularity?: string | null;
+          ad_set_id?: string | null;
+          ad_id?: string | null;
+          synced_at?: string | null;
+          breakdown_value_key?: string | null;
+          dimension_values?: Record<string, unknown> | null;
+          impressions?: number | null;
+          clicks?: number | null;
+          conversions?: number | null;
+          spend?: number | null;
+          conversion_value?: number | null;
+          extra_metrics?: MetaExtraMetrics | null;
+        }>,
+      );
       const aggregated = new Map<string, AdBreakdownItem>();
 
-      for (const row of data ?? []) {
+      for (const row of latestRows) {
         const key = row.breakdown_value_key ?? "unknown";
         const existing =
           aggregated.get(key) ??
@@ -101,6 +135,8 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
             impressions: 0,
             clicks: 0,
             conversions: 0,
+            conversationsStarted: 0,
+            messagingConnections: 0,
             spend: 0,
             conversionValue: 0,
             roas: 0,
@@ -112,7 +148,13 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
 
         existing.impressions += Number(row.impressions ?? 0);
         existing.clicks += Number(row.clicks ?? 0);
-        existing.conversions += Number(row.conversions ?? 0);
+        const started = getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_STARTED_ACTION) ?? 0;
+        const connections =
+          getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_CONNECTION_ACTION) ?? 0;
+
+        existing.conversions += started;
+        existing.conversationsStarted += started;
+        existing.messagingConnections += connections;
         existing.spend += Number(row.spend ?? 0);
         existing.conversionValue += Number(row.conversion_value ?? 0);
 
@@ -138,12 +180,24 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
           acc.impressions += item.impressions;
           acc.clicks += item.clicks;
           acc.conversions += item.conversions;
+          acc.conversationsStarted += item.conversationsStarted;
+          acc.messagingConnections += item.messagingConnections;
           acc.spend += item.spend;
           acc.conversionValue += item.conversionValue;
           return acc;
         },
-        { impressions: 0, clicks: 0, conversions: 0, spend: 0, conversionValue: 0 },
+        {
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          conversationsStarted: 0,
+          messagingConnections: 0,
+          spend: 0,
+          conversionValue: 0,
+        },
       );
+
+      total.conversions = total.conversationsStarted;
 
       return {
         items: items.sort((a, b) => b.spend - a.spend),

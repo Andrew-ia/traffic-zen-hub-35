@@ -420,12 +420,15 @@ export default function AdDetails() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Conversões</CardTitle>
+            <CardTitle className="text-sm font-medium">Conversas iniciadas</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{formatNumber(metrics?.totals.conversions ?? 0)}</p>
+          <CardContent className="space-y-1">
+            <p className="text-2xl font-semibold">{formatNumber(metrics?.totals.conversationsStarted ?? metrics?.totals.conversions ?? 0)}</p>
             <p className="text-xs text-muted-foreground">
-              Valor: {formatCurrency(metrics?.totals.conversionValue ?? 0, currency)}
+              Conexões de mensagem: {formatNumber(metrics?.totals.messagingConnections ?? 0)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Valor atribuído: {formatCurrency(metrics?.totals.conversionValue ?? 0, currency)}
             </p>
           </CardContent>
         </Card>
@@ -613,6 +616,7 @@ export default function AdDetails() {
                     <TableHead>Gasto</TableHead>
                     <TableHead>CPC</TableHead>
                     <TableHead>Conversões</TableHead>
+                    <TableHead>Conexões</TableHead>
                     <TableHead>CPA</TableHead>
                     <TableHead>Valor Conversão</TableHead>
                     <TableHead>ROAS</TableHead>
@@ -629,6 +633,7 @@ export default function AdDetails() {
                         <TableCell>{formatCurrency(point.spend, currency)}</TableCell>
                         <TableCell>{formatCurrency(point.cpc, currency)}</TableCell>
                         <TableCell>{formatNumber(point.conversions)}</TableCell>
+                        <TableCell>{formatNumber(point.messagingConnections ?? 0)}</TableCell>
                         <TableCell>{formatCurrency(point.cpa, currency)}</TableCell>
                         <TableCell>{formatCurrency(point.conversionValue, currency)}</TableCell>
                         <TableCell>{point.roas.toFixed(2)}x</TableCell>
@@ -636,7 +641,7 @@ export default function AdDetails() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={10} className="py-6 text-center text-muted-foreground">
+                      <TableCell colSpan={11} className="py-6 text-center text-muted-foreground">
                         Nenhuma métrica disponível no período selecionado.
                       </TableCell>
                     </TableRow>
@@ -667,7 +672,7 @@ export default function AdDetails() {
               <CardTitle>Desempenho por segmento</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-6">
                 <div>
                   <p className="text-xs text-muted-foreground">Impressões</p>
                   <p className="font-medium">{formatNumber(breakdownData?.total.impressions ?? 0)}</p>
@@ -679,6 +684,10 @@ export default function AdDetails() {
                 <div>
                   <p className="text-xs text-muted-foreground">Conversões</p>
                   <p className="font-medium">{formatNumber(breakdownData?.total.conversions ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Conexões</p>
+                  <p className="font-medium">{formatNumber(breakdownData?.total.messagingConnections ?? 0)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Gasto</p>
@@ -705,6 +714,7 @@ export default function AdDetails() {
                       <TableHead>Gasto</TableHead>
                       <TableHead>CPC</TableHead>
                       <TableHead>Conversões</TableHead>
+                      <TableHead>Conexões</TableHead>
                       <TableHead>CPA</TableHead>
                       <TableHead>Valor</TableHead>
                       <TableHead>ROAS</TableHead>
@@ -713,7 +723,7 @@ export default function AdDetails() {
                   <TableBody>
                     {isLoadingBreakdown ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="py-6 text-center text-muted-foreground">
+                        <TableCell colSpan={11} className="py-6 text-center text-muted-foreground">
                           Carregando breakdown...
                         </TableCell>
                       </TableRow>
@@ -727,6 +737,7 @@ export default function AdDetails() {
                           <TableCell>{formatCurrency(item.spend, currency)}</TableCell>
                           <TableCell>{formatCurrency(item.cpc, currency)}</TableCell>
                           <TableCell>{formatNumber(item.conversions)}</TableCell>
+                          <TableCell>{formatNumber(item.messagingConnections ?? 0)}</TableCell>
                           <TableCell>{formatCurrency(item.cpa, currency)}</TableCell>
                           <TableCell>{formatCurrency(item.conversionValue, currency)}</TableCell>
                           <TableCell>{item.roas.toFixed(2)}x</TableCell>
@@ -734,7 +745,7 @@ export default function AdDetails() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={10} className="py-6 text-center text-muted-foreground">
+                        <TableCell colSpan={11} className="py-6 text-center text-muted-foreground">
                           Nenhum dado disponível para o breakdown selecionado.
                         </TableCell>
                       </TableRow>

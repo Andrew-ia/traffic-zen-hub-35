@@ -35,41 +35,87 @@ export default function MetaSyncButton({
     setSyncing(true);
 
     try {
-      // Build command arguments
-      const args = [`--days=${syncPeriod}`];
-      if (syncType === "campaigns") args.push("--campaigns-only");
-      if (syncType === "metrics") args.push("--metrics-only");
+      const workspaceId = import.meta.env.VITE_WORKSPACE_ID;
+
+      if (!workspaceId) {
+        throw new Error('Workspace ID não configurado');
+      }
 
       toast({
         title: "Sincronização Iniciada",
         description: `Sincronizando dados dos últimos ${syncPeriod} dias...`,
       });
 
-      // Call the sync script via environment variables passed to Node
-      const env = {
-        SYNC_DAYS: syncPeriod,
-        META_APP_ID: import.meta.env.VITE_META_APP_ID,
-        META_APP_SECRET: import.meta.env.VITE_META_APP_SECRET,
-        META_ACCESS_TOKEN: import.meta.env.VITE_META_ACCESS_TOKEN,
-        META_AD_ACCOUNT_ID: import.meta.env.VITE_META_AD_ACCOUNT_ID,
-        META_WORKSPACE_ID: import.meta.env.VITE_WORKSPACE_ID,
-        SUPABASE_DATABASE_URL: import.meta.env.SUPABASE_DATABASE_URL,
-      };
-
-      // Note: In production, this would call a backend endpoint
-      // For now, we'll show a simulated success
-      console.log("Sync would be triggered with:", { args, env });
-
-      // Simulate async operation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      toast({
-        title: "Sincronização Concluída",
-        description: `Dados dos últimos ${syncPeriod} dias sincronizados com sucesso!`,
-        variant: "default",
+      // Start the sync job
+      const response = await fetch('/api/integrations/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workspaceId,
+          platformKey: 'meta',
+          days: Number(syncPeriod),
+          type: syncType,
+        }),
       });
 
-      setOpen(false);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Falha ao iniciar sincronização');
+      }
+
+      const { data } = await response.json();
+      const { jobId } = data;
+
+      // Poll for job status
+      let attempts = 0;
+      const maxAttempts = 120; // 4 minutes with 2 second intervals
+
+      const checkStatus = async (): Promise<boolean> => {
+        if (attempts >= maxAttempts) {
+          throw new Error('Tempo limite excedido. A sincronização pode ainda estar em andamento.');
+        }
+
+        attempts++;
+
+        const statusResponse = await fetch(`/api/integrations/sync/${jobId}`);
+
+        if (!statusResponse.ok) {
+          throw new Error('Erro ao verificar status da sincronização');
+        }
+
+        const { data: statusData } = await statusResponse.json();
+
+        if (statusData.status === 'completed') {
+          toast({
+            title: "Sincronização Concluída!",
+            description: `Dados dos últimos ${syncPeriod} dias sincronizados com sucesso.`,
+          });
+          setOpen(false);
+
+          // Refresh the page to show new data
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+
+          return true;
+        } else if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Sincronização falhou');
+        } else if (statusData.status === 'processing') {
+          toast({
+            title: "Processando...",
+            description: `Progresso: ${statusData.progress}%`,
+          });
+        }
+
+        // Continue polling
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return checkStatus();
+      };
+
+      await checkStatus();
+
     } catch (error) {
       console.error("Sync error:", error);
       toast({
@@ -171,6 +217,7 @@ export default function MetaSyncButton({
               <li>Períodos menores são mais rápidos</li>
               <li>Apenas dados alterados serão atualizados</li>
               <li>A sincronização não apaga dados anteriores</li>
+              <li>O processo roda em segundo plano via job queue</li>
             </ul>
           </div>
         </div>

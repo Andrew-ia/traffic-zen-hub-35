@@ -1,6 +1,11 @@
-import { useMemo } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  CONVERSATION_CONNECTION_ACTION,
+  CONVERSATION_STARTED_ACTION,
+  getActionValueForType,
+  type MetaExtraMetrics,
+} from "@/lib/conversionMetrics";
 
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
 
@@ -13,6 +18,8 @@ export interface ReportSummary {
     impressions: number;
     clicks: number;
     conversions: number;
+    conversationsStarted: number;
+    messagingConnections: number;
     spend: number;
     conversionValue: number;
     ctr: number;
@@ -23,6 +30,8 @@ export interface ReportSummary {
     impressions: number;
     clicks: number;
     conversions: number;
+    conversationsStarted: number;
+    messagingConnections: number;
     spend: number;
     conversionValue: number;
     ctr: number;
@@ -36,6 +45,8 @@ export interface ReportTimePoint {
   impressions: number;
   clicks: number;
   conversions: number;
+  conversationsStarted: number;
+  messagingConnections: number;
   spend: number;
   conversionValue: number;
   roas: number;
@@ -46,6 +57,8 @@ export interface PlatformBreakdownItem {
   name: string;
   spend: number;
   conversions: number;
+  conversationsStarted: number;
+  messagingConnections: number;
   impressions: number;
 }
 
@@ -90,8 +103,9 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
       const [{ data: metrics, error: metricsError }, { data: platformAccounts, error: paError }] = await Promise.all([
         supabase
           .from("performance_metrics")
-          .select("platform_account_id, metric_date, impressions, clicks, conversions, spend, conversion_value")
+          .select("platform_account_id, metric_date, impressions, clicks, conversions, spend, conversion_value, extra_metrics")
           .eq("workspace_id", WORKSPACE_ID)
+          .is("campaign_id", null)
           .is("ad_set_id", null)
           .is("ad_id", null)
           .gte("metric_date", sinceIso)
@@ -124,8 +138,24 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
       midpoint.setHours(0, 0, 0, 0);
 
       const bucketTotals = {
-        current: { impressions: 0, clicks: 0, conversions: 0, spend: 0, conversionValue: 0 },
-        previous: { impressions: 0, clicks: 0, conversions: 0, spend: 0, conversionValue: 0 },
+        current: {
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          conversationsStarted: 0,
+          messagingConnections: 0,
+          spend: 0,
+          conversionValue: 0,
+        },
+        previous: {
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          conversationsStarted: 0,
+          messagingConnections: 0,
+          spend: 0,
+          conversionValue: 0,
+        },
       } as const;
 
       const timeSeriesMap = new Map<string, ReportTimePoint>();
@@ -136,10 +166,17 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         const valueDate = new Date(date);
         valueDate.setHours(0, 0, 0, 0);
 
+        const started = getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_STARTED_ACTION) ?? 0;
+        const connections =
+          getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_CONNECTION_ACTION) ?? 0;
+        const conversions = started;
+
         const targetBucket = valueDate >= midpoint ? "current" : "previous";
         bucketTotals[targetBucket].impressions += Number(row.impressions ?? 0);
         bucketTotals[targetBucket].clicks += Number(row.clicks ?? 0);
-        bucketTotals[targetBucket].conversions += Number(row.conversions ?? 0);
+        bucketTotals[targetBucket].conversions += conversions;
+        bucketTotals[targetBucket].conversationsStarted += started;
+        bucketTotals[targetBucket].messagingConnections += connections;
         bucketTotals[targetBucket].spend += Number(row.spend ?? 0);
         bucketTotals[targetBucket].conversionValue += Number(row.conversion_value ?? 0);
 
@@ -149,6 +186,8 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
             impressions: 0,
             clicks: 0,
             conversions: 0,
+            conversationsStarted: 0,
+            messagingConnections: 0,
             spend: 0,
             conversionValue: 0,
             roas: 0,
@@ -156,7 +195,9 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
 
           existing.impressions += Number(row.impressions ?? 0);
           existing.clicks += Number(row.clicks ?? 0);
-          existing.conversions += Number(row.conversions ?? 0);
+          existing.conversions += conversions;
+          existing.conversationsStarted += started;
+          existing.messagingConnections += connections;
           existing.spend += Number(row.spend ?? 0);
           existing.conversionValue += Number(row.conversion_value ?? 0);
           existing.roas = existing.spend > 0 ? existing.conversionValue / existing.spend : 0;
@@ -168,11 +209,15 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
               name: platformNameMap.get(row.platform_account_id) ?? row.platform_account_id,
               spend: 0,
               conversions: 0,
+              conversationsStarted: 0,
+              messagingConnections: 0,
               impressions: 0,
             };
 
             platformAggregate.spend += Number(row.spend ?? 0);
-            platformAggregate.conversions += Number(row.conversions ?? 0);
+            platformAggregate.conversions += conversions;
+            platformAggregate.conversationsStarted += started;
+            platformAggregate.messagingConnections += connections;
             platformAggregate.impressions += Number(row.impressions ?? 0);
 
             platformTotals.set(row.platform_account_id, platformAggregate);
@@ -180,16 +225,21 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         }
       }
 
+      bucketTotals.current.conversions = bucketTotals.current.conversationsStarted;
+      bucketTotals.previous.conversions = bucketTotals.previous.conversationsStarted;
+
       const currentRatios = calculateRatios(bucketTotals.current);
       const previousRatios = calculateRatios(bucketTotals.previous);
 
       const summary: ReportSummary = {
         current: {
           ...bucketTotals.current,
+          conversions: bucketTotals.current.conversationsStarted,
           ...currentRatios,
         },
         previous: {
           ...bucketTotals.previous,
+          conversions: bucketTotals.previous.conversationsStarted,
           ...previousRatios,
         },
       };
