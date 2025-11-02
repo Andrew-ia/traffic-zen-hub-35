@@ -14,7 +14,9 @@
     "sync:meta": "node scripts/meta/sync-campaigns.js",
     "sync:meta:incremental": "node scripts/meta/sync-incremental.js",
     "backfill:meta": "node scripts/meta/backfill-insights.js",
+    "sync:google": "node scripts/google-ads/sync-google-ads.js",
     "sync:meta:daily": "bash scripts/meta/run-daily.sh",
+    "check:data": "node scripts/check-data-sync.js",
     "server": "tsx server/index.ts",
     "generate:encryption-key": "node server/scripts/generate-encryption-key.js"
   },
