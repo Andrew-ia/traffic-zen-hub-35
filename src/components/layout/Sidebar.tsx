@@ -1,30 +1,34 @@
-import { Menu, X } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useEffect } from "react";
 import { mainNavigation } from "@/data/navigation";
+import { useResponsive } from "@/hooks/use-responsive";
 
-export function Sidebar() {
-  const [isOpen, setIsOpen] = useState(true);
+interface SidebarProps {
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}
+
+export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
+  const location = useLocation();
+  const { isMobile } = useResponsive();
+
+  // Close sidebar on route change for mobile
+  useEffect(() => {
+    if (isMobile) {
+      onClose();
+    }
+  }, [location.pathname, isMobile, onClose]);
 
   return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="fixed top-4 left-4 z-50 lg:hidden"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
-
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 w-64 bg-card border-r border-border transform transition-transform duration-200 ease-in-out lg:translate-x-0",
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
+    <aside
+      className={cn(
+        "fixed inset-y-0 left-0 z-40 w-64 bg-card/95 backdrop-blur-md border-r border-border/50 transform transition-all duration-300 ease-in-out lg:translate-x-0 shadow-xl lg:shadow-none",
+        isOpen ? "translate-x-0" : "-translate-x-full"
+      )}
+    >
         <div className="flex h-full flex-col">
           <div className="flex h-16 items-center px-6 border-b border-border">
             <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
@@ -32,7 +36,7 @@ export function Sidebar() {
             </h1>
           </div>
 
-          <nav className="flex-1 space-y-1 px-3 py-4">
+          <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
             {mainNavigation.map((item) => (
               <NavLink
                 key={item.name}
@@ -40,32 +44,32 @@ export function Sidebar() {
                 end={item.href === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                    "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
                     isActive
-                      ? "bg-primary text-primary-foreground shadow-md"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
+                      : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                   )
                 }
+                onClick={() => isMobile && onClose()}
               >
-                <item.icon className="h-5 w-5" />
-                {item.name}
+                <item.icon className="h-5 w-5 flex-shrink-0" />
+                <span className="truncate">{item.name}</span>
               </NavLink>
             ))}
           </nav>
 
-          <div className="p-4 border-t border-border">
-            <div className="rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 p-4">
+          <div className="p-4 border-t border-border/50">
+            <div className="rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 p-4 backdrop-blur-sm">
               <p className="text-sm font-medium mb-1">Upgrade para Pro</p>
               <p className="text-xs text-muted-foreground mb-3">
                 Desbloqueie recursos avançados
               </p>
-              <Button size="sm" className="w-full">
+              <Button size="sm" className="w-full text-xs">
                 Upgrade
               </Button>
             </div>
           </div>
         </div>
       </aside>
-    </>
   );
 }

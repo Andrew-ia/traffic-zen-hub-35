@@ -140,7 +140,7 @@ export default function VirtualTryOn() {
       setProgress({ current: 0, total: 0 });
       abortControllerRef.current = null;
     }
-  }, [modelFile, clothingFile, imageCount]);
+  }, [modelFile, clothingFile, imageCount, aspectRatio]);
 
   const handleCancel = useCallback(() => {
     if (abortControllerRef.current) {

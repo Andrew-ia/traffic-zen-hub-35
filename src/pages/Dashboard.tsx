@@ -35,15 +35,19 @@ export default function Dashboard() {
   const { data: performance, isLoading: isLoadingMetrics } = usePerformanceMetrics(periodDays);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">Visão consolidada do desempenho e saúde das suas campanhas</p>
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header Section - Responsive */}
+      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
+            Visão geral das suas campanhas e performance
+          </p>
         </div>
-        <Select value={String(periodDays)} onValueChange={(value) => setPeriodDays(Number(value))}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Período" />
+
+        <Select value={periodDays.toString()} onValueChange={(value) => setPeriodDays(Number(value))}>
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="7">Últimos 7 dias</SelectItem>
@@ -66,16 +70,17 @@ export default function Dashboard() {
         onPageChange={setPage}
         showCreateButton={false}
         headerActions={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-            <div className="w-full sm:w-60">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="w-full sm:w-64 lg:w-72">
               <Input
                 placeholder="Buscar campanhas..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                className="h-9"
               />
             </div>
             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as CampaignStatusFilter)}>
-              <SelectTrigger className="sm:w-48">
+              <SelectTrigger className="w-full sm:w-48 h-9">
                 <SelectValue placeholder="Filtrar status" />
               </SelectTrigger>
               <SelectContent>

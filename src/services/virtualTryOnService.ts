@@ -22,14 +22,15 @@ export interface GenerateOptions {
   signal?: AbortSignal;
 }
 
-async function generateOneViaBackend(
+async function generateBatchViaBackend(
   modelBase64: string,
   modelMimeType: string,
   clothingBase64: string,
   clothingMimeType: string,
   aspectRatio: AspectRatio = '9:16',
+  count: number,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<string[]> {
   const resp = await fetch(`${API_BASE}/api/ai/virtual-tryon`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -39,6 +40,7 @@ async function generateOneViaBackend(
       clothingBase64,
       clothingMimeType,
       aspectRatio,
+      count,
     }),
     signal,
   });
@@ -50,7 +52,27 @@ async function generateOneViaBackend(
   }
 
   const data = await resp.json();
-  return data.image as string;
+  const images: string[] = [];
+
+  if (typeof data.image === 'string' && data.image.length > 0) {
+    images.push(data.image);
+  }
+
+  if (Array.isArray(data.images)) {
+    for (const img of data.images) {
+      if (typeof img === 'string' && img.length > 0) {
+        images.push(img);
+      }
+    }
+  }
+
+  const uniqueImages = Array.from(new Set(images));
+
+  if (uniqueImages.length === 0) {
+    throw new Error('Resposta da API não contém imagens válidas.');
+  }
+
+  return uniqueImages;
 }
 
 export const generateVariations = async (
@@ -65,38 +87,61 @@ export const generateVariations = async (
     fileToBase64(clothingFile),
   ]);
 
-  const results: string[] = [];
   const aspectRatio: AspectRatio = options?.aspectRatio || '9:16';
   const signal = options?.signal;
+  const totalRequested = Math.min(Math.max(count, 1), 3);
+  const results: string[] = [];
 
-  for (let i = 0; i < count; i++) {
-    try {
-      onProgress?.(i + 1, count);
-      const image = await generateOneViaBackend(
+  try {
+    onProgress?.(0, totalRequested);
+
+    const batch = await generateBatchViaBackend(
+      modelBase64,
+      modelFile.type,
+      clothingBase64,
+      clothingFile.type,
+      aspectRatio,
+      totalRequested,
+      signal,
+    );
+
+    results.push(...batch.slice(0, totalRequested));
+    onProgress?.(results.length, totalRequested);
+
+    if (results.length < totalRequested) {
+      const missing = totalRequested - results.length;
+      console.warn(`Recebidas ${results.length} imagens, faltam ${missing}. Tentando novamente...`);
+      await delay(1000);
+
+      const extraBatch = await generateBatchViaBackend(
         modelBase64,
         modelFile.type,
         clothingBase64,
         clothingFile.type,
         aspectRatio,
+        missing,
         signal,
       );
-      results.push(image);
-      if (i < count - 1) {
-        await delay(1500);
-      }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') {
-        // Cancelado pelo usuário: retornar o que já foi gerado
-        return results;
-      }
-      if (error.message?.includes('quota') || error.message?.includes('429')) {
-        if (results.length > 0) {
-          console.warn(`Limite de quota atingido após ${results.length} imagens`);
-          return results;
+
+      for (const image of extraBatch) {
+        if (!results.includes(image) && results.length < totalRequested) {
+          results.push(image);
         }
       }
-      throw error;
+
+      onProgress?.(results.length, totalRequested);
     }
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      return results;
+    }
+    if (error.message?.includes('quota') || error.message?.includes('429')) {
+      if (results.length > 0) {
+        console.warn(`Limite de quota atingido após ${results.length} imagens`);
+        return results;
+      }
+    }
+    throw error;
   }
 
   return results;
