@@ -14,6 +14,8 @@ import {
   getWorkspaceSyncJobs,
 } from './api/integrations/simpleSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
+import { generateCreative } from './api/ai/generate-creative.js';
+import { virtualTryOn } from './api/ai/virtual-tryon.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -24,7 +26,10 @@ const PORT = process.env.API_PORT || 3001;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:8080',
+    'http://localhost:8081'
+  ],
   credentials: true,
 }));
 app.use(express.json());
@@ -52,6 +57,10 @@ app.post('/api/integrations/sync', startSync);
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
 app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
 app.post('/api/integrations/billing/sync', syncMetaBilling);
+
+// AI endpoints
+app.post('/api/ai/generate-creative', generateCreative);
+app.post('/api/ai/virtual-tryon', virtualTryOn);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
