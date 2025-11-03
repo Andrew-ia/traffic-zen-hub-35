@@ -143,6 +143,10 @@ async function fetchAllAdSets(accessToken, adAccountId) {
       "lifetime_budget",
       "bid_strategy",
       "bid_amount",
+      "billing_event",
+      "optimization_goal",
+      "pacing_type",
+      "campaign{daily_budget,budget_remaining,bid_strategy}",
       "targeting",
       "created_time",
       "updated_time",
@@ -478,6 +482,7 @@ function toDate(value) {
 function deriveBudgetType(adSet) {
   if (adSet.lifetime_budget) return "lifetime";
   if (adSet.daily_budget) return "daily";
+  if (adSet.campaign?.budget_remaining) return "campaign";
   return null;
 }
 
@@ -560,6 +565,12 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
     effective_status: adSet.effective_status,
     created_time: adSet.created_time,
     updated_time: adSet.updated_time,
+    billing_event: adSet.billing_event ?? null,
+    optimization_goal: adSet.optimization_goal ?? null,
+    pacing_type: adSet.pacing_type ?? null,
+    campaign_daily_budget: adSet.campaign?.daily_budget ? centsToNumber(adSet.campaign.daily_budget) : null,
+    campaign_budget_remaining: adSet.campaign?.budget_remaining ? centsToNumber(adSet.campaign.budget_remaining) : null,
+    campaign_bid_strategy: adSet.campaign?.bid_strategy ?? null,
   };
 
   await client.query(
@@ -624,10 +635,10 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
       mapAdSetStatus(adSet.status),
       toDate(adSet.start_time),
       toDate(adSet.end_time),
-      adSet.bid_strategy,
+      adSet.bid_strategy ?? adSet.campaign?.bid_strategy ?? null,
       centsToNumber(adSet.bid_amount),
       deriveBudgetType(adSet),
-      centsToNumber(adSet.daily_budget),
+      centsToNumber(adSet.daily_budget) ?? (adSet.campaign?.daily_budget ? centsToNumber(adSet.campaign.daily_budget) : null),
       centsToNumber(adSet.lifetime_budget),
       JSON.stringify(adSet.targeting ?? {}),
       JSON.stringify(settings),

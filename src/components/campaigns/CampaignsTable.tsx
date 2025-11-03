@@ -20,11 +20,19 @@ export interface CampaignTableRow {
   status: string;
   objective?: string | null;
   platformAccount?: string | null;
+  platformKey?: string | null;
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
   startDate?: string | null;
   endDate?: string | null;
   updatedAt?: string | null;
+
+  // KPI metrics based on objective
+  resultLabel?: string;
+  resultValue?: number;
+  costPerResult?: number | null;
+  spend?: number;
+  roas?: number | null;
 }
 
 interface CampaignsTableProps {
@@ -80,6 +88,28 @@ function formatDate(value?: string | null) {
   }
 }
 
+function formatPlatform(platformKey?: string | null) {
+  switch (platformKey) {
+    case "meta":
+      return "Meta Ads";
+    case "google_ads":
+      return "Google Ads";
+    default:
+      return platformKey ?? "-";
+  }
+}
+
+function getPlatformBadgeVariant(platformKey?: string | null): "default" | "secondary" | "outline" {
+  switch (platformKey) {
+    case "meta":
+      return "default";
+    case "google_ads":
+      return "outline";
+    default:
+      return "secondary";
+  }
+}
+
 export function CampaignsTable({
   campaigns,
   isLoading,
@@ -119,24 +149,25 @@ export function CampaignsTable({
               <TableHead>Conta</TableHead>
               <TableHead>Objetivo</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Orçamento Diário</TableHead>
-              <TableHead>Orçamento Vitalício</TableHead>
-              <TableHead>Início</TableHead>
-              <TableHead>Término</TableHead>
+              <TableHead>Resultado</TableHead>
+              <TableHead className="text-right">Qtd</TableHead>
+              <TableHead className="text-right">Investimento</TableHead>
+              <TableHead className="text-right">Custo/Resultado</TableHead>
+              <TableHead className="text-right">ROAS</TableHead>
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                   Carregando campanhas...
                 </TableCell>
               </TableRow>
             )}
             {!isLoading && !hasData && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                   Nenhuma campanha encontrada para esta conta.
                 </TableCell>
               </TableRow>
@@ -150,17 +181,39 @@ export function CampaignsTable({
                   className="cursor-pointer transition hover:bg-muted/50"
                 >
                   <TableCell className="font-medium">{campaign.name}</TableCell>
-                  <TableCell>{campaign.platformAccount ?? "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm">{campaign.platformAccount ?? "-"}</span>
+                      <Badge variant={getPlatformBadgeVariant(campaign.platformKey)} className="w-fit text-xs">
+                        {formatPlatform(campaign.platformKey)}
+                      </Badge>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{campaign.objective ?? "-"}</TableCell>
                   <TableCell>
                     <Badge variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}>
                       {formatStatus(campaign.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatCurrency(campaign.dailyBudget)}</TableCell>
-                  <TableCell>{formatCurrency(campaign.lifetimeBudget)}</TableCell>
-                  <TableCell>{formatDate(campaign.startDate)}</TableCell>
-                  <TableCell>{formatDate(campaign.endDate)}</TableCell>
+                  <TableCell>
+                    <span className="text-sm font-medium">{campaign.resultLabel ?? "Resultados"}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="text-sm font-semibold">
+                      {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="text-sm">{formatCurrency(campaign.spend)}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="text-sm">{formatCurrency(campaign.costPerResult)}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="text-sm font-medium">
+                      {campaign.roas != null ? `${campaign.roas.toFixed(2)}x` : "-"}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="ghost" size="icon" className="h-8 w-8">

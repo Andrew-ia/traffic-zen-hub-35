@@ -3,12 +3,14 @@ import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 
 const PAGE_SIZE = 12;
 
 export default function Campaigns() {
   const [tab, setTab] = useState<CampaignStatusFilter>("all");
+  const [platform, setPlatform] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -20,9 +22,9 @@ export default function Campaigns() {
 
   useEffect(() => {
     setPage(1);
-  }, [tab, debouncedSearch]);
+  }, [tab, debouncedSearch, platform]);
 
-  const { data, isLoading, error } = useCampaigns({ status: tab, search: debouncedSearch, page, pageSize: PAGE_SIZE });
+  const { data, isLoading, error } = useCampaigns({ status: tab, search: debouncedSearch, page, pageSize: PAGE_SIZE, platform });
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
 
@@ -33,8 +35,23 @@ export default function Campaigns() {
           <h1 className="text-3xl font-bold">Campanhas</h1>
           <p className="text-muted-foreground mt-1">Gerencie todas as suas campanhas de tráfego</p>
         </div>
-        <div className="w-full md:w-80">
-          <Input placeholder="Buscar campanhas..." value={search} onChange={(event) => setSearch(event.target.value)} />
+        <div className="flex gap-2 w-full md:w-auto">
+          <Select value={platform} onValueChange={setPlatform}>
+            <SelectTrigger className="w-full md:w-[180px]">
+              <SelectValue placeholder="Todas as plataformas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as plataformas</SelectItem>
+              <SelectItem value="meta">Meta Ads</SelectItem>
+              <SelectItem value="google_ads">Google Ads</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            className="w-full md:w-80"
+            placeholder="Buscar campanhas..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
       </div>
 

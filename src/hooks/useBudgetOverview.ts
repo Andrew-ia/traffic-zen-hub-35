@@ -37,6 +37,10 @@ export interface BudgetOverview {
   availableBudget: number;
   utilization: number;
   items: BudgetItem[];
+  accounts: {
+    id: string;
+    name: string;
+  }[];
 }
 
 export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
@@ -87,8 +91,10 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
         throw accountsRes.error;
       }
 
+      const rawAccounts = (accountsRes.data as { id: string | null; name: string | null }[]) ?? [];
+
       const accountNameMap = new Map<string, string>();
-      for (const account of accountsRes.data ?? []) {
+      for (const account of rawAccounts) {
         if (account.id) {
           accountNameMap.set(account.id, account.name ?? account.id);
         }
@@ -140,6 +146,13 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
 
       const sortedItems = items.sort((a, b) => b.dailyBudget - a.dailyBudget);
 
+      const accounts = rawAccounts
+        .filter((account): account is { id: string; name: string | null } => Boolean(account.id))
+        .map((account) => ({
+          id: account.id,
+          name: account.name ?? account.id,
+        }));
+
       return {
         totalDailyBudget,
         totalLifetimeBudget: normalizedBudget,
@@ -147,6 +160,7 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
         availableBudget,
         utilization,
         items: sortedItems,
+        accounts,
       };
     },
   });

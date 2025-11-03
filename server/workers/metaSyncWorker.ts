@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { bullMQConnection } from '../config/redis.js';
 import { getPool } from '../config/database.js';
 import type { SyncJobData } from '../types/index.js';
+import { generatePostSyncInsights } from '../services/postSyncInsights.js';
 
 /**
  * BullMQ Worker for processing Meta Ads sync jobs
@@ -11,13 +12,27 @@ import type { SyncJobData } from '../types/index.js';
 
 const SYNC_QUEUE_NAME = 'meta-sync';
 
+function resolveMetaCredentials(credentials: any) {
+  const appId = credentials.appId ?? credentials.app_id;
+  const appSecret = credentials.appSecret ?? credentials.app_secret;
+  const accessToken = credentials.accessToken ?? credentials.access_token;
+  const adAccountId = credentials.adAccountId ?? credentials.ad_account_id;
+
+  if (!appId || !appSecret || !accessToken || !adAccountId) {
+    throw new Error('Missing required Meta credentials in integration_credentials record');
+  }
+
+  return { appId, appSecret, accessToken, adAccountId };
+}
+
 /**
  * Execute the Meta sync script
  */
 async function executeMetaSync(
   job: Job<SyncJobData>
 ): Promise<{ stdout: string; stderr: string }> {
-  const { workspaceId, parameters, credentials } = job.data;
+  const { workspaceId, parameters } = job.data;
+  const credentials = resolveMetaCredentials(job.data.credentials as any);
 
   console.log(`\n🚀 Starting Meta sync job ${job.id}`);
   console.log(`   Workspace: ${workspaceId}`);
@@ -177,12 +192,25 @@ export function createMetaSyncWorker(): Worker {
         // Execute the sync
         const result = await executeMetaSync(job);
 
+        let insights = null;
+        try {
+          insights = await generatePostSyncInsights({
+            workspaceId: job.data.workspaceId,
+            platformKey: job.data.platformKey,
+            days: job.data.parameters.days,
+          });
+        } catch (insightsError) {
+          console.error(`⚠️ Failed to build post-sync insights for job ${jobId}:`, insightsError);
+        }
+
         // Mark job as completed
         await updateJobStatus(jobId, 'completed', {
           progress: 100,
           result: {
             stdout: result.stdout,
+            stderr: result.stderr,
             success: true,
+            insights,
           },
           completed_at: new Date(),
         });

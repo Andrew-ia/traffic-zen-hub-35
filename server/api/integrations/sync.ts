@@ -49,11 +49,11 @@ export async function startSync(req: Request, res: Response) {
       } as ApiResponse);
     }
 
-    // Only Meta is supported for now
-    if (platformKey !== 'meta') {
+    // Validate platform
+    if (!['meta', 'google_ads'].includes(platformKey)) {
       return res.status(400).json({
         success: false,
-        error: 'Only "meta" platform is currently supported',
+        error: 'Platform not supported. Supported platforms: meta, google_ads',
       } as ApiResponse);
     }
 

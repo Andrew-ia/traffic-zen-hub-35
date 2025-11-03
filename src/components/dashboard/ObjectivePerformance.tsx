@@ -199,8 +199,8 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
   );
 }
 
-export function ObjectivePerformanceSection() {
-  const { data, isLoading, error } = useObjectivePerformanceSummary();
+export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
+  const { data, isLoading, error } = useObjectivePerformanceSummary(days);
 
   if (isLoading) {
     return (

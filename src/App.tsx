@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
+import TrafficAnalysis from "./pages/TrafficAnalysis";
+import ActionCenter from "./pages/ActionCenter";
 import Campaigns from "./pages/Campaigns";
 import CampaignDetails from "./pages/CampaignDetails";
 import AdDetails from "./pages/AdDetails";
@@ -13,6 +15,8 @@ import Budget from "./pages/Budget";
 import Calendar from "./pages/Calendar";
 import Leads from "./pages/Leads";
 import Creatives from "./pages/Creatives";
+import CreativesV2 from "./pages/CreativesV2";
+import CreativesGrouped from "./pages/CreativesGrouped";
 import Audiences from "./pages/Audiences";
 import UTMs from "./pages/UTMs";
 import Automations from "./pages/Automations";
@@ -31,6 +35,8 @@ const App = () => (
         <MainLayout>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/action-center" element={<ActionCenter />} />
+            <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
             <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
             <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
@@ -38,7 +44,9 @@ const App = () => (
             <Route path="/budget" element={<Budget />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/leads" element={<Leads />} />
-            <Route path="/creatives" element={<Creatives />} />
+            <Route path="/creatives" element={<CreativesGrouped />} />
+            <Route path="/creatives-old" element={<Creatives />} />
+            <Route path="/creatives-v2" element={<CreativesV2 />} />
             <Route path="/audiences" element={<Audiences />} />
             <Route path="/utms" element={<UTMs />} />
             <Route path="/automations" element={<Automations />} />

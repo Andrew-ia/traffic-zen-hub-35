@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { RefreshCw, Loader2, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { SyncInsightsDialog } from "./SyncInsightsDialog";
+import type { SyncInsightsSummary } from "@/types/sync";
 
 interface MetaSyncButtonProps {
   variant?: "default" | "outline" | "secondary" | "ghost";
@@ -29,6 +31,8 @@ export default function MetaSyncButton({
   const [syncing, setSyncing] = useState(false);
   const [syncPeriod, setSyncPeriod] = useState("7");
   const [syncType, setSyncType] = useState("all");
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultInsights, setResultInsights] = useState<SyncInsightsSummary | null>(null);
   const { toast } = useToast();
 
   const parseJsonSafe = async (response: Response) => {
@@ -135,10 +139,15 @@ export default function MetaSyncButton({
           });
           setOpen(false);
 
-          // Refresh the page to show new data
-          setTimeout(() => {
-            window.location.reload();
-          }, 1000);
+          const insights = statusData.result?.insights ?? null;
+          if (insights) {
+            setResultInsights(insights);
+            setResultOpen(true);
+          } else {
+            setTimeout(() => {
+              window.location.reload();
+            }, 800);
+          }
 
           return true;
         } else if (statusData.status === 'failed') {
@@ -170,118 +179,132 @@ export default function MetaSyncButton({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant={variant} size={size} className={className}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Atualizar Dados
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Sincronizar Dados do Meta
-          </DialogTitle>
-          <DialogDescription>
-            Escolha o período e tipo de dados para sincronizar
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-6 py-4">
-          {/* Período */}
-          <div className="space-y-3">
-            <Label>Período de Sincronização</Label>
-            <RadioGroup value={syncPeriod} onValueChange={setSyncPeriod}>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="1" id="period-1" />
-                <Label htmlFor="period-1" className="cursor-pointer font-normal">
-                  Último dia
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="3" id="period-3" />
-                <Label htmlFor="period-3" className="cursor-pointer font-normal">
-                  Últimos 3 dias
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="7" id="period-7" />
-                <Label htmlFor="period-7" className="cursor-pointer font-normal">
-                  Última semana (7 dias) <span className="text-muted-foreground">— Recomendado</span>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="15" id="period-15" />
-                <Label htmlFor="period-15" className="cursor-pointer font-normal">
-                  Últimas 2 semanas (15 dias)
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="30" id="period-30" />
-                <Label htmlFor="period-30" className="cursor-pointer font-normal">
-                  Último mês (30 dias)
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {/* Tipo de sincronização */}
-          <div className="space-y-3">
-            <Label>Tipo de Sincronização</Label>
-            <RadioGroup value={syncType} onValueChange={setSyncType}>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="all" id="type-all" />
-                <Label htmlFor="type-all" className="cursor-pointer font-normal">
-                  Tudo (Campanhas + Métricas)
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="campaigns" id="type-campaigns" />
-                <Label htmlFor="type-campaigns" className="cursor-pointer font-normal">
-                  Apenas Campanhas e Anúncios
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="metrics" id="type-metrics" />
-                <Label htmlFor="type-metrics" className="cursor-pointer font-normal">
-                  Apenas Métricas de Performance
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {/* Info box */}
-          <div className="bg-muted p-3 rounded-lg text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">ℹ️ Sobre a sincronização</p>
-            <ul className="space-y-1 list-disc list-inside">
-              <li>Períodos menores são mais rápidos</li>
-              <li>Apenas dados alterados serão atualizados</li>
-              <li>A sincronização não apaga dados anteriores</li>
-              <li>O processo roda em segundo plano via job queue</li>
-            </ul>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} disabled={syncing}>
-            Cancelar
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant={variant} size={size} className={className}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar Dados
           </Button>
-          <Button onClick={handleSync} disabled={syncing}>
-            {syncing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sincronizando...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Sincronizar
-              </>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Sincronizar Dados do Meta
+            </DialogTitle>
+            <DialogDescription>
+              Escolha o período e tipo de dados para sincronizar
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Período */}
+            <div className="space-y-3">
+              <Label>Período de Sincronização</Label>
+              <RadioGroup value={syncPeriod} onValueChange={setSyncPeriod}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="1" id="period-1" />
+                  <Label htmlFor="period-1" className="cursor-pointer font-normal">
+                    Último dia
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="3" id="period-3" />
+                  <Label htmlFor="period-3" className="cursor-pointer font-normal">
+                    Últimos 3 dias
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="7" id="period-7" />
+                  <Label htmlFor="period-7" className="cursor-pointer font-normal">
+                    Última semana (7 dias) <span className="text-muted-foreground">— Recomendado</span>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="15" id="period-15" />
+                  <Label htmlFor="period-15" className="cursor-pointer font-normal">
+                    Últimas 2 semanas (15 dias)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="30" id="period-30" />
+                  <Label htmlFor="period-30" className="cursor-pointer font-normal">
+                    Último mês (30 dias)
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {/* Tipo de sincronização */}
+            <div className="space-y-3">
+              <Label>Tipo de Sincronização</Label>
+              <RadioGroup value={syncType} onValueChange={setSyncType}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="all" id="type-all" />
+                  <Label htmlFor="type-all" className="cursor-pointer font-normal">
+                    Tudo (Campanhas + Métricas)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="campaigns" id="type-campaigns" />
+                  <Label htmlFor="type-campaigns" className="cursor-pointer font-normal">
+                    Apenas Campanhas e Anúncios
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="metrics" id="type-metrics" />
+                  <Label htmlFor="type-metrics" className="cursor-pointer font-normal">
+                    Apenas Métricas de Performance
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {/* Info box */}
+            <div className="bg-muted p-3 rounded-lg text-sm text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">ℹ️ Sobre a sincronização</p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Períodos menores são mais rápidos</li>
+                <li>Apenas dados alterados serão atualizados</li>
+                <li>A sincronização não apaga dados anteriores</li>
+                <li>O processo roda em segundo plano via job queue</li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={syncing}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSync} disabled={syncing}>
+              {syncing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sincronizar
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <SyncInsightsDialog
+        open={resultOpen}
+        onOpenChange={(value) => {
+          setResultOpen(value);
+          if (!value) {
+            setResultInsights(null);
+          }
+        }}
+        insights={resultInsights}
+        onReload={() => window.location.reload()}
+      />
+    </>
   );
 }

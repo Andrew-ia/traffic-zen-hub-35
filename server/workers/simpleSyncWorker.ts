@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { getPool } from '../config/database.js';
+import { generatePostSyncInsights } from '../services/postSyncInsights.js';
 import type { SyncJobData } from '../types/index.js';
 
 /**
@@ -9,11 +10,25 @@ import type { SyncJobData } from '../types/index.js';
 
 let isProcessing = false;
 
+function resolveMetaCredentials(credentials: any) {
+  const appId = credentials.appId ?? credentials.app_id;
+  const appSecret = credentials.appSecret ?? credentials.app_secret;
+  const accessToken = credentials.accessToken ?? credentials.access_token;
+  const adAccountId = credentials.adAccountId ?? credentials.ad_account_id;
+
+  if (!appId || !appSecret || !accessToken || !adAccountId) {
+    throw new Error('Missing required Meta credentials in integration_credentials record');
+  }
+
+  return { appId, appSecret, accessToken, adAccountId };
+}
+
 /**
  * Execute the Meta sync script
  */
 async function executeMetaSync(jobData: SyncJobData): Promise<{ stdout: string; stderr: string }> {
-  const { workspaceId, parameters, credentials } = jobData;
+  const { workspaceId, parameters } = jobData;
+  const credentials = resolveMetaCredentials(jobData.credentials as any);
 
   console.log(`\n🚀 Starting Meta sync job ${jobData.jobId}`);
   console.log(`   Workspace: ${workspaceId}`);
@@ -187,12 +202,25 @@ async function processJob(job: any, jobData: SyncJobData) {
     // Execute the sync
     const result = await executeMetaSync(jobData);
 
+    let insights = null;
+    try {
+      insights = await generatePostSyncInsights({
+        workspaceId: jobData.workspaceId,
+        platformKey: jobData.platformKey,
+        days: jobData.parameters.days,
+      });
+    } catch (insightsError) {
+      console.error(`⚠️ Failed to build post-sync insights for job ${jobId}:`, insightsError);
+    }
+
     // Mark job as completed
     await updateJobStatus(jobId, 'completed', {
       progress: 100,
       result: {
         stdout: result.stdout,
+        stderr: result.stderr,
         success: true,
+        insights,
       },
       completed_at: new Date(),
     });

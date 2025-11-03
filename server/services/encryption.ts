@@ -119,7 +119,17 @@ export function decryptCredentials(
   encryptedCredentials: string,
   encryptionIv: string
 ): Record<string, any> {
-  const [encrypted, authTag] = encryptedCredentials.split(':');
+  let encrypted: string | undefined;
+  let authTag: string | undefined;
+
+  if (encryptedCredentials.includes(':')) {
+    // New format stores ciphertext and auth tag separated by colon
+    [encrypted, authTag] = encryptedCredentials.split(':');
+  } else if (encryptedCredentials.length > AUTH_TAG_LENGTH * 2) {
+    // Legacy format stores auth tag appended to ciphertext
+    authTag = encryptedCredentials.slice(-AUTH_TAG_LENGTH * 2);
+    encrypted = encryptedCredentials.slice(0, -AUTH_TAG_LENGTH * 2);
+  }
 
   if (!encrypted || !authTag) {
     throw new Error('Invalid encrypted credentials format');

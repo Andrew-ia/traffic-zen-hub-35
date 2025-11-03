@@ -53,6 +53,12 @@ export interface CampaignAdSet {
   budgetType: string | null;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
+  billingEvent: string | null;
+  optimizationGoal: string | null;
+  pacingType: string[] | null;
+  campaignDailyBudget: number | null;
+  campaignBudgetRemaining: number | null;
+  campaignBidStrategy: string | null;
   targeting: Record<string, unknown> | null;
   settings: Record<string, unknown> | null;
   lastSyncedAt: string | null;
@@ -181,32 +187,69 @@ export function useCampaignDetails(campaignId?: string): UseQueryResult<Campaign
           : null,
       };
 
-      const adSets: CampaignAdSet[] = (adSetRows ?? []).map((row) => ({
-        id: row.id,
-        externalId: row.external_id ?? null,
-        name: row.name,
-        status: row.status,
-        startDate: row.start_date ?? null,
-        endDate: row.end_date ?? null,
-        bidStrategy: row.bid_strategy ?? null,
-        bidAmount: row.bid_amount !== null ? Number(row.bid_amount) : null,
-        budgetType: row.budget_type ?? null,
-        dailyBudget: row.daily_budget !== null ? Number(row.daily_budget) : null,
-        lifetimeBudget: row.lifetime_budget !== null ? Number(row.lifetime_budget) : null,
-        targeting: (row.targeting ?? null) as Record<string, unknown> | null,
-        settings: (row.settings ?? null) as Record<string, unknown> | null,
-        lastSyncedAt: row.last_synced_at ?? null,
-        updatedAt: row.updated_at ?? null,
-        ads: (row.ads ?? []).map((ad) => ({
-          id: ad.id,
-          externalId: ad.external_id ?? null,
-          name: ad.name,
-          status: ad.status,
-          metadata: (ad.metadata ?? null) as Record<string, unknown> | null,
-          lastSyncedAt: ad.last_synced_at ?? null,
-          updatedAt: ad.updated_at ?? null,
-        })),
-      }));
+      const adSets: CampaignAdSet[] = (adSetRows ?? []).map((row) => {
+        const rawSettings = (row.settings ?? null) as Record<string, unknown> | null;
+        const pacingRaw = rawSettings?.pacing_type;
+        const pacingType = Array.isArray(pacingRaw)
+          ? pacingRaw.map((item) => String(item))
+          : pacingRaw
+            ? [String(pacingRaw)]
+            : null;
+
+        return {
+          id: row.id,
+          externalId: row.external_id ?? null,
+          name: row.name,
+          status: row.status,
+          startDate: row.start_date ?? null,
+          endDate: row.end_date ?? null,
+          bidStrategy:
+            row.bid_strategy ??
+            (rawSettings && typeof rawSettings.campaign_bid_strategy === "string"
+              ? rawSettings.campaign_bid_strategy
+              : null),
+          bidAmount: row.bid_amount !== null ? Number(row.bid_amount) : null,
+          budgetType:
+            row.budget_type ??
+            (rawSettings && typeof rawSettings.campaign_daily_budget === "number" ? "campaign" : null),
+          dailyBudget:
+            row.daily_budget !== null
+              ? Number(row.daily_budget)
+              : rawSettings && typeof rawSettings.campaign_daily_budget === "number"
+                ? rawSettings.campaign_daily_budget
+                : null,
+          lifetimeBudget: row.lifetime_budget !== null ? Number(row.lifetime_budget) : null,
+          billingEvent: rawSettings && typeof rawSettings.billing_event === "string" ? rawSettings.billing_event : null,
+          optimizationGoal:
+            rawSettings && typeof rawSettings.optimization_goal === "string" ? rawSettings.optimization_goal : null,
+          pacingType,
+          campaignDailyBudget:
+            rawSettings && typeof rawSettings.campaign_daily_budget === "number"
+              ? rawSettings.campaign_daily_budget
+              : null,
+          campaignBudgetRemaining:
+            rawSettings && typeof rawSettings.campaign_budget_remaining === "number"
+              ? rawSettings.campaign_budget_remaining
+              : null,
+          campaignBidStrategy:
+            rawSettings && typeof rawSettings.campaign_bid_strategy === "string"
+              ? rawSettings.campaign_bid_strategy
+              : null,
+          targeting: (row.targeting ?? null) as Record<string, unknown> | null,
+          settings: rawSettings,
+          lastSyncedAt: row.last_synced_at ?? null,
+          updatedAt: row.updated_at ?? null,
+          ads: (row.ads ?? []).map((ad) => ({
+            id: ad.id,
+            externalId: ad.external_id ?? null,
+            name: ad.name,
+            status: ad.status,
+            metadata: (ad.metadata ?? null) as Record<string, unknown> | null,
+            lastSyncedAt: ad.last_synced_at ?? null,
+            updatedAt: ad.updated_at ?? null,
+          })),
+        };
+      });
 
       return {
         campaign,

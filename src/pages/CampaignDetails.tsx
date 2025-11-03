@@ -17,6 +17,7 @@ import {
 import { useCampaignDetails } from "@/hooks/useCampaignDetails";
 import { useCampaignMetrics } from "@/hooks/useCampaignMetrics";
 import { useCampaignBreakdowns } from "@/hooks/useCampaignBreakdowns";
+import { getResultLabel, computePrimaryKpi, calculateRoas } from "@/lib/kpiCalculations";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -103,6 +104,20 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
       return "outline";
     default:
       return "secondary";
+  }
+}
+
+function budgetTypeLabel(type?: string | null) {
+  if (!type) return null;
+  switch (type.toLowerCase()) {
+    case "daily":
+      return "Diário";
+    case "lifetime":
+      return "Vitalício";
+    case "campaign":
+      return "Campanha (CBO)";
+    default:
+      return type;
   }
 }
 
@@ -258,6 +273,13 @@ export default function CampaignDetails() {
   const { campaign, adSets } = details;
   const currency = campaign.platformAccount?.currency ?? "BRL";
   const metricsTotals = metrics?.totals;
+
+  // Calculate objective-based KPI
+  const resultLabel = getResultLabel(campaign.objective, campaign.platformAccount?.platformKey);
+  const resultValue = metricsTotals?.conversions ?? 0; // This will be updated when useCampaignMetrics is refactored
+  const costPerResult = metricsTotals?.spend && resultValue > 0 ? metricsTotals.spend / resultValue : null;
+  const roas = calculateRoas(metricsTotals?.conversionValue, metricsTotals?.spend ?? 0, campaign.objective);
+
   const performancePoints =
     metrics?.points.map((point) => ({
       date: point.date,
@@ -361,7 +383,7 @@ export default function CampaignDetails() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Gasto no período</CardTitle>
+            <CardTitle className="text-sm font-medium">Investimento</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-semibold">
@@ -374,38 +396,57 @@ export default function CampaignDetails() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Conversas iniciadas (período)</CardTitle>
+            <CardTitle className="text-sm font-medium">{resultLabel}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <p className="text-2xl font-semibold">{formatNumber(metricsTotals?.conversationsStarted ?? metricsTotals?.conversions ?? 0)}</p>
+            <p className="text-2xl font-semibold">{formatNumber(resultValue)}</p>
             <p className="text-xs text-muted-foreground">
-              Conexões de mensagem: {formatNumber(metricsTotals?.messagingConnections ?? 0)}
+              Impressões: {formatNumber(metricsTotals?.impressions ?? 0)}
             </p>
             <p className="text-xs text-muted-foreground">
-              Valor atribuído: {formatCurrency(metricsTotals?.conversionValue ?? 0, currency)}
+              Cliques: {formatNumber(metricsTotals?.clicks ?? 0)}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">CTR / CPC</CardTitle>
+            <CardTitle className="text-sm font-medium">Custo por {resultLabel}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <p className="text-2xl font-semibold">{formatPercent(metricsTotals?.ctr ?? 0, 2)}</p>
+            <p className="text-2xl font-semibold">{costPerResult ? formatCurrency(costPerResult, currency) : "—"}</p>
             <p className="text-xs text-muted-foreground">
-              CPC médio {formatCurrency(metricsTotals?.cpc ?? 0, currency)}
+              CTR: {formatPercent(metricsTotals?.ctr ?? 0, 2)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              CPC: {formatCurrency(metricsTotals?.cpc ?? 0, currency)}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">ROAS / CPA</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {roas !== null ? "ROAS" : "Métricas Adicionais"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <p className="text-2xl font-semibold">{(metricsTotals?.roas ?? 0).toFixed(2)}x</p>
-            <p className="text-xs text-muted-foreground">
-              CPA médio {formatCurrency(metricsTotals?.cpa ?? 0, currency)}
-            </p>
+            {roas !== null ? (
+              <>
+                <p className="text-2xl font-semibold">{roas.toFixed(2)}x</p>
+                <p className="text-xs text-muted-foreground">
+                  Receita: {formatCurrency(metricsTotals?.conversionValue ?? 0, currency)}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-semibold">{formatNumber(metricsTotals?.impressions ?? 0)}</p>
+                <p className="text-xs text-muted-foreground">
+                  Impressões totais
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Alcance: {formatNumber((metricsTotals as any)?.reach ?? 0)}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -542,7 +583,14 @@ export default function CampaignDetails() {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Tipo de orçamento</p>
-                      <p className="font-medium capitalize">{adSet.budgetType ?? "—"}</p>
+                      <div className="font-medium">
+                        {budgetTypeLabel(adSet.budgetType) ?? "—"}
+                        {adSet.budgetType === "campaign" ? (
+                          <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                            Herda orçamento da campanha
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Orçamento diário</p>
@@ -551,6 +599,23 @@ export default function CampaignDetails() {
                     <div>
                       <p className="text-muted-foreground">Orçamento vitalício</p>
                       <p className="font-medium">{formatCurrency(adSet.lifetimeBudget, currency)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Evento de cobrança</p>
+                      <p className="font-medium capitalize">
+                        {adSet.billingEvent ? adSet.billingEvent.replace(/_/g, " ").toLowerCase() : "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Otimização</p>
+                      <div className="font-medium capitalize">
+                        {adSet.optimizationGoal ? adSet.optimizationGoal.replace(/_/g, " ").toLowerCase() : "—"}
+                        {adSet.pacingType && adSet.pacingType.length > 0 ? (
+                          <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                            Pacing: {adSet.pacingType.join(", ")}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 

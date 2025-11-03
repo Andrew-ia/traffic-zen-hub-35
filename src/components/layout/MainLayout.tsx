@@ -1,5 +1,6 @@
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { CommandMenuProvider } from "./CommandMenu";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -7,12 +8,14 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   return (
-    <div className="flex min-h-screen w-full">
-      <Sidebar />
-      <div className="flex-1 lg:pl-64">
-        <Header />
-        <main className="p-6">{children}</main>
+    <CommandMenuProvider>
+      <div className="flex min-h-screen w-full">
+        <Sidebar />
+        <div className="flex-1 lg:pl-64">
+          <Header />
+          <main className="p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </CommandMenuProvider>
   );
 }

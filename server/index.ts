@@ -13,6 +13,7 @@ import {
   getSyncStatus,
   getWorkspaceSyncJobs,
 } from './api/integrations/simpleSync.js';
+import { syncMetaBilling } from './api/integrations/billing.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -50,6 +51,7 @@ app.delete('/api/integrations/credentials/:workspaceId/:platformKey', deleteCred
 app.post('/api/integrations/sync', startSync);
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
 app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
+app.post('/api/integrations/billing/sync', syncMetaBilling);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

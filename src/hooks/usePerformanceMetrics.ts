@@ -38,20 +38,18 @@ export interface PerformanceSummary {
   lastUpdatedAt: string | null;
 }
 
-const DAYS = 30;
-
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
 
 if (!WORKSPACE_ID) {
   throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
 }
 
-export function usePerformanceMetrics(): UseQueryResult<PerformanceSummary> {
+export function usePerformanceMetrics(days: number = 30): UseQueryResult<PerformanceSummary> {
   return useQuery({
-    queryKey: ["meta", "performance-metrics", DAYS],
+    queryKey: ["meta", "performance-metrics", days],
     queryFn: async () => {
       const since = new Date();
-      since.setDate(since.getDate() - DAYS);
+      since.setDate(since.getDate() - days);
 
       const { data, error } = await supabase
         .from("performance_metrics")

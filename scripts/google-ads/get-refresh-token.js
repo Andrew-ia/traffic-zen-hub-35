@@ -9,10 +9,14 @@
  * node scripts/google-ads/get-refresh-token.js
  */
 
+import dotenv from 'dotenv';
 import http from 'http';
 import { parse } from 'url';
 import open from 'open';
 import { google } from 'googleapis';
+
+// Load .env.local
+dotenv.config({ path: '.env.local' });
 
 const {
   GOOGLE_CLIENT_ID,

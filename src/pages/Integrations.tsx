@@ -12,6 +12,7 @@ import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import MetaSyncButton from "@/components/MetaSyncButton";
+import GoogleAdsSyncButton from "@/components/GoogleAdsSyncButton";
 import {
   Facebook,
   Instagram,
@@ -24,6 +25,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  RefreshCw,
 } from "lucide-react";
 
 export default function Integrations() {
@@ -202,7 +204,7 @@ export default function Integrations() {
                               {integration.platform_display_name ?? integration.platform_key}
                             </p>
                             <p className="text-xs uppercase text-muted-foreground">
-                              {integration.platform_category ?? "Categoria não definida"}
+                              {integration.platform_category ?? "ADS"}
                             </p>
                           </div>
                         </div>
@@ -210,9 +212,9 @@ export default function Integrations() {
                           {integration.status === "active" ? "Conectado" : "Inativo"}
                         </Badge>
                       </div>
-                      <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>{accountCount} conta(s) vinculada(s)</span>
-                        <span>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{accountCount} conta(s) vinculada(s)</span>
+                        <span className="text-muted-foreground">
                           {integration.last_synced_at
                             ? `Sincronizado ${formatDistanceToNow(new Date(integration.last_synced_at), {
                                 addSuffix: true,
@@ -221,6 +223,11 @@ export default function Integrations() {
                             : "Sincronização pendente"}
                         </span>
                       </div>
+                      {integration.platform_key === "google_ads" && integration.status === "active" && (
+                        <div className="pt-2">
+                          <GoogleAdsSyncButton variant="outline" size="sm" className="w-full" />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );

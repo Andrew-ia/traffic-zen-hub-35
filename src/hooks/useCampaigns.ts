@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import type { CampaignTableRow } from "@/components/campaigns/CampaignsTable";
+import type { CampaignKPIRow } from "@/types/kpi";
 
 const STATUS_ORDER: Record<string, number> = {
   active: 0,
@@ -17,6 +18,7 @@ export interface CampaignQueryOptions {
   search?: string;
   page?: number;
   pageSize?: number;
+  platform?: string;
 }
 
 interface CampaignQueryRow {
@@ -31,6 +33,7 @@ interface CampaignQueryRow {
   updated_at: string | null;
   platform_accounts: {
     name: string | null;
+    platform_key: string | null;
   } | null;
 }
 
@@ -51,10 +54,11 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
     search = "",
     page = 1,
     pageSize = 0, // 0 => fetch all
+    platform = "all",
   } = options;
 
   return useQuery({
-    queryKey: ["meta", "campaigns", status, search, page, pageSize],
+    queryKey: ["meta", "campaigns", status, search, page, pageSize, platform],
     queryFn: async (): Promise<CampaignQueryResult> => {
       let query = supabase
         .from("campaigns")
@@ -69,7 +73,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
             start_date,
             end_date,
             updated_at,
-            platform_accounts ( name )
+            platform_accounts!inner ( name, platform_key )
           `,
           { count: "exact" },
         )
@@ -82,6 +86,10 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
 
       if (search) {
         query = query.ilike("name", `%${search}%`);
+      }
+
+      if (platform !== "all") {
+        query = query.eq("platform_accounts.platform_key", platform);
       }
 
       query = query.order("status", { ascending: true }).order("updated_at", { ascending: false });
@@ -99,19 +107,90 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         throw error;
       }
 
-      const mapped: CampaignTableRow[] = (data as CampaignQueryRow[]).map((row) => ({
-        id: row.id,
-        name: row.name,
-        status: row.status,
-        objective: row.objective,
-        dailyBudget: row.daily_budget !== null && row.daily_budget !== undefined ? Number(row.daily_budget) : null,
-        lifetimeBudget:
-          row.lifetime_budget !== null && row.lifetime_budget !== undefined ? Number(row.lifetime_budget) : null,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        platformAccount: row.platform_accounts?.name ?? null,
-        updatedAt: row.updated_at,
-      }));
+      // Fetch KPI metrics for the last 30 days
+      const end = new Date();
+      end.setHours(0, 0, 0, 0);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 29);
+      const fromDate = start.toISOString().slice(0, 10);
+      const toDate = end.toISOString().slice(0, 10);
+
+      const campaignIds = (data as CampaignQueryRow[]).map((row) => row.id);
+
+      // Fetch KPI data from v_campaign_kpi view
+      const { data: kpiData } = campaignIds.length > 0
+        ? await supabase
+            .from('v_campaign_kpi')
+            .select('campaign_id, result_label, result_value, cost_per_result, spend, roas')
+            .eq('workspace_id', WORKSPACE_ID)
+            .is('ad_set_id', null)
+            .is('ad_id', null)
+            .in('campaign_id', campaignIds)
+            .gte('metric_date', fromDate)
+            .lte('metric_date', toDate)
+        : { data: [] };
+
+      // Aggregate KPI by campaign
+      const kpiByCampaign = new Map<string, {
+        resultLabel: string;
+        resultValue: number;
+        costPerResult: number | null;
+        spend: number;
+        roas: number | null;
+      }>();
+
+      for (const row of (kpiData as CampaignKPIRow[]) ?? []) {
+        if (!row.campaign_id) continue;
+
+        const existing = kpiByCampaign.get(row.campaign_id);
+        if (!existing) {
+          kpiByCampaign.set(row.campaign_id, {
+            resultLabel: row.result_label,
+            resultValue: row.result_value || 0,
+            costPerResult: null,
+            spend: row.spend || 0,
+            roas: null,
+          });
+        } else {
+          existing.resultValue += row.result_value || 0;
+          existing.spend += row.spend || 0;
+          if (row.roas && row.revenue) {
+            existing.roas = (existing.roas || 0) + row.roas;
+          }
+        }
+      }
+
+      // Calculate aggregated cost_per_result and average ROAS
+      for (const kpi of kpiByCampaign.values()) {
+        if (kpi.resultValue > 0) {
+          kpi.costPerResult = kpi.spend / kpi.resultValue;
+        }
+      }
+
+      const mapped: CampaignTableRow[] = (data as CampaignQueryRow[]).map((row) => {
+        const kpi = kpiByCampaign.get(row.id);
+        return {
+          id: row.id,
+          name: row.name,
+          status: row.status,
+          objective: row.objective,
+          dailyBudget: row.daily_budget !== null && row.daily_budget !== undefined ? Number(row.daily_budget) : null,
+          lifetimeBudget:
+            row.lifetime_budget !== null && row.lifetime_budget !== undefined ? Number(row.lifetime_budget) : null,
+          startDate: row.start_date,
+          endDate: row.end_date,
+          platformAccount: row.platform_accounts?.name ?? null,
+          platformKey: row.platform_accounts?.platform_key ?? null,
+          updatedAt: row.updated_at,
+
+          // KPI metrics
+          resultLabel: kpi?.resultLabel,
+          resultValue: kpi?.resultValue,
+          costPerResult: kpi?.costPerResult,
+          spend: kpi?.spend,
+          roas: kpi?.roas,
+        };
+      });
 
       const sorted = mapped.sort((a, b) => {
         const aStatus = STATUS_ORDER[a.status?.toLowerCase()] ?? 99;
