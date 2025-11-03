@@ -11,6 +11,7 @@ import {
   Users,
   Link2,
   Plug,
+  Sparkles,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -29,6 +30,7 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Orçamento", href: "/budget", icon: DollarSign, keywords: ["budget", "investimento"] },
   { name: "Calendário", href: "/calendar", icon: Calendar, keywords: ["agenda", "planejamento"] },
   { name: "Criativos", href: "/creatives", icon: Image, keywords: ["ads", "criativo"] },
+  { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
   { name: "Públicos", href: "/audiences", icon: Users, keywords: ["audiencias", "segmentos"] },
   { name: "UTMs", href: "/utms", icon: Link2, keywords: ["utm", "tracking"] },
   { name: "Integrações", href: "/integrations", icon: Plug, keywords: ["config", "conexões"] },

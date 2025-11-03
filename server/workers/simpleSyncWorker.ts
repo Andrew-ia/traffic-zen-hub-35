@@ -291,12 +291,30 @@ async function pollForJobs() {
       throw new Error('Credentials not found');
     }
 
-    // Decrypt credentials
-    const { decryptCredentials } = await import('../services/encryption.js');
-    const credentials = decryptCredentials(
-      credResult.rows[0].encrypted_credentials,
-      credResult.rows[0].encryption_iv
-    );
+    // Decrypt credentials (fail job gracefully on error)
+    let credentials: any;
+    try {
+      const { decryptCredentials } = await import('../services/encryption.js');
+      credentials = decryptCredentials(
+        credResult.rows[0].encrypted_credentials,
+        credResult.rows[0].encryption_iv
+      );
+    } catch (decryptError) {
+      await pool.query(
+        `
+        UPDATE sync_jobs
+        SET status = 'failed',
+            error_message = 'Failed to read credentials',
+            error_details = $2::jsonb,
+            completed_at = now(),
+            progress = 0
+        WHERE id = $1
+        `,
+        [job.id, JSON.stringify({ message: (decryptError as Error).message })]
+      );
+      console.error('Credential decrypt failed for job', job.id, decryptError);
+      return; // stop processing this job
+    }
 
     const jobData: SyncJobData = {
       jobId: job.id,

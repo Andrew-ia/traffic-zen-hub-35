@@ -17,6 +17,7 @@ import Leads from "./pages/Leads";
 import Creatives from "./pages/Creatives";
 import CreativesV2 from "./pages/CreativesV2";
 import CreativesGrouped from "./pages/CreativesGrouped";
+import VirtualTryOn from "./pages/VirtualTryOn";
 import Audiences from "./pages/Audiences";
 import UTMs from "./pages/UTMs";
 import Automations from "./pages/Automations";
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/creatives" element={<CreativesGrouped />} />
             <Route path="/creatives-old" element={<Creatives />} />
             <Route path="/creatives-v2" element={<CreativesV2 />} />
+            <Route path="/gerador-looks" element={<VirtualTryOn />} />
             <Route path="/audiences" element={<Audiences />} />
             <Route path="/utms" element={<UTMs />} />
             <Route path="/automations" element={<Automations />} />

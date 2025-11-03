@@ -1,15 +1,33 @@
 import type { Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Initialize Gemini with server-side API key
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 const MODEL_PRIMARY = 'gemini-2.5-flash-image';
-const MODEL_FALLBACK = 'gemini-1.5-flash';
+const MODEL_FALLBACK = 'gemini-2.0-flash-preview-image-generation';
 
-// Use a forma compatível com a versão instalada do SDK (string)
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
+let cachedKey: string | null = null;
+let cachedClient: GoogleGenerativeAI | null = null;
+
+const getGeminiApiKey = () =>
+  process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+
+function getGeminiClient() {
+  const key = getGeminiApiKey();
+  if (!key) {
+    cachedClient = null;
+    cachedKey = null;
+    return null;
+  }
+
+  if (!cachedClient || cachedKey !== key) {
+    cachedClient = new GoogleGenerativeAI(key);
+    cachedKey = key;
+  }
+
+  return cachedClient;
+}
 
 type AspectRatio = '1:1' | '9:16' | '16:9' | '4:5';
+const MAX_VARIATIONS = 3;
 
 interface TryOnRequestBody {
   modelBase64: string; // base64 without data URL prefix
@@ -17,6 +35,7 @@ interface TryOnRequestBody {
   clothingBase64: string; // base64 without data URL prefix
   clothingMimeType: string;
   aspectRatio?: AspectRatio;
+  count?: number;
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -60,8 +79,28 @@ Requirements:
 - Photo-realistic and high quality
 
 Output:
-- Portrait photo in ${aspectRatio} aspect ratio
+- Portrait photo in ${aspectRatio} aspect ratio (strictly match this framing)
 - Target resolution ${w}x${h} pixels`;
+}
+
+function extractImagesFromResponse(response: any): string[] {
+  const candidates = response?.candidates ?? [];
+  const images: string[] = [];
+
+  for (const candidate of candidates) {
+    const parts = candidate?.content?.parts ?? [];
+    for (const part of parts) {
+      if (part && typeof part === 'object' && 'inlineData' in part && part.inlineData) {
+        const mimeType = part.inlineData.mimeType || 'image/png';
+        const data = part.inlineData.data;
+        if (data) {
+          images.push(`data:${mimeType};base64,${data}`);
+        }
+      }
+    }
+  }
+
+  return images;
 }
 
 async function generateSingleImage(
@@ -70,8 +109,12 @@ async function generateSingleImage(
   clothingBase64: string,
   clothingMimeType: string,
   aspectRatio: AspectRatio,
-  retryCount = 0,
 ): Promise<string> {
+  const genAI = getGeminiClient();
+  if (!genAI) {
+    throw new Error('Servidor sem GEMINI_API_KEY configurada.');
+  }
+
   const prompt = buildPrompt(aspectRatio);
 
   const imageParts = [
@@ -81,68 +124,85 @@ async function generateSingleImage(
 
   const contents: any = [{ role: 'user', parts: [...imageParts, { text: prompt }] }];
 
-  let modelName = MODEL_PRIMARY;
-  let result: any;
+  const attemptModel = async (modelName: string) =>
+    retryWithBackoff(async () => {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent({
+        contents,
+        generationConfig: {
+          responseModalities: ['IMAGE'],
+          candidateCount: 1,
+        },
+      });
 
-  try {
-    const model = genAI.getGenerativeModel({ model: modelName });
-    result = await model.generateContent({
-      contents,
-      generationConfig: { responseMimeType: 'image/png' },
-    });
-  } catch (e: any) {
-    if (e.message?.includes('unavailable') || e.message?.includes('not found')) {
-      console.warn(`Modelo ${modelName} indisponível, tentando ${MODEL_FALLBACK}...`);
-      modelName = MODEL_FALLBACK;
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        result = await model.generateContent({
-          contents,
-          generationConfig: { responseMimeType: 'image/png' },
-        });
-      } catch (fallbackError: any) {
-        console.error(`Falha no modelo fallback ${MODEL_FALLBACK}:`, fallbackError);
+      const images = extractImagesFromResponse(result.response);
+      if (images.length === 0) {
+        const textResponse = result.response?.text?.();
         throw new Error(
-          `Modelos ${MODEL_PRIMARY} e ${MODEL_FALLBACK} indisponíveis para esta conta/região.`,
+          textResponse
+            ? `Resposta inesperada do modelo: ${textResponse}`
+            : 'Resposta do modelo sem imagens.',
         );
       }
-    } else {
-      throw e;
+      return images[0];
+    });
+
+  try {
+    return await attemptModel(MODEL_PRIMARY);
+  } catch (e: any) {
+    if (e?.message?.includes('unavailable') || e?.message?.includes('not found')) {
+      console.warn(`Modelo ${MODEL_PRIMARY} indisponível, tentando ${MODEL_FALLBACK}...`);
+      return await attemptModel(MODEL_FALLBACK);
     }
+    throw e;
   }
+}
 
-  const response = result.response;
-  const firstPart = response?.candidates?.[0]?.content?.parts?.[0];
+async function generateImages(
+  modelBase64: string,
+  modelMimeType: string,
+  clothingBase64: string,
+  clothingMimeType: string,
+  aspectRatio: AspectRatio,
+  count: number,
+): Promise<string[]> {
+  const variationsRequested = Math.min(Math.max(count, 1), MAX_VARIATIONS);
+  const images: string[] = [];
+  const maxAttempts = variationsRequested + 3;
 
-  if (firstPart && 'inlineData' in firstPart) {
-    return `data:${firstPart.inlineData.mimeType};base64,${firstPart.inlineData.data}`;
-  }
-
-  const textResponse = response?.text?.();
-  if (retryCount < 2 && (!firstPart || !('inlineData' in firstPart))) {
-    console.warn('Resposta inesperada, tentando novamente. Resposta:', textResponse);
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
-    return generateSingleImage(
+  let attempts = 0;
+  while (images.length < variationsRequested && attempts < maxAttempts) {
+    const image = await generateSingleImage(
       modelBase64,
       modelMimeType,
       clothingBase64,
       clothingMimeType,
       aspectRatio,
-      retryCount + 1,
     );
+
+    if (!images.includes(image)) {
+      images.push(image);
+    }
+    attempts += 1;
+
+    if (images.length < variationsRequested) {
+      await delay(1000);
+    }
   }
 
-  throw new Error(
-    `Não foi possível gerar uma imagem válida. Resposta da IA: ${
-      textResponse || '(vazio)'
-    }`,
-  );
+  return images.slice(0, variationsRequested);
 }
 
 export async function virtualTryOn(req: Request, res: Response) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ success: false, error: 'Servidor sem GEMINI_API_KEY configurada.' });
+    console.log('🎨 Virtual Try-On request received');
+
+    if (!getGeminiApiKey()) {
+      console.error('❌ GEMINI_API_KEY not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Servidor sem GEMINI_API_KEY configurada.',
+      });
     }
 
     const {
@@ -151,7 +211,10 @@ export async function virtualTryOn(req: Request, res: Response) {
       clothingBase64,
       clothingMimeType,
       aspectRatio = '9:16',
+      count = 1,
     } = req.body as TryOnRequestBody;
+
+    console.log(`📸 Processing: aspectRatio=${aspectRatio}, count=${count}`);
 
     if (!modelBase64 || !modelMimeType || !clothingBase64 || !clothingMimeType) {
       return res.status(400).json({ success: false, error: 'Campos obrigatórios ausentes.' });
@@ -163,17 +226,36 @@ export async function virtualTryOn(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'Formato de imagem inválido. Use PNG, JPG ou WEBP.' });
     }
 
-    const image = await generateSingleImage(
+    const requestedCount =
+      typeof count === 'number'
+        ? count
+        : parseInt(String(count), 10) || 1;
+
+    console.log(`🚀 Calling Gemini API to generate ${requestedCount} image(s)...`);
+    const images = await generateImages(
       modelBase64,
       modelMimeType,
       clothingBase64,
       clothingMimeType,
-      aspectRatio as AspectRatio
+      aspectRatio as AspectRatio,
+      requestedCount,
     );
 
-    return res.json({ success: true, image });
+    console.log(`✅ Generated ${images.length} image(s) successfully`);
+    return res.json({
+      success: true,
+      images,
+      image: images[0],
+      count: images.length,
+    });
   } catch (error: any) {
     const msg = error?.message || 'Erro desconhecido';
+    if (/unregistered callers|api key/i.test(msg) || error?.status === 403) {
+      return res.status(500).json({
+        success: false,
+        error: 'Falha ao autenticar com a API do Gemini. Verifique se a GEMINI_API_KEY é válida e possui acesso ao modelo de imagem.',
+      });
+    }
     if (msg.toLowerCase().includes('quota') || msg.includes('429')) {
       return res.status(429).json({ success: false, error: 'Limite de quota atingido. Tente novamente em alguns minutos.' });
     }

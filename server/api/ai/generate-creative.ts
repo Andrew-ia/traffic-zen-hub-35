@@ -53,7 +53,7 @@ export async function generateCreative(req: Request, res: Response) {
     console.log('Prompt:', prompt);
     console.log('Aspect Ratios:', aspectRatios);
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const generatedAssets: any[] = [];
 

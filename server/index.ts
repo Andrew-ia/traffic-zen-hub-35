@@ -32,7 +32,8 @@ app.use(cors({
   ],
   credentials: true,
 }));
-app.use(express.json());
+// Increase JSON body limit to handle base64-encoded images from virtual try-on uploads
+app.use(express.json({ limit: '15mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -88,7 +89,6 @@ async function start() {
     // Validate required environment variables
     const required = [
       'SUPABASE_DATABASE_URL',
-      'ENCRYPTION_KEY',
     ];
 
     const missing = required.filter(key => !process.env[key]);
