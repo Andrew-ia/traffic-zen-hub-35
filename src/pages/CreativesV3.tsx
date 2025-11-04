@@ -258,23 +258,45 @@ export default function CreativesV3() {
   const [activeTab, setActiveTab] = useState<keyof typeof TYPE_TAB_MAP>("all");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 
-  const { data: allCreativeData, isLoading, error } = useCreativeLibrary({ days: 30 });
+  const { data: creativeData, isLoading, error } = useCreativeLibrary({ days: 30 });
 
-  // Filter to show ONLY Virtual Try-On creatives
-  const creativeData = useMemo(() => {
-    if (!allCreativeData) return [];
-    return allCreativeData.filter(c =>
+  // Folders
+  const folders: CreativeFolder[] = useMemo(() => {
+    if (!creativeData) return [];
+
+    const campaignCreatives = creativeData.filter(c => c.campaignCount > 0);
+    const tryonCreatives = creativeData.filter(c =>
       c.metadata && 'source' in c.metadata && c.metadata.source === 'virtual-tryon'
     );
-  }, [allCreativeData]);
 
-  // No folders needed - showing only Virtual Try-On creatives
+    return [
+      {
+        id: 'all',
+        name: 'Todos os Criativos',
+        count: creativeData.length,
+        icon: <Folder className="h-4 w-4" />,
+      },
+      {
+        id: 'campaigns',
+        name: 'Criativos de Campanhas',
+        count: campaignCreatives.length,
+        icon: <Share2 className="h-4 w-4" />,
+      },
+      {
+        id: 'tryon',
+        name: 'Virtual Try-On',
+        count: tryonCreatives.length,
+        icon: <ImageIcon className="h-4 w-4" />,
+      },
+    ];
+  }, [creativeData]);
 
   // Filtered creatives - ONLY show creatives with images
   const filteredCreatives = useMemo(() => {
     if (!creativeData) return [];
 
     const term = searchTerm.trim().toLowerCase();
+    const typeFilter = TYPE_TAB_MAP[activeTab];
 
     return creativeData.filter((creative) => {
       // CRITICAL: Only show creatives that have an image
@@ -287,9 +309,30 @@ export default function CreativesV3() {
         creative.name.toLowerCase().includes(term) ||
         (creative.textContent ?? "").toLowerCase().includes(term);
 
-      return matchesSearch;
+      // Type filter
+      let matchesType = true;
+      if (typeFilter === "campaign") {
+        matchesType = creative.campaignCount > 0;
+      } else if (typeFilter === "virtual-tryon") {
+        matchesType = creative.metadata && 'source' in creative.metadata && creative.metadata.source === 'virtual-tryon';
+      } else if (typeFilter === "image" || typeFilter === "video") {
+        // For image/video filters, check the type
+        matchesType = creative.type?.toLowerCase() === typeFilter;
+      }
+
+      // Folder filter
+      let matchesFolder = true;
+      if (selectedFolder && selectedFolder !== 'all') {
+        if (selectedFolder === 'campaigns') {
+          matchesFolder = creative.campaignCount > 0;
+        } else if (selectedFolder === 'tryon') {
+          matchesFolder = creative.metadata && 'source' in creative.metadata && creative.metadata.source === 'virtual-tryon';
+        }
+      }
+
+      return matchesSearch && matchesType && matchesFolder;
     });
-  }, [creativeData, searchTerm]);
+  }, [creativeData, activeTab, searchTerm, selectedFolder]);
 
   // Actions
   const handleDownload = async (creative: any) => {
@@ -457,34 +500,42 @@ export default function CreativesV3() {
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Criativos Virtual Try-On</h1>
+          <h1 className="text-3xl font-bold">Biblioteca de Criativos</h1>
           <p className="mt-1 text-muted-foreground">
-            Seus looks gerados por IA - baixe e compartilhe no WhatsApp e Instagram
+            Organize e compartilhe seus criativos para WhatsApp e Instagram
           </p>
-          {filteredCreatives.length > 0 && (
+          {creativeData && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {filteredCreatives.length} {filteredCreatives.length === 1 ? 'criativo' : 'criativos'}
+              {filteredCreatives.length} de {creativeData.length} criativos
             </p>
           )}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline">
+            <Upload className="mr-2 h-4 w-4" />
+            Upload
+          </Button>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Novo Criativo
+          </Button>
         </div>
       </div>
 
       {/* Search */}
-      {filteredCreatives.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar criativos..."
-            className="pl-10"
-          />
-        </div>
-      )}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Buscar criativos..."
+          className="pl-10"
+        />
+      </div>
 
-      {/* Remove folders section - not needed */}
-      <div className="hidden gap-2 overflow-x-auto pb-2">
-        {/* {folders.map((folder) => (
+      {/* Folders */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {folders.map((folder) => (
           <Button
             key={folder.id}
             variant={selectedFolder === folder.id ? "default" : "outline"}
