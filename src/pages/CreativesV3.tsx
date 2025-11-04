@@ -345,8 +345,14 @@ export default function CreativesV3() {
     }
 
     try {
-      // Fetch the file as a blob to bypass CORS issues
-      const response = await fetch(url);
+      // Use server proxy to download files (bypasses CORS)
+      const proxyUrl = `http://localhost:3001/api/creatives/download-proxy?url=${encodeURIComponent(url)}`;
+
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download: ${response.statusText}`);
+      }
+
       const blob = await response.blob();
 
       // Create a temporary URL for the blob
@@ -384,8 +390,24 @@ export default function CreativesV3() {
       window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error('Erro ao baixar arquivo:', error);
-      // Fallback: open in new tab if fetch fails
-      window.open(url, '_blank');
+
+      // Fallback: try direct download
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = creative.name || 'creative';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+      } catch (fallbackError) {
+        console.error('Fallback download also failed:', fallbackError);
+        // Last resort: open in new tab
+        window.open(url, '_blank');
+      }
     }
   };
 
