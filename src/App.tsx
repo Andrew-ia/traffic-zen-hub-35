@@ -17,6 +17,7 @@ import Leads from "./pages/Leads";
 import Creatives from "./pages/Creatives";
 import CreativesV2 from "./pages/CreativesV2";
 import CreativesGrouped from "./pages/CreativesGrouped";
+import CreativesV3 from "./pages/CreativesV3";
 import VirtualTryOn from "./pages/VirtualTryOn";
 import Audiences from "./pages/Audiences";
 import UTMs from "./pages/UTMs";
@@ -45,9 +46,10 @@ const App = () => (
             <Route path="/budget" element={<Budget />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/leads" element={<Leads />} />
-            <Route path="/creatives" element={<CreativesGrouped />} />
+            <Route path="/creatives" element={<CreativesV3 />} />
             <Route path="/creatives-old" element={<Creatives />} />
             <Route path="/creatives-v2" element={<CreativesV2 />} />
+            <Route path="/creatives-grouped" element={<CreativesGrouped />} />
             <Route path="/gerador-looks" element={<VirtualTryOn />} />
             <Route path="/audiences" element={<Audiences />} />
             <Route path="/utms" element={<UTMs />} />
