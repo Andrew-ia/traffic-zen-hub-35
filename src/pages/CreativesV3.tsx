@@ -336,6 +336,8 @@ export default function CreativesV3() {
 
   // Actions
   const handleDownload = async (creative: any) => {
+    // For videos, use storageUrl (the actual video file)
+    // For images, use storageUrl first, then thumbnailUrl
     const url = creative.storageUrl || creative.thumbnailUrl;
     if (!url) {
       alert("URL de download não disponível");
@@ -343,17 +345,37 @@ export default function CreativesV3() {
     }
 
     try {
-      // Fetch the image as a blob to bypass CORS issues
+      // Fetch the file as a blob to bypass CORS issues
       const response = await fetch(url);
       const blob = await response.blob();
 
       // Create a temporary URL for the blob
       const blobUrl = window.URL.createObjectURL(blob);
 
+      // Determine file extension based on type
+      let extension = 'jpg';
+      if (creative.type === 'video') {
+        // Get extension from blob type or default to mp4
+        const mimeType = blob.type;
+        if (mimeType.includes('mp4')) extension = 'mp4';
+        else if (mimeType.includes('webm')) extension = 'webm';
+        else if (mimeType.includes('mov')) extension = 'mov';
+        else if (mimeType.includes('avi')) extension = 'avi';
+        else extension = 'mp4'; // default for videos
+      } else {
+        // For images
+        const mimeType = blob.type;
+        if (mimeType.includes('png')) extension = 'png';
+        else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) extension = 'jpg';
+        else if (mimeType.includes('webp')) extension = 'webp';
+        else if (mimeType.includes('gif')) extension = 'gif';
+        else extension = 'jpg'; // default for images
+      }
+
       // Create a temporary link and trigger download
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `${creative.name || 'creative'}.${blob.type.split('/')[1] || 'jpg'}`;
+      link.download = `${creative.name || 'creative'}.${extension}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -361,7 +383,7 @@ export default function CreativesV3() {
       // Clean up the blob URL
       window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
-      console.error('Erro ao baixar imagem:', error);
+      console.error('Erro ao baixar arquivo:', error);
       // Fallback: open in new tab if fetch fails
       window.open(url, '_blank');
     }
