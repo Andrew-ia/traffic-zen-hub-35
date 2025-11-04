@@ -335,39 +335,120 @@ export default function CreativesV3() {
   }, [creativeData, activeTab, searchTerm, selectedFolder]);
 
   // Actions
-  const handleDownload = (creative: any) => {
+  const handleDownload = async (creative: any) => {
     const url = creative.storageUrl || creative.thumbnailUrl;
     if (!url) {
       alert("URL de download não disponível");
       return;
     }
 
-    // Create a temporary link and trigger download
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = creative.name || 'creative';
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      // Fetch the image as a blob to bypass CORS issues
+      const response = await fetch(url);
+      const blob = await response.blob();
+
+      // Create a temporary URL for the blob
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      // Create a temporary link and trigger download
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `${creative.name || 'creative'}.${blob.type.split('/')[1] || 'jpg'}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the blob URL
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Erro ao baixar imagem:', error);
+      // Fallback: open in new tab if fetch fails
+      window.open(url, '_blank');
+    }
   };
 
-  const handleShareWhatsApp = (creative: any) => {
+  const handleShareWhatsApp = async (creative: any) => {
     const url = creative.storageUrl || creative.thumbnailUrl;
     if (!url) {
       alert("URL não disponível para compartilhamento");
       return;
     }
 
-    // WhatsApp share - opens WhatsApp with text and URL
-    const text = `Confira este criativo: ${creative.name}`;
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}`;
-    window.open(whatsappUrl, '_blank');
+    try {
+      // Try to fetch the image and share as blob if Web Share API is available
+      if (navigator.share) {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const file = new File([blob], `${creative.name || 'creative'}.jpg`, { type: blob.type });
+
+        await navigator.share({
+          title: creative.name,
+          text: creative.textContent || 'Confira este criativo',
+          files: [file],
+        });
+      } else {
+        // Fallback: WhatsApp Web with text and URL
+        const text = `${creative.textContent || creative.name}`;
+        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}`;
+        window.open(whatsappUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Erro ao compartilhar no WhatsApp:', error);
+      // Fallback: WhatsApp Web with text and URL
+      const text = `${creative.textContent || creative.name}`;
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}`;
+      window.open(whatsappUrl, '_blank');
+    }
   };
 
-  const handleShareInstagram = (creative: any) => {
-    alert("Funcionalidade de postagem no Instagram será implementada em breve.");
-    // TODO: Implement Instagram API integration
+  const handleShareInstagram = async (creative: any) => {
+    const url = creative.storageUrl || creative.thumbnailUrl;
+    if (!url) {
+      alert("URL não disponível");
+      return;
+    }
+
+    try {
+      // Fetch the image as blob
+      const response = await fetch(url);
+      const blob = await response.blob();
+
+      // Copy image to clipboard
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [blob.type]: blob
+        })
+      ]);
+
+      alert("✅ Imagem copiada! Cole no Instagram Stories ou Feed.");
+
+      // Open Instagram in new tab
+      setTimeout(() => {
+        window.open('https://www.instagram.com/', '_blank');
+      }, 500);
+    } catch (error) {
+      console.error('Erro ao copiar imagem:', error);
+
+      // Fallback: download the image
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `${creative.name || 'creative'}_instagram.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+
+        alert("📥 Imagem baixada! Faça upload manualmente no Instagram.");
+        window.open('https://www.instagram.com/', '_blank');
+      } catch (downloadError) {
+        alert("❌ Erro ao processar imagem. Tente abrir a imagem diretamente.");
+        window.open(url, '_blank');
+      }
+    }
   };
 
   return (
