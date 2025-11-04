@@ -29,26 +29,22 @@ export async function downloadProxy(req: Request, res: Response) {
       });
     }
 
-    // Get content type from response
+    // Get content type and content length from response
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const contentLength = response.headers.get('content-length');
 
-    // Stream the file to the client
+    // Download the entire file as a buffer first
+    const buffer = await response.buffer();
+
+    console.log(`📦 Downloaded ${buffer.length} bytes (Content-Type: ${contentType})`);
+
+    // Set response headers
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Length', buffer.length.toString());
 
-    // If it's a known file type, suggest a download
-    if (contentType.includes('image') || contentType.includes('video')) {
-      const extension = contentType.split('/')[1] || 'bin';
-      res.setHeader('Content-Disposition', `attachment; filename="creative.${extension}"`);
-    }
-
-    // Pipe the response body to the client
-    if (response.body) {
-      response.body.pipe(res as any);
-    } else {
-      const buffer = await response.buffer();
-      res.send(buffer);
-    }
+    // Send the complete buffer to the client
+    res.send(buffer);
 
   } catch (error: any) {
     console.error('Error proxying download:', error);
