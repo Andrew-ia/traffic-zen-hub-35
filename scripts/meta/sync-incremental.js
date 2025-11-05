@@ -382,13 +382,14 @@ async function upsertCreativeAsset(client, workspaceId, creative) {
 
 async function fetchInsightsForPeriod(accessToken, adAccountId, days, level) {
   const insights = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const startDate = new Date(today);
+  const yesterday = new Date();
+  yesterday.setHours(0, 0, 0, 0);
+  yesterday.setDate(yesterday.getDate() - 1); // Use yesterday as "until" since today's data isn't complete yet
+  const startDate = new Date(yesterday);
   startDate.setDate(startDate.getDate() - days + 1);
 
   const since = startDate.toISOString().slice(0, 10);
-  const until = today.toISOString().slice(0, 10);
+  const until = yesterday.toISOString().slice(0, 10);
 
   const levelSpecific = {
     account: [],

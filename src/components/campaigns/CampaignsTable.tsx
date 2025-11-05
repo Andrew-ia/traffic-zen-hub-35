@@ -134,29 +134,31 @@ export function CampaignsTable({
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <CardTitle>{title}</CardTitle>
+      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <CardTitle className="text-lg sm:text-xl">{title}</CardTitle>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           {headerActions}
-          {showCreateButton && <Button>Nova Campanha</Button>}
+          {showCreateButton && <Button className="w-full sm:w-auto">Nova Campanha</Button>}
         </div>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Conta</TableHead>
-              <TableHead>Objetivo</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Resultado</TableHead>
-              <TableHead className="text-right">Qtd</TableHead>
-              <TableHead className="text-right">Investimento</TableHead>
-              <TableHead className="text-right">Custo/Resultado</TableHead>
-              <TableHead className="text-right">ROAS</TableHead>
-              <TableHead className="text-right">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
+      <CardContent className="p-0 sm:p-6">
+        {/* Container responsivo sem forçar largura mínima */}
+        <div className="overflow-x-auto">
+          <Table className="w-full">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Conta</TableHead>
+                <TableHead className="hidden sm:table-cell">Objetivo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="hidden md:table-cell">Resultado</TableHead>
+                <TableHead className="text-right hidden md:table-cell">Qtd</TableHead>
+                <TableHead className="text-right">Investimento</TableHead>
+                <TableHead className="text-right hidden lg:table-cell">Custo/Resultado</TableHead>
+                <TableHead className="text-right hidden lg:table-cell">ROAS</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
           <TableBody>
             {isLoading && (
               <TableRow>
@@ -180,69 +182,77 @@ export function CampaignsTable({
                   onClick={() => navigate(`/campaigns/${campaign.id}`)}
                   className="cursor-pointer transition hover:bg-muted/50"
                 >
-                  <TableCell className="font-medium">{campaign.name}</TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm">{campaign.platformAccount ?? "-"}</span>
-                      <Badge variant={getPlatformBadgeVariant(campaign.platformKey)} className="w-fit text-xs">
+                    <div className="font-medium text-sm sm:text-base">{campaign.name}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={getPlatformBadgeVariant(campaign.platformKey)}
+                        className="text-[10px] sm:text-xs px-1.5 py-0.5"
+                      >
                         {formatPlatform(campaign.platformKey)}
                       </Badge>
+                      <span className="text-xs sm:text-sm text-muted-foreground truncate">
+                        {campaign.platformAccount ?? "-"}
+                      </span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{campaign.objective ?? "-"}</TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    <span className="text-sm">{campaign.objective ?? "-"}</span>
+                  </TableCell>
                   <TableCell>
-                    <Badge variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}>
+                    <Badge
+                      variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}
+                      className="text-xs"
+                    >
                       {formatStatus(campaign.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell>
-                    <span className="text-sm font-medium">{campaign.resultLabel ?? "Resultados"}</span>
+                  <TableCell className="hidden md:table-cell">
+                    <span className="text-sm">{campaign.resultLabel ?? "Resultados"}</span>
                   </TableCell>
-                  <TableCell className="text-right">
-                    <span className="text-sm font-semibold">
+                  <TableCell className="text-right hidden md:table-cell">
+                    <span className="text-sm">
                       {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="text-sm">{formatCurrency(campaign.spend)}</span>
+                    <span className="text-sm font-medium">{formatCurrency(campaign.spend)}</span>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right hidden lg:table-cell">
                     <span className="text-sm">{formatCurrency(campaign.costPerResult)}</span>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right hidden lg:table-cell">
                     <span className="text-sm font-medium">
                       {campaign.roas != null ? `${campaign.roas.toFixed(2)}x` : "-"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        {campaign.status.toLowerCase() === "active" ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-popover">
-                          <DropdownMenuItem onSelect={() => navigate(`/campaigns/${campaign.id}`)}>
-                            Visualizar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>Duplicar</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">Arquivar</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-7 w-7 sm:h-8 sm:w-8 p-0">
+                          <span className="sr-only">Abrir menu</span>
+                          <MoreVertical className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => navigate(`/campaigns/${campaign.id}`)}>
+                          Ver detalhes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>Editar</DropdownMenuItem>
+                        <DropdownMenuItem>Pausar</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive">
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
           </TableBody>
         </Table>
+        </div>
 
         {hasPagination && (
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

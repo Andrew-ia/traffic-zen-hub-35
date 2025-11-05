@@ -17,6 +17,7 @@ import { syncMetaBilling } from './api/integrations/billing.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
+import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -66,6 +67,7 @@ app.post('/api/ai/virtual-tryon', virtualTryOn);
 
 // Creatives endpoints
 app.get('/api/creatives/download-proxy', downloadProxy);
+app.post('/api/creatives/save-tryon', saveTryOnCreatives);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

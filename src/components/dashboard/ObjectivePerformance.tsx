@@ -118,7 +118,8 @@ function PlatformBarChart({
   };
 
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <div className="h-[140px] sm:h-[160px] lg:h-[200px]">
+      <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis dataKey="platform" stroke="hsl(var(--muted-foreground))" fontSize={12} />
@@ -137,7 +138,8 @@ function PlatformBarChart({
           ))}
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -154,7 +156,8 @@ function TrendLineChart({
     return <div className="flex h-[160px] items-center justify-center text-xs text-muted-foreground">Sem tendência disponível</div>;
   }
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <div className="h-[140px] sm:h-[160px] lg:h-[200px]">
+      <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} />
@@ -169,7 +172,8 @@ function TrendLineChart({
         />
         <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={{ r: 2 }} name={label} />
       </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -178,7 +182,8 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
     return <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">Sem dados de tend&ecirc;ncia</div>;
   }
   return (
-    <ResponsiveContainer width="100%" height={200}>
+    <div className="h-[160px] sm:h-[180px] lg:h-[220px]">
+      <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} />
@@ -195,7 +200,8 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
         <Line type="monotone" dataKey="spend" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={{ r: 2 }} name="Gasto" />
         <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={{ r: 2 }} name="Valor" />
       </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -533,8 +539,8 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Resumo por objetivo</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-xl sm:text-2xl font-bold">Resumo por objetivo</h2>
+        <p className="text-xs sm:text-sm text-muted-foreground">
           Síntese dos últimos 30 dias ({new Date(data.dateRange.from).toLocaleDateString("pt-BR")} –{" "}
           {new Date(data.dateRange.to).toLocaleDateString("pt-BR")}), agrupado por objetivo de campanha e plataforma.
         </p>

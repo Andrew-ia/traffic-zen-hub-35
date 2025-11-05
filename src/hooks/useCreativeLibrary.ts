@@ -37,6 +37,7 @@ export interface CreativeOverview {
   adsCount: number;
   adSetsCount: number;
   campaignCount: number;
+  campaignIds: string[]; // IDs das campanhas associadas
   metrics: CreativeMetrics;
 }
 
@@ -209,9 +210,9 @@ export function useCreativeLibrary(
         };
 
         const ads = creative.ads ?? [];
-        const adIds = new Set<string>();
-        const adSetIds = new Set<string>();
-        const campaignIds = new Set<string>();
+      const adIds = new Set<string>();
+      const adSetIds = new Set<string>();
+      const campaignIds = new Set<string>();
 
         for (const ad of ads) {
           if (ad?.id) {
@@ -259,6 +260,7 @@ export function useCreativeLibrary(
           adsCount: adIds.size,
           adSetsCount: adSetIds.size,
           campaignCount: campaignIds.size,
+          campaignIds: Array.from(campaignIds),
           metrics: {
             spend,
             impressions,

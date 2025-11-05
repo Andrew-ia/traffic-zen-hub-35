@@ -130,6 +130,35 @@ export default function VirtualTryOn() {
           `Limite de quota atingido. Foram geradas ${images.length} de ${imageCount} imagens solicitadas. Aguarde alguns minutos antes de gerar mais.`
         );
       }
+
+      // Auto-save generated images to database
+      if (images.length > 0) {
+        try {
+          const response = await fetch('http://localhost:3001/api/creatives/save-tryon', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              images,
+              workspaceId: '00000000-0000-0000-0000-000000000010', // Default workspace
+              modelName: modelFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
+              clothingName: clothingFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
+              aspectRatio,
+            }),
+          });
+
+          const result = await response.json();
+          if (result.success) {
+            console.log(`✅ ${result.savedCount} imagens salvas automaticamente na biblioteca de criativos`);
+          } else {
+            console.error('⚠️ Erro ao salvar imagens:', result.error);
+          }
+        } catch (saveError) {
+          console.error('⚠️ Erro ao salvar imagens na biblioteca:', saveError);
+          // Don't show error to user, just log it
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setError(

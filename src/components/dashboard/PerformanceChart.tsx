@@ -48,21 +48,18 @@ interface MiniChartProps {
 }
 
 function MiniChart({ data, dataKey, title, color, icon, formatter = formatNumber, total, formattedTotal }: MiniChartProps) {
-  if (data.length <= 1) {
+  if (data.length === 0) {
     return (
-      <Card className="border-l-4" style={{ borderLeftColor: color }}>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              {icon}
-              {title}
-            </CardTitle>
-          </div>
+      <Card className="border-l-4 h-full" style={{ borderLeftColor: color }}>
+        <CardHeader className="pb-2 sm:pb-3">
+          <CardTitle className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+            {icon}
+            <span className="truncate">{title}</span>
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold mb-2">-</div>
-          <div className="flex h-[120px] items-center justify-center text-muted-foreground text-xs text-center px-4">
-            Dados insuficientes
+        <CardContent className="pt-0">
+          <div className="flex h-32 sm:h-40 lg:h-[160px] items-center justify-center text-muted-foreground text-xs sm:text-sm">
+            Sem dados disponíveis
           </div>
         </CardContent>
       </Card>
@@ -70,24 +67,17 @@ function MiniChart({ data, dataKey, title, color, icon, formatter = formatNumber
   }
 
   return (
-    <Card className="border-l-4 hover:shadow-md transition-shadow" style={{ borderLeftColor: color }}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-            {icon}
-            {title}
-          </CardTitle>
-          <div className="text-xs text-muted-foreground">
-            {data.length} dias
-          </div>
-        </div>
+    <Card className="border-l-4 h-full" style={{ borderLeftColor: color }}>
+      <CardHeader className="pb-2 sm:pb-3">
+        <CardTitle className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+          {icon}
+          <span className="truncate">{title}</span>
+        </CardTitle>
+        <div className="text-lg sm:text-xl lg:text-2xl font-bold truncate">{formattedTotal}</div>
       </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold mb-2" style={{ color }}>
-          {formattedTotal}
-        </div>
-        <ResponsiveContainer width="100%" height={120}>
-          <BarChart data={data}>
+      <CardContent className="pt-0">
+        <ResponsiveContainer width="100%" height="100%" minHeight={120} maxHeight={160}>
+          <BarChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
             <XAxis
               dataKey="name"
               stroke="transparent"
@@ -160,19 +150,19 @@ export function PerformanceChart({ data = [], isLoading = false }: PerformanceCh
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold">Performance ao Longo do Tempo</h2>
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-xl sm:text-2xl font-bold">Performance ao Longo do Tempo</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="border-l-4 border-muted">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">Carregando...</CardTitle>
+            <Card key={i} className="border-l-4 border-muted h-48 sm:h-52 lg:h-56">
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium">Carregando...</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="flex h-[160px] items-center justify-center">
-                  <div className="animate-pulse text-muted-foreground">⏳</div>
+              <CardContent className="pt-0">
+                <div className="flex h-32 sm:h-36 lg:h-40 items-center justify-center">
+                  <div className="animate-pulse text-muted-foreground text-lg">⏳</div>
                 </div>
               </CardContent>
             </Card>
@@ -183,17 +173,17 @@ export function PerformanceChart({ data = [], isLoading = false }: PerformanceCh
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Performance ao Longo do Tempo</h2>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl sm:text-2xl font-bold">Performance ao Longo do Tempo</h2>
         {chartData.length > 1 && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             Últimos {chartData.length} dias
           </p>
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr">
         <MiniChart
           data={chartData}
           dataKey="impressions"
