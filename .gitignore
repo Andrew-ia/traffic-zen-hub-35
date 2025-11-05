@@ -25,3 +25,8 @@ dist-ssr
 
 # MCP Config (contains sensitive tokens)
 mcp-config.json
+
+# Secrets (service account keys)
+secrets/
+secrets/*.json
+google-cloud-cli-darwin-arm64.tar.gz

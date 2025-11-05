@@ -41,7 +41,7 @@ export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
               <NavLink
                 key={item.name}
                 to={item.href}
-                end={item.href === "/"}
+                end={item.href === "/" || item.href === "/campaigns"}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",

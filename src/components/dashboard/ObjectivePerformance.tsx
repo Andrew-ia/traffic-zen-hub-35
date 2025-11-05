@@ -511,28 +511,7 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
     );
   }
 
-  if (hasExtras) {
-    sections.push(
-      <Card key="extras">
-        <CardHeader>
-          <CardTitle>🔍 Visão consolidada</CardTitle>
-          <CardDescription>Resultados gerais considerando todas as campanhas sincronizadas.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            <MetricsList
-              entries={[
-                { label: "Total gasto", value: data.extras.totalSpend, format: "currency" },
-                { label: "Valor atribuído", value: data.extras.totalValue, format: "currency" },
-                { label: "ROI consolidado", value: data.extras.roi, format: "number" },
-              ]}
-            />
-            <SpendValueTrend data={data.extras.trend} />
-          </div>
-        </CardContent>
-      </Card>,
-    );
-  }
+  // Bloco "Visão consolidada" removido conforme solicitação
 
   const hasAnySection = sections.length > 0;
 

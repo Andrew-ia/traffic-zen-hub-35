@@ -13,6 +13,18 @@
         "--db-url",
         "postgresql://postgres:%40Promptizi2025%40@db.bichvnuepmgvdlrclmxb.supabase.co:5432/postgres"
       ]
+    },
+    "ga4": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "tsx",
+        "scripts/mcp-ga4.ts"
+      ],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "/Users/andrew/Traffic/traffic-zen-hub-35/secrets/ga4-service-account.json",
+        "GA4_PROPERTY_ID": "497704603"
+      }
     }
   }
 }

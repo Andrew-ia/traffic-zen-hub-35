@@ -18,6 +18,38 @@ import { generateCreative } from './api/ai/generate-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
+import { ga4Realtime, ga4Report } from './api/analytics/ga4.ts';
+import { getAggregateMetrics, getTimeSeriesMetrics } from './api/analytics/metrics.ts';
+import { getDemographics } from './api/analytics/demographics.js';
+import {
+  getCampaignLibrary,
+  getCampaignById,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  copyCampaign,
+  uploadCreative,
+} from './api/campaigns/library.js';
+import {
+  getAgents,
+  getAgentById,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  runAgent,
+  pauseAgent,
+  resumeAgent,
+  getAgentExecutions,
+  getExecutionById,
+} from './api/ai/agents.js';
+import {
+  getInsights,
+  getInsightById,
+  updateInsightStatus,
+  applyInsightAction,
+  getInsightsStats,
+  getAIDashboard,
+} from './api/ai/insights.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -30,7 +62,9 @@ app.use(helmet());
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:8080',
-    'http://localhost:8081'
+    'http://localhost:8081',
+    'http://localhost:8082',
+    'http://localhost:8083'
   ],
   credentials: true,
 }));
@@ -68,6 +102,48 @@ app.post('/api/ai/virtual-tryon', virtualTryOn);
 // Creatives endpoints
 app.get('/api/creatives/download-proxy', downloadProxy);
 app.post('/api/creatives/save-tryon', saveTryOnCreatives);
+
+// GA4 Analytics endpoints (read-only via service account)
+app.post('/api/ga4/realtime', ga4Realtime);
+app.post('/api/ga4/report', ga4Report);
+// Debug route to verify GA4 namespace is reachable
+app.post('/api/ga4/test', (req, res) => {
+  res.json({ success: true, message: 'GA4 test endpoint' });
+});
+
+// Platform metrics endpoints used by dashboards
+app.get('/api/metrics/aggregate', getAggregateMetrics);
+app.get('/api/metrics/timeseries', getTimeSeriesMetrics);
+app.get('/api/metrics/demographics', getDemographics);
+
+// Campaign Library endpoints
+app.get('/api/campaigns/library/:workspaceId', getCampaignLibrary);
+app.get('/api/campaigns/library/item/:id', getCampaignById);
+app.post('/api/campaigns/library', createCampaign);
+app.put('/api/campaigns/library/:id', updateCampaign);
+app.delete('/api/campaigns/library/:id', deleteCampaign);
+app.post('/api/campaigns/library/:id/copy', copyCampaign);
+app.post('/api/campaigns/library/upload', uploadCreative);
+
+// AI Agents endpoints
+app.get('/api/ai/agents', getAgents);
+app.get('/api/ai/agents/:id', getAgentById);
+app.post('/api/ai/agents', createAgent);
+app.put('/api/ai/agents/:id', updateAgent);
+app.delete('/api/ai/agents/:id', deleteAgent);
+app.post('/api/ai/agents/:id/run', runAgent);
+app.post('/api/ai/agents/:id/pause', pauseAgent);
+app.post('/api/ai/agents/:id/resume', resumeAgent);
+app.get('/api/ai/agents/:id/executions', getAgentExecutions);
+app.get('/api/ai/executions/:id', getExecutionById);
+
+// AI Insights endpoints
+app.get('/api/ai/insights', getInsights);
+app.get('/api/ai/insights/stats', getInsightsStats);
+app.get('/api/ai/insights/:id', getInsightById);
+app.put('/api/ai/insights/:id/status', updateInsightStatus);
+app.post('/api/ai/insights/:id/action', applyInsightAction);
+app.get('/api/ai/dashboard', getAIDashboard);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

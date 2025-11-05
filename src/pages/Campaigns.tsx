@@ -3,15 +3,14 @@ import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 
 const PAGE_SIZE = 12;
 
 export default function Campaigns() {
   const [tab, setTab] = useState<CampaignStatusFilter>("all");
-  const [platform, setPlatform] = useState<string>("all");
-  const [page, setPage] = useState(1);
+  const [metaPage, setMetaPage] = useState(1);
+  const [googlePage, setGooglePage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -21,12 +20,31 @@ export default function Campaigns() {
   }, [search]);
 
   useEffect(() => {
-    setPage(1);
-  }, [tab, debouncedSearch, platform]);
+    setMetaPage(1);
+    setGooglePage(1);
+  }, [tab, debouncedSearch]);
 
-  const { data, isLoading, error } = useCampaigns({ status: tab, search: debouncedSearch, page, pageSize: PAGE_SIZE, platform });
-  const campaigns = data?.campaigns ?? [];
-  const total = data?.total ?? campaigns.length;
+  const { data: metaData, isLoading: metaLoading, error: metaError } = useCampaigns({
+    status: tab,
+    search: debouncedSearch,
+    page: metaPage,
+    pageSize: PAGE_SIZE,
+    platform: "meta"
+  });
+
+  const { data: googleData, isLoading: googleLoading, error: googleError } = useCampaigns({
+    status: tab,
+    search: debouncedSearch,
+    page: googlePage,
+    pageSize: PAGE_SIZE,
+    platform: "google_ads"
+  });
+
+  const metaCampaigns = metaData?.campaigns ?? [];
+  const metaTotal = metaData?.total ?? metaCampaigns.length;
+
+  const googleCampaigns = googleData?.campaigns ?? [];
+  const googleTotal = googleData?.total ?? googleCampaigns.length;
 
   return (
     <div className="space-y-6">
@@ -36,16 +54,6 @@ export default function Campaigns() {
           <p className="text-muted-foreground mt-1">Gerencie todas as suas campanhas de tráfego</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <Select value={platform} onValueChange={setPlatform}>
-            <SelectTrigger className="w-full md:w-[180px]">
-              <SelectValue placeholder="Todas as plataformas" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas as plataformas</SelectItem>
-              <SelectItem value="meta">Meta Ads</SelectItem>
-              <SelectItem value="google_ads">Google Ads</SelectItem>
-            </SelectContent>
-          </Select>
           <Input
             className="w-full md:w-80"
             placeholder="Buscar campanhas..."
@@ -55,7 +63,7 @@ export default function Campaigns() {
         </div>
       </div>
 
-      {error && (
+      {(metaError || googleError) && (
         <Card>
           <CardContent className="py-6">
             <p className="text-destructive">
@@ -74,14 +82,26 @@ export default function Campaigns() {
           <TabsTrigger value="completed">Concluídas</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={tab} className="space-y-4">
+        <TabsContent value={tab} className="space-y-6">
           <CampaignsTable
-            campaigns={campaigns}
-            isLoading={isLoading}
-            page={page}
+            title="Meta Ads"
+            campaigns={metaCampaigns}
+            isLoading={metaLoading}
+            page={metaPage}
             pageSize={PAGE_SIZE}
-            total={total}
-            onPageChange={setPage}
+            total={metaTotal}
+            onPageChange={setMetaPage}
+            showCreateButton={false}
+          />
+
+          <CampaignsTable
+            title="Google Ads"
+            campaigns={googleCampaigns}
+            isLoading={googleLoading}
+            page={googlePage}
+            pageSize={PAGE_SIZE}
+            total={googleTotal}
+            onPageChange={setGooglePage}
             showCreateButton={false}
           />
         </TabsContent>

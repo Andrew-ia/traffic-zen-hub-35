@@ -143,20 +143,20 @@ export function CampaignsTable({
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
         {/* Container responsivo sem forçar largura mínima */}
-        <div className="overflow-x-auto">
-          <Table className="w-full">
+        <div className="overflow-x-auto -mx-2">
+          <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Conta</TableHead>
-                <TableHead className="hidden sm:table-cell">Objetivo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="hidden md:table-cell">Resultado</TableHead>
-                <TableHead className="text-right hidden md:table-cell">Qtd</TableHead>
-                <TableHead className="text-right">Investimento</TableHead>
-                <TableHead className="text-right hidden lg:table-cell">Custo/Resultado</TableHead>
-                <TableHead className="text-right hidden lg:table-cell">ROAS</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+                <TableHead className="w-[180px] px-2">Nome</TableHead>
+                <TableHead className="w-[100px] px-2">Conta</TableHead>
+                <TableHead className="hidden sm:table-cell w-[100px] px-2">Objetivo</TableHead>
+                <TableHead className="w-[70px] px-2">Status</TableHead>
+                <TableHead className="hidden md:table-cell w-[80px] px-2">Resultado</TableHead>
+                <TableHead className="text-right hidden md:table-cell w-[60px] px-2">Qtd</TableHead>
+                <TableHead className="text-right w-[80px] px-2">Invest.</TableHead>
+                <TableHead className="text-right hidden lg:table-cell w-[70px] px-2">Custo/R</TableHead>
+                <TableHead className="text-right hidden lg:table-cell w-[60px] px-2">ROAS</TableHead>
+                <TableHead className="text-right w-[50px] px-2">Ações</TableHead>
               </TableRow>
             </TableHeader>
           <TableBody>
@@ -182,58 +182,58 @@ export function CampaignsTable({
                   onClick={() => navigate(`/campaigns/${campaign.id}`)}
                   className="cursor-pointer transition hover:bg-muted/50"
                 >
-                  <TableCell>
-                    <div className="font-medium text-sm sm:text-base">{campaign.name}</div>
+                  <TableCell className="px-2">
+                    <div className="font-medium text-xs truncate">{campaign.name}</div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
+                  <TableCell className="px-2">
+                    <div className="flex flex-col gap-0.5">
                       <Badge
                         variant={getPlatformBadgeVariant(campaign.platformKey)}
-                        className="text-[10px] sm:text-xs px-1.5 py-0.5"
+                        className="text-[9px] px-1 py-0 w-fit"
                       >
                         {formatPlatform(campaign.platformKey)}
                       </Badge>
-                      <span className="text-xs sm:text-sm text-muted-foreground truncate">
+                      <span className="text-[10px] text-muted-foreground truncate">
                         {campaign.platformAccount ?? "-"}
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <span className="text-sm">{campaign.objective ?? "-"}</span>
+                  <TableCell className="hidden sm:table-cell px-2">
+                    <span className="text-[10px] truncate block">{campaign.objective ?? "-"}</span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="px-2">
                     <Badge
                       variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}
-                      className="text-xs"
+                      className="text-[9px] px-1 py-0"
                     >
                       {formatStatus(campaign.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <span className="text-sm">{campaign.resultLabel ?? "Resultados"}</span>
+                  <TableCell className="hidden md:table-cell px-2">
+                    <span className="text-[10px] truncate block">{campaign.resultLabel ?? "Resultados"}</span>
                   </TableCell>
-                  <TableCell className="text-right hidden md:table-cell">
-                    <span className="text-sm">
+                  <TableCell className="text-right hidden md:table-cell px-2">
+                    <span className="text-[10px]">
                       {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right">
-                    <span className="text-sm font-medium">{formatCurrency(campaign.spend)}</span>
+                  <TableCell className="text-right px-2">
+                    <span className="text-[11px] font-medium">{formatCurrency(campaign.spend)}</span>
                   </TableCell>
-                  <TableCell className="text-right hidden lg:table-cell">
-                    <span className="text-sm">{formatCurrency(campaign.costPerResult)}</span>
+                  <TableCell className="text-right hidden lg:table-cell px-2">
+                    <span className="text-[10px]">{formatCurrency(campaign.costPerResult)}</span>
                   </TableCell>
-                  <TableCell className="text-right hidden lg:table-cell">
-                    <span className="text-sm font-medium">
+                  <TableCell className="text-right hidden lg:table-cell px-2">
+                    <span className="text-[10px] font-medium">
                       {campaign.roas != null ? `${campaign.roas.toFixed(2)}x` : "-"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <TableCell className="text-right px-1" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-7 w-7 sm:h-8 sm:w-8 p-0">
+                        <Button variant="ghost" className="h-6 w-6 p-0">
                           <span className="sr-only">Abrir menu</span>
-                          <MoreVertical className="h-3 w-3 sm:h-4 sm:w-4" />
+                          <MoreVertical className="h-3 w-3" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">

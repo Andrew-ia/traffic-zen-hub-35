@@ -2,31 +2,60 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import TrafficAnalysis from "./pages/TrafficAnalysis";
 import ActionCenter from "./pages/ActionCenter";
 import Campaigns from "./pages/Campaigns";
+import CampaignLibrary from "./pages/CampaignLibrary";
 import CampaignDetails from "./pages/CampaignDetails";
 import AdDetails from "./pages/AdDetails";
 import Reports from "./pages/Reports";
-import Budget from "./pages/Budget";
-import Calendar from "./pages/Calendar";
 import Leads from "./pages/Leads";
-import Creatives from "./pages/Creatives";
-import CreativesV2 from "./pages/CreativesV2";
-import CreativesGrouped from "./pages/CreativesGrouped";
-import CreativesV3 from "./pages/CreativesV3";
 import VirtualTryOn from "./pages/VirtualTryOn";
 import Audiences from "./pages/Audiences";
-import UTMs from "./pages/UTMs";
 import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
 import Integrations from "./pages/Integrations";
+import GA4 from "./pages/GA4";
+import Tracking from "./pages/Tracking";
+import MetaAds from "./pages/MetaAds";
+import GoogleAds from "./pages/GoogleAds";
+import AIAgents from "./pages/AIAgents";
+import AIInsights from "./pages/AIInsights";
 import NotFound from "./pages/NotFound";
+import { useEffect } from "react";
+import { gtmPush } from "@/lib/gtm";
 
 const queryClient = new QueryClient();
+
+function PageViewTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    // Respeita a configuração local para habilitar/desabilitar page_view
+    let enabled = true;
+    try {
+      const raw = window.localStorage.getItem("trafficpro.gtm.config");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.enablePageView === "boolean") {
+          enabled = parsed.enablePageView;
+        }
+      }
+    } catch (e) {
+      // Falha ao ler storage não deve bloquear page_view
+    }
+
+    if (enabled) {
+      gtmPush("page_view", {
+        page_path: location.pathname + location.search,
+        page_title: document.title,
+      });
+    }
+  }, [location.pathname, location.search]);
+  return null;
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -35,27 +64,29 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <MainLayout>
+          <PageViewTracker />
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/action-center" element={<ActionCenter />} />
+            <Route path="/agents" element={<AIAgents />} />
+            <Route path="/insights" element={<AIInsights />} />
             <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
+            <Route path="/campaigns/library" element={<CampaignLibrary />} />
             <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
             <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
+            <Route path="/meta-ads" element={<MetaAds />} />
+            <Route path="/google-ads" element={<GoogleAds />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/budget" element={<Budget />} />
-            <Route path="/calendar" element={<Calendar />} />
             <Route path="/leads" element={<Leads />} />
-            <Route path="/creatives" element={<CreativesV3 />} />
-            <Route path="/creatives-old" element={<Creatives />} />
-            <Route path="/creatives-v2" element={<CreativesV2 />} />
-            <Route path="/creatives-grouped" element={<CreativesGrouped />} />
             <Route path="/gerador-looks" element={<VirtualTryOn />} />
             <Route path="/audiences" element={<Audiences />} />
-            <Route path="/utms" element={<UTMs />} />
             <Route path="/automations" element={<Automations />} />
             <Route path="/experiments" element={<Experiments />} />
             <Route path="/integrations" element={<Integrations />} />
+            <Route path="/ga4" element={<GA4 />} />
+            <Route path="/gtm" element={<GA4 />} />
+            <Route path="/tracking" element={<Tracking />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

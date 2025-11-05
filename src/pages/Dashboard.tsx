@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
-import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
 import { ObjectivePerformanceSection } from "@/components/dashboard/ObjectivePerformance";
+import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Dashboard() {
   const [periodDays, setPeriodDays] = useState(30);
+  
 
   const { data: performance, isLoading: isLoadingMetrics } = usePerformanceMetrics(periodDays);
 
@@ -35,7 +36,7 @@ export default function Dashboard() {
       </div>
 
       <PerformanceChart data={performance?.points ?? []} isLoading={isLoadingMetrics} />
-
+      
       <ObjectivePerformanceSection days={periodDays} />
     </div>
   );

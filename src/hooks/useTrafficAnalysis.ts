@@ -23,6 +23,7 @@ export interface CampaignPerformance {
   conversationsStarted: number;
   linkClicks: number;
   landingPageViews: number;
+  checkoutsInitiated: number;
 }
 
 export interface TrafficAnalysis {
@@ -35,6 +36,7 @@ export interface TrafficAnalysis {
     ctr: number;
     cpc: number;
     conversationsStarted: number;
+    checkoutsInitiated: number;
   };
   byObjective: Record<string, {
     count: number;
@@ -82,6 +84,7 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
       let totalClicks = 0;
       let totalConversions = 0;
       let totalConversationsStarted = 0;
+      let totalCheckoutsInitiated = 0;
 
       for (const campaignId of activeCampaignIds) {
         const campaign = campaignMap.get(campaignId);
@@ -103,6 +106,7 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
         let conversationsStarted = 0;
         let linkClicks = 0;
         let landingPageViews = 0;
+        let checkoutsInitiated = 0;
 
         metrics?.forEach(m => {
           impressions += Number(m.impressions) || 0;
@@ -119,6 +123,12 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
               linkClicks += value;
             } else if (action.action_type === 'landing_page_view' || action.action_type === 'omni_landing_page_view') {
               landingPageViews += value;
+            } else if (
+              action.action_type === 'omni_checkout_initiated' ||
+              action.action_type === 'checkout_initiated' ||
+              action.action_type === 'initiate_checkout'
+            ) {
+              checkoutsInitiated += value;
             }
           });
         });
@@ -143,6 +153,7 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
           conversationsStarted,
           linkClicks,
           landingPageViews,
+          checkoutsInitiated,
         });
 
         totalSpend += spend;
@@ -150,6 +161,7 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
         totalClicks += clicks;
         totalConversions += conversions;
         totalConversationsStarted += conversationsStarted;
+        totalCheckoutsInitiated += checkoutsInitiated;
 
         // Agregar por objetivo
         const objective = campaign.objective || 'Outros';
@@ -180,6 +192,7 @@ export function useTrafficAnalysis(days: number = 30): UseQueryResult<TrafficAna
           ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
           cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
           conversationsStarted: totalConversationsStarted,
+          checkoutsInitiated: totalCheckoutsInitiated,
         },
         byObjective,
       };
