@@ -75,50 +75,26 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       -- Nova abordagem simplificada: usa ROW_NUMBER para evitar duplicação
       -- Escolhe o nível mais granular disponível para cada campanha/data
       -- Garante que métricas não sejam excluídas por JOINs falhando
-      with ranked_metrics as (
-        select
-          pm.*,
-          row_number() over (
-            partition by
-              pm.platform_account_id,
-              coalesce(pm.campaign_id, '00000000-0000-0000-0000-000000000000'::uuid),
-              pm.metric_date
-            order by
-              case
-                when pm.ad_id is not null then 3
-                when pm.ad_set_id is not null then 2
-                when pm.campaign_id is not null then 1
-                else 0
-              end desc
-          ) as rn
+      with campaign_metrics as (
+        -- Pegar apenas métricas de nível CAMPANHA (sem adset/ad)
+        -- Isso corresponde ao que o Meta Ads Manager mostra por padrão
+        select pm.*
         from performance_metrics pm
         where pm.workspace_id = $1
           and pm.platform_account_id = any($2::uuid[])
           and pm.granularity = 'day'
           and pm.metric_date >= current_date - $3::int
           and pm.metric_date < current_date
+          and pm.campaign_id is not null
+          and pm.ad_set_id is null
+          and pm.ad_id is null
           and (
             $4::text is null
-            or pm.campaign_id is null
             or exists (
               select 1 from campaigns c
               where c.id = pm.campaign_id and c.status = $4
             )
           )
-      ),
-      deduplicated as (
-        select
-          campaign_id,
-          platform_account_id,
-          metric_date,
-          spend,
-          conversions,
-          conversion_value,
-          impressions,
-          clicks,
-          roas
-        from ranked_metrics
-        where rn = 1
       )
       select
         sum(spend)::float8 as spend,
@@ -129,7 +105,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
         sum(clicks)::float8 as clicks,
         count(distinct case when campaign_id is not null and spend > 0 then campaign_id end) as active_campaigns,
         count(distinct case when campaign_id is not null then campaign_id end) as total_campaigns
-      from deduplicated
+      from campaign_metrics
       `,
       [workspaceId, accountIds, days, status && status !== 'all' ? status : null]
     );
@@ -193,54 +169,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
       clicks: number | null;
     }>(
       `
-      -- Nova abordagem simplificada: usa ROW_NUMBER para evitar duplicação
-      with ranked_metrics as (
-        select
-          pm.metric_date,
-          pm.spend,
-          pm.conversions,
-          pm.conversion_value,
-          pm.impressions,
-          pm.clicks,
-          row_number() over (
-            partition by
-              pm.platform_account_id,
-              coalesce(pm.campaign_id, '00000000-0000-0000-0000-000000000000'::uuid),
-              pm.metric_date
-            order by
-              case
-                when pm.ad_id is not null then 3
-                when pm.ad_set_id is not null then 2
-                when pm.campaign_id is not null then 1
-                else 0
-              end desc
-          ) as rn
-        from performance_metrics pm
-        where pm.workspace_id = $1
-          and pm.platform_account_id = any($2::uuid[])
-          and pm.granularity = 'day'
-          and pm.metric_date >= current_date - $3::int
-          and pm.metric_date < current_date
-          and (
-            $4::text is null
-            or pm.campaign_id is null
-            or exists (
-              select 1 from campaigns c
-              where c.id = pm.campaign_id and c.status = $4
-            )
-          )
-      ),
-      deduplicated as (
-        select
-          metric_date,
-          spend,
-          conversions,
-          conversion_value,
-          impressions,
-          clicks
-        from ranked_metrics
-        where rn = 1
-      )
+      -- Pegar apenas métricas de nível CAMPANHA para corresponder ao Meta Ads Manager
       select
         metric_date::text as d,
         sum(spend)::float8 as spend,
@@ -248,7 +177,22 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
         sum(conversion_value)::float8 as revenue,
         sum(impressions)::float8 as impressions,
         sum(clicks)::float8 as clicks
-      from deduplicated
+      from performance_metrics pm
+      where pm.workspace_id = $1
+        and pm.platform_account_id = any($2::uuid[])
+        and pm.granularity = 'day'
+        and pm.metric_date >= current_date - $3::int
+        and pm.metric_date < current_date
+        and pm.campaign_id is not null
+        and pm.ad_set_id is null
+        and pm.ad_id is null
+        and (
+          $4::text is null
+          or exists (
+            select 1 from campaigns c
+            where c.id = pm.campaign_id and c.status = $4
+          )
+        )
       group by metric_date
       order by metric_date
       `,
