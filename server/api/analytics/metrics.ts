@@ -95,7 +95,8 @@ export async function getAggregateMetrics(req: Request, res: Response) {
         where pm.workspace_id = $1
           and pm.platform_account_id = any($2::uuid[])
           and pm.granularity = 'day'
-          and pm.metric_date >= current_date - ($3::int - 1)
+          and pm.metric_date >= current_date - $3::int
+          and pm.metric_date < current_date
           and (
             $4::text is null
             or pm.campaign_id is null
@@ -218,7 +219,8 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
         where pm.workspace_id = $1
           and pm.platform_account_id = any($2::uuid[])
           and pm.granularity = 'day'
-          and pm.metric_date >= current_date - ($3::int - 1)
+          and pm.metric_date >= current_date - $3::int
+          and pm.metric_date < current_date
           and (
             $4::text is null
             or pm.campaign_id is null

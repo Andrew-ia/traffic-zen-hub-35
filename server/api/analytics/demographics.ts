@@ -27,6 +27,8 @@ export async function getDemographics(req: Request, res: Response) {
     dateThreshold.setDate(dateThreshold.getDate() - daysNumber);
     const dateStr = dateThreshold.toISOString().split('T')[0];
 
+    const today = new Date().toISOString().split('T')[0];
+
     // Buscar dados de idade
     let ageQuery = `
       SELECT breakdown_value_key, impressions, clicks, spend
@@ -34,8 +36,9 @@ export async function getDemographics(req: Request, res: Response) {
       WHERE workspace_id = $1
         AND breakdown_key = 'age'
         AND metric_date >= $2
+        AND metric_date < $3
     `;
-    const ageParams: any[] = [workspaceId, dateStr];
+    const ageParams: any[] = [workspaceId, dateStr, today];
 
     if (accountId && accountId !== 'all') {
       ageQuery += ` AND platform_account_id = $${ageParams.length + 1}`;
@@ -52,8 +55,9 @@ export async function getDemographics(req: Request, res: Response) {
       WHERE workspace_id = $1
         AND breakdown_key = 'gender'
         AND metric_date >= $2
+        AND metric_date < $3
     `;
-    const genderParams: any[] = [workspaceId, dateStr];
+    const genderParams: any[] = [workspaceId, dateStr, today];
 
     if (accountId && accountId !== 'all') {
       genderQuery += ` AND platform_account_id = $${genderParams.length + 1}`;
