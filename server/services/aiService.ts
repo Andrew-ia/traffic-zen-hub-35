@@ -46,6 +46,7 @@ IMPORTANTE:
 5. Se os dados não foram fornecidos, significa que a campanha não foi encontrada - nesse caso, informe ao usuário.
 6. Analise os dados de forma clara e objetiva, fornecendo insights acionáveis.
 7. Ao analisar criativos, compare performance entre eles e identifique padrões de sucesso.
+8. SEMPRE se refira aos criativos pelo NOME DO ANÚNCIO (ad_name), NUNCA use "Criativo 1", "Criativo 2", etc. O usuário precisa identificar facilmente qual anúncio você está analisando.
 
 Sempre responda em português (pt-BR).
 Use formatação markdown para melhor legibilidade.
@@ -312,13 +313,14 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
       if (data.ad_copies && data.ad_copies.length > 0) {
         copiesSection = '\n\n### Análise de Criativos:\n\n';
         data.ad_copies.forEach((copy: any, i: number) => {
-          copiesSection += `**Criativo ${i + 1}: ${copy.ad_name}**\n`;
-          copiesSection += `Tipo: ${copy.creative_type}`;
+          // Lead with the ad name in a clear heading
+          copiesSection += `#### ${copy.ad_name}\n\n`;
+          copiesSection += `**Tipo:** ${copy.creative_type}`;
           if (copy.duration_seconds) {
             copiesSection += ` (${copy.duration_seconds}s)`;
           }
           if (copy.aspect_ratio) {
-            copiesSection += ` | Formato: ${copy.aspect_ratio}`;
+            copiesSection += ` | **Formato:** ${copy.aspect_ratio}`;
           }
           copiesSection += '\n\n';
 
