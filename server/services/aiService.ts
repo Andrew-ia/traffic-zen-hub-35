@@ -465,9 +465,15 @@ export async function generateAIResponse(
     const toolCall = detectDataNeed(userMessage);
     let dataContext = '';
 
+    // Log for debugging
+    console.log('🤖 AI Service - User Message:', userMessage);
+    console.log('🔧 Tool detected:', toolCall ? toolCall.name : 'none');
+
     if (toolCall) {
+      console.log('📊 Executing tool:', toolCall.name, 'with params:', toolCall.params);
       const data = await executeTool(toolCall, workspaceId);
       dataContext = formatDataContext(toolCall.name, data);
+      console.log('✅ Data fetched, context length:', dataContext.length);
     }
 
     // Build conversation history for Gemini

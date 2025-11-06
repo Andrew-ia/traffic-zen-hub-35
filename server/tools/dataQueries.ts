@@ -344,12 +344,15 @@ export async function getCampaignDetails(
   campaignName: string,
   days: number = 30
 ): Promise<CampaignData | null> {
+  console.log('🔍 getCampaignDetails called with:', { campaignName, days });
+
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
   // Build flexible search patterns
   // Split campaign name into words and create patterns that match any order
   const words = campaignName.split(/\s+/).filter(w => w.length > 0);
+  console.log('📝 Search words:', words);
 
   // Build WHERE condition that checks if ALL words appear in the name (any order)
   const wordConditions = words.map((_, i) => `c.name ILIKE $${i + 2}`).join(' AND ');
@@ -379,12 +382,12 @@ export async function getCampaignDetails(
       END as roas
     FROM campaigns c
     LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-    WHERE c.workspace_id = $1
-      AND (${wordConditions})
       AND pm.metric_date >= $${words.length + 2}
       AND pm.granularity = 'day'
       AND pm.ad_set_id IS NULL
       AND pm.ad_id IS NULL
+    WHERE c.workspace_id = $1
+      AND (${wordConditions})
     GROUP BY c.id, c.name, c.status, c.objective
     LIMIT 1
   `;
@@ -397,11 +400,15 @@ export async function getCampaignDetails(
 
   const result = await pool.query(query, params);
 
+  console.log('🔎 Query result:', result.rows.length > 0 ? `Found: ${result.rows[0].name}` : 'No campaign found');
+
   if (!result.rows[0]) {
+    console.log('❌ Campaign not found for words:', words);
     return null;
   }
 
   const campaignData = result.rows[0];
+  console.log('✅ Campaign found:', campaignData.name, '| Objective:', campaignData.objective);
 
   // Fetch ad copies with performance data for this campaign
   const copiesQuery = `
