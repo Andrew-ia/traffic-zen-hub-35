@@ -17,6 +17,11 @@ export interface CampaignData {
   cpc: number;
   conversions: number;
   roas?: number;
+  messaging_metrics?: {
+    conversations_started: number;
+    total_connections: number;
+    first_replies: number;
+  };
   ad_copies?: Array<{
     ad_name: string;
     creative_type: string;
@@ -458,6 +463,45 @@ export async function getCampaignDetails(
       ctr: parseFloat(row.ctr || 0),
     },
   }));
+
+  // For OUTCOME_LEADS campaigns, extract detailed messaging metrics
+  if (campaignData.objective === 'OUTCOME_LEADS') {
+    const messagingQuery = `
+      SELECT
+        SUM(pm.conversions) as conversations_started,
+        SUM((
+          SELECT COALESCE((a->>'value')::int, 0)
+          FROM jsonb_array_elements(pm.extra_metrics->'actions') AS a
+          WHERE a->>'action_type' = 'onsite_conversion.total_messaging_connection'
+          LIMIT 1
+        )) as total_connections,
+        SUM((
+          SELECT COALESCE((a->>'value')::int, 0)
+          FROM jsonb_array_elements(pm.extra_metrics->'actions') AS a
+          WHERE a->>'action_type' = 'onsite_conversion.messaging_first_reply'
+          LIMIT 1
+        )) as first_replies
+      FROM performance_metrics pm
+      WHERE pm.campaign_id = $1
+        AND pm.metric_date >= $2
+        AND pm.granularity = 'day'
+        AND pm.ad_set_id IS NULL
+        AND pm.ad_id IS NULL
+    `;
+
+    const messagingResult = await pool.query(messagingQuery, [
+      campaignData.id,
+      startDate.toISOString().split('T')[0]
+    ]);
+
+    if (messagingResult.rows[0]) {
+      campaignData.messaging_metrics = {
+        conversations_started: parseInt(messagingResult.rows[0].conversations_started || 0),
+        total_connections: parseInt(messagingResult.rows[0].total_connections || 0),
+        first_replies: parseInt(messagingResult.rows[0].first_replies || 0),
+      };
+    }
+  }
 
   return campaignData;
 }

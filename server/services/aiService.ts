@@ -420,6 +420,17 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 
       const conversionType = objectiveMap[data.objective] || data.objective;
 
+      // Build messaging metrics section for LEADS campaigns
+      let messagingSection = '';
+      if (data.messaging_metrics) {
+        messagingSection = `
+**Métricas de Mensagens Detalhadas:**
+- **Conversas Iniciadas**: ${data.messaging_metrics.conversations_started}
+- **Total de Conexões** (inclui continuadas): ${data.messaging_metrics.total_connections}
+- **Primeiras Respostas**: ${data.messaging_metrics.first_replies}
+`;
+      }
+
       return `### Análise da Campanha: ${data.name}
 
 **Informações Gerais:**
@@ -433,7 +444,8 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 - **CTR**: ${parseFloat(data.ctr || 0).toFixed(2)}%
 - **CPC**: R$ ${parseFloat(data.cpc || 0).toFixed(2)}
 - **Conversões (${conversionType})**: ${parseInt(data.conversions || 0)}
-${parseFloat(data.roas || 0) > 0 ? `- **ROAS**: ${parseFloat(data.roas).toFixed(2)}x` : ''}${copiesSection}`;
+${parseFloat(data.roas || 0) > 0 ? `- **ROAS**: ${parseFloat(data.roas).toFixed(2)}x` : ''}
+${messagingSection}${copiesSection}`;
 
     default:
       return JSON.stringify(data, null, 2);
