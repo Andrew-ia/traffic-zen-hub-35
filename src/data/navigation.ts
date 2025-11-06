@@ -13,6 +13,7 @@ import {
   Brain,
   Lightbulb,
   Instagram,
+  MessageSquare,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -27,6 +28,7 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Centro de Ações", href: "/action-center", icon: CheckSquare, keywords: ["ações", "prioridades"] },
   { name: "Agentes de IA", href: "/agents", icon: Brain, keywords: ["ia", "agentes", "automação", "inteligencia"] },
   { name: "Insights", href: "/insights", icon: Lightbulb, keywords: ["insights", "recomendações", "sugestões"] },
+  { name: "AI Chat", href: "/chat", icon: MessageSquare, keywords: ["chat", "ai", "assistente", "perguntas"] },
   { name: "Análise de Tráfego", href: "/traffic-analysis", icon: BarChart3, keywords: ["trafego", "analytics"] },
   { name: "Campanhas", href: "/campaigns", icon: Target, keywords: ["ads", "campanhas"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },

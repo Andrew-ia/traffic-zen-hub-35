@@ -25,6 +25,7 @@ import Instagram from "./pages/Instagram";
 import GoogleAds from "./pages/GoogleAds";
 import AIAgents from "./pages/AIAgents";
 import AIInsights from "./pages/AIInsights";
+import AIChat from "./pages/AIChat";
 import NotFound from "./pages/NotFound";
 import CreativesV2 from "./pages/CreativesV2";
 import { useEffect } from "react";
@@ -72,6 +73,7 @@ const App = () => (
             <Route path="/action-center" element={<ActionCenter />} />
             <Route path="/agents" element={<AIAgents />} />
             <Route path="/insights" element={<AIInsights />} />
+            <Route path="/chat" element={<AIChat />} />
             <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
             <Route path="/creatives" element={<CreativesV2 />} />
             <Route path="/campaigns/library" element={<CampaignLibrary />} />
