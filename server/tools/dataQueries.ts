@@ -86,6 +86,8 @@ export async function getTopCampaigns(
     WHERE c.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
     GROUP BY c.id, c.name, c.status, c.objective
     ORDER BY ${orderBy} DESC
     LIMIT $3
@@ -129,6 +131,8 @@ export async function getUnderperformingCampaigns(
     WHERE c.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
       AND c.status = 'ACTIVE'
     GROUP BY c.id, c.name, c.status, c.objective
     HAVING
@@ -185,6 +189,8 @@ export async function getMetricsSummary(
     WHERE pm.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
       ${platformFilter}
   `;
 
@@ -235,6 +241,8 @@ export async function comparePlatforms(
     WHERE pm.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
     GROUP BY pa.platform_key
     ORDER BY total_spend DESC
   `;
@@ -279,6 +287,8 @@ export async function getPerformanceByObjective(
     WHERE c.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
     GROUP BY c.objective
     ORDER BY total_spend DESC
   `;
@@ -310,6 +320,8 @@ export async function getMetricsTrend(
     WHERE pm.workspace_id = $1
       AND pm.metric_date >= $2
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
     GROUP BY pm.metric_date
     ORDER BY pm.metric_date ASC
   `;
@@ -366,6 +378,8 @@ export async function getCampaignDetails(
       AND (${wordConditions})
       AND pm.metric_date >= $${words.length + 2}
       AND pm.granularity = 'day'
+      AND pm.ad_set_id IS NULL
+      AND pm.ad_id IS NULL
     GROUP BY c.id, c.name, c.status, c.objective
     LIMIT 1
   `;

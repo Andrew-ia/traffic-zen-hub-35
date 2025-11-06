@@ -47,6 +47,12 @@ IMPORTANTE:
 6. Analise os dados de forma clara e objetiva, fornecendo insights acionáveis.
 7. Ao analisar criativos, compare performance entre eles e identifique padrões de sucesso.
 8. SEMPRE se refira aos criativos pelo NOME DO ANÚNCIO (ad_name), NUNCA use "Criativo 1", "Criativo 2", etc. O usuário precisa identificar facilmente qual anúncio você está analisando.
+9. ATENÇÃO AOS TIPOS DE CONVERSÃO: Cada campanha tem um objetivo específico e as "conversões" se referem a esse objetivo:
+   - OUTCOME_LEADS = Leads (mensagens WhatsApp, formulários, etc.)
+   - OUTCOME_SALES = Vendas/Compras
+   - OUTCOME_TRAFFIC = Cliques no link
+   - OUTCOME_ENGAGEMENT = Engajamento (curtidas, comentários)
+   Quando mencionar conversões, SEMPRE especifique o tipo (ex: "52 leads pelo WhatsApp" ao invés de apenas "52 conversões").
 
 REGRAS DA ATUALIZAÇÃO ANDROMEDA DO META ADS:
 Suas análises e recomendações DEVEM seguir estritamente as melhores práticas da Atualização Andromeda:
@@ -402,11 +408,23 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
         });
       }
 
+      // Map objective to conversion type description
+      const objectiveMap: Record<string, string> = {
+        'OUTCOME_LEADS': 'Leads (mensagens/formulários)',
+        'OUTCOME_SALES': 'Vendas',
+        'OUTCOME_TRAFFIC': 'Tráfego/Cliques',
+        'OUTCOME_ENGAGEMENT': 'Engajamento',
+        'OUTCOME_APP_PROMOTION': 'Instalações de App',
+        'OUTCOME_AWARENESS': 'Reconhecimento de Marca'
+      };
+
+      const conversionType = objectiveMap[data.objective] || data.objective;
+
       return `### Análise da Campanha: ${data.name}
 
 **Informações Gerais:**
 - **Status**: ${data.status}
-- **Objetivo**: ${data.objective}
+- **Objetivo**: ${conversionType}
 
 **Performance:**
 - **Gasto Total**: R$ ${parseFloat(data.spend || 0).toFixed(2)}
@@ -414,7 +432,7 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 - **Cliques**: ${parseInt(data.clicks || 0).toLocaleString('pt-BR')}
 - **CTR**: ${parseFloat(data.ctr || 0).toFixed(2)}%
 - **CPC**: R$ ${parseFloat(data.cpc || 0).toFixed(2)}
-- **Conversões**: ${parseInt(data.conversions || 0)}
+- **Conversões (${conversionType})**: ${parseInt(data.conversions || 0)}
 ${parseFloat(data.roas || 0) > 0 ? `- **ROAS**: ${parseFloat(data.roas).toFixed(2)}x` : ''}${copiesSection}`;
 
     default:
