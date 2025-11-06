@@ -150,42 +150,105 @@ export function SyncInsightsDialog({
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Gasto total</span>
-                      <span className="font-semibold">{formatCurrency(insights.performance.totalSpend)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Resultados (conversões)</span>
-                      <span className="font-semibold">{formatNumber(insights.performance.totalResults)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Custo por resultado</span>
-                      <span className="font-semibold">{formatCurrency(insights.performance.costPerResult)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">ROAS</span>
-                      <span className="font-semibold">
-                        {insights.performance.roas !== null && insights.performance.roas !== undefined
-                          ? insights.performance.roas.toFixed(2) + "x"
-                          : "—"}
-                      </span>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Saúde média do inventário</span>
-                      <span className="font-semibold">
-                        {insights.performance.avgHealthScore !== null &&
-                        insights.performance.avgHealthScore !== undefined
-                          ? `${insights.performance.avgHealthScore.toFixed(0)} / 100`
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Média diária de investimento</span>
-                      <span className="font-semibold">
-                        {formatCurrency(insights.performance.avgDailySpend)}
-                      </span>
-                    </div>
+                    {insights.platformKey.toLowerCase() === "instagram" && insights.performance.extra?.ig ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Alcance</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.reach)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Impressões</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.impressions)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Cliques</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.clicks)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Visualizações de perfil</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.profileViews)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Contas engajadas</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.accountsEngaged)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Interações totais</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.totalInteractions)}</span>
+                          </div>
+                        </div>
+                        <Separator />
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">E-mails</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.emailContacts)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Cliques para ligar</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.phoneCallClicks)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Como chegar</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.getDirectionsClicks)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Mensagens de texto</span>
+                            <span className="font-semibold">{formatNumber(insights.performance.extra.ig.totals.textMessageClicks)}</span>
+                          </div>
+                        </div>
+                        {[
+                          insights.performance.extra.ig.totals.reach,
+                          insights.performance.extra.ig.totals.impressions,
+                          insights.performance.extra.ig.totals.clicks,
+                          insights.performance.extra.ig.totals.accountsEngaged,
+                          insights.performance.extra.ig.totals.totalInteractions,
+                        ].every((v) => (v ?? 0) === 0) && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50/50 p-2 text-xs text-muted-foreground">
+                            Nenhum dado do Instagram foi retornado para o período selecionado.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Gasto total</span>
+                          <span className="font-semibold">{formatCurrency(insights.performance.totalSpend)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Resultados (conversões)</span>
+                          <span className="font-semibold">{formatNumber(insights.performance.totalResults)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Custo por resultado</span>
+                          <span className="font-semibold">{formatCurrency(insights.performance.costPerResult)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">ROAS</span>
+                          <span className="font-semibold">
+                            {insights.performance.roas !== null && insights.performance.roas !== undefined
+                              ? insights.performance.roas.toFixed(2) + "x"
+                              : "—"}
+                          </span>
+                        </div>
+                        <Separator />
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Saúde média do inventário</span>
+                          <span className="font-semibold">
+                            {insights.performance.avgHealthScore !== null &&
+                            insights.performance.avgHealthScore !== undefined
+                              ? `${insights.performance.avgHealthScore.toFixed(0)} / 100`
+                              : "—"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Média diária de investimento</span>
+                          <span className="font-semibold">
+                            {formatCurrency(insights.performance.avgDailySpend)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -200,62 +263,83 @@ export function SyncInsightsDialog({
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {insights.performance.trend ? (
-                      <>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm text-muted-foreground">Gasto</p>
-                            <p className="text-xl font-semibold">
-                              {formatCurrency(insights.performance.trend.recentSpend)}
-                            </p>
-                          </div>
-                          <Badge
-                            variant={
-                              (insights.performance.trend.spendDeltaPct ?? 0) >= 0 ? "default" : "outline"
-                            }
-                          >
-                            {formatPercent(insights.performance.trend.spendDeltaPct, { sign: true })}
-                          </Badge>
+                    {insights.platformKey.toLowerCase() === "instagram" && insights.performance.extra?.ig ? (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Impressões (recentes)</p>
+                          <p className="text-xl font-semibold">
+                            {formatNumber(insights.performance.extra.ig.recent.impressions)}
+                          </p>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm text-muted-foreground">Resultados</p>
-                            <p className="text-xl font-semibold">
-                              {formatNumber(insights.performance.trend.recentResults)}
-                            </p>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Cliques (recentes)</p>
+                          <p className="text-xl font-semibold">
+                            {formatNumber(insights.performance.extra.ig.recent.clicks)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Alcance (recentes)</p>
+                          <p className="text-xl font-semibold">
+                            {formatNumber(insights.performance.extra.ig.recent.reach)}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {insights.performance.trend ? (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-muted-foreground">Gasto</p>
+                                <p className="text-xl font-semibold">
+                                  {formatCurrency(insights.performance.trend.recentSpend)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant={(insights.performance.trend.spendDeltaPct ?? 0) >= 0 ? "default" : "outline"}
+                              >
+                                {formatPercent(insights.performance.trend.spendDeltaPct, { sign: true })}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-muted-foreground">Resultados</p>
+                                <p className="text-xl font-semibold">
+                                  {formatNumber(insights.performance.trend.recentResults)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant={(insights.performance.trend.resultsDeltaPct ?? 0) >= 0 ? "default" : "outline"}
+                              >
+                                {formatPercent(insights.performance.trend.resultsDeltaPct, { sign: true })}
+                              </Badge>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            Ainda não há histórico suficiente para analisar a tendência.
+                          </p>
+                        )}
+                        <Separator />
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">TOP 3 campanhas por resultado</p>
+                          <div className="space-y-1">
+                            {insights.performance.topCampaigns.length > 0 ? (
+                              insights.performance.topCampaigns.map((item) => (
+                                <div key={item.name} className="flex items-center justify-between text-xs">
+                                  <span>{item.name}</span>
+                                  <span className="font-semibold">
+                                    {formatNumber(item.results)} • {formatCurrency(item.costPerResult)}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground">Sem campanhas com dados recentes.</p>
+                            )}
                           </div>
-                          <Badge
-                            variant={
-                              (insights.performance.trend.resultsDeltaPct ?? 0) >= 0 ? "default" : "outline"
-                            }
-                          >
-                            {formatPercent(insights.performance.trend.resultsDeltaPct, { sign: true })}
-                          </Badge>
                         </div>
                       </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Ainda não há histórico suficiente para analisar a tendência.
-                      </p>
                     )}
-                    <Separator />
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">TOP 3 campanhas por resultado</p>
-                      <div className="space-y-1">
-                        {insights.performance.topCampaigns.length > 0 ? (
-                          insights.performance.topCampaigns.map((item) => (
-                            <div key={item.name} className="flex items-center justify-between text-xs">
-                              <span>{item.name}</span>
-                              <span className="font-semibold">
-                                {formatNumber(item.results)} • {formatCurrency(item.costPerResult)}
-                              </span>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-xs text-muted-foreground">Sem campanhas com dados recentes.</p>
-                        )}
-                      </div>
-                    </div>
                   </CardContent>
                 </Card>
               </section>
@@ -360,4 +444,3 @@ export function SyncInsightsDialog({
     </Dialog>
   );
 }
-

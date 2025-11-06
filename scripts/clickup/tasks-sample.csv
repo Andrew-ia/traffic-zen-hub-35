@@ -1,0 +1,9 @@
+name,description,status,due_date,start_date,tags
+"🟣 Ideia • Blog Post SEO","Levantar tópicos e referências","IDEIA","2025-11-12","2025-11-10","content,seo"
+"🟢 Redação • Blog Post SEO","Escrever primeira versão e CTAs","REDAÇÃO","2025-11-14","2025-11-12","content,copy"
+"🟠 Design • Blog Post SEO","Criar banner e imagens de apoio","DESIGN","2025-11-15","2025-11-14","design,images"
+"🔵 Aprovação • Blog Post SEO","Enviar para aprovação interna","APROVAÇÃO","2025-11-16","2025-11-15","approval"
+"💗 Agendamento • Blog Post SEO","Programar publicação e divulgação","AGENDAMENTO","2025-11-17","2025-11-16","schedule"
+"🧪 Avaliação • Blog Post SEO","Revisar métricas e feedbacks","AVALIAÇÃO","2025-11-24","2025-11-18","metrics"
+"⚪ Concluído • Blog Post SEO","Encerrar ciclo e registrar notas","CONCLUÍDO","2025-11-25","2025-11-24","done"
+

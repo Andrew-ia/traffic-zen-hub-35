@@ -13,6 +13,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import MetaSyncButton from "@/components/MetaSyncButton";
 import GoogleAdsSyncButton from "@/components/GoogleAdsSyncButton";
+import InstagramSyncButton from "@/components/InstagramSyncButton";
 import {
   Facebook,
   Instagram,
@@ -41,6 +42,16 @@ export default function Integrations() {
     [overview],
   );
 
+  const instagramIntegration = useMemo(
+    () => overview?.integrations.find((integration) => integration.platform_key === "instagram") ?? null,
+    [overview],
+  );
+
+  const instagramAccounts = useMemo(
+    () => overview?.platformAccounts.filter((account) => account.platform_key === "instagram") ?? [],
+    [overview],
+  );
+
   const metaStatusText = useMemo(() => {
     if (!metaIntegration) return "Não conectado";
     if (metaIntegration.last_synced_at) {
@@ -51,6 +62,17 @@ export default function Integrations() {
     }
     return "Sincronização pendente";
   }, [metaIntegration]);
+
+  const instagramStatusText = useMemo(() => {
+    if (!instagramIntegration) return "Não conectado";
+    if (instagramIntegration.last_synced_at) {
+      return `Sincronizado ${formatDistanceToNow(new Date(instagramIntegration.last_synced_at), {
+        addSuffix: true,
+        locale: ptBR,
+      })}`;
+    }
+    return "Sincronização pendente";
+  }, [instagramIntegration]);
 
   const adsPlatforms = useMemo(() => {
     const metaCard = {
@@ -63,8 +85,18 @@ export default function Integrations() {
       status: metaStatusText,
     };
 
-    return [metaCard];
-  }, [metaIntegration, metaAccounts.length, metaStatusText]);
+    const instagramCard = {
+      id: 2,
+      name: "Instagram Insights",
+      description: "Métricas do Instagram Business",
+      icon: Instagram,
+      connected: instagramIntegration?.status === "active",
+      accounts: instagramAccounts.length,
+      status: instagramStatusText,
+    };
+
+    return [metaCard, instagramCard];
+  }, [metaIntegration, metaAccounts.length, metaStatusText, instagramIntegration, instagramAccounts.length, instagramStatusText]);
 
   return (
     <div className="space-y-6">
@@ -151,6 +183,11 @@ export default function Integrations() {
                     <>
                       {platform.connected && <MetaSyncButton />}
                       <MetaCredentialsDialog />
+                    </>
+                  ) : platform.id === 2 ? (
+                    <>
+                      <InstagramSyncButton />
+                      <InstagramCredentialsDialog />
                     </>
                   ) : platform.connected ? (
                     <>
@@ -240,12 +277,19 @@ export default function Integrations() {
 }
 
 const META_CREDENTIALS_KEY = "trafficpro.meta.credentials";
+const INSTAGRAM_CREDENTIALS_KEY = "trafficpro.instagram.credentials";
 
 interface MetaCredentials {
   appId: string;
   appSecret: string;
   accessToken: string;
   adAccountId: string;
+  workspaceId: string;
+}
+
+interface InstagramCredentials {
+  igUserId: string;
+  accessToken: string;
   workspaceId: string;
 }
 
@@ -400,6 +444,181 @@ function MetaCredentialsDialog() {
           <div className="space-y-2">
             <Label>Snippet para .env.local</Label>
             <Textarea readOnly value={envSnippet} rows={6} />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleCopy}>
+                <Copy className="mr-2 h-4 w-4" /> Copiar snippet
+              </Button>
+              {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+          <Button variant="ghost" onClick={handleReset} className="justify-start">
+            Limpar credenciais
+          </Button>
+          <Button onClick={handleSave}>Salvar no navegador</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const defaultInstagramCredentials = (): InstagramCredentials => ({
+  igUserId: import.meta.env.VITE_IG_USER_ID ?? "",
+  accessToken: import.meta.env.VITE_META_ACCESS_TOKEN ?? "",
+  workspaceId: import.meta.env.VITE_WORKSPACE_ID ?? "",
+});
+
+function InstagramCredentialsDialog() {
+  const [open, setOpen] = useState(false);
+  const [credentials, setCredentials] = useState<InstagramCredentials>(defaultInstagramCredentials);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(INSTAGRAM_CREDENTIALS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as InstagramCredentials;
+        const defaults = defaultInstagramCredentials();
+        const merged: InstagramCredentials = {
+          igUserId: parsed.igUserId || defaults.igUserId,
+          accessToken: parsed.accessToken || defaults.accessToken,
+          workspaceId: parsed.workspaceId || defaults.workspaceId,
+        };
+        setCredentials(merged);
+      } else {
+        setCredentials(defaultInstagramCredentials());
+      }
+    } catch (error) {
+      console.warn("Failed to load stored Instagram credentials", error);
+    }
+  }, [open]);
+
+  const envSnippet = useMemo(
+    () =>
+      `IG_USER_ID=${credentials.igUserId}\nIG_ACCESS_TOKEN=${credentials.accessToken}\nIG_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_IG_USER_ID=${credentials.igUserId}`,
+    [credentials],
+  );
+
+  const handleChange = (field: keyof InstagramCredentials) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setSaved(false);
+    setCredentials((prev) => ({ ...prev, [field]: event.target.value }));
+  };
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(envSnippet);
+    setSaved(true);
+  };
+
+  const handleSave = () => {
+    localStorage.setItem(INSTAGRAM_CREDENTIALS_KEY, JSON.stringify(credentials));
+    setSaved(true);
+    setOpen(false);
+  };
+
+  const handleReset = () => {
+    localStorage.removeItem(INSTAGRAM_CREDENTIALS_KEY);
+    setCredentials(defaultInstagramCredentials());
+    setSaved(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline">Configurar Instagram</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Credenciais do Instagram</DialogTitle>
+          <DialogDescription>
+            Configure o Instagram Business Account ID. O Access Token é o mesmo usado no Meta Ads.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-blue-100 p-2">
+                <svg
+                  className="w-5 h-5 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-sm mb-1 text-orange-600">⚠️ IMPORTANTE: Use o Instagram Business Account ID, não o Page ID</h4>
+                <p className="text-xs text-muted-foreground mb-2">
+                  <strong>Método 1 - Via Graph API Explorer (recomendado):</strong>
+                </p>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside ml-2">
+                  <li>Acesse <a href="https://developers.facebook.com/tools/explorer" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Graph API Explorer</a></li>
+                  <li>Cole sua Facebook Page ID e adicione <code className="bg-white px-1 py-0.5 rounded">?fields=instagram_business_account</code></li>
+                  <li>Clique em "Submit". O ID do Instagram aparecerá na resposta</li>
+                </ol>
+                <p className="text-xs text-muted-foreground mt-2 mb-1">
+                  <strong>Método 2 - Via Business Suite:</strong>
+                </p>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside ml-2">
+                  <li>Acesse <a href="https://business.facebook.com" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">business.facebook.com</a></li>
+                  <li>Vá em "Instagram accounts" (não "Pages"!)</li>
+                  <li>Clique na sua conta do Instagram</li>
+                  <li>O <strong>Instagram Business Account ID</strong> aparece na URL</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="ig-user-id">Instagram Business Account ID</Label>
+            <Input
+              id="ig-user-id"
+              value={credentials.igUserId}
+              onChange={handleChange("igUserId")}
+              placeholder="211443329551349"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              O ID numérico da sua conta Instagram Business conectada ao Facebook Page
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="ig-access-token">Access Token (mesmo do Meta Ads)</Label>
+            <Textarea
+              id="ig-access-token"
+              value={credentials.accessToken}
+              onChange={handleChange("accessToken")}
+              rows={3}
+              placeholder="Access token de longa duração do Meta"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Use o mesmo Access Token configurado no Meta Ads
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="ig-workspace">Workspace ID</Label>
+            <Input
+              id="ig-workspace"
+              value={credentials.workspaceId}
+              onChange={handleChange("workspaceId")}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              ID do workspace no Supabase (geralmente o mesmo do Meta Ads)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Snippet para .env.local</Label>
+            <Textarea readOnly value={envSnippet} rows={4} />
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleCopy}>
                 <Copy className="mr-2 h-4 w-4" /> Copiar snippet

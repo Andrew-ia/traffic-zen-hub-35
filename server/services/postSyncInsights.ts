@@ -65,6 +65,27 @@ export interface SyncInsightsSummary {
       results: number;
       costPerResult: number | null;
     }>;
+    extra?: {
+      ig?: {
+        totals: {
+          reach: number;
+          impressions: number;
+          clicks: number;
+          profileViews: number;
+          accountsEngaged: number;
+          totalInteractions: number;
+          emailContacts: number;
+          phoneCallClicks: number;
+          getDirectionsClicks: number;
+          textMessageClicks: number;
+        };
+        recent: {
+          impressions: number;
+          clicks: number;
+          reach: number;
+        };
+      };
+    };
   };
   counts: {
     totalRecommendations: number;
@@ -258,6 +279,96 @@ export async function generatePostSyncInsights(options: GenerateOptions): Promis
         previousResults,
         resultsDeltaPct: computeDeltaPct(recentResults, previousResults),
       };
+    }
+  }
+
+  // Instagram-specific aggregation from extra_metrics
+  let performanceExtra: SyncInsightsSummary['performance']['extra'] | undefined = undefined;
+  if (options.platformKey.toLowerCase() === 'instagram') {
+    const igAggRes = await pool.query<{
+      d: string;
+      impressions: number | null;
+      clicks: number | null;
+      reach: number | null;
+      profile_views: number | null;
+      accounts_engaged: number | null;
+      total_interactions: number | null;
+      email_contacts: number | null;
+      phone_call_clicks: number | null;
+      get_directions_clicks: number | null;
+      text_message_clicks: number | null;
+    }>(
+      `
+      select
+        pm.metric_date::text as d,
+        sum(pm.impressions)::float8 as impressions,
+        sum(pm.clicks)::float8 as clicks,
+        sum((pm.extra_metrics->>'reach')::float8) as reach,
+        sum((pm.extra_metrics->>'profile_views')::float8) as profile_views,
+        sum((pm.extra_metrics->>'accounts_engaged')::float8) as accounts_engaged,
+        sum((pm.extra_metrics->>'total_interactions')::float8) as total_interactions,
+        sum((pm.extra_metrics->>'email_contacts')::float8) as email_contacts,
+        sum((pm.extra_metrics->>'phone_call_clicks')::float8) as phone_call_clicks,
+        sum((pm.extra_metrics->>'get_directions_clicks')::float8) as get_directions_clicks,
+        sum((pm.extra_metrics->>'text_message_clicks')::float8) as text_message_clicks
+      from performance_metrics pm
+      where pm.workspace_id = $1
+        and pm.platform_account_id = any($2::uuid[])
+        and pm.granularity = 'day'
+        and pm.campaign_id is null
+        and pm.ad_set_id is null
+        and pm.ad_id is null
+        and pm.metric_date >= current_date - ($3::int - 1)
+      group by pm.metric_date
+      order by pm.metric_date
+      `,
+      [options.workspaceId, platformAccountIds, daysWindow]
+    );
+
+    const igAgg = igAggRes.rows || [];
+    const totals = igAgg.reduce(
+      (acc, r) => {
+        acc.reach += Number(r.reach ?? 0);
+        acc.impressions += Number(r.impressions ?? 0);
+        acc.clicks += Number(r.clicks ?? 0);
+        acc.profileViews += Number(r.profile_views ?? 0);
+        acc.accountsEngaged += Number(r.accounts_engaged ?? 0);
+        acc.totalInteractions += Number(r.total_interactions ?? 0);
+        acc.emailContacts += Number(r.email_contacts ?? 0);
+        acc.phoneCallClicks += Number(r.phone_call_clicks ?? 0);
+        acc.getDirectionsClicks += Number(r.get_directions_clicks ?? 0);
+        acc.textMessageClicks += Number(r.text_message_clicks ?? 0);
+        return acc;
+      },
+      {
+        reach: 0,
+        impressions: 0,
+        clicks: 0,
+        profileViews: 0,
+        accountsEngaged: 0,
+        totalInteractions: 0,
+        emailContacts: 0,
+        phoneCallClicks: 0,
+        getDirectionsClicks: 0,
+        textMessageClicks: 0,
+      }
+    );
+
+    const last3 = igAgg.slice(-3);
+    const recent = last3.reduce(
+      (acc, r) => {
+        acc.impressions += Number(r.impressions ?? 0);
+        acc.clicks += Number(r.clicks ?? 0);
+        acc.reach += Number(r.reach ?? 0);
+        return acc;
+      },
+      { impressions: 0, clicks: 0, reach: 0 }
+    );
+
+    performanceExtra = { ig: { totals, recent } };
+
+    if (totalSpend === 0 && totalResults === 0) {
+      notes.push('Sincronização Instagram concluída. KPIs de anúncio (gasto, conversões) não se aplicam.');
     }
   }
 
@@ -556,6 +667,7 @@ export async function generatePostSyncInsights(options: GenerateOptions): Promis
       trend,
       topCampaigns,
       underperformingCampaigns,
+      extra: performanceExtra,
     },
     counts: {
       totalRecommendations,

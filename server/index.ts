@@ -50,6 +50,8 @@ import {
   getInsightsStats,
   getAIDashboard,
 } from './api/ai/insights.js';
+import chatRouter from './api/ai/chat.js';
+import conversationsRouter from './api/ai/conversations.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -91,6 +93,7 @@ app.delete('/api/integrations/credentials/:workspaceId/:platformKey', deleteCred
 
 // Sync endpoints
 app.post('/api/integrations/sync', startSync);
+app.post('/api/integrations/simple-sync', startSync); // Alias for Instagram compatibility
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
 app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
 app.post('/api/integrations/billing/sync', syncMetaBilling);
@@ -145,6 +148,10 @@ app.get('/api/ai/insights/:id', getInsightById);
 app.put('/api/ai/insights/:id/status', updateInsightStatus);
 app.post('/api/ai/insights/:id/action', applyInsightAction);
 app.get('/api/ai/dashboard', getAIDashboard);
+
+// AI Chat endpoints
+app.use('/api/ai/chat', chatRouter);
+app.use('/api/ai/conversations', conversationsRouter);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

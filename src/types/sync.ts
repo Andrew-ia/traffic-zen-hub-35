@@ -62,6 +62,27 @@ export interface SyncInsightsSummary {
       results: number;
       costPerResult: number | null;
     }>;
+    extra?: {
+      ig?: {
+        totals: {
+          reach: number;
+          impressions: number;
+          clicks: number;
+          profileViews: number;
+          accountsEngaged: number;
+          totalInteractions: number;
+          emailContacts: number;
+          phoneCallClicks: number;
+          getDirectionsClicks: number;
+          textMessageClicks: number;
+        };
+        recent: {
+          impressions: number;
+          clicks: number;
+          reach: number;
+        };
+      };
+    };
   };
   counts: {
     totalRecommendations: number;

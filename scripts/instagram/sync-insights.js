@@ -70,6 +70,51 @@ function buildUrl(path, params = {}) {
 }
 
 /**
+ * Validate Instagram API permissions with lightweight checks
+ * - Checks basic account fields (requires instagram_basic)
+ * - Attempts a simple insights metric (requires instagram_manage_insights)
+ */
+async function validatePermissions(igUserId, accessToken) {
+  console.log('🔍 Validando permissões do token...');
+
+  // Check instagram_basic by fetching simple account fields
+  try {
+    const basicUrl = buildUrl(`${igUserId}`, {
+      fields: 'username,followers_count,media_count',
+      access_token: accessToken,
+    });
+    await fetchJson(basicUrl);
+  } catch (error) {
+    console.error('❌ Falha ao validar instagram_basic:', error.message);
+    throw new Error('Permissão ausente: instagram_basic');
+  }
+
+  // Check instagram_manage_insights by fetching a simple metric
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const dayAgo = now - 86400;
+    const testUrl = buildUrl(`${igUserId}/insights`, {
+      metric: 'reach',
+      period: 'day',
+      since: dayAgo,
+      until: now,
+      access_token: accessToken,
+    });
+    await fetchJson(testUrl);
+    console.log('✅ Permissões básicas OK');
+  } catch (error) {
+    const msg = String(error.message || '');
+    if (msg.includes('does not have permission') || msg.includes('Permission') || msg.includes('code 10')) {
+      console.error('❌ ERRO DE PERMISSÃO: O aplicativo não tem acesso ao Instagram Insights.');
+      console.error('📋 Permissões necessárias: instagram_manage_insights, instagram_basic, pages_read_engagement, pages_show_list');
+      console.error('🔧 Corrija em: https://developers.facebook.com/apps/1486406569007058/ (App Review)');
+      throw new Error('Missing required permissions for Instagram Insights API');
+    }
+    throw error;
+  }
+}
+
+/**
  * Fetch Instagram User Insights
  * Metrics: reach, impressions, profile_views, website_clicks, email_contacts, phone_call_clicks
  */
@@ -83,42 +128,89 @@ async function fetchUserInsights(igUserId, accessToken, days) {
   const until = new Date();
   until.setHours(23, 59, 59, 999);
 
-  const metrics = [
-    'impressions',
-    'reach',
-    'profile_views',
-    'website_clicks',
-    'email_contacts',
-    'phone_call_clicks',
-    'get_directions_clicks',
-    'text_message_clicks',
-  ];
+  // Metrics available in Instagram Graph API v21.0+
+  // See: https://developers.facebook.com/docs/instagram-api/reference/ig-user/insights
+  // NOTE: 'impressions' was removed in v21.0+, use 'reach' instead
 
   const insights = [];
 
-  // Instagram API requires fetching metrics in groups
-  // We'll fetch daily metrics (period=day)
-  const url = buildUrl(`${igUserId}/insights`, {
-    metric: metrics.join(','),
-    period: 'day',
-    since: Math.floor(since.getTime() / 1000),
-    until: Math.floor(until.getTime() / 1000),
-    access_token: accessToken,
-  });
+  // 1) Fetch daily metrics with values array (time series data)
+  const dailyMetrics = ['reach', 'follower_count'];
 
+  for (const metric of dailyMetrics) {
+    try {
+      const url = buildUrl(`${igUserId}/insights`, {
+        metric,
+        period: 'day',
+        since: Math.floor(since.getTime() / 1000),
+        until: Math.floor(until.getTime() / 1000),
+        access_token: accessToken,
+      });
+
+      const data = await fetchJson(url);
+      if (data.data) {
+        insights.push(...data.data);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Could not fetch ${metric}:`, String(err.message || err).substring(0, 100));
+    }
+  }
+
+  // 2) Fetch metrics requiring metric_type=total_value
+  const totalValueMetrics = [
+    'profile_views',
+    'website_clicks',
+    'accounts_engaged',
+    'total_interactions',
+    'likes',
+    'comments',
+    'shares',
+    'saves',
+    'replies',
+    'profile_links_taps',
+  ];
+
+  for (const metric of totalValueMetrics) {
+    try {
+      const url = buildUrl(`${igUserId}/insights`, {
+        metric,
+        metric_type: 'total_value',
+        period: 'day',
+        since: Math.floor(since.getTime() / 1000),
+        until: Math.floor(until.getTime() / 1000),
+        access_token: accessToken,
+      });
+
+      const data = await fetchJson(url);
+      if (data.data) {
+        insights.push(...data.data);
+      }
+    } catch (err) {
+      const msg = String(err.message || err);
+      if (!msg.includes('must be one of')) {
+        console.warn(`⚠️ Could not fetch ${metric}:`, msg.substring(0, 100));
+      }
+    }
+  }
+
+  // 3) Fetch lifetime metrics (special case)
   try {
-    const data = await fetchJson(url);
+    const url = buildUrl(`${igUserId}/insights`, {
+      metric: 'online_followers',
+      period: 'lifetime',
+      access_token: accessToken,
+    });
 
+    const data = await fetchJson(url);
     if (data.data) {
       insights.push(...data.data);
     }
-
-    console.log(`✅ Fetched ${insights.length} user insight metrics`);
-    return insights;
-  } catch (error) {
-    console.error(`❌ Error fetching user insights:`, error.message);
-    return [];
+  } catch (err) {
+    console.warn('⚠️ Could not fetch online_followers:', String(err.message || err).substring(0, 100));
   }
+
+  console.log(`✅ Fetched ${insights.length} user insight metrics`);
+  return insights;
 }
 
 /**
@@ -132,7 +224,7 @@ async function fetchRecentMedia(igUserId, accessToken, days) {
   const sinceTimestamp = Math.floor(since.getTime() / 1000);
 
   const url = buildUrl(`${igUserId}/media`, {
-    fields: 'id,media_type,timestamp,caption,permalink',
+    fields: 'id,media_type,timestamp,caption,permalink,media_url,thumbnail_url',
     access_token: accessToken,
   });
 
@@ -167,30 +259,48 @@ async function fetchRecentMedia(igUserId, accessToken, days) {
 /**
  * Fetch insights for a specific media post
  */
-async function fetchMediaInsights(mediaId, accessToken) {
-  const metrics = [
-    'impressions',
-    'reach',
-    'engagement',
-    'saved',
-    'likes',
-    'comments',
-    'shares',
-  ];
-
-  const url = buildUrl(`${mediaId}/insights`, {
-    metric: metrics.join(','),
-    access_token: accessToken,
-  });
-
-  try {
-    const data = await fetchJson(url);
-    return data.data || [];
-  } catch (error) {
-    // Some media types (like Stories) may not have all metrics available
-    console.warn(`⚠️ Could not fetch insights for media ${mediaId}:`, error.message);
-    return [];
+function getMetricsByMediaType(mediaType) {
+  // Metrics valid for Instagram API v21.0+
+  // Note: plays, video_views, profile_visits, follows removed in v22.0+
+  switch (mediaType) {
+    case 'IMAGE':
+    case 'CAROUSEL_ALBUM':
+      return ['reach', 'likes', 'comments', 'saved', 'shares', 'total_interactions'];
+    case 'VIDEO':
+    case 'REELS':
+      return ['reach', 'likes', 'comments', 'saved', 'shares', 'total_interactions', 'views'];
+    default:
+      return ['reach', 'likes', 'comments', 'saved', 'shares', 'total_interactions'];
   }
+}
+
+async function fetchMediaInsights(mediaId, mediaType, accessToken) {
+  const candidateMetrics = getMetricsByMediaType(mediaType);
+
+  const results = [];
+  for (const metric of candidateMetrics) {
+    const url = buildUrl(`${mediaId}/insights`, {
+      metric,
+      access_token: accessToken,
+    });
+
+    try {
+      const data = await fetchJson(url);
+      if (Array.isArray(data?.data) && data.data.length > 0) {
+        results.push(...data.data);
+      }
+      await delay(RATE_LIMIT_DELAY_MS);
+    } catch (error) {
+      const msg = error?.message || String(error);
+      // Ignore unsupported metric errors for specific media types, continue
+      if (msg.includes('metric') && msg.includes('not supported') || msg.includes('must be one of')) {
+        continue;
+      }
+      console.warn(`⚠️ Could not fetch insights for media ${mediaId} (metric=${metric}):`, msg);
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -201,17 +311,51 @@ function transformUserInsights(insights, workspaceId, platformAccountId, igUserI
 
   for (const insight of insights) {
     const metricName = insight.name;
-    const values = insight.values || [];
 
-    for (const value of values) {
-      const date = value.end_time.split('T')[0]; // Get YYYY-MM-DD
+    // Handle two different response formats:
+    // 1. Standard metrics with 'values' array (e.g., reach)
+    // 2. total_value metrics with single 'total_value' object
 
-      if (!metricsByDate.has(date)) {
-        metricsByDate.set(date, {
+    if (insight.values && Array.isArray(insight.values)) {
+      // Format 1: Standard metrics with time series data
+      for (const value of insight.values) {
+        const date = value.end_time.split('T')[0]; // Get YYYY-MM-DD
+
+        if (!metricsByDate.has(date)) {
+          metricsByDate.set(date, {
+            workspace_id: workspaceId,
+            platform_account_id: platformAccountId,
+            metric_date: date,
+            granularity: 'day',
+            impressions: 0,
+            clicks: 0,
+            spend: 0,
+            extra_metrics: {},
+          });
+        }
+
+        const metrics = metricsByDate.get(date);
+
+        // Map Instagram metrics to our schema
+        switch (metricName) {
+          case 'reach':
+            metrics.extra_metrics.reach = value.value || 0;
+            break;
+          case 'follower_count':
+            metrics.extra_metrics.follower_count = value.value || 0;
+            break;
+        }
+      }
+    } else if (insight.total_value) {
+      // Format 2: total_value metrics (aggregated over the period)
+      // Store as a single entry for "today" since it's a period total
+      const today = new Date().toISOString().split('T')[0];
+
+      if (!metricsByDate.has(today)) {
+        metricsByDate.set(today, {
           workspace_id: workspaceId,
           platform_account_id: platformAccountId,
-          external_id: igUserId,
-          metric_date: date,
+          metric_date: today,
           granularity: 'day',
           impressions: 0,
           clicks: 0,
@@ -220,40 +364,116 @@ function transformUserInsights(insights, workspaceId, platformAccountId, igUserI
         });
       }
 
-      const metrics = metricsByDate.get(date);
+      const metrics = metricsByDate.get(today);
+      const totalValue = insight.total_value.value || 0;
 
-      // Map Instagram metrics to our schema
       switch (metricName) {
-        case 'impressions':
-          metrics.impressions = value.value || 0;
-          break;
-        case 'reach':
-          metrics.extra_metrics.reach = value.value || 0;
-          break;
         case 'profile_views':
-          metrics.extra_metrics.profile_views = value.value || 0;
+          metrics.extra_metrics.profile_views = totalValue;
           break;
         case 'website_clicks':
-          metrics.clicks = value.value || 0;
-          metrics.extra_metrics.website_clicks = value.value || 0;
+          metrics.clicks = totalValue;
+          metrics.extra_metrics.website_clicks = totalValue;
           break;
-        case 'email_contacts':
-          metrics.extra_metrics.email_contacts = value.value || 0;
+        case 'accounts_engaged':
+          metrics.extra_metrics.accounts_engaged = totalValue;
           break;
-        case 'phone_call_clicks':
-          metrics.extra_metrics.phone_call_clicks = value.value || 0;
+        case 'total_interactions':
+          metrics.extra_metrics.total_interactions = totalValue;
           break;
-        case 'get_directions_clicks':
-          metrics.extra_metrics.get_directions_clicks = value.value || 0;
+        case 'likes':
+          metrics.extra_metrics.likes = totalValue;
           break;
-        case 'text_message_clicks':
-          metrics.extra_metrics.text_message_clicks = value.value || 0;
+        case 'comments':
+          metrics.extra_metrics.comments = totalValue;
           break;
+        case 'shares':
+          metrics.extra_metrics.shares = totalValue;
+          break;
+        case 'saves':
+          metrics.extra_metrics.saves = totalValue;
+          break;
+        case 'replies':
+          metrics.extra_metrics.replies = totalValue;
+          break;
+        case 'profile_links_taps':
+          metrics.extra_metrics.profile_links_taps = totalValue;
+          break;
+      }
+    } else if (metricName === 'online_followers' && insight.values) {
+      // Format 3: online_followers has special format with hourly data
+      const today = new Date().toISOString().split('T')[0];
+
+      if (!metricsByDate.has(today)) {
+        metricsByDate.set(today, {
+          workspace_id: workspaceId,
+          platform_account_id: platformAccountId,
+          metric_date: today,
+          granularity: 'day',
+          impressions: 0,
+          clicks: 0,
+          spend: 0,
+          extra_metrics: {},
+        });
+      }
+
+      const metrics = metricsByDate.get(today);
+      // Store the hourly breakdown
+      if (insight.values[0] && insight.values[0].value) {
+        metrics.extra_metrics.online_followers = insight.values[0].value;
       }
     }
   }
 
   return Array.from(metricsByDate.values());
+}
+
+/**
+ * Transform media insights into performance_metrics format, stored under extra_metrics.media_insights[media_id]
+ */
+function transformMediaInsights(media, insights, workspaceId, platformAccountId) {
+  // Build metrics payload per media
+  const metricsObj = {};
+  for (const item of insights) {
+    if (!item || !item.name) continue;
+    // Media insights are usually lifetime; use first value when present
+    const v = Array.isArray(item.values) && item.values.length > 0 ? item.values[0]?.value : undefined;
+    if (v !== undefined && v !== null) {
+      metricsObj[item.name] = v;
+    }
+  }
+
+  // Use media timestamp date for metric_date; fallback to today
+  let dateStr;
+  if (media?.timestamp) {
+    dateStr = media.timestamp.split('T')[0];
+  } else {
+    const d = new Date();
+    dateStr = d.toISOString().split('T')[0];
+  }
+
+  const extra = {
+    media_insights: {
+      [media.id]: {
+        media_type: media.media_type,
+        timestamp: media.timestamp,
+        permalink: media.permalink,
+        media_url: media.media_url || media.thumbnail_url,
+        metrics: metricsObj,
+      },
+    },
+  };
+
+  return [{
+    workspace_id: workspaceId,
+    platform_account_id: platformAccountId,
+    metric_date: dateStr,
+    granularity: 'day',
+    impressions: null,
+    clicks: null,
+    spend: null,
+    extra_metrics: extra,
+  }];
 }
 
 /**
@@ -268,39 +488,64 @@ async function upsertMetrics(client, metrics) {
   console.log(`💾 Upserting ${metrics.length} metric records...`);
 
   for (const metric of metrics) {
-    await client.query(
+    // Try UPDATE first for idempotency, then INSERT if no rows affected
+    const updateResult = await client.query(
       `
-      INSERT INTO performance_metrics (
-        workspace_id,
-        platform_account_id,
-        external_id,
-        metric_date,
-        granularity,
-        impressions,
-        clicks,
-        spend,
-        extra_metrics
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-      ON CONFLICT (workspace_id, platform_account_id, external_id, metric_date, granularity)
-      DO UPDATE SET
-        impressions = EXCLUDED.impressions,
-        clicks = EXCLUDED.clicks,
-        extra_metrics = EXCLUDED.extra_metrics,
-        updated_at = now()
+        UPDATE performance_metrics
+        SET impressions = COALESCE($5, impressions),
+            clicks = COALESCE($6, clicks),
+            spend = COALESCE($7, spend),
+            extra_metrics = COALESCE(extra_metrics, '{}'::jsonb) || $8::jsonb
+        WHERE workspace_id = $1
+          AND platform_account_id = $2
+          AND campaign_id IS NULL
+          AND ad_set_id IS NULL
+          AND ad_id IS NULL
+          AND granularity = $3
+          AND metric_date = $4
       `,
       [
         metric.workspace_id,
         metric.platform_account_id,
-        metric.external_id,
-        metric.metric_date,
         metric.granularity,
-        metric.impressions,
-        metric.clicks,
-        metric.spend,
+        metric.metric_date,
+        metric.impressions ?? null,
+        metric.clicks ?? null,
+        metric.spend ?? null,
         JSON.stringify(metric.extra_metrics),
       ]
     );
+
+    if (updateResult.rowCount === 0) {
+      await client.query(
+        `
+        INSERT INTO performance_metrics (
+          workspace_id,
+          platform_account_id,
+          campaign_id,
+          ad_set_id,
+          ad_id,
+          metric_date,
+          granularity,
+          impressions,
+          clicks,
+          spend,
+          extra_metrics
+        )
+        VALUES ($1, $2, NULL, NULL, NULL, $3, $4, COALESCE($5, 0), COALESCE($6, 0), COALESCE($7, 0), $8::jsonb)
+        `,
+        [
+          metric.workspace_id,
+          metric.platform_account_id,
+          metric.metric_date,
+          metric.granularity,
+          metric.impressions ?? null,
+          metric.clicks ?? null,
+          metric.spend ?? null,
+          JSON.stringify(metric.extra_metrics),
+        ]
+      );
+    }
   }
 
   console.log('✅ Metrics upserted successfully');
@@ -312,8 +557,8 @@ async function upsertMetrics(client, metrics) {
 async function updateIntegrationSync(client, workspaceId) {
   await client.query(
     `
-    UPDATE integrations
-    SET last_sync = now()
+    UPDATE workspace_integrations
+    SET last_synced_at = now(), updated_at = now()
     WHERE workspace_id = $1 AND platform_key = 'instagram'
     `,
     [workspaceId]
@@ -340,6 +585,9 @@ async function main() {
     console.log(`👤 IG User ID: ${igUserId}`);
     console.log(`🏢 Workspace: ${workspaceId}\n`);
 
+    // Validate permissions before heavy sync
+    await validatePermissions(igUserId, accessToken);
+
     // Get platform account ID
     const { rows: platformAccounts } = await client.query(
       `
@@ -365,23 +613,34 @@ async function main() {
       await upsertMetrics(client, metrics);
     }
 
-    // Fetch recent media and their insights
-    const recentMedia = await fetchRecentMedia(igUserId, accessToken, SYNC_DAYS);
-
-    if (recentMedia.length > 0) {
-      console.log(`\n📊 Fetching insights for ${recentMedia.length} media posts...`);
-
-      let processedCount = 0;
-      for (const media of recentMedia) {
-        const mediaInsights = await fetchMediaInsights(media.id, accessToken);
-        processedCount++;
-
-        if (processedCount % 5 === 0) {
-          console.log(`   Progress: ${processedCount}/${recentMedia.length} media processed`);
+    // Fetch recent media and their insights (gracefully skip if token lacks permission)
+    try {
+      const recentMedia = await fetchRecentMedia(igUserId, accessToken, SYNC_DAYS);
+      if (recentMedia.length > 0) {
+        console.log(`\n📊 Fetching insights for ${recentMedia.length} media posts...`);
+        const mediaMetrics = [];
+        let processedCount = 0;
+        for (const media of recentMedia) {
+          const mediaInsights = await fetchMediaInsights(media.id, media.media_type, accessToken);
+          const transformed = transformMediaInsights(media, mediaInsights, workspaceId, platformAccountId);
+          mediaMetrics.push(...transformed);
+          processedCount++;
+          if (processedCount % 5 === 0) {
+            console.log(`   Progress: ${processedCount}/${recentMedia.length} media processed`);
+          }
         }
+        if (mediaMetrics.length > 0) {
+          await upsertMetrics(client, mediaMetrics);
+        }
+        console.log(`✅ Processed insights for ${recentMedia.length} media posts`);
       }
-
-      console.log(`✅ Processed insights for ${recentMedia.length} media posts`);
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      if (msg.includes('Application does not have permission') || msg.includes('OAuthException') || msg.includes('code":10')) {
+        console.warn('⚠️  Token sem permissão para mídia. Pulando etapa de mídia e concluindo apenas insights de usuário.');
+      } else {
+        throw err;
+      }
     }
 
     // Update last sync timestamp

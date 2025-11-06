@@ -17,21 +17,20 @@ import { SyncInsightsDialog } from "./SyncInsightsDialog";
 import type { SyncInsightsSummary } from "@/types/sync";
 import FullscreenLoader from "@/components/ui/fullscreen-loader";
 
-interface MetaSyncButtonProps {
+interface InstagramSyncButtonProps {
   variant?: "default" | "outline" | "secondary" | "ghost";
   size?: "default" | "sm" | "lg" | "icon";
   className?: string;
 }
 
-export default function MetaSyncButton({
+export default function InstagramSyncButton({
   variant = "outline",
   size = "default",
   className = ""
-}: MetaSyncButtonProps) {
+}: InstagramSyncButtonProps) {
   const [open, setOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncPeriod, setSyncPeriod] = useState("7");
-  const [syncType, setSyncType] = useState("all");
   const [resultOpen, setResultOpen] = useState(false);
   const [resultInsights, setResultInsights] = useState<SyncInsightsSummary | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -60,11 +59,11 @@ export default function MetaSyncButton({
 
       toast({
         title: "Sincronização Iniciada",
-        description: `Sincronizando dados dos últimos ${syncPeriod} dias...`,
+        description: `Sincronizando insights dos últimos ${syncPeriod} dias...`,
       });
 
-      // Start the sync job
-      const response = await fetch('/api/integrations/sync', {
+      // Start the sync job using simpleSync endpoint
+      const response = await fetch('/api/integrations/simple-sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -72,9 +71,9 @@ export default function MetaSyncButton({
         },
         body: JSON.stringify({
           workspaceId,
-          platformKey: 'meta',
+          platformKey: 'instagram',
           days: Number(syncPeriod),
-          type: syncType,
+          type: 'all', // Instagram only supports 'all' type
         }),
       });
 
@@ -102,7 +101,7 @@ export default function MetaSyncButton({
 
       // Poll for job status
       let attempts = 0;
-      const maxAttempts = 120; // 4 minutes (2s * 120)
+      const maxAttempts = 60; // 2 minutes max (2s * 60)
 
       const pollInterval = setInterval(async () => {
         attempts++;
@@ -150,7 +149,7 @@ export default function MetaSyncButton({
             } else {
               toast({
                 title: "Sincronização Concluída",
-                description: "Os dados do Meta foram atualizados com sucesso.",
+                description: "Os dados do Instagram foram atualizados com sucesso.",
               });
             }
           } else if (status === 'failed') {
@@ -184,8 +183,8 @@ export default function MetaSyncButton({
   return (
     <>
       {syncing && (
-        <FullscreenLoader
-          title="Sincronizando Meta Ads"
+        <FullscreenLoader 
+          title="Sincronizando Instagram"
           subtitle={`Últimos ${syncPeriod} dias`}
           progress={progress}
         />
@@ -200,100 +199,74 @@ export default function MetaSyncButton({
               </>
             ) : (
               <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Atualizar Dados
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sincronizar Instagram
               </>
             )}
           </Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Sincronizar Dados do Meta
+              Sincronizar Insights do Instagram
             </DialogTitle>
             <DialogDescription>
-              Escolha o período e tipo de dados para sincronizar
+              Escolha o período dos dados que deseja sincronizar
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
-            {/* Período */}
+          <div className="space-y-4 py-4">
             <div className="space-y-3">
-              <Label>Período de Sincronização</Label>
+              <Label>Período de sincronização</Label>
               <RadioGroup value={syncPeriod} onValueChange={setSyncPeriod}>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="1" id="period-1" />
-                  <Label htmlFor="period-1" className="cursor-pointer font-normal">
-                    Último dia
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="3" id="period-3" />
-                  <Label htmlFor="period-3" className="cursor-pointer font-normal">
-                    Últimos 3 dias
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
                   <RadioGroupItem value="7" id="period-7" />
-                  <Label htmlFor="period-7" className="cursor-pointer font-normal">
-                    Última semana (7 dias) <span className="text-muted-foreground">— Recomendado</span>
+                  <Label htmlFor="period-7" className="font-normal cursor-pointer">
+                    Últimos 7 dias
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="15" id="period-15" />
-                  <Label htmlFor="period-15" className="cursor-pointer font-normal">
-                    Últimas 2 semanas (15 dias)
+                  <RadioGroupItem value="14" id="period-14" />
+                  <Label htmlFor="period-14" className="font-normal cursor-pointer">
+                    Últimos 14 dias
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="30" id="period-30" />
-                  <Label htmlFor="period-30" className="cursor-pointer font-normal">
-                    Último mês (30 dias)
+                  <Label htmlFor="period-30" className="font-normal cursor-pointer">
+                    Últimos 30 dias
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="60" id="period-60" />
+                  <Label htmlFor="period-60" className="font-normal cursor-pointer">
+                    Últimos 60 dias
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="90" id="period-90" />
+                  <Label htmlFor="period-90" className="font-normal cursor-pointer">
+                    Últimos 90 dias
                   </Label>
                 </div>
               </RadioGroup>
             </div>
 
-            {/* Tipo de sincronização */}
-            <div className="space-y-3">
-              <Label>Tipo de Sincronização</Label>
-              <RadioGroup value={syncType} onValueChange={setSyncType}>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="all" id="type-all" />
-                  <Label htmlFor="type-all" className="cursor-pointer font-normal">
-                    Tudo (Campanhas + Métricas)
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="campaigns" id="type-campaigns" />
-                  <Label htmlFor="type-campaigns" className="cursor-pointer font-normal">
-                    Apenas Campanhas e Anúncios
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="metrics" id="type-metrics" />
-                  <Label htmlFor="type-metrics" className="cursor-pointer font-normal">
-                    Apenas Métricas de Performance
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            {/* Info box */}
-            <div className="bg-muted p-3 rounded-lg text-sm text-muted-foreground">
-              <p className="font-medium text-foreground mb-1">ℹ️ Sobre a sincronização</p>
-              <ul className="space-y-1 list-disc list-inside">
-                <li>Períodos menores são mais rápidos</li>
-                <li>Apenas dados alterados serão atualizados</li>
-                <li>A sincronização não apaga dados anteriores</li>
-                <li>O processo roda em segundo plano via job queue</li>
-              </ul>
+            <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                <strong>Nota:</strong> Os dados do Instagram podem ter até 48 horas de latência.
+                A sincronização pode levar alguns minutos dependendo do período selecionado.
+              </p>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={syncing}>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={syncing}
+            >
               Cancelar
             </Button>
             <Button onClick={handleSync} disabled={syncing}>
@@ -303,27 +276,21 @@ export default function MetaSyncButton({
                   Sincronizando...
                 </>
               ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Sincronizar
-                </>
+                "Iniciar Sincronização"
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <SyncInsightsDialog
-        open={resultOpen}
-        onOpenChange={(value) => {
-          setResultOpen(value);
-          if (!value) {
-            setResultInsights(null);
-          }
-        }}
-        insights={resultInsights}
-        onReload={() => window.location.reload()}
-      />
+      {resultInsights && (
+        <SyncInsightsDialog
+          open={resultOpen}
+          onOpenChange={setResultOpen}
+          insights={resultInsights}
+          platformName="Instagram"
+        />
+      )}
     </>
   );
 }

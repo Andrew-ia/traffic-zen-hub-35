@@ -9,6 +9,8 @@ import type { SyncJobData } from '../types/index.js';
  */
 
 let isProcessing = false;
+// Track Instagram media processing totals per job to compute granular progress
+const igProgressState: Map<string, { totalMedia?: number }> = new Map();
 
 function resolveMetaCredentials(credentials: any) {
   const appId = credentials.appId ?? credentials.app_id;
@@ -67,6 +69,9 @@ async function executeInstagramSync(jobData: SyncJobData): Promise<{ stdout: str
       const output = data.toString();
       stdout += output;
       console.log(output.trim());
+
+      // Update job progress based on output
+      updateProgressFromOutput(jobData.jobId, output);
     });
 
     child.stderr.on('data', (data) => {
@@ -174,6 +179,7 @@ async function updateProgressFromOutput(jobId: string, output: string) {
   const pool = getPool();
   let progress = 0;
 
+  // Meta Ads progress (Portuguese log messages)
   if (output.includes('Buscando campanhas')) {
     progress = 10;
   } else if (output.includes('campanhas encontradas')) {
@@ -186,6 +192,63 @@ async function updateProgressFromOutput(jobId: string, output: string) {
     progress = 70;
   } else if (output.includes('Métricas')) {
     progress = 85;
+  }
+
+  // Instagram progress (English/Portuguese log messages)
+  if (output.includes('Starting Instagram Insights sync')) {
+    progress = Math.max(progress, 5);
+  }
+  if (output.includes('Fetching user insights')) {
+    progress = Math.max(progress, 15);
+  }
+  if (output.includes('Fetching recent media posts')) {
+    progress = Math.max(progress, 40);
+  }
+  if (output.includes('Found') && output.includes('recent media posts')) {
+    // e.g., "✅ Found 12 recent media posts"
+    const match = output.match(/Found\s+(\d+)\s+recent media posts/i);
+    if (match) {
+      const total = parseInt(match[1], 10);
+      const state = igProgressState.get(jobId) || {};
+      state.totalMedia = total;
+      igProgressState.set(jobId, state);
+      progress = Math.max(progress, total > 0 ? 50 : 45);
+    }
+  }
+  if (output.includes('Fetching insights for') && output.includes('media posts')) {
+    // e.g., "📊 Fetching insights for 12 media posts..."
+    const match = output.match(/Fetching insights for\s+(\d+)\s+media posts/i);
+    if (match) {
+      const total = parseInt(match[1], 10);
+      const state = igProgressState.get(jobId) || {};
+      state.totalMedia = total;
+      igProgressState.set(jobId, state);
+      progress = Math.max(progress, 55);
+    }
+  }
+  if (output.includes('Progress:') && output.includes('media processed')) {
+    // e.g., "   Progress: 5/12 media processed"
+    const match = output.match(/Progress:\s*(\d+)\/(\d+)\s+media processed/i);
+    if (match) {
+      const processed = parseInt(match[1], 10);
+      const total = parseInt(match[2], 10);
+      const pct = total > 0 ? processed / total : 0;
+      // Map media processing progress to 60–90% range
+      const mapped = 60 + Math.round(pct * 30);
+      progress = Math.max(progress, mapped);
+    }
+  }
+  if (output.includes('Processed insights for') && output.includes('media posts')) {
+    progress = Math.max(progress, 95);
+  }
+  if (output.includes('Token sem permissão para mídia')) {
+    // Skipped media due to permission; still consider sync almost done
+    progress = Math.max(progress, 85);
+  }
+  if (output.includes('Instagram Insights sync completed successfully')) {
+    progress = Math.max(progress, 100);
+    // Cleanup state for finished job
+    igProgressState.delete(jobId);
   }
 
   if (progress > 0) {
