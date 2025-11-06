@@ -32,16 +32,20 @@ const SYSTEM_PROMPT = `Você é um assistente de IA especializado em análise de
 
 Sua função é ajudar o usuário a:
 - Analisar performance de campanhas específicas
+- Analisar criativos (copies, títulos, descrições, formatos)
 - Identificar oportunidades de otimização
+- Comparar performance entre diferentes criativos
 - Responder perguntas sobre métricas
 - Fornecer recomendações estratégicas baseadas em dados REAIS
 
 IMPORTANTE:
 1. Quando o usuário mencionar uma campanha específica (ex: "campanha de leads whatsapp 23/10"), os dados dessa campanha serão automaticamente buscados no banco de dados e fornecidos a você.
-2. SEMPRE use os dados fornecidos na seção "Dados Relevantes" quando disponíveis.
-3. NUNCA invente dados ou peça ao usuário para fornecer informações que você já tem acesso.
-4. Se os dados não foram fornecidos, significa que a campanha não foi encontrada - nesse caso, informe ao usuário.
-5. Analise os dados de forma clara e objetiva, fornecendo insights acionáveis.
+2. Os dados incluem TUDO: métricas da campanha, copies de cada criativo, performance individual de cada anúncio, variações de copy, etc.
+3. SEMPRE use os dados fornecidos na seção "Dados Relevantes" quando disponíveis.
+4. NUNCA invente dados ou peça ao usuário para fornecer informações que você já tem acesso.
+5. Se os dados não foram fornecidos, significa que a campanha não foi encontrada - nesse caso, informe ao usuário.
+6. Analise os dados de forma clara e objetiva, fornecendo insights acionáveis.
+7. Ao analisar criativos, compare performance entre eles e identifique padrões de sucesso.
 
 Sempre responda em português (pt-BR).
 Use formatação markdown para melhor legibilidade.
@@ -306,10 +310,27 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 
       let copiesSection = '';
       if (data.ad_copies && data.ad_copies.length > 0) {
-        copiesSection = '\n\n### Copies dos Anúncios:\n\n';
+        copiesSection = '\n\n### Análise de Criativos:\n\n';
         data.ad_copies.forEach((copy: any, i: number) => {
-          copiesSection += `**Anúncio ${i + 1}: ${copy.ad_name}**\n`;
-          copiesSection += `Tipo: ${copy.creative_type}\n\n`;
+          copiesSection += `**Criativo ${i + 1}: ${copy.ad_name}**\n`;
+          copiesSection += `Tipo: ${copy.creative_type}`;
+          if (copy.duration_seconds) {
+            copiesSection += ` (${copy.duration_seconds}s)`;
+          }
+          if (copy.aspect_ratio) {
+            copiesSection += ` | Formato: ${copy.aspect_ratio}`;
+          }
+          copiesSection += '\n\n';
+
+          // Performance metrics
+          if (copy.performance) {
+            const perf = copy.performance;
+            copiesSection += `**Performance**:\n`;
+            copiesSection += `- Impressões: ${perf.impressions.toLocaleString('pt-BR')}\n`;
+            copiesSection += `- Cliques: ${perf.clicks.toLocaleString('pt-BR')}\n`;
+            copiesSection += `- CTR: ${perf.ctr.toFixed(2)}%\n`;
+            copiesSection += `- Gasto: R$ ${perf.spend.toFixed(2)}\n\n`;
+          }
 
           if (copy.title) {
             copiesSection += `**Título**: ${copy.title}\n\n`;
@@ -319,11 +340,14 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
             copiesSection += `**Copy Principal**:\n${copy.text_content}\n\n`;
           }
 
-          if (copy.bodies && copy.bodies.length > 0) {
+          if (copy.bodies && copy.bodies.length > 0 && copy.bodies.length > 1) {
             copiesSection += `**Variações de Copy** (${copy.bodies.length} versões):\n`;
-            copy.bodies.forEach((body: string, idx: number) => {
+            copy.bodies.slice(0, 3).forEach((body: string, idx: number) => {
               copiesSection += `${idx + 1}. ${body}\n`;
             });
+            if (copy.bodies.length > 3) {
+              copiesSection += `... e mais ${copy.bodies.length - 3} variações\n`;
+            }
             copiesSection += '\n';
           }
 

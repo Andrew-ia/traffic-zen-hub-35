@@ -24,6 +24,15 @@ export interface CampaignData {
     bodies?: string[];
     title?: string;
     description?: string;
+    thumbnail_url?: string;
+    aspect_ratio?: string;
+    duration_seconds?: number;
+    performance?: {
+      impressions: number;
+      clicks: number;
+      spend: number;
+      ctr: number;
+    };
   }>;
 }
 
@@ -375,25 +384,48 @@ export async function getCampaignDetails(
 
   const campaignData = result.rows[0];
 
-  // Fetch ad copies for this campaign
+  // Fetch ad copies with performance data for this campaign
   const copiesQuery = `
     SELECT
+      a.id as ad_id,
       a.name as ad_name,
       ca.type as creative_type,
       ca.text_content,
+      ca.thumbnail_url,
+      ca.aspect_ratio,
+      ca.duration_seconds,
       ca.metadata->>'body' as body,
       ca.metadata->'asset_feed_spec'->'bodies' as bodies,
       ca.metadata->'asset_feed_spec'->'titles'->0->>'text' as title,
-      ca.metadata->'asset_feed_spec'->'descriptions'->0->>'text' as description
+      ca.metadata->'asset_feed_spec'->'descriptions'->0->>'text' as description,
+      pm.impressions,
+      pm.clicks,
+      pm.spend,
+      CASE WHEN pm.impressions > 0 THEN (pm.clicks::float / pm.impressions) * 100 ELSE 0 END as ctr
     FROM ads a
     JOIN creative_assets ca ON a.creative_asset_id = ca.id
+    LEFT JOIN (
+      SELECT
+        ad_id,
+        SUM(impressions) as impressions,
+        SUM(clicks) as clicks,
+        SUM(spend) as spend
+      FROM performance_metrics
+      WHERE granularity = 'day'
+        AND metric_date >= $2
+      GROUP BY ad_id
+    ) pm ON a.id = pm.ad_id
     WHERE a.ad_set_id IN (
       SELECT id FROM ad_sets WHERE campaign_id = $1
     )
+    ORDER BY pm.impressions DESC NULLS LAST
     LIMIT 10
   `;
 
-  const copiesResult = await pool.query(copiesQuery, [campaignData.id]);
+  const copiesResult = await pool.query(copiesQuery, [
+    campaignData.id,
+    startDate.toISOString().split('T')[0]
+  ]);
 
   campaignData.ad_copies = copiesResult.rows.map(row => ({
     ad_name: row.ad_name,
@@ -402,6 +434,15 @@ export async function getCampaignDetails(
     bodies: row.bodies ? JSON.parse(JSON.stringify(row.bodies)).map((b: any) => b.text) : [],
     title: row.title,
     description: row.description,
+    thumbnail_url: row.thumbnail_url,
+    aspect_ratio: row.aspect_ratio,
+    duration_seconds: row.duration_seconds ? parseFloat(row.duration_seconds) : undefined,
+    performance: {
+      impressions: parseInt(row.impressions || 0),
+      clicks: parseInt(row.clicks || 0),
+      spend: parseFloat(row.spend || 0),
+      ctr: parseFloat(row.ctr || 0),
+    },
   }));
 
   return campaignData;
