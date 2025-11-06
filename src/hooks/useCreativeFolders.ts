@@ -501,13 +501,88 @@ export function useCalculatePerformanceScores() {
 
   return useMutation({
     mutationFn: async (days: number = 30) => {
-      const { data, error } = await supabase.rpc("calculate_creative_performance_scores", {
-        p_workspace_id: WORKSPACE_ID,
-        p_days: days,
-      });
+      try {
+        const { data, error } = await supabase.rpc("calculate_creative_performance_scores", {
+          p_workspace_id: WORKSPACE_ID,
+          p_days: days,
+        });
 
-      if (error) throw error;
-      return data;
+        if (error) throw error;
+        return data;
+      } catch (rpcErr) {
+        console.warn("RPC calculate_creative_performance_scores não disponível, usando cálculo local.");
+        // Fallback: calcular scores no cliente a partir de v_creative_performance
+        const fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const { data: perfRows, error: perfError } = await supabase
+          .from("v_creative_performance")
+          .select("creative_id, spend, impressions, clicks, conversions, revenue, metric_date")
+          .eq("workspace_id", WORKSPACE_ID)
+          .gte("metric_date", fromDate);
+
+        if (perfError) throw perfError;
+
+        const agg = new Map<string, {
+          total_spend: number;
+          total_impressions: number;
+          total_clicks: number;
+          total_conversions: number;
+          total_revenue: number;
+          last_metric_date: string | null;
+          avg_ctr: number | null;
+          avg_cpc: number | null;
+          avg_cpa: number | null;
+          avg_roas: number | null;
+          performance_score: number;
+        }>();
+
+        for (const row of (perfRows ?? [])) {
+          const id = (row as any).creative_id as string;
+          if (!id) continue;
+          const entry = agg.get(id) ?? {
+            total_spend: 0,
+            total_impressions: 0,
+            total_clicks: 0,
+            total_conversions: 0,
+            total_revenue: 0,
+            last_metric_date: null,
+            avg_ctr: null,
+            avg_cpc: null,
+            avg_cpa: null,
+            avg_roas: null,
+            performance_score: 0,
+          };
+          entry.total_spend += Number((row as any).spend ?? 0);
+          entry.total_impressions += Number((row as any).impressions ?? 0);
+          entry.total_clicks += Number((row as any).clicks ?? 0);
+          entry.total_conversions += Number((row as any).conversions ?? 0);
+          entry.total_revenue += Number((row as any).revenue ?? 0);
+          const md = (row as any).metric_date as string | null;
+          if (!entry.last_metric_date || (md && md > entry.last_metric_date)) entry.last_metric_date = md ?? entry.last_metric_date;
+          agg.set(id, entry);
+        }
+
+        // calcular médias e score semelhante ao servidor
+        for (const [id, entry] of agg.entries()) {
+          entry.avg_ctr = entry.total_impressions > 0 ? (entry.total_clicks / entry.total_impressions) * 100 : null;
+          entry.avg_cpc = entry.total_clicks > 0 ? (entry.total_spend / entry.total_clicks) : null;
+          entry.avg_cpa = entry.total_conversions > 0 ? (entry.total_spend / entry.total_conversions) : null;
+          entry.avg_roas = entry.total_spend > 0 && entry.total_revenue > 0 ? (entry.total_revenue / entry.total_spend) : null;
+
+          const eng = entry.avg_ctr == null ? 0 : entry.avg_ctr >= 3 ? 100 : entry.avg_ctr >= 2 ? 80 : entry.avg_ctr >= 1 ? 60 : entry.avg_ctr >= 0.5 ? 40 : 20;
+          const conv = entry.total_conversions === 0 ? 0 : entry.total_conversions >= 100 ? 100 : entry.total_conversions >= 50 ? 80 : entry.total_conversions >= 20 ? 60 : entry.total_conversions >= 5 ? 40 : 20;
+          const eff = entry.avg_roas != null && entry.avg_roas >= 4 ? 100
+            : entry.avg_roas != null && entry.avg_roas >= 2 ? 80
+            : entry.avg_roas != null && entry.avg_roas >= 1 ? 60
+            : entry.avg_cpa != null && entry.avg_cpa <= 50 ? 80
+            : entry.avg_cpa != null && entry.avg_cpa <= 100 ? 60
+            : entry.avg_cpa != null ? 40
+            : 0;
+          entry.performance_score = Math.round(eng * 0.4 + conv * 0.3 + eff * 0.3);
+        }
+
+        // Retorna um resumo para acionar invalidations
+        return { calculated: agg.size, days };
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["creative-library"] });

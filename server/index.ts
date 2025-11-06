@@ -19,7 +19,7 @@ import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { ga4Realtime, ga4Report } from './api/analytics/ga4.ts';
-import { getAggregateMetrics, getTimeSeriesMetrics } from './api/analytics/metrics.ts';
+import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.ts';
 import { getDemographics } from './api/analytics/demographics.js';
 import {
   getCampaignLibrary,
@@ -113,6 +113,7 @@ app.post('/api/ga4/test', (req, res) => {
 
 // Platform metrics endpoints used by dashboards
 app.get('/api/metrics/aggregate', getAggregateMetrics);
+app.get('/api/metrics/aggregate-by-objective', getAggregateMetricsByObjective);
 app.get('/api/metrics/timeseries', getTimeSeriesMetrics);
 app.get('/api/metrics/demographics', getDemographics);
 

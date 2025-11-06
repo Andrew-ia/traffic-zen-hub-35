@@ -41,11 +41,19 @@ export async function startSync(req: Request, res: Response) {
       } as ApiResponse);
     }
 
-    // Only Meta is supported for now
-    if (platformKey !== 'meta') {
+    // Validate supported platforms
+    if (!['meta', 'instagram'].includes(platformKey)) {
       return res.status(400).json({
         success: false,
-        error: 'Only "meta" platform is currently supported',
+        error: 'Unsupported platform. Supported platforms: meta, instagram',
+      } as ApiResponse);
+    }
+
+    // Instagram doesn't use campaign/metrics split, only 'all'
+    if (platformKey === 'instagram' && type !== 'all') {
+      return res.status(400).json({
+        success: false,
+        error: 'Instagram sync only supports type="all"',
       } as ApiResponse);
     }
 

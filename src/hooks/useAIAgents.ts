@@ -164,9 +164,13 @@ export function useRunAgent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (input: string | { id: string; prompt?: string }) => {
+      const id = typeof input === 'string' ? input : input.id;
+      const hasBody = typeof input !== 'string' && input.prompt;
       const response = await fetch(`/api/ai/agents/${id}/run`, {
         method: 'POST',
+        headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+        body: hasBody ? JSON.stringify({ prompt: input.prompt }) : undefined,
       });
 
       if (!response.ok) {
@@ -175,10 +179,13 @@ export function useRunAgent() {
 
       return response.json();
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, variables) => {
+      const id = typeof variables === 'string' ? variables : variables.id;
       queryClient.invalidateQueries({ queryKey: ['ai-agent', id] });
       queryClient.invalidateQueries({ queryKey: ['ai-agents'] });
       queryClient.invalidateQueries({ queryKey: ['ai-agent-executions', id] });
+      queryClient.invalidateQueries({ queryKey: ['ai-insights', { agent_id: id }] });
+      queryClient.invalidateQueries({ queryKey: ['ai-insights-stats'] });
     },
   });
 }

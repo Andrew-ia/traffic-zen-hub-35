@@ -162,6 +162,7 @@ export async function runAgent(req: Request, res: Response) {
     const { id } = req.params;
     const workspaceId = getWorkspaceId();
     const pool = getPool();
+    const { prompt } = (req.body || {}) as { prompt?: string };
 
     // Verificar se o agente existe
     const agentResult = await pool.query(
@@ -202,29 +203,61 @@ export async function runAgent(req: Request, res: Response) {
         console.log(`\n🤖 Executando agente: ${agent.name} (${agent.agent_type})`);
 
         // Executar lógica específica do agente
-        switch (agent.agent_type) {
-          case 'campaign_performance':
-            totalInsights = await analyzeCampaignPerformance(
-              id,
-              execution.id,
-              workspaceId,
-              agent.config || {}
-            );
-            break;
+        // Gerar sempre pelo menos 1 insight via LLM (com prompt definido ou padrão),
+        // e depois executar a lógica específica do agente quando aplicável.
+        const promptText =
+          // Prioriza prompt enviado na requisição
+          prompt ||
+          // Em seguida, prompt configurado no agente
+          (agent.config && (agent.config as any).prompt) ||
+          // Se não houver, usa a descrição do agente como prompt
+          agent.description ||
+          // Por fim, um prompt padrão genérico
+          `Gere um insight acionável para o agente "${agent.name}" com base nas métricas do workspace.`;
 
-          case 'creative_optimizer':
-            totalInsights = await analyzeCreativePerformance(
+        const { generatePromptInsight } = await import('../../agents/promptInsightGenerator');
+        let llmInsights = 0;
+        try {
+          llmInsights = await generatePromptInsight(
+            id,
+            execution.id,
+            workspaceId,
+            String(promptText),
+            agent.config || {}
+          );
+        } catch (e) {
+          console.warn('⚠️ Falha ao gerar insight via LLM. Seguindo com análise específica do agente.', e);
+        }
+
+        totalInsights = llmInsights;
+
+        // Em seguida, executar lógica específica do agente (se houver)
+        switch (agent.agent_type) {
+          case 'campaign_performance': {
+            const n = await analyzeCampaignPerformance(
               id,
               execution.id,
               workspaceId,
               agent.config || {}
             );
+            totalInsights += n;
             break;
+          }
+
+          case 'creative_optimizer': {
+            const n = await analyzeCreativePerformance(
+              id,
+              execution.id,
+              workspaceId,
+              agent.config || {}
+            );
+            totalInsights += n;
+            break;
+          }
 
           // Outros agentes serão implementados aqui
           default:
-            console.log(`⚠️ Agente ${agent.agent_type} ainda não tem lógica implementada`);
-            totalInsights = 0;
+            console.log(`ℹ️ Agente ${agent.agent_type} sem lógica específica adicional.`);
         }
 
         console.log(`✅ Execução concluída: ${totalInsights} insights gerados`);

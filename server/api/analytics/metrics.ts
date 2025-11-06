@@ -42,6 +42,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
     const status = (req.query.status as string | undefined);
+    const objective = (req.query.objective as string | undefined);
 
     const accountIds = await resolveAccountIds(pool, workspaceId, platform, accountId);
     if (accountIds.length === 0) {
@@ -72,42 +73,56 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       total_campaigns: number | null;
     }>(
       `
-      -- Nova abordagem simplificada: usa ROW_NUMBER para evitar duplicação
-      -- Escolhe o nível mais granular disponível para cada campanha/data
-      -- Garante que métricas não sejam excluídas por JOINs falhando
-      with campaign_metrics as (
-        -- Pegar apenas métricas de nível CAMPANHA (sem adset/ad)
-        -- Isso corresponde ao que o Meta Ads Manager mostra por padrão
-        select pm.*
-        from performance_metrics pm
-        where pm.workspace_id = $1
-          and pm.platform_account_id = any($2::uuid[])
+      -- Usar v_campaign_kpi que já tem a lógica correta de conversões por objetivo
+      with kpi_data as (
+        select
+          kpi.campaign_id,
+          kpi.metric_date,
+          kpi.spend,
+          kpi.result_value,
+          kpi.revenue,
+          kpi.roas,
+          pm.impressions,
+          pm.clicks
+        from v_campaign_kpi kpi
+        join performance_metrics pm on
+          pm.workspace_id = kpi.workspace_id
+          and pm.campaign_id = kpi.campaign_id
+          and pm.metric_date = kpi.metric_date
           and pm.granularity = 'day'
-          and pm.metric_date >= current_date - $3::int
-          and pm.metric_date < current_date
-          and pm.campaign_id is not null
           and pm.ad_set_id is null
           and pm.ad_id is null
+        where kpi.workspace_id = $1
+          and kpi.platform_account_id = any($2::uuid[])
+          and kpi.metric_date >= current_date - $3::int
+          and kpi.metric_date < current_date
           and (
             $4::text is null
             or exists (
               select 1 from campaigns c
-              where c.id = pm.campaign_id and c.status = $4
+              where c.id = kpi.campaign_id and c.status = $4
+            )
+          )
+          and (
+            $5::text is null
+            or exists (
+              select 1 from campaigns c
+              where c.id = kpi.campaign_id and UPPER(c.objective) = UPPER($5)
             )
           )
       )
       select
         sum(spend)::float8 as spend,
-        sum(conversions)::float8 as results,
-        sum(conversion_value)::float8 as revenue,
+        sum(result_value)::float8 as results,
+        sum(revenue)::float8 as revenue,
         sum(coalesce(roas, 0) * coalesce(spend, 0))::float8 as roas_weighted_spend,
         sum(impressions)::float8 as impressions,
         sum(clicks)::float8 as clicks,
         count(distinct case when campaign_id is not null and spend > 0 then campaign_id end) as active_campaigns,
         count(distinct case when campaign_id is not null then campaign_id end) as total_campaigns
-      from campaign_metrics
+      from kpi_data
       `,
-      [workspaceId, accountIds, days, status && status !== 'all' ? status : null]
+      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objective || null]
     );
 
     const row = rows[0] || {} as any;
@@ -156,6 +171,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
     const accountId = req.query.accountId as string | undefined;
     const metric = (req.query.metric as string) || 'spend';
     const status = (req.query.status as string | undefined);
+    const objective = (req.query.objective as string | undefined);
 
     const accountIds = await resolveAccountIds(pool, workspaceId, platform, accountId);
     if (accountIds.length === 0) return res.json([]);
@@ -169,34 +185,44 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
       clicks: number | null;
     }>(
       `
-      -- Pegar apenas métricas de nível CAMPANHA para corresponder ao Meta Ads Manager
+      -- Usar v_campaign_kpi para ter conversões corretas por objetivo
       select
-        metric_date::text as d,
-        sum(spend)::float8 as spend,
-        sum(conversions)::float8 as results,
-        sum(conversion_value)::float8 as revenue,
-        sum(impressions)::float8 as impressions,
-        sum(clicks)::float8 as clicks
-      from performance_metrics pm
-      where pm.workspace_id = $1
-        and pm.platform_account_id = any($2::uuid[])
+        kpi.metric_date::text as d,
+        sum(kpi.spend)::float8 as spend,
+        sum(kpi.result_value)::float8 as results,
+        sum(kpi.revenue)::float8 as revenue,
+        sum(pm.impressions)::float8 as impressions,
+        sum(pm.clicks)::float8 as clicks
+      from v_campaign_kpi kpi
+      join performance_metrics pm on
+        pm.workspace_id = kpi.workspace_id
+        and pm.campaign_id = kpi.campaign_id
+        and pm.metric_date = kpi.metric_date
         and pm.granularity = 'day'
-        and pm.metric_date >= current_date - $3::int
-        and pm.metric_date < current_date
-        and pm.campaign_id is not null
         and pm.ad_set_id is null
         and pm.ad_id is null
+      where kpi.workspace_id = $1
+        and kpi.platform_account_id = any($2::uuid[])
+        and kpi.metric_date >= current_date - $3::int
+        and kpi.metric_date < current_date
         and (
           $4::text is null
           or exists (
             select 1 from campaigns c
-            where c.id = pm.campaign_id and c.status = $4
+            where c.id = kpi.campaign_id and c.status = $4
           )
         )
-      group by metric_date
-      order by metric_date
+        and (
+          $5::text is null
+          or exists (
+            select 1 from campaigns c
+            where c.id = kpi.campaign_id and UPPER(c.objective) = UPPER($5)
+          )
+        )
+      group by kpi.metric_date
+      order by kpi.metric_date
       `,
-      [workspaceId, accountIds, days, status && status !== 'all' ? status : null]
+      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objective || null]
     );
 
     const data = rows.map((r: {
@@ -219,5 +245,76 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
   } catch (err: any) {
     console.error('getTimeSeriesMetrics error', err);
     res.status(500).json({ error: 'failed_to_fetch_timeseries' });
+  }
+}
+
+export async function getAggregateMetricsByObjective(req: Request, res: Response) {
+  try {
+    const pool = getPool();
+    const workspaceId = getWorkspaceId();
+    const platform = (req.query.platform as string) || 'meta';
+    const days = parseDaysParam(req.query.days);
+    const accountId = req.query.accountId as string | undefined;
+    const status = (req.query.status as string | undefined);
+
+    const accountIds = await resolveAccountIds(pool, workspaceId, platform, accountId);
+    if (accountIds.length === 0) {
+      return res.json([]);
+    }
+
+    // Usar v_campaign_kpi que já filtra conversões por objetivo
+    const { rows } = await pool.query<{
+      objective: string;
+      result_label: string;
+      campaign_count: number;
+      total_spend: number | null;
+      total_results: number | null;
+      total_revenue: number | null;
+      avg_roas: number | null;
+      avg_cost_per_result: number | null;
+    }>(
+      `
+      SELECT
+        objective,
+        result_label,
+        COUNT(DISTINCT campaign_id) as campaign_count,
+        SUM(spend)::float8 as total_spend,
+        SUM(result_value)::float8 as total_results,
+        SUM(revenue)::float8 as total_revenue,
+        AVG(roas)::float8 as avg_roas,
+        AVG(cost_per_result)::float8 as avg_cost_per_result
+      FROM v_campaign_kpi
+      WHERE workspace_id = $1
+        AND platform_account_id = ANY($2::uuid[])
+        AND metric_date >= CURRENT_DATE - $3::int
+        AND metric_date < CURRENT_DATE
+        ${status && status !== 'all' ? `
+        AND EXISTS (
+          SELECT 1 FROM campaigns c
+          WHERE c.id = campaign_id AND c.status = $4
+        )` : ''}
+      GROUP BY objective, result_label
+      ORDER BY total_spend DESC NULLS LAST
+      `,
+      status && status !== 'all'
+        ? [workspaceId, accountIds, days, status]
+        : [workspaceId, accountIds, days]
+    );
+
+    const data = rows.map((r) => ({
+      objective: r.objective,
+      resultLabel: r.result_label,
+      campaignCount: Number(r.campaign_count || 0),
+      totalSpend: Number(r.total_spend || 0),
+      totalResults: Number(r.total_results || 0),
+      totalRevenue: Number(r.total_revenue || 0),
+      avgRoas: r.avg_roas ? Number(r.avg_roas) : null,
+      avgCostPerResult: r.avg_cost_per_result ? Number(r.avg_cost_per_result) : null,
+    }));
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('getAggregateMetricsByObjective error', err);
+    res.status(500).json({ error: 'failed_to_fetch_objective_metrics' });
   }
 }

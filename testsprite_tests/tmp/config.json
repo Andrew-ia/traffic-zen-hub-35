@@ -1,0 +1,16 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8081/dashboard",
+  "executionArgs": {
+    "projectName": "traffic-zen-hub-35",
+    "projectPath": "/Users/andrew/Traffic/traffic-zen-hub-35",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {
+      "API_KEY": "sk-user-CeFfzEZswekK5NjHCz6rpaEtjVegGfL6I6Z4cwipfDsSG0qKP6QgAU5pHaQc2bzogtGN2vZJzw5yVKd3Wd_U9Cbxahw_3-yVV-6L2WdUHqhGq72pmqrU2XZTX8PqfcSBpuc"
+    }
+  },
+  "proxy": "http://cfe50ffb-20a1-4982-961a-6344d1322292:I4GmYLWcKE6Ee1Nm8cRQKOHMCwZh4Nsk@tun.testsprite.com:8080"
+}

@@ -1,5 +1,5 @@
--- 0017_fix_kpi_view_campaign_level_only.sql
--- Fix: Only get campaign-level metrics to avoid duplication
+-- 0018_fix_kpi_view_remove_hardcoded_workspace.sql
+-- Fix: Remove hardcoded workspace_id from v_campaign_kpi view
 
 DROP VIEW IF EXISTS v_campaign_kpi;
 
@@ -24,7 +24,6 @@ WITH metrics AS (
   JOIN platform_accounts pa ON pa.id = pm.platform_account_id
   LEFT JOIN campaigns c ON c.id = pm.campaign_id
   WHERE pm.granularity = 'day'
-    AND pm.workspace_id = '00000000-0000-0000-0000-000000000010'
     -- IMPORTANT: Only get campaign-level data to avoid duplication
     AND pm.campaign_id IS NOT NULL
     AND pm.ad_set_id IS NULL
@@ -35,13 +34,11 @@ metrics_with_actions AS (
     m.*,
     COALESCE((m.extra_metrics -> 'derived_metrics' -> 'counts' ->> 'conversations_started')::numeric, 0) AS conversations_started_derived,
     COALESCE((m.extra_metrics -> 'derived_metrics' -> 'counts' ->> 'messaging_connections')::numeric, 0) AS messaging_connections_derived,
-    COALESCE((m.extra_metrics -> 'derived_metrics' -> 'counts' ->> 'instagram_follows')::numeric, 0) AS instagram_follows_derived,
     acts.leads,
     acts.video_views,
     acts.engagements,
     acts.conversations,
-    acts.purchases,
-    acts.follows
+    acts.purchases
   FROM metrics m
   LEFT JOIN LATERAL (
     SELECT
@@ -92,15 +89,7 @@ metrics_with_actions AS (
           'onsite_conversion.purchase',
           'offsite_conversion.fb_pixel_purchase'
         )
-      ), 0) AS purchases,
-      COALESCE(SUM((action ->> 'value')::numeric) FILTER (
-        WHERE action ->> 'action_type' IN (
-          'follow',
-          'instagram_follow',
-          'page_follow',
-          'onsite_conversion.follow'
-        )
-      ), 0) AS follows
+      ), 0) AS purchases
     FROM jsonb_array_elements(COALESCE(m.extra_metrics -> 'actions', '[]'::jsonb)) AS action
   ) acts ON TRUE
 ),
@@ -119,8 +108,6 @@ final AS (
     mwa.clicks,
     mwa.conversion_value,
     mwa.conversions,
-    -- Instagram follows metric
-    COALESCE(NULLIF(mwa.follows, 0), NULLIF(mwa.instagram_follows_derived, 0)) AS instagram_follows,
     CASE
       WHEN mwa.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN 'Leads'
       WHEN mwa.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN 'Conversas'
@@ -132,10 +119,8 @@ final AS (
       ELSE 'Resultados'
     END AS result_label,
     CASE
-      -- For leads campaigns, use leads if available, otherwise fall back to conversations (WhatsApp leads)
-      WHEN mwa.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN
-        COALESCE(NULLIF(mwa.leads, 0), NULLIF(mwa.conversations, 0))
-      WHEN mwa.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN NULLIF(mwa.conversations, 0)
+      WHEN mwa.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN NULLIF(mwa.leads, 0)
+      WHEN mwa.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN NULLIF(GREATEST(mwa.conversations_started_derived, mwa.conversations), 0)
       WHEN mwa.objective IN ('LINK_CLICKS', 'OUTCOME_TRAFFIC', 'TRAFFIC') THEN NULLIF(mwa.clicks, 0)
       WHEN mwa.objective IN ('OUTCOME_ENGAGEMENT', 'POST_ENGAGEMENT', 'ENGAGEMENT') THEN NULLIF(mwa.engagements, 0)
       WHEN mwa.objective IN ('VIDEO_VIEWS') THEN NULLIF(mwa.video_views, 0)
@@ -160,7 +145,6 @@ SELECT
   conversion_value AS revenue,
   result_label,
   result_value,
-  instagram_follows,
   CASE WHEN result_value IS NOT NULL AND result_value > 0 THEN spend / result_value ELSE NULL END AS cost_per_result,
   CASE
     WHEN objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') AND conversion_value > 0 AND spend > 0

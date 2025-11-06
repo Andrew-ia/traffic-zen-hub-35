@@ -209,7 +209,20 @@ export async function generatePostSyncInsights(options: GenerateOptions): Promis
   const totalClicks = dailyMetrics.reduce((acc, row) => acc + row.clicks, 0);
 
   const costPerResult = totalResults > 0 ? totalSpend / totalResults : null;
-  const roas = totalSpend > 0 && totalRevenue > 0 ? totalRevenue / totalSpend : null;
+  // ROAS deve ser calculado apenas para campanhas com objetivo de vendas
+  // Usamos os dados por campanha para somar receita e gasto somente dos objetivos SALES/CONVERSIONS/PURCHASE
+  let roas: number | null = null;
+  const isSalesObjective = (obj: string | null | undefined) => {
+    const o = (obj || '').toUpperCase();
+    return (
+      o.includes('SALES') ||
+      o.includes('PURCHASE') ||
+      o.includes('CONVERSIONS') ||
+      o === 'OUTCOME_SALES'
+    );
+  };
+  // Nota: ainda não temos campaignStats aqui; roas será recalculado após campaignStats abaixo
+  // temporariamente mantém null; depois que campaignStats for populado, atualizamos roas com base nos objetivos
   const avgDailySpend = daysCovered > 0 ? totalSpend / daysCovered : null;
   const avgCtrOverall = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : null;
 
@@ -506,6 +519,20 @@ export async function generatePostSyncInsights(options: GenerateOptions): Promis
   }
 
   const totalRecommendations = opportunities.length + risks.length;
+
+  // Após termos os dados por campanha, calculamos o ROAS apenas para objetivos de vendas
+  const salesCampaigns = campaignStats.filter((c) => isSalesObjective(c.objective));
+  const salesSpend = salesCampaigns.reduce((acc, c) => acc + c.spend, 0);
+  const salesRevenue = salesCampaigns.reduce((acc, c) => acc + c.revenue, 0);
+  if (salesSpend > 0 && salesRevenue > 0) {
+    roas = salesRevenue / salesSpend;
+  } else {
+    roas = null;
+  }
+
+  if (roas === null) {
+    notes.push('ROAS não aplicável: não há campanhas de vendas com receita no período.');
+  }
 
   return {
     generatedAt,

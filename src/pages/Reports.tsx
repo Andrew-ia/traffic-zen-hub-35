@@ -66,6 +66,110 @@ export default function Reports() {
     error,
   } = useReportsData(days);
 
+  function exportReportsCsv() {
+    try {
+      if (!reports) return;
+      const { summary, channelComparison = [], objectiveBreakdown = [], topCampaigns = [], topAdSets = [], topAds = [], topCreatives = [] } = reports;
+
+      const escape = (v: unknown) => {
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}` : s;
+      };
+
+      const lines: string[] = [];
+
+      // Summary
+      lines.push("Resumo");
+      lines.push("Campo,Atual,Anterior");
+      lines.push(["Investimento", summary.current.spend, summary.previous.spend].map(escape).join(","));
+      lines.push(["Impressões", summary.current.impressions, summary.previous.impressions].map(escape).join(","));
+      lines.push(["Cliques", summary.current.clicks, summary.previous.clicks].map(escape).join(","));
+      lines.push(["Resultados", summary.current.conversions, summary.previous.conversions].map(escape).join(","));
+      lines.push(["Conexões", summary.current.messagingConnections, summary.previous.messagingConnections].map(escape).join(","));
+      lines.push(["CTR (%)", summary.current.ctr.toFixed(2), summary.previous.ctr.toFixed(2)].map(escape).join(","));
+      lines.push(["CPA", summary.current.cpa, summary.previous.cpa].map(escape).join(","));
+      lines.push(["ROAS (x)", summary.current.roas.toFixed(2), summary.previous.roas.toFixed(2)].map(escape).join(","));
+
+      lines.push("");
+
+      // Channel Comparison
+      lines.push("Comparação por Canal");
+      lines.push("Canal,Investimento,Impressões,Cliques,Resultados,Conexões,CTR (%),CPC,Custo/Resultado");
+      for (const c of channelComparison) {
+        lines.push([
+          c.label,
+          c.spend,
+          c.impressions,
+          c.clicks,
+          c.conversions,
+          c.conversations,
+          c.ctr.toFixed(2),
+          c.cpc,
+          c.cpa,
+        ].map(escape).join(","));
+      }
+
+      lines.push("");
+
+      // Objective Breakdown
+      lines.push("Meta por Objetivo");
+      lines.push("Objetivo,Investimento,Impressões,Cliques,Resultados,Conexões,CTR (%),CPC,Custo/Resultado,Custo/Conversa");
+      for (const o of objectiveBreakdown) {
+        lines.push([
+          o.objective,
+          o.spend,
+          o.impressions,
+          o.clicks,
+          o.conversions,
+          o.conversations,
+          o.ctr.toFixed(2),
+          o.cpc,
+          o.cpa,
+          o.costPerConversation,
+        ].map(escape).join(","));
+      }
+
+      const addRanking = (title: string, items: Array<{ id: string; name: string; parentName?: string; spend: number; impressions: number; clicks: number; conversions: number; conversations: number; cpc: number; cpa: number }>) => {
+        lines.push("");
+        lines.push(title);
+        lines.push("Posição,Nome,Pai,Investimento,Impressões,Cliques,Resultados,Conexões,CPC,Custo/Resultado");
+        items.forEach((item, idx) => {
+          lines.push([
+            idx + 1,
+            item.name,
+            item.parentName ?? "",
+            item.spend,
+            item.impressions,
+            item.clicks,
+            item.conversions,
+            item.conversations,
+            item.cpc,
+            item.cpa,
+          ].map(escape).join(","));
+        });
+      };
+
+      addRanking("Top Campanhas Meta", topCampaigns);
+      addRanking("Top Conjuntos Meta", topAdSets);
+      addRanking("Top Anúncios Meta", topAds);
+      addRanking("Top Criativos Meta", topCreatives);
+
+      const csv = lines.join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `relatorio_${days}d_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Falha ao exportar CSV de relatórios", e);
+    }
+  }
+
   const periodLabel = `${days} dias`;
 
   const summary = reports?.summary;
@@ -159,6 +263,9 @@ export default function Reports() {
           </ToggleGroup>
           <Button variant="outline" onClick={() => window.print()}>
             Gerar PDF
+          </Button>
+          <Button onClick={exportReportsCsv} disabled={isLoading || !reports}>
+            Exportar CSV
           </Button>
         </div>
       </div>

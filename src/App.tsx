@@ -21,10 +21,12 @@ import Integrations from "./pages/Integrations";
 import GA4 from "./pages/GA4";
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
+import Instagram from "./pages/Instagram";
 import GoogleAds from "./pages/GoogleAds";
 import AIAgents from "./pages/AIAgents";
 import AIInsights from "./pages/AIInsights";
 import NotFound from "./pages/NotFound";
+import CreativesV2 from "./pages/CreativesV2";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 
@@ -71,11 +73,13 @@ const App = () => (
             <Route path="/agents" element={<AIAgents />} />
             <Route path="/insights" element={<AIInsights />} />
             <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
+            <Route path="/creatives" element={<CreativesV2 />} />
             <Route path="/campaigns/library" element={<CampaignLibrary />} />
             <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
             <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/meta-ads" element={<MetaAds />} />
+            <Route path="/instagram" element={<Instagram />} />
             <Route path="/google-ads" element={<GoogleAds />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/leads" element={<Leads />} />

@@ -9,20 +9,20 @@ import { MetricCard, MetricsGrid } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { DemographicCharts } from "@/components/platform/DemographicCharts";
 import { FunnelCard } from "@/components/platform/FunnelCard";
-import { usePlatformMetrics, useTimeSeries, useDemographics } from "@/hooks/usePlatformMetrics";
+import { ObjectiveKPICard, ObjectiveKPIGrid } from "@/components/platform/ObjectiveKPICard";
+import { usePlatformMetrics, useTimeSeries, useDemographics, useMetricsByObjective } from "@/hooks/usePlatformMetrics";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
-import { useTrafficAnalysis } from "@/hooks/useTrafficAnalysis";
 import { Card, CardContent } from "@/components/ui/card";
 
 const PAGE_SIZE = 10;
 
 export default function MetaAds() {
-  const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [dateRange, setDateRange] = useState("7");
-  const [accountFilter, setAccountFilter] = useState("all");
+  const [dateRange, setDateRange] = useState("30");
+  const [accountFilter, setAccountFilter] = useState("a611cf99-40f1-41ad-854a-f74e28478599");
   const [objectiveFilter, setObjectiveFilter] = useState("all");
   const [chartMetric, setChartMetric] = useState<"spend" | "results" | "revenue">("spend");
 
@@ -46,7 +46,8 @@ export default function MetaAds() {
     search: debouncedSearch,
     page,
     pageSize: PAGE_SIZE,
-    platform: "meta"
+    platform: "meta",
+    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
   });
 
   // Buscar métricas agregadas
@@ -55,6 +56,7 @@ export default function MetaAds() {
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
+    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
   });
 
   // Buscar dados de série temporal
@@ -64,16 +66,23 @@ export default function MetaAds() {
     accountId: accountFilter,
     metric: chartMetric,
     status: statusFilter,
+    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
   });
-
-  // Análise de tráfego para alimentar funil e métricas agregadas
-  const { data: traffic, isLoading: trafficLoading } = useTrafficAnalysis(Number(dateRange));
 
   // Buscar dados demográficos
   const { data: demographics, isLoading: demographicsLoading } = useDemographics({
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
+    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+  });
+
+  // Buscar métricas por objetivo (só quando filtro = "all")
+  const { data: metricsByObjective, isLoading: objectiveMetricsLoading } = useMetricsByObjective({
+    platform: "meta",
+    dateRange: Number(dateRange),
+    accountId: accountFilter,
+    status: statusFilter,
   });
 
   const campaigns = data?.campaigns ?? [];
@@ -107,11 +116,12 @@ export default function MetaAds() {
               onChange: setObjectiveFilter,
               placeholder: "Objetivo",
               options: [
-                { value: "all", label: "Todos" },
-                { value: "CONVERSIONS", label: "Conversões" },
-                { value: "REACH", label: "Alcance" },
-                { value: "TRAFFIC", label: "Tráfego" },
-                { value: "ENGAGEMENT", label: "Engajamento" },
+                { value: "all", label: "Todos os Objetivos" },
+                { value: "OUTCOME_LEADS", label: "Leads" },
+                { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                { value: "MESSAGES", label: "Conversas" },
+                { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                { value: "OUTCOME_SALES", label: "Vendas" },
               ],
             }}
             statusFilter={statusFilter}
@@ -122,6 +132,31 @@ export default function MetaAds() {
         </div>
         <MetaSyncButton variant="default" size="sm" />
       </div>
+
+      {/* Indicador de filtro ativo */}
+      {objectiveFilter !== "all" && (
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
+          <Target className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-900 dark:text-blue-100">
+            Filtrando por: <strong>{(() => {
+              const opt = [
+                { value: "OUTCOME_LEADS", label: "Leads" },
+                { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                { value: "MESSAGES", label: "Conversas" },
+                { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                { value: "OUTCOME_SALES", label: "Vendas" },
+              ].find(o => o.value === objectiveFilter);
+              return opt?.label || objectiveFilter;
+            })()}</strong>
+          </span>
+          <button
+            onClick={() => setObjectiveFilter("all")}
+            className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
+          >
+            Limpar filtro
+          </button>
+        </div>
+      )}
 
       {/* KPIs Compactos */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -160,11 +195,29 @@ export default function MetaAds() {
         />
         <CompactKPICard
           title="Campanhas"
-          value={total.toString()}
+          value={(metrics?.activeCampaigns ?? total).toString()}
           icon={Wallet}
-          loading={isLoading}
+          loading={metricsLoading || isLoading}
         />
       </div>
+
+      {/* KPIs por Objetivo */}
+      {metricsByObjective && metricsByObjective.length > 0 && objectiveFilter === "all" && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Desempenho por Objetivo
+          </h2>
+          <ObjectiveKPIGrid>
+            {metricsByObjective.map((objective) => (
+              <ObjectiveKPICard
+                key={objective.objective}
+                data={objective}
+                loading={objectiveMetricsLoading}
+              />
+            ))}
+          </ObjectiveKPIGrid>
+        </div>
+      )}
 
       {/* Erro */}
       {error && (
@@ -283,19 +336,17 @@ export default function MetaAds() {
           <FunnelCard
             title="Funil"
             steps={(() => {
-              const landingPageViews = (traffic?.activeCampaigns || []).reduce(
-                (sum, c) => sum + (c.landingPageViews || 0),
-                0
-              );
-              const conversations = traffic?.totals.checkoutsInitiated ?? traffic?.totals.conversationsStarted ?? 0;
-              const sales = traffic?.totals.conversions || 0;
+              // Usar métricas filtradas em vez de traffic
+              const impressions = metrics?.impressions ?? 0;
+              const clicks = metrics?.clicks ?? 0;
+              const results = metrics?.totalResults ?? 0;
               return [
-                { label: "Landing Page", value: landingPageViews },
-                { label: "Checkout", value: conversations },
-                { label: "Vendas", value: sales },
+                { label: "Impressões", value: impressions },
+                { label: "Cliques", value: clicks },
+                { label: "Conversões", value: results },
               ];
             })()}
-            loading={trafficLoading}
+            loading={metricsLoading}
           />
 
           {/* Métricas Rápidas */}
@@ -306,20 +357,20 @@ export default function MetaAds() {
                 <MetricCard
                   label="CTR"
                   value={(() => {
-                    const v = metrics?.ctr ?? traffic?.totals.ctr ?? 0;
+                    const v = metrics?.ctr ?? 0;
                     return v ? `${v.toFixed(2)}%` : "-";
                   })()}
-                  loading={metricsLoading || trafficLoading}
+                  loading={metricsLoading}
                 />
                 <MetricCard
                   label="CPC"
                   value={(() => {
-                    const v = metrics?.cpc ?? traffic?.totals.cpc ?? 0;
+                    const v = metrics?.cpc ?? 0;
                     return v
                       ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
                       : "-";
                   })()}
-                  loading={metricsLoading || trafficLoading}
+                  loading={metricsLoading}
                 />
                 <MetricCard
                   label="CPM"

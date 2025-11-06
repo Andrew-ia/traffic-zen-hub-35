@@ -23,6 +23,76 @@ function resolveMetaCredentials(credentials: any) {
   return { appId, appSecret, accessToken, adAccountId };
 }
 
+function resolveInstagramCredentials(credentials: any) {
+  const igUserId = credentials.igUserId ?? credentials.ig_user_id;
+  const accessToken = credentials.accessToken ?? credentials.access_token;
+
+  if (!igUserId || !accessToken) {
+    throw new Error('Missing required Instagram credentials (igUserId, accessToken)');
+  }
+
+  return { igUserId, accessToken };
+}
+
+/**
+ * Execute the Instagram sync script
+ */
+async function executeInstagramSync(jobData: SyncJobData): Promise<{ stdout: string; stderr: string }> {
+  const { workspaceId, parameters } = jobData;
+  const credentials = resolveInstagramCredentials(jobData.credentials as any);
+
+  console.log(`\n🚀 Starting Instagram sync job ${jobData.jobId}`);
+  console.log(`   Workspace: ${workspaceId}`);
+  console.log(`   Period: ${parameters.days} days`);
+
+  // Environment variables with credentials
+  const env = {
+    ...process.env,
+    IG_USER_ID: credentials.igUserId,
+    IG_ACCESS_TOKEN: credentials.accessToken,
+    IG_WORKSPACE_ID: workspaceId,
+    SYNC_DAYS: String(parameters.days),
+  };
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+
+    const child = spawn('node', ['scripts/instagram/sync-insights.js'], {
+      env,
+      cwd: process.cwd(),
+    });
+
+    child.stdout.on('data', (data) => {
+      const output = data.toString();
+      stdout += output;
+      console.log(output.trim());
+    });
+
+    child.stderr.on('data', (data) => {
+      const output = data.toString();
+      stderr += output;
+      console.error(output.trim());
+    });
+
+    child.on('error', (error) => {
+      console.error(`❌ Process error:`, error);
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log(`✅ Instagram sync job ${jobData.jobId} completed successfully`);
+        resolve({ stdout, stderr });
+      } else {
+        const error = new Error(`Process exited with code ${code}`);
+        console.error(`❌ Instagram sync job ${jobData.jobId} failed with code ${code}`);
+        reject(error);
+      }
+    });
+  });
+}
+
 /**
  * Execute the Meta sync script
  */
@@ -199,8 +269,15 @@ async function processJob(job: any, jobData: SyncJobData) {
       started_at: new Date(),
     });
 
-    // Execute the sync
-    const result = await executeMetaSync(jobData);
+    // Execute the sync based on platform
+    let result;
+    if (jobData.platformKey === 'instagram') {
+      result = await executeInstagramSync(jobData);
+    } else if (jobData.platformKey === 'meta') {
+      result = await executeMetaSync(jobData);
+    } else {
+      throw new Error(`Unsupported platform: ${jobData.platformKey}`);
+    }
 
     let insights = null;
     try {

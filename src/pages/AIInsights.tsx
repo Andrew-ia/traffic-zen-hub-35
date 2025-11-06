@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +18,13 @@ import {
   Eye,
   X,
   Check,
+  Loader2,
 } from "lucide-react";
 import { useAIInsights, useUpdateInsightStatus } from "@/hooks/useAIInsights";
+import { useAIAgents } from "@/hooks/useAIAgents";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button as UIButton } from "@/components/ui/button";
+import { useAgentExecutions } from "@/hooks/useAIAgents";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -66,17 +72,117 @@ export default function AIInsights() {
   const [statusFilter, setStatusFilter] = useState("new");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const agentIdParam = searchParams.get('agent_id') || undefined;
 
-  const { data, isLoading } = useAIInsights({
+  // Buscar agentes para validar o agent_id vindo da URL
+  const { data: agentsData } = useAIAgents('active');
+  const agents = agentsData?.agents ?? [];
+
+  // Checagem básica de UUID e existência na lista
+  const isUuid = (v: string) => /^[0-9a-fA-F-]{36}$/.test(v);
+  const validAgentId = useMemo(() => {
+    if (!agentIdParam) return undefined;
+    if (!isUuid(agentIdParam)) return undefined;
+    return agents.some(a => a.id === agentIdParam) ? agentIdParam : undefined;
+  }, [agentIdParam, agents]);
+
+  const { data, isLoading, refetch } = useAIInsights({
     status: statusFilter === "all" ? undefined : statusFilter,
     severity: severityFilter === "all" ? undefined : severityFilter,
     insight_type: typeFilter === "all" ? undefined : typeFilter,
+    agent_id: validAgentId,
     limit: 50,
   });
 
   const updateStatus = useUpdateInsightStatus();
 
+  // Executions para saber se está rodando, completou ou falhou
+  const { data: execData, refetch: refetchExec } = useAgentExecutions(validAgentId, 1, 0);
+  const latestExec = execData?.executions?.[0];
+
   const insights = data?.insights || [];
+
+  // Modal de carregamento: aguarda até surgir pelo menos 1 insight "new" do agente
+  const shouldWaitForNew = !!validAgentId && (statusFilter === "new" || statusFilter === "all");
+  const [loadingOpen, setLoadingOpen] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const MAX_WAIT = 120; // segundos
+  type LoadingState = 'waiting' | 'completed_no_insights' | 'failed' | 'timeout';
+  const [loadingState, setLoadingState] = useState<LoadingState>('waiting');
+  const timerRef = useRef<number | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!shouldWaitForNew) {
+      setLoadingOpen(false);
+      return;
+    }
+    // Abre se não há insights e estamos aguardando "Novos" ou "Todos"
+    if (!isLoading && insights.length === 0) {
+      setLoadingOpen(true);
+      setLoadingState('waiting');
+    }
+    // Fecha ao aparecer o primeiro insight
+    if (insights.length > 0) {
+      setLoadingOpen(false);
+    }
+  }, [shouldWaitForNew, isLoading, insights.length]);
+
+  // Polling enquanto o modal estiver aberto
+  useEffect(() => {
+    if (!loadingOpen) {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setElapsed(0);
+      return;
+    }
+    // Intervalo de 2s para refetch
+    pollRef.current = window.setInterval(() => {
+      refetch();
+      refetchExec();
+    }, 2000);
+    // Cronômetro simples
+    timerRef.current = window.setInterval(() => {
+      setElapsed((e) => e + 1);
+    }, 1000);
+    setLoadingState('waiting');
+    return () => {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [loadingOpen, refetch, refetchExec]);
+
+  // Atualiza estado do modal com base na execução
+  useEffect(() => {
+    if (!loadingOpen) return;
+    if (elapsed >= MAX_WAIT && insights.length === 0) {
+      setLoadingState('timeout');
+      return;
+    }
+    if (latestExec?.status === 'failed') {
+      setLoadingState('failed');
+      return;
+    }
+    if (latestExec?.status === 'completed' && insights.length === 0) {
+      setLoadingState('completed_no_insights');
+      return;
+    }
+    setLoadingState('waiting');
+  }, [loadingOpen, elapsed, MAX_WAIT, latestExec?.status, insights.length]);
 
   const handleMarkAsViewed = async (id: string) => {
     try {
@@ -174,6 +280,17 @@ export default function AIInsights() {
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
+      )}
+
+      {/* Aviso de agent_id inválido */}
+      {agentIdParam && !validAgentId && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-sm text-yellow-700 dark:text-yellow-300">
+              O agente especificado na URL não foi encontrado ou é inválido. O filtro por agente foi ignorado.
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Empty State */}
@@ -313,6 +430,58 @@ export default function AIInsights() {
           })}
         </div>
       )}
+
+      {/* Modal de Carregamento */}
+      <Dialog open={loadingOpen} onOpenChange={setLoadingOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            {loadingState === 'waiting' && (
+              <DialogTitle className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Gerando insight
+              </DialogTitle>
+            )}
+            {loadingState === 'completed_no_insights' && (
+              <DialogTitle className="flex items-center gap-2">
+                <Info className="h-5 w-5" />
+                Nenhum insight gerado nesta execução
+              </DialogTitle>
+            )}
+            {loadingState === 'failed' && (
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                Execução do agente falhou
+              </DialogTitle>
+            )}
+            {loadingState === 'timeout' && (
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                Tempo de espera excedido
+              </DialogTitle>
+            )}
+            <DialogDescription>
+              {loadingState === 'waiting' && (
+                <>Estamos aguardando o agente produzir um novo insight. Isso pode levar alguns segundos.</>
+              )}
+              {loadingState === 'completed_no_insights' && (
+                <>A execução terminou e não gerou insights. Você pode fechar e tentar novamente.</>
+              )}
+              {loadingState === 'failed' && (
+                <>A execução falhou. Verifique o agente ou tente novamente.</>
+              )}
+              {loadingState === 'timeout' && (
+                <>Não recebemos nenhum insight dentro do tempo limite. Feche e tente novamente.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground">
+            Tempo decorrido: {elapsed}s {latestExec?.status && `(status: ${latestExec.status})`}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <UIButton variant="outline" onClick={() => setLoadingOpen(false)}>Fechar</UIButton>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

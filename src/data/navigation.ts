@@ -12,6 +12,7 @@ import {
   Search,
   Brain,
   Lightbulb,
+  Instagram,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -28,8 +29,10 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Insights", href: "/insights", icon: Lightbulb, keywords: ["insights", "recomendações", "sugestões"] },
   { name: "Análise de Tráfego", href: "/traffic-analysis", icon: BarChart3, keywords: ["trafego", "analytics"] },
   { name: "Campanhas", href: "/campaigns", icon: Target, keywords: ["ads", "campanhas"] },
-  { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "instagram", "meta"] },
+  { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
+  { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
   { name: "Google Ads", href: "/google-ads", icon: Search, keywords: ["google", "search", "display"] },
+  { name: "Biblioteca de Criativos", href: "/creatives", icon: Sparkles, keywords: ["criativos", "biblioteca", "assets"] },
   { name: "Biblioteca de Campanhas", href: "/campaigns/library", icon: Target, keywords: ["biblioteca", "templates", "planejamento"] },
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },

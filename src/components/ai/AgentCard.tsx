@@ -7,6 +7,8 @@ import { useRunAgent, usePauseAgent, useResumeAgent } from "@/hooks/useAIAgents"
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 interface AgentCardProps {
   agent: AIAgent;
@@ -41,11 +43,22 @@ export function AgentCard({ agent }: AgentCardProps) {
   const runAgent = useRunAgent();
   const pauseAgent = usePauseAgent();
   const resumeAgent = useResumeAgent();
+  const [localRunning, setLocalRunning] = useState(false);
+  const navigate = useNavigate();
 
   const handleRun = async () => {
     try {
-      await runAgent.mutateAsync(agent.id);
-      toast.success("Agente executado com sucesso!");
+      const promptFromConfig = agent.config?.prompt as string | undefined;
+      const prompt = (promptFromConfig && promptFromConfig.trim().length > 0)
+        ? promptFromConfig
+        : agent.description; // usa descrição como prompt quando não houver prompt configurado
+      await runAgent.mutateAsync(prompt ? { id: agent.id, prompt } : agent.id);
+      setLocalRunning(true);
+      // Limpar estado local após um curto período; backend atualiza status real
+      setTimeout(() => setLocalRunning(false), 15000);
+      toast.success("Execução iniciada. Os insights aparecerão em breve.");
+      // Redirecionar para Insights filtrando por agente
+      navigate(`/insights?agent_id=${agent.id}`);
     } catch (error) {
       toast.error("Erro ao executar agente");
     }
@@ -100,6 +113,9 @@ export function AgentCard({ agent }: AgentCardProps) {
               <CardDescription className="text-xs mt-1">
                 {agentTypeNames[agent.agent_type]} • {frequencyLabels[agent.schedule_frequency]}
               </CardDescription>
+              {localRunning && (
+                <div className="mt-1 text-[11px] text-blue-600">⚙️ Execução iniciada…</div>
+              )}
             </div>
           </div>
 
@@ -129,7 +145,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               variant="ghost"
               size="sm"
               onClick={handleRun}
-              disabled={runAgent.isPending || agent.status === "disabled"}
+              disabled={runAgent.isPending || localRunning || agent.status === "disabled"}
               className="h-8 w-8 p-0"
             >
               <Play className="h-4 w-4 text-primary" />
@@ -156,6 +172,13 @@ export function AgentCard({ agent }: AgentCardProps) {
             <div className="text-lg font-bold text-blue-600">{agent.actioned_insights || 0}</div>
             <div className="text-xs text-muted-foreground">Ações</div>
           </div>
+        </div>
+
+        {/* Quick actions */}
+        <div className="pt-2 border-t flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/insights">Ver insights</Link>
+          </Button>
         </div>
 
         {/* Execution Info */}

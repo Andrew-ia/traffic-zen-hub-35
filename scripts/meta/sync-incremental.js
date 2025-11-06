@@ -89,7 +89,18 @@ function centsToNumber(value) {
   return asNumber / 100;
 }
 
+// Helper to add delay between API requests to avoid rate limiting
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Rate limiter: wait 200ms between each Meta API request
+const RATE_LIMIT_DELAY_MS = 200;
+
 async function fetchJson(url) {
+  // Add delay before each request to avoid hitting rate limits
+  await delay(RATE_LIMIT_DELAY_MS);
+
   const response = await fetch(url);
   if (!response.ok) {
     const text = await response.text();
@@ -115,7 +126,10 @@ async function fetchRecentCampaigns(accessToken, adAccountId, days) {
   since.setDate(since.getDate() - days);
   const sinceTimestamp = Math.floor(since.getTime() / 1000);
 
-  let nextUrl = buildUrl(`act_${adAccountId}/campaigns`, {
+  // Ensure adAccountId has act_ prefix (but don't duplicate if already present)
+  const accountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+
+  let nextUrl = buildUrl(`${accountId}/campaigns`, {
     fields: [
       "id",
       "name",
@@ -420,7 +434,10 @@ async function fetchInsightsForPeriod(accessToken, adAccountId, days, level) {
     ...(levelSpecific[level] ?? []),
   ];
 
-  let nextUrl = buildUrl(`act_${adAccountId}/insights`, {
+  // Ensure adAccountId has act_ prefix (but don't duplicate if already present)
+  const accountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+
+  let nextUrl = buildUrl(`${accountId}/insights`, {
     fields: fields.join(","),
     time_range: JSON.stringify({ since, until }),
     time_increment: "1",
@@ -650,6 +667,12 @@ const ACTION_ALIASES = {
     'profile_visit',
   ],
   postSave: ['onsite_conversion.post_save'],
+  instagramFollows: [
+    'follow',
+    'instagram_follow',
+    'page_follow',
+    'onsite_conversion.follow',
+  ],
 };
 
 const PRIMARY_CONVERSION_PRIORITY = [
@@ -761,6 +784,8 @@ function collectDerivedMetrics(index) {
   const instagramProfileVisitsValue = sumAliasValues(index, ACTION_ALIASES.instagramProfileVisit);
   const postSaves = sumAlias(index, ACTION_ALIASES.postSave);
   const postSavesValue = sumAliasValues(index, ACTION_ALIASES.postSave);
+  const instagramFollows = sumAlias(index, ACTION_ALIASES.instagramFollows);
+  const instagramFollowsValue = sumAliasValues(index, ACTION_ALIASES.instagramFollows);
 
   return {
     counts: {
@@ -769,6 +794,7 @@ function collectDerivedMetrics(index) {
       messaging_first_replies: messagingFirstReplies,
       instagram_profile_visits: instagramProfileVisits,
       post_saves: postSaves,
+      instagram_follows: instagramFollows,
     },
     values: {
       conversations_started: conversationsValue,
@@ -776,6 +802,7 @@ function collectDerivedMetrics(index) {
       messaging_first_replies: messagingFirstRepliesValue,
       instagram_profile_visits: instagramProfileVisitsValue,
       post_saves: postSavesValue,
+      instagram_follows: instagramFollowsValue,
     },
   };
 }

@@ -33,6 +33,7 @@ export interface CampaignTableRow {
   costPerResult?: number | null;
   spend?: number;
   roas?: number | null;
+  instagramFollows?: number;
 }
 
 interface CampaignsTableProps {
@@ -153,6 +154,7 @@ export function CampaignsTable({
                 <TableHead className="w-[70px] px-2">Status</TableHead>
                 <TableHead className="hidden md:table-cell w-[80px] px-2">Resultado</TableHead>
                 <TableHead className="text-right hidden md:table-cell w-[60px] px-2">Qtd</TableHead>
+                <TableHead className="text-right hidden lg:table-cell w-[70px] px-2">Seguid.</TableHead>
                 <TableHead className="text-right w-[80px] px-2">Invest.</TableHead>
                 <TableHead className="text-right hidden lg:table-cell w-[70px] px-2">Custo/R</TableHead>
                 <TableHead className="text-right hidden lg:table-cell w-[60px] px-2">ROAS</TableHead>
@@ -215,6 +217,13 @@ export function CampaignsTable({
                   <TableCell className="text-right hidden md:table-cell px-2">
                     <span className="text-[10px]">
                       {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right hidden lg:table-cell px-2">
+                    <span className="text-[10px]">
+                      {campaign.instagramFollows != null && campaign.instagramFollows > 0
+                        ? new Intl.NumberFormat("pt-BR").format(campaign.instagramFollows)
+                        : "-"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right px-2">

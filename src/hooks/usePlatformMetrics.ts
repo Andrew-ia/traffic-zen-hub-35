@@ -35,6 +35,7 @@ interface UsePlatformMetricsParams {
   dateRange: number; // dias
   accountId?: string;
   status?: CampaignStatusFilter;
+  objective?: string;
 }
 
 async function fetchPlatformMetrics({
@@ -42,6 +43,7 @@ async function fetchPlatformMetrics({
   dateRange,
   accountId,
   status,
+  objective,
 }: UsePlatformMetricsParams): Promise<PlatformMetrics> {
   const params = new URLSearchParams({
     platform,
@@ -56,6 +58,10 @@ async function fetchPlatformMetrics({
     params.append("status", status);
   }
 
+  if (objective) {
+    params.append("objective", objective);
+  }
+
   const response = await fetch(`/api/metrics/aggregate?${params.toString()}`);
 
   if (!response.ok) {
@@ -67,7 +73,7 @@ async function fetchPlatformMetrics({
 
 export function usePlatformMetrics(params: UsePlatformMetricsParams) {
   return useQuery({
-    queryKey: ["platform-metrics", params.platform, params.dateRange, params.accountId, params.status],
+    queryKey: ["platform-metrics", params.platform, params.dateRange, params.accountId, params.status, params.objective],
     queryFn: () => fetchPlatformMetrics(params),
     staleTime: 5 * 60 * 1000, // 5 minutos
     // Retornar dados mockados enquanto não há endpoint
@@ -103,6 +109,7 @@ interface UseTimeSeriesParams {
   accountId?: string;
   metric: "spend" | "results" | "revenue" | "impressions" | "clicks";
   status?: CampaignStatusFilter;
+  objective?: string;
 }
 
 async function fetchTimeSeries({
@@ -111,6 +118,7 @@ async function fetchTimeSeries({
   accountId,
   metric,
   status,
+  objective,
 }: UseTimeSeriesParams): Promise<TimeSeriesDataPoint[]> {
   const params = new URLSearchParams({
     platform,
@@ -126,6 +134,10 @@ async function fetchTimeSeries({
     params.append("status", status);
   }
 
+  if (objective) {
+    params.append("objective", objective);
+  }
+
   const response = await fetch(`/api/metrics/timeseries?${params.toString()}`);
 
   if (!response.ok) {
@@ -137,7 +149,7 @@ async function fetchTimeSeries({
 
 export function useTimeSeries(params: UseTimeSeriesParams) {
   return useQuery({
-    queryKey: ["timeseries", params.platform, params.dateRange, params.accountId, params.metric, params.status],
+    queryKey: ["timeseries", params.platform, params.dateRange, params.accountId, params.metric, params.status, params.objective],
     queryFn: () => fetchTimeSeries(params),
     staleTime: 5 * 60 * 1000,
     placeholderData: [],
@@ -160,12 +172,14 @@ interface UseDemographicsParams {
   platform: "meta" | "google_ads";
   dateRange: number;
   accountId?: string;
+  objective?: string;
 }
 
 async function fetchDemographics({
   platform,
   dateRange,
   accountId,
+  objective,
 }: UseDemographicsParams): Promise<DemographicData> {
   const params = new URLSearchParams({
     platform,
@@ -174,6 +188,10 @@ async function fetchDemographics({
 
   if (accountId && accountId !== "all") {
     params.append("accountId", accountId);
+  }
+
+  if (objective) {
+    params.append("objective", objective);
   }
 
   const response = await fetch(`/api/metrics/demographics?${params.toString()}`);
@@ -187,12 +205,68 @@ async function fetchDemographics({
 
 export function useDemographics(params: UseDemographicsParams) {
   return useQuery({
-    queryKey: ["demographics", params.platform, params.dateRange, params.accountId],
+    queryKey: ["demographics", params.platform, params.dateRange, params.accountId, params.objective],
     queryFn: () => fetchDemographics(params),
     staleTime: 5 * 60 * 1000,
     placeholderData: {
       ageData: [],
       genderData: [],
     },
+  });
+}
+
+// Métricas por objetivo
+export interface ObjectiveMetrics {
+  objective: string;
+  resultLabel: string;
+  campaignCount: number;
+  totalSpend: number;
+  totalResults: number;
+  totalRevenue: number;
+  avgRoas: number | null;
+  avgCostPerResult: number | null;
+}
+
+interface UseMetricsByObjectiveParams {
+  platform: "meta" | "google_ads";
+  dateRange: number;
+  accountId?: string;
+  status?: CampaignStatusFilter;
+}
+
+async function fetchMetricsByObjective({
+  platform,
+  dateRange,
+  accountId,
+  status,
+}: UseMetricsByObjectiveParams): Promise<ObjectiveMetrics[]> {
+  const params = new URLSearchParams({
+    platform,
+    days: dateRange.toString(),
+  });
+
+  if (accountId && accountId !== "all") {
+    params.append("accountId", accountId);
+  }
+
+  if (status && status !== "all") {
+    params.append("status", status);
+  }
+
+  const response = await fetch(`/api/metrics/aggregate-by-objective?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch metrics by objective");
+  }
+
+  return response.json();
+}
+
+export function useMetricsByObjective(params: UseMetricsByObjectiveParams) {
+  return useQuery({
+    queryKey: ["metrics-by-objective", params.platform, params.dateRange, params.accountId, params.status],
+    queryFn: () => fetchMetricsByObjective(params),
+    staleTime: 5 * 60 * 1000,
+    placeholderData: [],
   });
 }

@@ -18,7 +18,7 @@ function getWorkspaceId(): string {
 
 export async function getDemographics(req: Request, res: Response) {
   try {
-    const { days, accountId } = req.query;
+    const { days, accountId, objective } = req.query;
     const workspaceId = getWorkspaceId();
     const pool = getPool();
 
@@ -32,17 +32,25 @@ export async function getDemographics(req: Request, res: Response) {
     // Buscar dados de idade
     let ageQuery = `
       SELECT breakdown_value_key, impressions, clicks, spend
-      FROM performance_metric_breakdowns
-      WHERE workspace_id = $1
-        AND breakdown_key = 'age'
-        AND metric_date >= $2
-        AND metric_date < $3
+      FROM performance_metric_breakdowns pmb
+      WHERE pmb.workspace_id = $1
+        AND pmb.breakdown_key = 'age'
+        AND pmb.metric_date >= $2
+        AND pmb.metric_date < $3
     `;
     const ageParams: any[] = [workspaceId, dateStr, today];
 
     if (accountId && accountId !== 'all') {
-      ageQuery += ` AND platform_account_id = $${ageParams.length + 1}`;
+      ageQuery += ` AND pmb.platform_account_id = $${ageParams.length + 1}`;
       ageParams.push(accountId);
+    }
+
+    if (objective) {
+      ageQuery += ` AND EXISTS (
+        SELECT 1 FROM campaigns c
+        WHERE c.id = pmb.campaign_id AND UPPER(c.objective) = UPPER($${ageParams.length + 1})
+      )`;
+      ageParams.push(objective);
     }
 
     const ageResult = await pool.query(ageQuery, ageParams);
@@ -51,17 +59,25 @@ export async function getDemographics(req: Request, res: Response) {
     // Buscar dados de gênero
     let genderQuery = `
       SELECT breakdown_value_key, impressions, clicks, spend
-      FROM performance_metric_breakdowns
-      WHERE workspace_id = $1
-        AND breakdown_key = 'gender'
-        AND metric_date >= $2
-        AND metric_date < $3
+      FROM performance_metric_breakdowns pmb
+      WHERE pmb.workspace_id = $1
+        AND pmb.breakdown_key = 'gender'
+        AND pmb.metric_date >= $2
+        AND pmb.metric_date < $3
     `;
     const genderParams: any[] = [workspaceId, dateStr, today];
 
     if (accountId && accountId !== 'all') {
-      genderQuery += ` AND platform_account_id = $${genderParams.length + 1}`;
+      genderQuery += ` AND pmb.platform_account_id = $${genderParams.length + 1}`;
       genderParams.push(accountId);
+    }
+
+    if (objective) {
+      genderQuery += ` AND EXISTS (
+        SELECT 1 FROM campaigns c
+        WHERE c.id = pmb.campaign_id AND UPPER(c.objective) = UPPER($${genderParams.length + 1})
+      )`;
+      genderParams.push(objective);
     }
 
     const genderResult = await pool.query(genderQuery, genderParams);
