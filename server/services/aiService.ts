@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import {
   getTopCampaigns,
   getUnderperformingCampaigns,
@@ -11,6 +12,7 @@ import {
 
 // Initialize Gemini client lazily to ensure env vars are loaded
 let genAI: GoogleGenerativeAI | null = null;
+let openaiClient: OpenAI | null = null;
 
 function getGeminiClient(): GoogleGenerativeAI {
   if (!genAI) {
@@ -23,9 +25,34 @@ function getGeminiClient(): GoogleGenerativeAI {
   return genAI;
 }
 
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
+}
+
+type AIProvider = 'gemini' | 'openai';
+
+function resolveAIProvider(): AIProvider {
+  const configured = (process.env.AI_PROVIDER || '').toLowerCase();
+  if (configured === 'openai' || configured === 'gemini') {
+    return configured as AIProvider;
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return 'openai';
+  }
+  return 'gemini';
+}
+
 interface AIMessage {
   role: 'user' | 'assistant';
   content: string;
+  metadata?: Record<string, any>;
 }
 
 const SYSTEM_PROMPT = `Você é um assistente de IA especializado em análise de tráfego pago e marketing digital. Você tem acesso direto ao banco de dados Supabase com campanhas de Meta Ads, Google Ads e Instagram.
@@ -53,6 +80,7 @@ IMPORTANTE:
    - OUTCOME_TRAFFIC = Cliques no link
    - OUTCOME_ENGAGEMENT = Engajamento (curtidas, comentários)
    Quando mencionar conversões, SEMPRE especifique o tipo (ex: "52 leads pelo WhatsApp" ao invés de apenas "52 conversões").
+10. **CONTEXTO DE CONVERSA**: Quando o usuário fizer uma pergunta de acompanhamento (ex: "qual periodo analisado", "qual foi o gasto", "quantos leads"), você deve se referir aos dados da ÚLTIMA análise que você forneceu. NUNCA peça ao usuário para especificar novamente qual campanha quando você já analisou uma campanha recentemente na conversa.
 
 REGRAS DA ATUALIZAÇÃO ANDROMEDA DO META ADS:
 Suas análises e recomendações DEVEM seguir estritamente as melhores práticas da Atualização Andromeda:
@@ -104,87 +132,414 @@ export interface ToolCall {
   params: any;
 }
 
+interface ConversationContext {
+  tool?: string;
+  campaignName?: string;
+  campaignId?: string;
+  dateRange?: {
+    startDate: string;
+    endDate: string;
+  };
+  days?: number;
+  metric?: string;
+}
+
+interface DetectedToolCall extends ToolCall {
+  context?: ConversationContext;
+}
+
+type DateRange = {
+  startDate: string;
+  endDate: string;
+};
+
+interface ParsedDateToken {
+  iso: string;
+  hasYear: boolean;
+}
+
+const FOLLOW_UP_KEYWORDS = [
+  'periodo',
+  'período',
+  'gasto',
+  'gastos',
+  'lead',
+  'leads',
+  'resultado',
+  'resultados',
+  'detalhe',
+  'detalhar',
+  'detalhes',
+  'explica',
+  'explicar',
+  'insight',
+  'insights',
+  'conversao',
+  'conversão',
+  'metricas',
+  'métricas',
+  'continuar',
+  'continua',
+  'seguinte',
+  'agora',
+  'mais',
+  'qual',
+  'quantos',
+  'quantas',
+  'mostrar',
+];
+
+const DATE_KEYWORDS = [
+  'periodo',
+  'período',
+  'data',
+  'datas',
+  'dia',
+  'dias',
+  'semana',
+  'mes',
+  'mês',
+  'hoje',
+  'ontem',
+  'ate',
+  'até',
+  'de ',
+];
+
+const MONTH_MAP: Record<string, number> = {
+  janeiro: 0,
+  fevereiro: 1,
+  marco: 2,
+  março: 2,
+  abril: 3,
+  maio: 4,
+  junho: 5,
+  julho: 6,
+  agosto: 7,
+  setembro: 8,
+  outubro: 9,
+  novembro: 10,
+  dezembro: 11,
+};
+
+function normalizeMessage(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function getLastAssistantContext(history: AIMessage[]): ConversationContext | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const entry = history[i];
+    if (entry.role === 'assistant' && entry.metadata?.context) {
+      return entry.metadata.context as ConversationContext;
+    }
+  }
+
+  return null;
+}
+
+function isFollowUpQuestion(message: string, normalized: string): boolean {
+  if (message.trim().endsWith('?')) {
+    return true;
+  }
+
+  return FOLLOW_UP_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function hasDateIndicator(normalized: string): boolean {
+  return DATE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function extractDateRange(message: string): DateRange | undefined {
+  const rangeRegex = /(?:de\s*)?([0-9]{1,2}[-/][0-9]{1,2}(?:[-/][0-9]{2,4})?|\d{1,2}\s*(?:de\s*)?(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\s*(?:até|ate|a|-)\s*([0-9]{1,2}[-/][0-9]{1,2}(?:[-/][0-9]{2,4})?|\d{1,2}\s*(?:de\s*)?(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))/i;
+  const rangeMatch = message.match(rangeRegex);
+
+  if (rangeMatch) {
+    const startToken = rangeMatch[1].trim();
+    const endToken = rangeMatch[2].trim();
+    const startParsed = parseDateToken(startToken);
+    const endParsed = parseDateToken(endToken, startParsed?.iso);
+
+    if (startParsed && endParsed) {
+      let startDate = startParsed.iso;
+      let endDate = endParsed.iso;
+
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+
+      if (startDateObj.getTime() > endDateObj.getTime()) {
+        if (!startParsed.hasYear && !endParsed.hasYear) {
+          endDateObj.setFullYear(endDateObj.getFullYear() + 1);
+          endDate = toISODate(endDateObj);
+        } else {
+          const temp = startDate;
+          startDate = endDate;
+          endDate = temp;
+        }
+      }
+
+      return { startDate, endDate };
+    }
+  }
+
+  const singleRegex = /(dia\s+|no\s+dia\s+|em\s+)?([0-9]{1,2}[-/][0-9]{1,2}(?:[-/][0-9]{2,4})?|\d{1,2}\s*(?:de\s*)?(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))/i;
+  const singleMatch = message.match(singleRegex);
+
+  if (singleMatch) {
+    const token = singleMatch[2].trim();
+    const parsed = parseDateToken(token);
+
+    if (parsed) {
+      return { startDate: parsed.iso, endDate: parsed.iso };
+    }
+  }
+
+  return undefined;
+}
+
+function parseDateToken(token: string, referenceIso?: string): ParsedDateToken | null {
+  const normalized = normalizeMessage(token);
+  const numericMatch = normalized.match(/(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?/);
+
+  if (numericMatch) {
+    const day = parseInt(numericMatch[1], 10);
+    const month = parseInt(numericMatch[2], 10) - 1;
+    let hasYear = false;
+    let year: number;
+
+    if (numericMatch[3]) {
+      year = parseInt(numericMatch[3], 10);
+      if (year < 100) {
+        year += 2000;
+      }
+      hasYear = true;
+    } else if (referenceIso) {
+      year = new Date(referenceIso).getUTCFullYear();
+    } else {
+      year = new Date().getUTCFullYear();
+    }
+
+    const date = new Date(Date.UTC(year, month, day));
+
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return { iso: toISODate(date), hasYear };
+  }
+
+  const textMatch = normalized.match(/(\d{1,2})\s*(?:de\s*)?(janeiro|fevereiro|marco|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/);
+
+  if (textMatch) {
+    const day = parseInt(textMatch[1], 10);
+    const monthName = textMatch[2];
+    const month = MONTH_MAP[monthName];
+
+    if (month === undefined) {
+      return null;
+    }
+
+    let year = new Date().getUTCFullYear();
+    let hasYear = false;
+    const yearMatch = normalized.match(/(\d{4})/);
+
+    if (yearMatch) {
+      year = parseInt(yearMatch[1], 10);
+      hasYear = true;
+    } else if (referenceIso) {
+      year = new Date(referenceIso).getUTCFullYear();
+    }
+
+    const date = new Date(Date.UTC(year, month, day));
+
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return { iso: toISODate(date), hasYear };
+  }
+
+  return null;
+}
+
+function toISODate(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function formatDateToPt(isoDate: string): string {
+  const safeIso = isoDate.includes('T') ? isoDate : `${isoDate}T00:00:00Z`;
+  const date = new Date(safeIso);
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+  return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+}
+
 /**
  * Detect if user query needs data and which tool to use
  */
-function detectDataNeed(userMessage: string): ToolCall | null {
+function detectDataNeed(userMessage: string, history: AIMessage[]): DetectedToolCall | null {
   const message = userMessage.toLowerCase();
+  const normalized = normalizeMessage(userMessage);
+  const lastContext = getLastAssistantContext(history);
+
+  const explicitCampaignName = extractCampaignName(userMessage);
+  const detectedDateRange = extractDateRange(userMessage);
+  const daysFromMessage = detectedDateRange ? undefined : extractDays(message);
+  const metricFromMessage = extractMetric(message);
+  const followUp = isFollowUpQuestion(message, normalized);
+  const mentionsDate = hasDateIndicator(normalized);
 
   // Top campaigns
   if (
-    message.includes('melhor') && (message.includes('campanha') || message.includes('performan')) ||
-    message.includes('top') && message.includes('campanha')
+    (normalized.includes('melhor') && (normalized.includes('campanha') || normalized.includes('performan'))) ||
+    (normalized.includes('top') && normalized.includes('campanha'))
   ) {
-    const days = extractDays(message);
-    return { name: 'getTopCampaigns', params: { days, limit: 10 } };
+    const periodDays = extractDays(message) ?? 7;
+    return {
+      name: 'getTopCampaigns',
+      params: { days: periodDays, limit: 10 },
+      context: { tool: 'getTopCampaigns', days: periodDays },
+    };
   }
 
   // Underperforming campaigns
   if (
-    message.includes('pior') || message.includes('baixo desempenho') ||
-    message.includes('underperform') || message.includes('ctr baixo')
+    normalized.includes('pior') ||
+    normalized.includes('baixo desempenho') ||
+    normalized.includes('underperform') ||
+    normalized.includes('ctr baixo')
   ) {
-    const days = extractDays(message);
-    return { name: 'getUnderperformingCampaigns', params: { days } };
+    const periodDays = extractDays(message) ?? 7;
+    return {
+      name: 'getUnderperformingCampaigns',
+      params: { days: periodDays },
+      context: { tool: 'getUnderperformingCampaigns', days: periodDays },
+    };
   }
 
   // Summary/Overview
   if (
-    message.includes('resumo') || message.includes('overview') ||
-    message.includes('total') && message.includes('gasto') ||
-    message.includes('quanto gast')
+    normalized.includes('resumo') ||
+    normalized.includes('overview') ||
+    (normalized.includes('total') && normalized.includes('gasto')) ||
+    normalized.includes('quanto gast')
   ) {
-    const days = extractDays(message);
-    return { name: 'getMetricsSummary', params: { days } };
+    const periodDays = extractDays(message) ?? 7;
+    return {
+      name: 'getMetricsSummary',
+      params: { days: periodDays },
+      context: { tool: 'getMetricsSummary', days: periodDays },
+    };
   }
 
   // Platform comparison
   if (
-    message.includes('comparar') && message.includes('plataforma') ||
-    message.includes('meta vs google') || message.includes('google vs meta') ||
-    message.includes('facebook vs google')
+    (normalized.includes('comparar') && normalized.includes('plataforma')) ||
+    normalized.includes('meta vs google') ||
+    normalized.includes('google vs meta') ||
+    normalized.includes('facebook vs google')
   ) {
-    const days = extractDays(message);
-    return { name: 'comparePlatforms', params: { days } };
+    const periodDays = extractDays(message) ?? 7;
+    return {
+      name: 'comparePlatforms',
+      params: { days: periodDays },
+      context: { tool: 'comparePlatforms', days: periodDays },
+    };
   }
 
   // Performance by objective
   if (
-    message.includes('objetivo') && message.includes('performance') ||
-    message.includes('por objetivo')
+    (normalized.includes('objetivo') && normalized.includes('performance')) ||
+    normalized.includes('por objetivo')
   ) {
-    const days = extractDays(message);
-    return { name: 'getPerformanceByObjective', params: { days } };
+    const periodDays = extractDays(message) ?? 7;
+    return {
+      name: 'getPerformanceByObjective',
+      params: { days: periodDays },
+      context: { tool: 'getPerformanceByObjective', days: periodDays },
+    };
   }
 
   // Trends
   if (
-    message.includes('tendência') || message.includes('trend') ||
-    message.includes('evolução') || message.includes('ao longo do tempo')
+    normalized.includes('tendencia') ||
+    normalized.includes('tendência') ||
+    normalized.includes('trend') ||
+    normalized.includes('evolucao') ||
+    normalized.includes('evolução') ||
+    normalized.includes('ao longo do tempo')
   ) {
-    const days = extractDays(message);
-    const metric = extractMetric(message);
-    return { name: 'getMetricsTrend', params: { days, metric } };
+    const periodDays = extractDays(message) ?? 30;
+    const metric = metricFromMessage ?? 'spend';
+    return {
+      name: 'getMetricsTrend',
+      params: { days: periodDays, metric },
+      context: { tool: 'getMetricsTrend', days: periodDays, metric },
+    };
   }
 
-  // Specific campaign analysis - detect when asking about ANY aspect of a campaign
-  if (message.includes('campanha')) {
-    // Check if user is asking about a specific campaign (not generic questions)
-    const hasSpecificCampaignIndicator =
-      message.includes('da campanha') ||
-      message.includes('do campanha') ||
-      message.includes('campanha de') ||
-      message.includes('campanha do') ||
-      message.includes('campanha da') ||
-      /campanha\s+[a-zA-Z0-9]/.test(message);
+  if (explicitCampaignName) {
+    const params: Record<string, any> = { campaignName: explicitCampaignName };
+    const context: ConversationContext = { tool: 'getCampaignDetails', campaignName: explicitCampaignName };
 
-    if (hasSpecificCampaignIndicator) {
-      const campaignName = extractCampaignName(userMessage);
-      if (campaignName) {
-        const days = extractDays(message);
-        return { name: 'getCampaignDetails', params: { campaignName, days } };
+    if (detectedDateRange) {
+      params.dateRange = detectedDateRange;
+      context.dateRange = detectedDateRange;
+    } else if (typeof daysFromMessage === 'number') {
+      params.days = daysFromMessage;
+      context.days = daysFromMessage;
+    } else if (
+      lastContext?.campaignName &&
+      lastContext.campaignName.toLowerCase() === explicitCampaignName.toLowerCase()
+    ) {
+      if (lastContext.dateRange) {
+        params.dateRange = lastContext.dateRange;
+        context.dateRange = lastContext.dateRange;
+      } else if (lastContext.days) {
+        params.days = lastContext.days;
+        context.days = lastContext.days;
       }
     }
+
+    if (metricFromMessage) {
+      context.metric = metricFromMessage;
+    }
+
+    return { name: 'getCampaignDetails', params, context };
+  }
+
+  if (lastContext?.campaignName && (normalized.includes('campanha') || followUp)) {
+    const params: Record<string, any> = { campaignName: lastContext.campaignName };
+    const context: ConversationContext = { tool: 'getCampaignDetails', campaignName: lastContext.campaignName };
+
+    let rangeToUse = detectedDateRange;
+    if (!rangeToUse && lastContext.dateRange) {
+      rangeToUse = lastContext.dateRange;
+    }
+
+    if (rangeToUse) {
+      params.dateRange = rangeToUse;
+      context.dateRange = rangeToUse;
+    } else {
+      const daysToUse =
+        typeof daysFromMessage === 'number'
+          ? daysFromMessage
+          : lastContext.days;
+
+      if (typeof daysToUse === 'number') {
+        params.days = daysToUse;
+        context.days = daysToUse;
+      }
+    }
+
+    if (metricFromMessage || lastContext.metric) {
+      context.metric = metricFromMessage || lastContext.metric;
+    }
+
+    return { name: 'getCampaignDetails', params, context };
   }
 
   return null;
@@ -193,39 +548,38 @@ function detectDataNeed(userMessage: string): ToolCall | null {
 /**
  * Extract days from user message
  */
-function extractDays(message: string): number {
+function extractDays(message: string, fallback?: number): number | undefined {
   if (message.includes('hoje') || message.includes('today')) return 1;
   if (message.includes('ontem') || message.includes('yesterday')) return 1;
   if (message.includes('semana') || message.includes('week')) return 7;
-  if (message.includes('mês') || message.includes('month')) return 30;
-  if (message.includes('últimos 3 dias')) return 3;
-  if (message.includes('últimos 14 dias')) return 14;
-  if (message.includes('últimos 30 dias')) return 30;
-  if (message.includes('últimos 60 dias')) return 60;
-  if (message.includes('últimos 90 dias')) return 90;
+  if (message.includes('mês') || message.includes('mes') || message.includes('month')) return 30;
+  if (message.includes('últimos 3 dias') || message.includes('ultimos 3 dias')) return 3;
+  if (message.includes('últimos 14 dias') || message.includes('ultimos 14 dias')) return 14;
+  if (message.includes('últimos 30 dias') || message.includes('ultimos 30 dias')) return 30;
+  if (message.includes('últimos 60 dias') || message.includes('ultimos 60 dias')) return 60;
+  if (message.includes('últimos 90 dias') || message.includes('ultimos 90 dias')) return 90;
 
-  // Try to extract number
-  const match = message.match(/(\d+)\s*(dia|day)/i);
+  const match = message.match(/(\d+)\s*(dia|dias|day|days)/i);
   if (match) {
-    return parseInt(match[1]);
+    return parseInt(match[1], 10);
   }
 
-  return 7; // default
+  return fallback;
 }
 
 /**
  * Extract metric name from user message
  */
-function extractMetric(message: string): string {
+function extractMetric(message: string, fallback?: string): string | undefined {
   if (message.includes('gasto') || message.includes('spend')) return 'spend';
   if (message.includes('clique') || message.includes('click')) return 'clicks';
-  if (message.includes('conversão') || message.includes('conversion')) return 'conversions';
-  if (message.includes('impressão') || message.includes('impression')) return 'impressions';
+  if (message.includes('conversão') || message.includes('conversao') || message.includes('conversion')) return 'conversions';
+  if (message.includes('impressão') || message.includes('impressao') || message.includes('impression')) return 'impressions';
   if (message.includes('ctr')) return 'ctr';
   if (message.includes('cpc')) return 'cpc';
   if (message.includes('roas')) return 'roas';
 
-  return 'spend'; // default
+  return fallback;
 }
 
 /**
@@ -264,7 +618,7 @@ function extractCampaignName(message: string): string {
 /**
  * Execute tool call
  */
-async function executeTool(tool: ToolCall, workspaceId: string): Promise<any> {
+async function executeTool(tool: DetectedToolCall, workspaceId: string): Promise<any> {
   switch (tool.name) {
     case 'getTopCampaigns':
       return await getTopCampaigns(workspaceId, tool.params.days, tool.params.limit);
@@ -285,7 +639,10 @@ async function executeTool(tool: ToolCall, workspaceId: string): Promise<any> {
       return await getMetricsTrend(workspaceId, tool.params.days, tool.params.metric);
 
     case 'getCampaignDetails':
-      return await getCampaignDetails(workspaceId, tool.params.campaignName, tool.params.days);
+      return await getCampaignDetails(workspaceId, tool.params.campaignName, {
+        days: tool.params.days,
+        dateRange: tool.params.dateRange,
+      });
 
     default:
       return null;
@@ -295,7 +652,7 @@ async function executeTool(tool: ToolCall, workspaceId: string): Promise<any> {
 /**
  * Format data context for AI
  */
-function formatDataContext(toolName: string, data: any): string {
+function formatDataContext(toolName: string, data: any, context?: ConversationContext): string {
   if (!data || (Array.isArray(data) && data.length === 0)) {
     return 'Nenhum dado encontrado para este período.';
   }
@@ -351,7 +708,7 @@ ${parseFloat(p.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(p.avg_roas).toFixed(2)
 ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixed(2)}x` : ''}`
       ).join('\n\n')}`;
 
-    case 'getCampaignDetails':
+    case 'getCampaignDetails': {
       if (!data) {
         return 'Campanha não encontrada. Verifique o nome e tente novamente.';
       }
@@ -420,6 +777,14 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 
       const conversionType = objectiveMap[data.objective] || data.objective;
 
+      const periodSource = context?.dateRange || (data.start_date && data.end_date
+        ? { startDate: data.start_date, endDate: data.end_date }
+        : null);
+
+      const periodLine = periodSource
+        ? `**Período analisado:** ${formatDateToPt(periodSource.startDate)} a ${formatDateToPt(periodSource.endDate)}\n\n`
+        : '';
+
       // Build messaging metrics section for LEADS campaigns
       let messagingSection = '';
       if (data.messaging_metrics) {
@@ -433,7 +798,7 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 
       return `### Análise da Campanha: ${data.name}
 
-**Informações Gerais:**
+${periodLine}**Informações Gerais:**
 - **Status**: ${data.status}
 - **Objetivo**: ${conversionType}
 
@@ -446,10 +811,115 @@ ${parseFloat(obj.avg_roas || 0) > 0 ? `- ROAS: ${parseFloat(obj.avg_roas).toFixe
 - **Conversões (${conversionType})**: ${parseInt(data.conversions || 0)}
 ${parseFloat(data.roas || 0) > 0 ? `- **ROAS**: ${parseFloat(data.roas).toFixed(2)}x` : ''}
 ${messagingSection}${copiesSection}`;
-
+    }
     default:
       return JSON.stringify(data, null, 2);
   }
+}
+
+async function generateWithGemini(
+  conversationHistory: AIMessage[],
+  userMessage: string,
+  dataContext?: string
+): Promise<string> {
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp' });
+
+  const history = conversationHistory.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'model',
+    parts: [{ text: msg.content }],
+  }));
+
+  const chat = model.startChat({
+    history,
+    generationConfig: {
+      maxOutputTokens: 2048,
+      temperature: 0.7,
+    },
+  });
+
+  const fullMessage = dataContext
+    ? `${SYSTEM_PROMPT}\n\n---\n\n${userMessage}\n\n### Dados Relevantes:\n${dataContext}`
+    : `${SYSTEM_PROMPT}\n\n---\n\n${userMessage}`;
+
+  const result = await chat.sendMessage(fullMessage);
+  const response = await result.response;
+  return response.text();
+}
+
+async function generateWithOpenAI(
+  conversationHistory: AIMessage[],
+  userMessage: string,
+  dataContext?: string
+): Promise<string> {
+  const openai = getOpenAIClient();
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...conversationHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+    })),
+  ];
+
+  const finalUserMessage = dataContext
+    ? `${userMessage}\n\n### Dados Relevantes:\n${dataContext}`
+    : userMessage;
+
+  messages.push({ role: 'user', content: finalUserMessage });
+
+  const completion = await openai.chat.completions.create({
+    model,
+    messages,
+    temperature: 0.7,
+    max_tokens: 2048,
+  });
+
+  const content = completion.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('OpenAI retornou resposta vazia');
+  }
+  return content;
+}
+
+function buildMessageMetadata(
+  toolCall: DetectedToolCall | null,
+  data: any,
+  dataContext: string
+): Record<string, any> | undefined {
+  const trimmedContext = dataContext?.trim();
+  const metadata: Record<string, any> = {};
+
+  if (trimmedContext) {
+    metadata.dataContext = trimmedContext;
+  }
+
+  if (toolCall) {
+    const context: ConversationContext = {
+      tool: toolCall.name,
+      ...(toolCall.context ?? {}),
+    };
+
+    if (toolCall.name === 'getCampaignDetails' && data) {
+      if (data.id) {
+        context.campaignId = data.id;
+      }
+      if (data.name) {
+        context.campaignName = data.name;
+      }
+      if (data.start_date && data.end_date) {
+        context.dateRange = {
+          startDate: data.start_date,
+          endDate: data.end_date,
+        };
+      }
+    }
+
+    metadata.context = context;
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 /**
@@ -459,11 +929,12 @@ export async function generateAIResponse(
   userMessage: string,
   conversationHistory: AIMessage[],
   workspaceId: string
-): Promise<{ content: string; dataContext?: string }> {
+): Promise<{ content: string; dataContext?: string; metadata?: Record<string, any> }> {
   try {
     // Detect if we need to fetch data
-    const toolCall = detectDataNeed(userMessage);
+    const toolCall = detectDataNeed(userMessage, conversationHistory);
     let dataContext = '';
+    let fetchedData: any = null;
 
     // Log for debugging
     console.log('🤖 AI Service - User Message:', userMessage);
@@ -471,42 +942,22 @@ export async function generateAIResponse(
 
     if (toolCall) {
       console.log('📊 Executing tool:', toolCall.name, 'with params:', toolCall.params);
-      const data = await executeTool(toolCall, workspaceId);
-      dataContext = formatDataContext(toolCall.name, data);
+      fetchedData = await executeTool(toolCall, workspaceId);
+      dataContext = formatDataContext(toolCall.name, fetchedData, toolCall.context);
       console.log('✅ Data fetched, context length:', dataContext.length);
     }
 
-    // Build conversation history for Gemini
-    const genAI = getGeminiClient();
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const metadata = buildMessageMetadata(toolCall, fetchedData, dataContext);
+    const provider = resolveAIProvider();
 
-    // Build history in Gemini format
-    const history = conversationHistory.map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.content }],
-    }));
-
-    // Start chat with history
-    const chat = model.startChat({
-      history,
-      generationConfig: {
-        maxOutputTokens: 2048,
-        temperature: 0.7,
-      },
-    });
-
-    // Send message with system prompt and data context
-    const fullMessage = dataContext
-      ? `${SYSTEM_PROMPT}\n\n---\n\n${userMessage}\n\n### Dados Relevantes:\n${dataContext}`
-      : `${SYSTEM_PROMPT}\n\n---\n\n${userMessage}`;
-
-    const result = await chat.sendMessage(fullMessage);
-    const response = await result.response;
-    const content = response.text();
+    const content = provider === 'openai'
+      ? await generateWithOpenAI(conversationHistory, userMessage, dataContext || undefined)
+      : await generateWithGemini(conversationHistory, userMessage, dataContext || undefined);
 
     return {
       content,
       dataContext: dataContext || undefined,
+      metadata,
     };
   } catch (error) {
     console.error('AI Service Error:', error);

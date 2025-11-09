@@ -128,7 +128,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         query = query.range(from, to);
       }
 
-      let { data, error, count } = await query;
+      const { data, error, count } = await query;
 
       if (error) {
         console.warn("Campaigns query failed, attempting fallback without join:", error.message);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,7 @@ export default function Tracking() {
   const [adsConversionId, setAdsConversionId] = useState<string>(initialDefaults.adsConversionId || "AW-1988032294");
   const [awConversionLabelPurchase, setAwConversionLabelPurchase] = useState<string>(initialDefaults.awConversionLabelPurchase || "AW-CONVERSION-LABEL-PURCHASE");
   const [ttPixelId, setTtPixelId] = useState<string>(initialDefaults.ttPixelId || "TT-XXXXXXXXXX");
+  const hasHydratedEnvDefaults = useRef(false);
 
   useEffect(() => {
     try {
@@ -90,6 +91,11 @@ export default function Tracking() {
 
   // Migração em uma vez: aplicar padrões do ambiente e persistir
   useEffect(() => {
+    if (hasHydratedEnvDefaults.current) {
+      return;
+    }
+    hasHydratedEnvDefaults.current = true;
+
     try {
       if (typeof window === "undefined") return;
       const version = window.localStorage.getItem(STORAGE_VERSION_KEY);
@@ -127,7 +133,7 @@ export default function Tracking() {
     } catch (_) {
       // noop
     }
-  }, []);
+  }, [adsConversionId, awConversionLabelPurchase, fbPixelId, ga4MeasurementId, gtmContainerId, ttPixelId]);
 
   function downloadText(filename: string, content: string) {
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });

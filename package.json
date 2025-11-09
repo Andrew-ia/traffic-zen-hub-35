@@ -19,9 +19,11 @@
     "backfill:meta": "node scripts/meta/backfill-insights.js",
     "sync:google": "node scripts/google-ads/sync-google-ads.js",
     "sync:meta:daily": "bash scripts/meta/run-daily.sh",
+    "meta:refresh-token": "node scripts/meta/refresh-access-token.js",
     "check:data": "node scripts/check-data-sync.js",
     "server": "tsx server/index.ts",
-    "generate:encryption-key": "node server/scripts/generate-encryption-key.js"
+    "generate:encryption-key": "node server/scripts/generate-encryption-key.js",
+    "import:cashflow": "tsx scripts/financial/import-cashflow.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -72,6 +74,7 @@
     "next-themes": "^0.3.0",
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
+    "openai": "^4.104.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -85,6 +88,7 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^13.0.0",
     "vaul": "^0.9.9",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

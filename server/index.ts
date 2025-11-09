@@ -52,6 +52,7 @@ import {
 } from './api/ai/insights.js';
 import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
+import { importCashflowXlsx } from './api/finance/cashflow.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -113,6 +114,9 @@ app.post('/api/ga4/report', ga4Report);
 app.post('/api/ga4/test', (req, res) => {
   res.json({ success: true, message: 'GA4 test endpoint' });
 });
+
+// Finance: Cashflow import endpoint
+app.post('/api/finance/cashflow/import', importCashflowXlsx);
 
 // Platform metrics endpoints used by dashboards
 app.get('/api/metrics/aggregate', getAggregateMetrics);

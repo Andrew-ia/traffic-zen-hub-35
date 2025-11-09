@@ -33,6 +33,21 @@ function formatPercent(value: number, fractionDigits = 2): string {
   return `${value.toFixed(fractionDigits)}%`;
 }
 
+function formatDateLabel(dateIso: string): string {
+  if (!dateIso) return "-";
+  const [yearStr, monthStr, dayStr] = dateIso.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) {
+    return dateIso;
+  }
+
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString("pt-BR");
+}
+
 const PLATFORM_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
   instagram: "Instagram",
@@ -337,7 +352,7 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                 { label: "Visualizações de vídeo", value: data.engagement.videoViews, hideIfZero: true },
               ]}
             />
-            <TrendLineChart data={data.engagement.trend} label="Conversas" />
+            <TrendLineChart data={data.engagement.trend} label="Engajamentos" />
             <PlatformBarChart data={engagementPlatforms} />
           </div>
         </CardContent>
@@ -520,8 +535,8 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
       <div>
         <h2 className="text-xl sm:text-2xl font-bold">Resumo por objetivo</h2>
         <p className="text-xs sm:text-sm text-muted-foreground">
-          Síntese dos últimos 30 dias ({new Date(data.dateRange.from).toLocaleDateString("pt-BR")} –{" "}
-          {new Date(data.dateRange.to).toLocaleDateString("pt-BR")}), agrupado por objetivo de campanha e plataforma.
+          Síntese dos últimos 30 dias ({formatDateLabel(data.dateRange.from)} – {formatDateLabel(data.dateRange.to)}),
+          agrupado por objetivo de campanha e plataforma.
         </p>
       </div>
 

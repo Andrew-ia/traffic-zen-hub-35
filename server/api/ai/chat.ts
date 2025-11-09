@@ -50,7 +50,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Get conversation history
     const historyResult = await pool.query(
-      `SELECT role, content
+      `SELECT role, content, metadata
        FROM chat_messages
        WHERE conversation_id = $1
        ORDER BY created_at ASC
@@ -64,7 +64,7 @@ router.post('/', async (req: Request, res: Response) => {
     const aiResponse = await generateAIResponse(message, history, workspaceId);
 
     // Save AI message
-    const metadata = aiResponse.dataContext ? { dataContext: aiResponse.dataContext } : {};
+    const metadata = aiResponse.metadata ?? (aiResponse.dataContext ? { dataContext: aiResponse.dataContext } : {});
     const aiMessageResult = await pool.query(
       `INSERT INTO chat_messages (conversation_id, role, content, metadata)
        VALUES ($1, 'assistant', $2, $3::jsonb)

@@ -80,4 +80,5 @@ O repositório inclui um script para sincronizar campanhas, ad sets e anúncios 
 - Exponha as credenciais para o front-end adicionando `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_WORKSPACE_ID` e as variáveis `VITE_META_*` (já exemplificadas em `.env.local`).
 - Carregue o ambiente (`set -a && source .env.local && set +a`) e execute `npm run sync:meta`.
 - Para preencher o histórico inicial (30 dias) rode `npm run backfill:meta`.
+- Se o token expirar com frequência, configure um System User e rode `npm run meta:refresh-token` para gerar e propagar um novo `META_ACCESS_TOKEN` automaticamente.
 - Para mais detalhes, consulte `docs/integrations/meta.md`.

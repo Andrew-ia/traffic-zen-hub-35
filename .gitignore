@@ -30,3 +30,15 @@ mcp-config.json
 secrets/
 secrets/*.json
 google-cloud-cli-darwin-arm64.tar.gz
+
+# Env files and local secrets
+.env*
+
+# Ignore spreadsheets and other large binary imports
+*.xlsx
+*.xls
+*.csv
+
+# Supabase temp files
+supabase/.temp/
+supabase/setup-vault.sql

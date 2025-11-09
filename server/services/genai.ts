@@ -111,7 +111,7 @@ function salvageFromText(text: string, prompt: string): GenAIResult {
 
   // Recommendation: extrair bloco após labels comuns
   let recommendation: string | null = null;
-  const recMatch = raw.match(/(?:recomenda\w*|sugest\w*|ação\s*proposta)[:\-]\s*([\s\S]{10,})/i);
+  const recMatch = raw.match(/(?:recomenda\w*|sugest\w*|ação\s*proposta)[:-]\s*([\s\S]{10,})/i);
   if (recMatch) {
     recommendation = recMatch[1].trim().split(/\n\n/)[0].trim();
   }

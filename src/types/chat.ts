@@ -10,7 +10,19 @@ export interface ChatMessage {
   metadata?: {
     tokens?: number;
     model?: string;
-    dataContext?: string[];
+    dataContext?: string | string[];
+    context?: {
+      tool?: string;
+      campaignName?: string;
+      campaignId?: string;
+      dateRange?: {
+        startDate: string;
+        endDate: string;
+      };
+      days?: number;
+      metric?: string;
+      [key: string]: any;
+    };
     [key: string]: any;
   };
   created_at: string;

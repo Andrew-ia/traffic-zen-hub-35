@@ -151,7 +151,7 @@ export default function Budget() {
     error: accountsError,
   } = useBudgetOverview();
 
-  const accounts = overview?.accounts ?? [];
+  const accounts = useMemo(() => overview?.accounts ?? [], [overview?.accounts]);
   useEffect(() => {
     if (selectedAccountId !== "all" && !accounts.some((account) => account.id === selectedAccountId)) {
       setSelectedAccountId("all");

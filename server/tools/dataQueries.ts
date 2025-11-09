@@ -10,6 +10,8 @@ export interface CampaignData {
   status: string;
   objective: string;
   platform_type?: string;
+  start_date?: string;
+  end_date?: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -49,6 +51,14 @@ export interface MetricsSummary {
   avg_ctr: number;
   avg_cpc: number;
   avg_roas: number;
+}
+
+export interface CampaignDetailsOptions {
+  days?: number;
+  dateRange?: {
+    startDate: string;
+    endDate: string;
+  };
 }
 
 /**
@@ -342,12 +352,49 @@ export async function getMetricsTrend(
 export async function getCampaignDetails(
   workspaceId: string,
   campaignName: string,
-  days: number = 30
+  options: CampaignDetailsOptions = {}
 ): Promise<CampaignData | null> {
-  console.log('🔍 getCampaignDetails called with:', { campaignName, days });
+  console.log('🔍 getCampaignDetails called with:', { campaignName, options });
 
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  const defaultDays = options.days ?? 30;
+  const now = new Date();
+
+  const parseDateOnly = (value: string | undefined): Date | null => {
+    if (!value) return null;
+    const iso = value.includes('T') ? value : `${value}T00:00:00Z`;
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  let startDate: Date;
+  let endDate: Date;
+
+  if (options.dateRange) {
+    const startParsed = parseDateOnly(options.dateRange.startDate);
+    const endParsed = parseDateOnly(options.dateRange.endDate);
+    if (startParsed && endParsed) {
+      startDate = startParsed;
+      endDate = endParsed;
+    } else {
+      endDate = new Date(now);
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - defaultDays);
+    }
+  } else {
+    const days = options.days ?? defaultDays;
+    endDate = new Date(now);
+    startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+  }
+
+  if (endDate.getTime() < startDate.getTime()) {
+    const tmp = startDate;
+    startDate = endDate;
+    endDate = tmp;
+  }
+
+  const startDateStr = startDate.toISOString().split('T')[0];
+  const endDateStr = endDate.toISOString().split('T')[0];
 
   // Build flexible search patterns
   // Split campaign name into words and create patterns that match any order
@@ -356,6 +403,8 @@ export async function getCampaignDetails(
 
   // Build WHERE condition that checks if ALL words appear in the name (any order)
   const wordConditions = words.map((_, i) => `c.name ILIKE $${i + 2}`).join(' AND ');
+  const startParamIndex = words.length + 2;
+  const endParamIndex = startParamIndex + 1;
 
   const query = `
     SELECT
@@ -382,7 +431,8 @@ export async function getCampaignDetails(
       END as roas
     FROM campaigns c
     LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-      AND pm.metric_date >= $${words.length + 2}
+      AND pm.metric_date >= $${startParamIndex}
+      AND pm.metric_date <= $${endParamIndex}
       AND pm.granularity = 'day'
       AND pm.ad_set_id IS NULL
       AND pm.ad_id IS NULL
@@ -395,7 +445,8 @@ export async function getCampaignDetails(
   const params = [
     workspaceId,
     ...words.map(w => `%${w}%`),
-    startDate.toISOString().split('T')[0]
+    startDateStr,
+    endDateStr,
   ];
 
   const result = await pool.query(query, params);
@@ -409,6 +460,8 @@ export async function getCampaignDetails(
 
   const campaignData = result.rows[0];
   console.log('✅ Campaign found:', campaignData.name, '| Objective:', campaignData.objective);
+  campaignData.start_date = startDateStr;
+  campaignData.end_date = endDateStr;
 
   // Fetch ad copies with performance data for this campaign
   const copiesQuery = `
@@ -438,7 +491,7 @@ export async function getCampaignDetails(
         SUM(spend) as spend
       FROM performance_metrics
       WHERE granularity = 'day'
-        AND metric_date >= $2
+        AND metric_date BETWEEN $2 AND $3
       GROUP BY ad_id
     ) pm ON a.id = pm.ad_id
     WHERE a.ad_set_id IN (
@@ -450,7 +503,8 @@ export async function getCampaignDetails(
 
   const copiesResult = await pool.query(copiesQuery, [
     campaignData.id,
-    startDate.toISOString().split('T')[0]
+    startDateStr,
+    endDateStr,
   ]);
 
   campaignData.ad_copies = copiesResult.rows.map(row => ({
@@ -490,7 +544,7 @@ export async function getCampaignDetails(
         )) as first_replies
       FROM performance_metrics pm
       WHERE pm.campaign_id = $1
-        AND pm.metric_date >= $2
+        AND pm.metric_date BETWEEN $2 AND $3
         AND pm.granularity = 'day'
         AND pm.ad_set_id IS NULL
         AND pm.ad_id IS NULL
@@ -498,7 +552,8 @@ export async function getCampaignDetails(
 
     const messagingResult = await pool.query(messagingQuery, [
       campaignData.id,
-      startDate.toISOString().split('T')[0]
+      startDateStr,
+      endDateStr,
     ]);
 
     if (messagingResult.rows[0]) {

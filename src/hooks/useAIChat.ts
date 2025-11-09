@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { ChatMessage, ChatConversation, SendMessageRequest } from '@/types/chat';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function useAIChat(workspaceId: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sendMessage = async (
+  const sendMessage = useCallback(async (
     message: string,
     conversationId?: string
   ): Promise<{ conversationId: string; message: ChatMessage } | null> => {
@@ -41,9 +41,9 @@ export function useAIChat(workspaceId: string) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId]);
 
-  const getConversations = async (): Promise<ChatConversation[]> => {
+  const getConversations = useCallback(async (): Promise<ChatConversation[]> => {
     try {
       const response = await fetch(`${API_BASE}/api/ai/conversations?workspaceId=${workspaceId}`);
 
@@ -57,9 +57,9 @@ export function useAIChat(workspaceId: string) {
       console.error('Error fetching conversations:', err);
       return [];
     }
-  };
+  }, [workspaceId]);
 
-  const getConversation = async (conversationId: string): Promise<ChatConversation | null> => {
+  const getConversation = useCallback(async (conversationId: string): Promise<ChatConversation | null> => {
     try {
       const response = await fetch(`${API_BASE}/api/ai/conversations/${conversationId}`);
 
@@ -73,9 +73,9 @@ export function useAIChat(workspaceId: string) {
       console.error('Error fetching conversation:', err);
       return null;
     }
-  };
+  }, []);
 
-  const deleteConversation = async (conversationId: string): Promise<boolean> => {
+  const deleteConversation = useCallback(async (conversationId: string): Promise<boolean> => {
     try {
       const response = await fetch(`${API_BASE}/api/ai/conversations/${conversationId}`, {
         method: 'DELETE',
@@ -86,7 +86,7 @@ export function useAIChat(workspaceId: string) {
       console.error('Error deleting conversation:', err);
       return false;
     }
-  };
+  }, []);
 
   return {
     loading,

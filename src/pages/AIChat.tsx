@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, Bot } from 'lucide-react';
@@ -13,9 +13,10 @@ const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID || '00000000-0000-0000-00
 export default function AIChat() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [initializing, setInitializing] = useState<boolean>(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { loading, error, sendMessage } = useAIChat(WORKSPACE_ID);
+  const { loading, error, sendMessage, getConversations, getConversation } = useAIChat(WORKSPACE_ID);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,6 +25,42 @@ export default function AIChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const loadConversation = useCallback(async (id: string) => {
+    const conversation = await getConversation(id);
+    if (conversation?.messages) {
+      setConversationId(id);
+      setMessages(conversation.messages);
+    }
+  }, [getConversation]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const init = async () => {
+      setInitializing(true);
+      try {
+        const conversations = await getConversations();
+        if (!isMounted) {
+          return;
+        }
+
+        if (conversations.length > 0) {
+          await loadConversation(conversations[0].id);
+        }
+      } finally {
+        if (isMounted) {
+          setInitializing(false);
+        }
+      }
+    };
+
+    void init();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getConversations, loadConversation]);
 
   const handleSendMessage = async (messageText: string) => {
     // Add user message optimistically
@@ -46,17 +83,27 @@ export default function AIChat() {
         setConversationId(result.conversationId);
       }
 
-      // Add AI response
-      setMessages((prev) => [...prev, result.message]);
+      setMessages((prev) => {
+        const updated = !conversationId
+          ? prev.map((msg) =>
+              msg.id === userMessage.id
+                ? { ...msg, conversation_id: result.conversationId }
+                : msg
+            )
+          : prev;
+
+        return [...updated, result.message];
+      });
     }
   };
 
   const handleNewConversation = () => {
     setMessages([]);
     setConversationId(undefined);
+    setInitializing(false);
   };
 
-  const showSuggestions = messages.length === 0;
+  const showSuggestions = messages.length === 0 && !loading && !initializing;
 
   return (
     <div className="h-screen flex flex-col p-6 bg-background">
@@ -83,7 +130,11 @@ export default function AIChat() {
       {/* Messages Area */}
       <Card className="flex-1 flex flex-col overflow-hidden">
         <CardContent className="flex-1 overflow-y-auto p-6">
-          {messages.length === 0 ? (
+          {initializing ? (
+            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+              Carregando histórico da conversa...
+            </div>
+          ) : messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center mb-4">
                 <Bot className="w-10 h-10 text-purple-500" />
@@ -118,7 +169,7 @@ export default function AIChat() {
             />
           )}
 
-          <ChatInput onSend={handleSendMessage} disabled={loading} />
+          <ChatInput onSend={handleSendMessage} disabled={loading || initializing} />
 
           <p className="text-xs text-center text-muted-foreground">
             O AI Assistant pode cometer erros. Verifique informações importantes.

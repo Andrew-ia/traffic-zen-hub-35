@@ -220,7 +220,7 @@ serve(async (req) => {
     // Calcula data de início
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-    let result: any = { success: true };
+    const result: { success: boolean; campaigns_synced?: number } = { success: true };
 
     // Sync campanhas
     if (syncType === 'all' || syncType === 'campaigns') {

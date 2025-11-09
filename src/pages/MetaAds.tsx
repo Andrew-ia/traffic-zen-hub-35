@@ -131,7 +131,9 @@ export default function MetaAds() {
             onSearchChange={setSearch}
           />
         </div>
-        <MetaSyncButton variant="default" size="sm" />
+        <div className="flex items-center">
+          <MetaSyncButton size="sm" />
+        </div>
       </div>
 
       {/* Indicador de filtro ativo */}

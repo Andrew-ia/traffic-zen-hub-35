@@ -6,15 +6,12 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import TrafficAnalysis from "./pages/TrafficAnalysis";
-import ActionCenter from "./pages/ActionCenter";
 import Campaigns from "./pages/Campaigns";
-import CampaignLibrary from "./pages/CampaignLibrary";
 import CampaignDetails from "./pages/CampaignDetails";
 import AdDetails from "./pages/AdDetails";
 import Reports from "./pages/Reports";
 import Leads from "./pages/Leads";
 import VirtualTryOn from "./pages/VirtualTryOn";
-import Audiences from "./pages/Audiences";
 import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
 import Integrations from "./pages/Integrations";
@@ -23,11 +20,10 @@ import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import Instagram from "./pages/Instagram";
 import GoogleAds from "./pages/GoogleAds";
-import AIAgents from "./pages/AIAgents";
-import AIInsights from "./pages/AIInsights";
 import AIChat from "./pages/AIChat";
 import NotFound from "./pages/NotFound";
 import CreativesV2 from "./pages/CreativesV2";
+import Cashflow from "./pages/Cashflow";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 
@@ -70,13 +66,9 @@ const App = () => (
           <PageViewTracker />
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/action-center" element={<ActionCenter />} />
-            <Route path="/agents" element={<AIAgents />} />
-            <Route path="/insights" element={<AIInsights />} />
             <Route path="/chat" element={<AIChat />} />
             <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
             <Route path="/creatives" element={<CreativesV2 />} />
-            <Route path="/campaigns/library" element={<CampaignLibrary />} />
             <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
             <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
@@ -86,13 +78,13 @@ const App = () => (
             <Route path="/reports" element={<Reports />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/gerador-looks" element={<VirtualTryOn />} />
-            <Route path="/audiences" element={<Audiences />} />
             <Route path="/automations" element={<Automations />} />
             <Route path="/experiments" element={<Experiments />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/ga4" element={<GA4 />} />
             <Route path="/gtm" element={<GA4 />} />
             <Route path="/tracking" element={<Tracking />} />
+            <Route path="/cashflow" element={<Cashflow />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

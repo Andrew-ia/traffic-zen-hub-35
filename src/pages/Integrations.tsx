@@ -9,11 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
+import MetaSyncButton from "@/components/MetaSyncButton";
+import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import MetaSyncButton from "@/components/MetaSyncButton";
 import GoogleAdsSyncButton from "@/components/GoogleAdsSyncButton";
-import InstagramSyncButton from "@/components/InstagramSyncButton";
 import {
   Facebook,
   Instagram,
@@ -180,15 +180,15 @@ export default function Integrations() {
                   </div>
                 <div className="flex items-center gap-4">
                   {platform.id === 1 ? (
-                    <>
-                      {platform.connected && <MetaSyncButton />}
+                    <div className="flex items-center gap-2">
+                      <MetaSyncButton size="sm" />
                       <MetaCredentialsDialog />
-                    </>
+                    </div>
                   ) : platform.id === 2 ? (
-                    <>
-                      <InstagramSyncButton />
+                    <div className="flex items-center gap-2">
+                      <InstagramSyncButton size="sm" />
                       <InstagramCredentialsDialog />
-                    </>
+                    </div>
                   ) : platform.connected ? (
                     <>
                       <Switch checked={true} disabled />

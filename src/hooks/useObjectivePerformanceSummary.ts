@@ -14,6 +14,7 @@ if (!WORKSPACE_ID) {
 }
 
 const DEFAULT_DAYS = 30;
+const DATA_LAG_SAFETY_DAYS = 7;
 
 export type PlatformKey = "facebook" | "instagram" | "whatsapp" | "messenger" | "audience_network" | "other";
 
@@ -241,16 +242,33 @@ function mapToArray(map: Map<PlatformKey, number>): Array<{ platform: PlatformKe
   return PLATFORM_ORDER.map((key) => ({ platform: key, value: map.get(key) ?? 0 })).filter((item) => item.value > 0);
 }
 
-function trendMapToArray(trend: Map<string, number>): TrendPoint[] {
-  return Array.from(trend.entries())
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([date, value]) => ({ date, value }));
+function trendMapToArray(trend: Map<string, number>, fromIso: string, toIso: string): TrendPoint[] {
+  const points: TrendPoint[] = [];
+  const current = new Date(fromIso);
+  const end = new Date(toIso);
+
+  while (current <= end) {
+    const dateKey = current.toISOString().slice(0, 10);
+    points.push({ date: dateKey, value: trend.get(dateKey) ?? 0 });
+    current.setDate(current.getDate() + 1);
+  }
+
+  return points;
 }
 
-function trendSpendMapToArray(trend: Map<string, { spend: number; value: number }>): TrendSpendPoint[] {
-  return Array.from(trend.entries())
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([date, payload]) => ({ date, spend: payload.spend, value: payload.value }));
+function trendSpendMapToArray(trend: Map<string, { spend: number; value: number }>, fromIso: string, toIso: string): TrendSpendPoint[] {
+  const points: TrendSpendPoint[] = [];
+  const current = new Date(fromIso);
+  const end = new Date(toIso);
+
+  while (current <= end) {
+    const dateKey = current.toISOString().slice(0, 10);
+    const payload = trend.get(dateKey) ?? { spend: 0, value: 0 };
+    points.push({ date: dateKey, spend: payload.spend, value: payload.value });
+    current.setDate(current.getDate() + 1);
+  }
+
+  return points;
 }
 
 function pickActionValueAmount(extra: MetaExtraMetrics | null | undefined, actionTypes: string[]): number {
@@ -261,6 +279,25 @@ function pickActionValueAmount(extra: MetaExtraMetrics | null | undefined, actio
     }
   }
   return 0;
+}
+
+function subtractDaysFromIso(dateIso: string, daysToSubtract: number): string {
+  if (!dateIso || daysToSubtract <= 0) {
+    return dateIso;
+  }
+
+  const [yearStr, monthStr, dayStr] = dateIso.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) {
+    return dateIso;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - daysToSubtract);
+  return date.toISOString().slice(0, 10);
 }
 
 function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanceSummary {
@@ -306,10 +343,10 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const end = new Date();
       end.setHours(0, 0, 0, 0);
       const start = new Date(end);
-      start.setDate(start.getDate() - (days - 1));
+      start.setDate(start.getDate() - (days - 1 + DATA_LAG_SAFETY_DAYS));
 
-      const fromIso = start.toISOString().slice(0, 10);
-      const toIso = end.toISOString().slice(0, 10);
+      let fromIso = start.toISOString().slice(0, 10);
+      let toIso = end.toISOString().slice(0, 10);
 
       const { data: metricsData, error: metricsError } = await supabase
         .from("performance_metrics")
@@ -344,6 +381,8 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         messagingConnections: number;
         pageEngagements: number;
         profileVisits: number;
+        inlinePostEngagement: number;
+        inlineLinkClicks: number;
         likes: number;
         comments: number;
         shares: number;
@@ -368,30 +407,46 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         const syncedAt = row.synced_at ? Date.parse(row.synced_at) : Number.NEGATIVE_INFINITY;
 
         const actions = Array.isArray(row.extra_metrics?.actions) ? row.extra_metrics.actions : [];
-        const actionValues = new Map(actions.map((action) => [action?.action_type ?? "", Number(action?.value ?? 0)]));
+        const actionCounts = new Map(actions.map((action) => [action?.action_type ?? "", Number(action?.value ?? 0)]));
+        const actionValueEntries = Array.isArray(row.extra_metrics?.action_values) ? row.extra_metrics.action_values : [];
+        const actionValueMap = new Map(
+          actionValueEntries.map((action) => [action?.action_type ?? "", Number(action?.value ?? 0)]),
+        );
 
-        const conversationsStarted = actionValues.get(CONVERSATION_STARTED_ACTION) ?? 0;
-        const messagingConnections = actionValues.get(CONVERSATION_CONNECTION_ACTION) ?? 0;
-        const pageEngagements = Math.max(actionValues.get("post_engagement") ?? 0, actionValues.get("page_engagement") ?? 0);
-        const profileVisits = Number(row.extra_metrics?.inline_link_clicks ?? actionValues.get("onsite_conversion.profile_visit") ?? 0);
-        const likes = actionValues.get("like") ?? 0;
-        const comments = actionValues.get("comment") ?? 0;
-        const shares = actionValues.get("post_share") ?? 0;
-        const saves = actionValues.get("post_save") ?? 0;
-        const videoViews = actionValues.get("video_view") ?? 0;
-        const linkClicks = actionValues.get("link_click") ?? 0;
+        const inlinePostEngagement = Number(row.extra_metrics?.inline_post_engagement ?? 0);
+        const inlineLinkClicks = Number(row.extra_metrics?.inline_link_clicks ?? 0);
+        const derivedCounts = (row.extra_metrics?.derived_metrics as { counts?: Record<string, unknown> } | null)?.counts ?? {};
+
+        const conversationsStarted = actionCounts.get(CONVERSATION_STARTED_ACTION) ?? 0;
+        const messagingConnections = actionCounts.get(CONVERSATION_CONNECTION_ACTION) ?? 0;
+        const pageEngagements = Math.max(
+          actionCounts.get("post_engagement") ?? 0,
+          actionCounts.get("page_engagement") ?? 0,
+          inlinePostEngagement,
+        );
+        const profileVisits = Math.max(
+          Number(derivedCounts.instagram_profile_visits ?? 0),
+          actionCounts.get("onsite_conversion.profile_visit") ?? 0,
+          actionCounts.get("visit_instagram_profile") ?? 0,
+        );
+        const likes = actionCounts.get("like") ?? 0;
+        const comments = actionCounts.get("comment") ?? 0;
+        const shares = actionCounts.get("post_share") ?? 0;
+        const saves = actionCounts.get("post_save") ?? 0;
+        const videoViews = actionCounts.get("video_view") ?? 0;
+        const linkClicks = Math.max(actionCounts.get("link_click") ?? 0, inlineLinkClicks, Number(row.clicks ?? 0));
         const landingPageViews = Math.max(
-          actionValues.get("landing_page_view") ?? 0,
-          actionValues.get("omni_landing_page_view") ?? 0,
+          actionCounts.get("landing_page_view") ?? 0,
+          actionCounts.get("omni_landing_page_view") ?? 0,
         );
-        const formLeads = actionValues.get("lead") ?? 0;
+        const formLeads = actionCounts.get("lead") ?? 0;
         const purchases = Math.max(
-          actionValues.get("purchase") ?? 0,
-          actionValues.get("omni_purchase") ?? 0,
-          actionValues.get("offsite_conversion.fb_pixel_purchase") ?? 0,
+          actionCounts.get("purchase") ?? 0,
+          actionCounts.get("omni_purchase") ?? 0,
+          actionCounts.get("offsite_conversion.fb_pixel_purchase") ?? 0,
         );
-        const installs = Math.max(actionValues.get("app_install") ?? 0, actionValues.get("mobile_app_install") ?? 0);
-        const appEngagements = actionValues.get("app_engagement") ?? 0;
+        const installs = Math.max(actionCounts.get("app_install") ?? 0, actionCounts.get("mobile_app_install") ?? 0);
+        const appEngagements = actionCounts.get("app_engagement") ?? 0;
 
         const purchaseValue = pickActionValueAmount(row.extra_metrics, [
           "purchase",
@@ -418,6 +473,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
             conversationsStarted,
             messagingConnections,
             pageEngagements,
+            inlinePostEngagement,
             profileVisits,
             likes,
             comments,
@@ -425,6 +481,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
             saves,
             videoViews,
             linkClicks,
+            inlineLinkClicks,
             landingPageViews,
             formLeads,
             purchases,
@@ -447,6 +504,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
           existing.conversationsStarted = Math.max(existing.conversationsStarted, conversationsStarted);
           existing.messagingConnections = Math.max(existing.messagingConnections, messagingConnections);
           existing.pageEngagements = Math.max(existing.pageEngagements, pageEngagements);
+          existing.inlinePostEngagement = Math.max(existing.inlinePostEngagement, inlinePostEngagement);
           existing.profileVisits = Math.max(existing.profileVisits, profileVisits);
           existing.likes = Math.max(existing.likes, likes);
           existing.comments = Math.max(existing.comments, comments);
@@ -454,6 +512,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
           existing.saves = Math.max(existing.saves, saves);
           existing.videoViews = Math.max(existing.videoViews, videoViews);
           existing.linkClicks = Math.max(existing.linkClicks, linkClicks);
+          existing.inlineLinkClicks = Math.max(existing.inlineLinkClicks, inlineLinkClicks);
           existing.landingPageViews = Math.max(existing.landingPageViews, landingPageViews);
           existing.formLeads = Math.max(existing.formLeads, formLeads);
           existing.purchases = Math.max(existing.purchases, purchases);
@@ -463,7 +522,27 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         }
       }
 
-      const metricRows = Array.from(aggregatedMap.values());
+      let metricRows = Array.from(aggregatedMap.values());
+
+      const latestMetricDate = metricRows.reduce<string | null>((latest, row) => {
+        if (!row.metric_date) return latest;
+        if (!latest || row.metric_date > latest) {
+          return row.metric_date;
+        }
+        return latest;
+      }, null);
+
+      const effectiveToIso = latestMetricDate ?? toIso;
+      const effectiveFromIso = subtractDaysFromIso(effectiveToIso, Math.max(days - 1, 0));
+
+      toIso = effectiveToIso;
+      fromIso = effectiveFromIso;
+
+      if (metricRows.length === 0) {
+        return createEmptySummary(fromIso, toIso);
+      }
+
+      metricRows = metricRows.filter((row) => row.metric_date >= fromIso && row.metric_date <= toIso);
 
       if (metricRows.length === 0) {
         return createEmptySummary(fromIso, toIso);
@@ -599,7 +678,8 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         switch (objective) {
           case "ENGAGEMENT": {
             engagementSpend += spend;
-            engagementPostEngagements += row.pageEngagements ?? 0;
+            const postEngagementsValue = row.pageEngagements ?? row.inlinePostEngagement ?? 0;
+            engagementPostEngagements += postEngagementsValue;
             engagementProfileVisits += row.profileVisits ?? 0;
             incrementMap(engagementPlatform, platform, conversationsStarted);
             engagementConnections += messagingConnections;
@@ -608,11 +688,14 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
             engagementShares += row.shares ?? 0;
             engagementSaves += row.saves ?? 0;
             engagementVideoViews += row.videoViews ?? 0;
-            addTrend(engagementTrend, date, conversationsStarted);
+            addTrend(engagementTrend, date, postEngagementsValue > 0 ? postEngagementsValue : conversationsStarted);
             break;
           }
           case "TRAFFIC": {
-            const linkClicks = row.linkClicks ?? 0;
+            const linkClicks =
+              row.linkClicks && row.linkClicks > 0
+                ? row.linkClicks
+                : Math.max(row.inlineLinkClicks ?? 0, clicks);
             const landingViews = row.landingPageViews ?? 0;
             trafficLinkClicks += linkClicks;
             trafficLandingViews += landingViews;
@@ -683,7 +766,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         shares: engagementShares,
         saves: engagementSaves,
         videoViews: engagementVideoViews,
-        trend: trendMapToArray(engagementTrend),
+        trend: trendMapToArray(engagementTrend, fromIso, toIso),
       };
 
       const trafficCtr =
@@ -700,7 +783,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         costPerLanding: trafficLandingViews > 0 ? trafficSpend / trafficLandingViews : 0,
         costPerProfileVisit: trafficProfileVisits > 0 ? trafficSpend / trafficProfileVisits : 0,
         conversationsByPlatform: mapToArray(trafficPlatform),
-        trend: trendMapToArray(trafficTrend),
+        trend: trendMapToArray(trafficTrend, fromIso, toIso),
       };
 
       const cpl = leadsFormTotal > 0 ? leadsSpend / leadsFormTotal : 0;
@@ -710,7 +793,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         formLeads: leadsFormTotal,
         cpl,
         costPerConversation: leadsWhatsappConversations > 0 ? leadsSpend / leadsWhatsappConversations : 0,
-        trend: trendMapToArray(leadsTrend),
+        trend: trendMapToArray(leadsTrend, fromIso, toIso),
         conversationsByPlatform: mapToArray(leadsConvoPlatform),
       };
 
@@ -721,7 +804,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         value: salesValue,
         roas: salesRoas,
         costPerPurchase: salesPurchases > 0 ? salesSpend / salesPurchases : 0,
-        trend: trendMapToArray(salesTrend),
+        trend: trendMapToArray(salesTrend, fromIso, toIso),
         breakdown: mapToArray(salesPlatform),
       };
 
@@ -735,7 +818,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         frequency: recognitionFrequency,
         cpm: recognitionCpm,
         costPerReach: recognitionReach > 0 ? recognitionSpend / recognitionReach : 0,
-        trend: trendMapToArray(recognitionTrend),
+        trend: trendMapToArray(recognitionTrend, fromIso, toIso),
         breakdown: mapToArray(recognitionPlatform),
       };
 
@@ -746,7 +829,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         cpi: appCpi,
         appEngagements,
         costPerEngagement: appEngagements > 0 ? appSpend / appEngagements : 0,
-        trend: trendMapToArray(appTrend),
+        trend: trendMapToArray(appTrend, fromIso, toIso),
         breakdown: mapToArray(appPlatform),
       };
 
@@ -754,7 +837,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         totalSpend: extrasSpend,
         totalValue: extrasValue,
         roi: extrasSpend > 0 ? extrasValue / extrasSpend : 0,
-        trend: trendSpendMapToArray(extrasTrend),
+        trend: trendSpendMapToArray(extrasTrend, fromIso, toIso),
       };
 
       return {

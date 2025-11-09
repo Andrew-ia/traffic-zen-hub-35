@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,35 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { gtmPush, initGtm, isValidGtmId } from "@/lib/gtm";
+
+const EVENT_LABELS: Record<string, string> = {
+  page_view: "Visualização de página",
+  session_start: "Início de sessão",
+  user_engagement: "Engajamento de usuário",
+  view_item_list: "Visualização de lista",
+  view_item: "Visualização de item",
+  select_item: "Seleção de item",
+  add_to_cart: "Adicionar ao carrinho",
+  view_cart: "Visualização do carrinho",
+  remove_from_cart: "Remover do carrinho",
+  begin_checkout: "Início do checkout",
+  add_shipping_info: "Adicionar informações de envio",
+  add_payment_info: "Adicionar informações de pagamento",
+  purchase: "Compra",
+  refund: "Reembolso",
+  generate_lead: "Gerar lead",
+  login: "Login",
+  sign_up: "Cadastro",
+  search: "Busca",
+  view_promotion: "Visualização de promoção",
+  select_promotion: "Seleção de promoção",
+  share: "Compartilhar",
+  click: "Clique",
+  scroll: "Scroll",
+  file_download: "Download de arquivo",
+  tutorial_begin: "Início de tutorial",
+  tutorial_complete: "Conclusão de tutorial",
+};
 
 const STORAGE_KEY = "trafficpro.gtm.config";
 
@@ -98,7 +127,7 @@ export default function GA4() {
     } catch (e) {
       console.warn("Falha ao carregar preferências GA4 do storage", e);
     }
-  }, []);
+  }, [DEFAULT_GA4_ID, GA4_STORAGE_KEY, GA4_PREFS_STORAGE_KEY]);
 
   // Persistir preferências
   useEffect(() => {
@@ -157,38 +186,9 @@ export default function GA4() {
     }
   };
 
-  // Tradução de nomes de eventos
-  const EVENT_LABELS: Record<string, string> = {
-    page_view: "Visualização de página",
-    session_start: "Início de sessão",
-    user_engagement: "Engajamento de usuário",
-    view_item_list: "Visualização de lista",
-    view_item: "Visualização de item",
-    select_item: "Seleção de item",
-    add_to_cart: "Adicionar ao carrinho",
-    view_cart: "Visualização do carrinho",
-    remove_from_cart: "Remover do carrinho",
-    begin_checkout: "Início do checkout",
-    add_shipping_info: "Adicionar informações de envio",
-    add_payment_info: "Adicionar informações de pagamento",
-    purchase: "Compra",
-    refund: "Reembolso",
-    generate_lead: "Gerar lead",
-    login: "Login",
-    sign_up: "Cadastro",
-    search: "Busca",
-    view_promotion: "Visualização de promoção",
-    select_promotion: "Seleção de promoção",
-    share: "Compartilhar",
-    click: "Clique",
-    scroll: "Scroll",
-    file_download: "Download de arquivo",
-    tutorial_begin: "Início de tutorial",
-    tutorial_complete: "Conclusão de tutorial",
-  };
-  const translateEvent = (name: string) => EVENT_LABELS[name] ?? name;
+  const translateEvent = useCallback((name: string) => EVENT_LABELS[name] ?? name, []);
 
-  async function fetchRealtime() {
+  const fetchRealtime = useCallback(async () => {
     setLoadingRealtime(true);
     setErrorRealtime(null);
     try {
@@ -221,9 +221,9 @@ export default function GA4() {
     } finally {
       setLoadingRealtime(false);
     }
-  }
+  }, [ga4PropertyId]);
 
-  async function fetchReportLast7Days() {
+  const fetchReportLast7Days = useCallback(async () => {
     setLoadingReport(true);
     setErrorReport(null);
     try {
@@ -256,7 +256,7 @@ export default function GA4() {
     } finally {
       setLoadingReport(false);
     }
-  }
+  }, [ga4PropertyId, reportDays]);
 
   // Auto atualização em tempo real
   useEffect(() => {
@@ -268,7 +268,7 @@ export default function GA4() {
       fetchRealtime();
     }, intervalMs);
     return () => clearInterval(id);
-  }, [autoRefreshEnabled, refreshSeconds, ga4PropertyId]);
+  }, [autoRefreshEnabled, refreshSeconds, ga4PropertyId, fetchRealtime]);
 
   // Dados derivados com filtros/busca/ordenação/topN
   const realtimeView = useMemo(() => {
@@ -283,7 +283,7 @@ export default function GA4() {
     rows.sort((a, b) => b.eventCount - a.eventCount);
     rows = rows.slice(0, Math.max(1, topN));
     return rows.map((r) => ({ ...r, label: translateEvent(r.eventName) }));
-  }, [realtimeData, filterHidePageView, filterHideUserEngagement, filterHideZeros, searchQuery, topN]);
+  }, [realtimeData, filterHidePageView, filterHideUserEngagement, filterHideZeros, searchQuery, topN, translateEvent]);
 
   const reportView = useMemo(() => {
     let rows = [...reportData];
@@ -297,7 +297,7 @@ export default function GA4() {
     rows.sort((a, b) => b.eventCount - a.eventCount);
     rows = rows.slice(0, Math.max(1, topN));
     return rows.map((r) => ({ ...r, label: translateEvent(r.eventName) }));
-  }, [reportData, filterHidePageView, filterHideUserEngagement, filterHideZeros, searchQuery, topN]);
+  }, [reportData, filterHidePageView, filterHideUserEngagement, filterHideZeros, searchQuery, topN, translateEvent]);
 
   return (
     <div className="space-y-6">

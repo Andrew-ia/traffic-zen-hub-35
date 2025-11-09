@@ -1,116 +1,104 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { RefreshCw, Loader2, Calendar } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { SyncInsightsDialog } from "./SyncInsightsDialog";
-import type { SyncInsightsSummary } from "@/types/sync";
 import FullscreenLoader from "@/components/ui/fullscreen-loader";
 
 interface InstagramSyncButtonProps {
-  variant?: "default" | "outline" | "secondary" | "ghost";
+  variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
   size?: "default" | "sm" | "lg" | "icon";
   className?: string;
+  days?: number;
 }
 
 export default function InstagramSyncButton({
   variant = "outline",
   size = "default",
-  className = ""
+  className = "",
+  days = 7,
 }: InstagramSyncButtonProps) {
-  const [open, setOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncPeriod, setSyncPeriod] = useState("7");
-  const [resultOpen, setResultOpen] = useState(false);
-  const [resultInsights, setResultInsights] = useState<SyncInsightsSummary | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const { toast } = useToast();
+  const pollRef = useRef<number | null>(null);
 
-  const parseJsonSafe = async (response: Response) => {
-    const raw = await response.text();
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+      }
+    };
+  }, []);
+
+  const clearPolling = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
     }
   };
 
   const handleSync = async () => {
-    setSyncing(true);
-    setOpen(false); // fechar modal e mostrar loader em tela cheia
+    if (syncing) return;
+    const workspaceId = import.meta.env.VITE_WORKSPACE_ID;
+
+    if (!workspaceId) {
+      toast({
+        title: "Configuração ausente",
+        description: "Defina VITE_WORKSPACE_ID para sincronizar o Instagram.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
-      const workspaceId = import.meta.env.VITE_WORKSPACE_ID;
+      setSyncing(true);
+      setStatusMessage(`Preparando sincronização (${days} dias)...`);
+      setProgress(null);
 
-      if (!workspaceId) {
-        throw new Error('Workspace ID não configurado');
-      }
-
-      toast({
-        title: "Sincronização Iniciada",
-        description: `Sincronizando insights dos últimos ${syncPeriod} dias...`,
-      });
-
-      // Start the sync job using simpleSync endpoint
-      const response = await fetch('/api/integrations/simple-sync', {
-        method: 'POST',
+      const response = await fetch("/api/integrations/simple-sync", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           workspaceId,
-          platformKey: 'instagram',
-          days: Number(syncPeriod),
-          type: 'all', // Instagram only supports 'all' type
+          platformKey: "instagram",
+          days,
+          type: "all",
         }),
       });
 
-      const startPayload = await parseJsonSafe(response);
+      const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const message =
-          (startPayload && typeof startPayload === 'object' && 'error' in startPayload
-            ? String(startPayload.error)
-            : typeof startPayload === 'string'
-              ? startPayload
-              : null) || 'Falha ao iniciar sincronização';
-
-        throw new Error(message);
+        throw new Error(payload?.error || "Falha ao iniciar sincronização");
       }
 
-      const jobId =
-        startPayload && typeof startPayload === 'object' && 'data' in startPayload
-          ? (startPayload as any).data?.jobId
-          : undefined;
-
+      const jobId = payload?.data?.jobId;
       if (!jobId) {
-        throw new Error('Resposta inválida do servidor ao iniciar sincronização');
+        throw new Error("Resposta da API não retornou jobId");
       }
 
-      // Poll for job status
-      let attempts = 0;
-      const maxAttempts = 60; // 2 minutes max (2s * 60)
+      toast({
+        title: "Sincronização iniciada",
+        description: `Buscando dados do Instagram dos últimos ${days} dias.`,
+      });
 
-      const pollInterval = setInterval(async () => {
-        attempts++;
+      setStatusMessage("Sincronizando métricas do Instagram...");
+
+      let attempts = 0;
+      const maxAttempts = 120;
+
+      pollRef.current = window.setInterval(async () => {
+        attempts += 1;
         if (attempts > maxAttempts) {
-          clearInterval(pollInterval);
+          clearPolling();
           setSyncing(false);
           toast({
-            title: "Timeout",
-            description: "A sincronização está demorando mais do que o esperado. Verifique a página de Integrações.",
+            title: "Tempo excedido",
+            description: "A sincronização está demorando. Verifique novamente em alguns minutos.",
             variant: "destructive",
           });
           return;
@@ -118,63 +106,56 @@ export default function InstagramSyncButton({
 
         try {
           const statusResponse = await fetch(`/api/integrations/sync/${jobId}`);
-          const statusPayload = await parseJsonSafe(statusResponse);
+          const statusPayload = await statusResponse.json().catch(() => ({}));
 
           if (!statusResponse.ok) {
-            clearInterval(pollInterval);
-            setSyncing(false);
-            toast({
-              title: "Erro",
-              description: "Falha ao verificar status da sincronização",
-              variant: "destructive",
-            });
-            return;
+            throw new Error(statusPayload?.error || "Não foi possível verificar o status.");
           }
 
           const status = statusPayload?.data?.status;
-          const result = statusPayload?.data?.result;
           const pct = statusPayload?.data?.progress;
-          if (typeof pct === 'number') setProgress(Math.max(0, Math.min(100, Math.round(pct))));
+          if (typeof pct === "number") {
+            setProgress(Math.max(0, Math.min(100, Math.round(pct))));
+          }
 
-          if (status === 'completed') {
-            clearInterval(pollInterval);
-            setSyncing(false);
-            setOpen(false);
-
-            // Extract insights from result
-            const insights = result?.insights;
-            if (insights) {
-              setResultInsights(insights);
-              setResultOpen(true);
-            } else {
-              toast({
-                title: "Sincronização Concluída",
-                description: "Os dados do Instagram foram atualizados com sucesso.",
-              });
-            }
-          } else if (status === 'failed') {
-            clearInterval(pollInterval);
-            setSyncing(false);
-            setOpen(false);
+          if (status === "completed") {
+            clearPolling();
+            setStatusMessage("Sincronização concluída. Atualizando dashboards...");
+            setProgress(100);
             toast({
-              title: "Erro na Sincronização",
-              description: statusPayload?.data?.error_message || "Falha ao sincronizar dados",
+              title: "Sincronização concluída",
+              description: "Os dados do Instagram foram atualizados com sucesso.",
+            });
+            setTimeout(() => {
+              setSyncing(false);
+              setStatusMessage(null);
+              setProgress(null);
+            }, 1200);
+          } else if (status === "failed") {
+            clearPolling();
+            setSyncing(false);
+            setStatusMessage(null);
+            setProgress(null);
+            toast({
+              title: "Erro na sincronização",
+              description: statusPayload?.data?.error_message || "Falha ao sincronizar dados.",
               variant: "destructive",
             });
-          } else if (status === 'processing') {
-            // apenas atualiza o progresso e mantém o loader
+          } else {
+            setStatusMessage("Sincronização em andamento...");
           }
-        } catch (pollError) {
-          console.error('Erro ao verificar status:', pollError);
+        } catch (error) {
+          console.error("Erro ao verificar status da sincronização do Instagram:", error);
         }
-      }, 2000); // Poll every 2 seconds
-
+      }, 2000);
     } catch (error) {
+      clearPolling();
       setSyncing(false);
-      setOpen(false);
+      setStatusMessage(null);
+      setProgress(null);
       toast({
-        title: "Erro",
-        description: error instanceof Error ? error.message : "Erro desconhecido",
+        title: "Erro na sincronização",
+        description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.",
         variant: "destructive",
       });
     }
@@ -183,114 +164,32 @@ export default function InstagramSyncButton({
   return (
     <>
       {syncing && (
-        <FullscreenLoader 
+        <FullscreenLoader
           title="Sincronizando Instagram"
-          subtitle={`Últimos ${syncPeriod} dias`}
+          subtitle={statusMessage ?? `Buscando últimos ${days} dias`}
           progress={progress}
         />
       )}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button variant={variant} size={size} className={className} disabled={syncing}>
-            {syncing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sincronizando...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Sincronizar Instagram
-              </>
-            )}
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Sincronizar Insights do Instagram
-            </DialogTitle>
-            <DialogDescription>
-              Escolha o período dos dados que deseja sincronizar
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-3">
-              <Label>Período de sincronização</Label>
-              <RadioGroup value={syncPeriod} onValueChange={setSyncPeriod}>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="7" id="period-7" />
-                  <Label htmlFor="period-7" className="font-normal cursor-pointer">
-                    Últimos 7 dias
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="14" id="period-14" />
-                  <Label htmlFor="period-14" className="font-normal cursor-pointer">
-                    Últimos 14 dias
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="30" id="period-30" />
-                  <Label htmlFor="period-30" className="font-normal cursor-pointer">
-                    Últimos 30 dias
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="60" id="period-60" />
-                  <Label htmlFor="period-60" className="font-normal cursor-pointer">
-                    Últimos 60 dias
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="90" id="period-90" />
-                  <Label htmlFor="period-90" className="font-normal cursor-pointer">
-                    Últimos 90 dias
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
-              <p className="text-xs text-muted-foreground">
-                <strong>Nota:</strong> Os dados do Instagram podem ter até 48 horas de latência.
-                A sincronização pode levar alguns minutos dependendo do período selecionado.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={syncing}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleSync} disabled={syncing}>
-              {syncing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sincronizando...
-                </>
-              ) : (
-                "Iniciar Sincronização"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {resultInsights && (
-        <SyncInsightsDialog
-          open={resultOpen}
-          onOpenChange={setResultOpen}
-          insights={resultInsights}
-          platformName="Instagram"
-        />
-      )}
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={handleSync}
+        disabled={syncing}
+      >
+        {syncing ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Sincronizando...
+          </>
+        ) : (
+          <>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Sincronizar Instagram
+          </>
+        )}
+      </Button>
     </>
   );
 }
+

@@ -114,7 +114,6 @@ if (!SUPABASE_DATABASE_URL) {
 } else {
   try {
     // Basic parse; catches obvious format issues
-    // eslint-disable-next-line no-new
     new url.URL(SUPABASE_DATABASE_URL.replace(/^postgresql:\/\//, 'http://'));
     ok('SUPABASE_DATABASE_URL format OK');
     if (SUPABASE_DATABASE_URL.includes(':@') || SUPABASE_DATABASE_URL.match(/[^%]@db\./)) {

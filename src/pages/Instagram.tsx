@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as VideoIcon, Target } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import InstagramSyncButton from "@/components/InstagramSyncButton";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000010";
 
@@ -337,7 +338,7 @@ export default function Instagram() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Instagram Insights</h1>
           <p className="text-muted-foreground mt-1">
@@ -345,17 +346,20 @@ export default function Instagram() {
           </p>
         </div>
 
-        <select
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value)}
-          className="px-4 py-2 border rounded-md bg-background"
-        >
-          <option value="7">Últimos 7 dias</option>
-          <option value="14">Últimos 14 dias</option>
-          <option value="30">Últimos 30 dias</option>
-          <option value="60">Últimos 60 dias</option>
-          <option value="90">Últimos 90 dias</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            className="px-4 py-2 border rounded-md bg-background"
+          >
+            <option value="7">Últimos 7 dias</option>
+            <option value="14">Últimos 14 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="60">Últimos 60 dias</option>
+            <option value="90">Últimos 90 dias</option>
+          </select>
+          <InstagramSyncButton size="sm" />
+        </div>
       </div>
 
       {isLoading ? (

@@ -88,6 +88,70 @@ async function req(method, path, body) {
   try { return JSON.parse(txt); } catch { return txt; }
 }
 
+function stripAccents(s) {
+  if (!s) return '';
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeKey(s) {
+  return stripAccents(String(s || '').toLowerCase().trim());
+}
+
+// Conjunto de statuses conhecidos (normalizados)
+const KNOWN_STATUS = new Set([
+  'ideia', 'avaliacao', 'redacao', 'design', 'aprovacao', 'agendamento', 'concluido',
+  'to do', 'complete', 'in progress', 'backlog', 'done'
+].map(s => normalizeKey(s)));
+
+// Heurística de tags comuns que não devem ser tratadas como status
+const TAG_TOKENS = new Set([
+  'vermezzo', 'gtm', 'ads', 'setup', 'pixel', 'analytics', 'tray', 'drive', 'whatsapp', 'ga4', 'meta', 'google ads'
+].map(s => normalizeKey(s)));
+
+function isTagToken(s) {
+  const k = normalizeKey(s);
+  if (!k) return false;
+  return TAG_TOKENS.has(k);
+}
+
+function unique(arr) {
+  const set = new Set(arr.map(x => x.trim()).filter(Boolean));
+  return Array.from(set);
+}
+
+async function getListStatuses(listId) {
+  try {
+    const data = await req('GET', `/list/${listId}`);
+    const statuses = (data.statuses || []).map((st) => st.status).filter(Boolean);
+    const map = new Map();
+    for (const st of statuses) {
+      map.set(normalizeKey(st), st);
+    }
+    return map; // normalized -> exact
+  } catch (e) {
+    console.warn('⚠️ Não foi possível obter statuses da lista. Usando fallback.');
+    return new Map();
+  }
+}
+
+async function getExistingTasks(listId) {
+  try {
+    const data = await req('GET', `/list/${listId}/task`);
+    const tasks = (data.tasks || []);
+    const byName = new Map();
+    for (const t of tasks) {
+      const k = normalizeKey(t.name);
+      if (!byName.has(k)) {
+        byName.set(k, { id: t.id, name: t.name, url: t.url });
+      }
+    }
+    return byName;
+  } catch (e) {
+    console.warn('⚠️ Não foi possível obter tarefas existentes da lista. Duplicatas podem ocorrer.');
+    return new Map();
+  }
+}
+
 async function resolveListId() {
   if (LIST_ID) return LIST_ID;
   if (!LIST_NAME || !SPACE_ID) {
@@ -124,7 +188,13 @@ function parseCSV(content) {
     for (let c = 0; c < line.length; c++) {
       const ch = line[c];
       if (ch === '"') {
-        inQuotes = !inQuotes;
+        // Suporta aspas escapadas "" (CSV)
+        if (inQuotes && line[c + 1] === '"') {
+          cur += '"';
+          c++;
+        } else {
+          inQuotes = !inQuotes;
+        }
         continue;
       }
       if (ch === ',' && !inQuotes) {
@@ -143,17 +213,44 @@ function parseCSV(content) {
 }
 
 function normalizeRow(row) {
-  const name = row.name || row.tarefa || row.title;
+  const name = (row.name || row.tarefa || row.title || '').trim();
   if (!name) throw new Error('Linha sem "name"');
-  const description = row.description || row.descricao || '';
-  const status = row.status || row.etapa || null;
+  const description = (row.description || row.descricao || '').trim();
+  // Limpa vírgulas à direita e espaços
+  let statusRaw = (row.status || row.etapa || '').trim().replace(/,+$/, '');
   const dueDate = parseDateToMs(row.due_date || row.data || row.data_limite);
   const startDate = parseDateToMs(row.start_date || row.inicio);
-  const tags = (row.tags || row.etiquetas || '')
+  let tags = (row.tags || row.etiquetas || '')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
-  return { name, description, status, due_date: dueDate, start_date: startDate, tags };
+  const parent = (row.parent || row.parent_name || '').trim();
+
+  // Se status vier com múltiplos itens separados por vírgula, distribui o que for tag para tags
+  if (statusRaw.includes(',')) {
+    const parts = statusRaw.split(',').map(p => p.trim()).filter(Boolean);
+    let chosenStatus = '';
+    for (const p of parts) {
+      const nk = normalizeKey(p);
+      if (KNOWN_STATUS.has(nk)) {
+        chosenStatus = p; // mantém valor original
+      } else if (isTagToken(p)) {
+        tags.push(p);
+      } else if (!chosenStatus) {
+        // se não reconhecido, assume primeiro como possível status
+        chosenStatus = p;
+      }
+    }
+    statusRaw = chosenStatus;
+  } else if (isTagToken(statusRaw)) {
+    // Se status parece tag, move para tags
+    if (statusRaw) tags.push(statusRaw);
+    statusRaw = '';
+  }
+
+  tags = unique(tags);
+  const status = statusRaw || null;
+  return { name, description, status, due_date: dueDate, start_date: startDate, tags, parent };
 }
 
 async function createTask(listId, t) {
@@ -164,8 +261,15 @@ async function createTask(listId, t) {
     due_date: t.due_date || undefined,
     start_date: t.start_date || undefined,
     tags: t.tags && t.tags.length ? t.tags : undefined,
+    parent: t.parent_id || undefined,
   };
   const res = await req('POST', `/list/${listId}/task`, payload);
+  return { id: res.id, url: res.url, name: res.name, status: res.status?.status };
+}
+
+async function updateTaskParent(taskId, parentId) {
+  const payload = { parent: parentId };
+  const res = await req('PUT', `/task/${taskId}`, payload);
   return { id: res.id, url: res.url, name: res.name, status: res.status?.status };
 }
 
@@ -187,17 +291,83 @@ async function createTask(listId, t) {
   const tasks = rows.map(normalizeRow);
   console.log(`📦 Importando ${tasks.length} tarefas para a lista ${listId}...`);
 
+  // Preparar status e tarefas existentes
+  const statusMap = await getListStatuses(listId); // normalized -> exact
+  const existingMap = await getExistingTasks(listId); // normalized(name) -> {id,name,url}
+  const createdMap = new Map(); // normalized(name) -> {id,name,url}
+
   const results = [];
   for (const t of tasks) {
     try {
+      const nameKey = normalizeKey(t.name);
+      // Normaliza status; se não existir na lista, omite
+      let statusKey = normalizeKey(t.status);
+      // Mapeia "concluído" para "complete" caso a lista suporte
+      if (statusKey === normalizeKey('concluído') || statusKey === 'concluido') {
+        statusKey = normalizeKey('complete');
+        t.status = 'complete';
+      }
+      if (statusKey && statusMap.has(statusKey)) {
+        t.status = statusMap.get(statusKey);
+      } else if (t.status) {
+        console.warn(`⚠️ Status não encontrado para "${t.status}" em "${t.name}" – usando default.`);
+        t.status = undefined;
+      }
+
+      // Resolve parent, se informado
+      let parentId = null;
+      if (t.parent) {
+        const parentKey = normalizeKey(t.parent);
+        if (createdMap.has(parentKey)) {
+          parentId = createdMap.get(parentKey).id;
+        } else if (existingMap.has(parentKey)) {
+          parentId = existingMap.get(parentKey).id;
+        } else {
+          console.warn(`⚠️ Parent não encontrado: "${t.parent}" para "${t.name}". Criando sem hierarquia.`);
+        }
+      }
+      t.parent_id = parentId || undefined;
+
+      // Evita duplicados: se já existe uma tarefa com mesmo nome
+      const existing = existingMap.get(nameKey);
+      if (existing) {
+        console.log(`⏭️ Já existe: ${t.name} → ${existing.url || `https://app.clickup.com/t/${existing.id}`}`);
+        // Se temos parent e a tarefa atual existir sem parent, tenta atualizar parent
+        if (parentId) {
+          try {
+            await updateTaskParent(existing.id, parentId);
+            console.log(`🔗 Reorganizada: ${t.name} agora como subtarefa de "${t.parent}".`);
+          } catch (e) {
+            console.warn(`⚠️ Falha ao reparentear "${t.name}": ${e.message}`);
+          }
+        }
+        continue;
+      }
+
       const r = await createTask(listId, t);
       console.log(`✅ Criada: ${r.name} [${r.status || 'sem status'}] → ${r.url}`);
       results.push(r);
+      createdMap.set(nameKey, { id: r.id, name: r.name, url: r.url });
     } catch (err) {
-      console.error(`❌ Erro ao criar "${t.name}": ${err.message}`);
+      // Tenta novamente sem status, caso erro seja de status
+      const msg = String(err.message || '');
+      const isStatusError = /Status not found|ECODE\":\"CRTSK_001/.test(msg);
+      if (isStatusError) {
+        try {
+          const retryTask = { ...t, status: undefined };
+          const r = await createTask(listId, retryTask);
+          console.log(`✅ Criada (sem status): ${r.name} → ${r.url}`);
+          results.push(r);
+          const nameKey = normalizeKey(r.name);
+          createdMap.set(nameKey, { id: r.id, name: r.name, url: r.url });
+        } catch (e2) {
+          console.error(`❌ Erro ao criar "${t.name}" mesmo sem status: ${e2.message}`);
+        }
+      } else {
+        console.error(`❌ Erro ao criar "${t.name}": ${err.message}`);
+      }
     }
   }
 
   console.log(`\n🧾 Concluído. ${results.length}/${tasks.length} criadas.`);
 })();
-
