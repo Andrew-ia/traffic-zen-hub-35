@@ -16,9 +16,11 @@ import {
 import { syncMetaBilling } from './api/integrations/billing.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
+import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
-import { ga4Realtime, ga4Report } from './api/analytics/ga4.ts';
+import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
+import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.ts';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.ts';
 import { getDemographics } from './api/analytics/demographics.js';
 import {
@@ -102,14 +104,19 @@ app.post('/api/integrations/billing/sync', syncMetaBilling);
 // AI endpoints
 app.post('/api/ai/generate-creative', generateCreative);
 app.post('/api/ai/virtual-tryon', virtualTryOn);
+app.post('/api/ai/generate-look-caption', generateLookCaption);
+app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
 
 // Creatives endpoints
 app.get('/api/creatives/download-proxy', downloadProxy);
 app.post('/api/creatives/save-tryon', saveTryOnCreatives);
+app.get('/api/creatives/tryon-looks', getTryOnLooks);
+app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 
 // GA4 Analytics endpoints (read-only via service account)
 app.post('/api/ga4/realtime', ga4Realtime);
 app.post('/api/ga4/report', ga4Report);
+app.post('/api/ga4/google-ads', ga4GoogleAds);
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
   res.json({ success: true, message: 'GA4 test endpoint' });

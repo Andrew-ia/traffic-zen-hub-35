@@ -20,6 +20,12 @@ export interface GenerateOptions {
   count?: number;
   aspectRatio?: AspectRatio;
   signal?: AbortSignal;
+  brandName?: string;
+}
+
+export interface GenerateResult {
+  images: string[];
+  captions: string[];
 }
 
 async function generateBatchViaBackend(
@@ -29,8 +35,9 @@ async function generateBatchViaBackend(
   clothingMimeType: string,
   aspectRatio: AspectRatio = '9:16',
   count: number,
+  brandName: string = 'Vermezzo',
   signal?: AbortSignal,
-): Promise<string[]> {
+): Promise<{ images: string[]; captions: string[] }> {
   const resp = await fetch(`${API_BASE}/api/ai/virtual-tryon`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -41,6 +48,7 @@ async function generateBatchViaBackend(
       clothingMimeType,
       aspectRatio,
       count,
+      brandName,
     }),
     signal,
   });
@@ -53,6 +61,7 @@ async function generateBatchViaBackend(
 
   const data = await resp.json();
   const images: string[] = [];
+  const captions: string[] = [];
 
   if (typeof data.image === 'string' && data.image.length > 0) {
     images.push(data.image);
@@ -66,13 +75,25 @@ async function generateBatchViaBackend(
     }
   }
 
+  if (typeof data.caption === 'string' && data.caption.length > 0) {
+    captions.push(data.caption);
+  }
+
+  if (Array.isArray(data.captions)) {
+    for (const cap of data.captions) {
+      if (typeof cap === 'string' && cap.length > 0) {
+        captions.push(cap);
+      }
+    }
+  }
+
   const uniqueImages = Array.from(new Set(images));
 
   if (uniqueImages.length === 0) {
     throw new Error('Resposta da API não contém imagens válidas.');
   }
 
-  return uniqueImages;
+  return { images: uniqueImages, captions };
 }
 
 export const generateVariations = async (
@@ -81,16 +102,18 @@ export const generateVariations = async (
   count: number = 3,
   onProgress?: (current: number, total: number) => void,
   options?: Omit<GenerateOptions, 'count'>,
-): Promise<string[]> => {
+): Promise<GenerateResult> => {
   const [modelBase64, clothingBase64] = await Promise.all([
     fileToBase64(modelFile),
     fileToBase64(clothingFile),
   ]);
 
   const aspectRatio: AspectRatio = options?.aspectRatio || '9:16';
+  const brandName: string = options?.brandName || 'Vermezzo';
   const signal = options?.signal;
   const totalRequested = Math.min(Math.max(count, 1), 3);
   const results: string[] = [];
+  const captions: string[] = [];
 
   try {
     onProgress?.(0, totalRequested);
@@ -102,10 +125,12 @@ export const generateVariations = async (
       clothingFile.type,
       aspectRatio,
       totalRequested,
+      brandName,
       signal,
     );
 
-    results.push(...batch.slice(0, totalRequested));
+    results.push(...batch.images.slice(0, totalRequested));
+    captions.push(...batch.captions.slice(0, totalRequested));
     onProgress?.(results.length, totalRequested);
 
     if (results.length < totalRequested) {
@@ -120,12 +145,15 @@ export const generateVariations = async (
         clothingFile.type,
         aspectRatio,
         missing,
+        brandName,
         signal,
       );
 
-      for (const image of extraBatch) {
+      for (let i = 0; i < extraBatch.images.length; i++) {
+        const image = extraBatch.images[i];
         if (!results.includes(image) && results.length < totalRequested) {
           results.push(image);
+          captions.push(extraBatch.captions[i] || '');
         }
       }
 
@@ -133,16 +161,16 @@ export const generateVariations = async (
     }
   } catch (error: any) {
     if (error?.name === 'AbortError') {
-      return results;
+      return { images: results, captions };
     }
     if (error.message?.includes('quota') || error.message?.includes('429')) {
       if (results.length > 0) {
         console.warn(`Limite de quota atingido após ${results.length} imagens`);
-        return results;
+        return { images: results, captions };
       }
     }
     throw error;
   }
 
-  return results;
+  return { images: results, captions };
 };
