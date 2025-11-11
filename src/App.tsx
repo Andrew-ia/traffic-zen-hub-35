@@ -21,7 +21,7 @@ import Instagram from "./pages/Instagram";
 import AIChat from "./pages/AIChat";
 import NotFound from "./pages/NotFound";
 import Cashflow from "./pages/Cashflow";
-import ProjectManagement from "./pages/ProjectManagement";
+import ProjectManagement from "./pages/ProjectManagementV2";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 

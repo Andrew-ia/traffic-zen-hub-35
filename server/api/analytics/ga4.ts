@@ -155,3 +155,59 @@ export async function ga4Report(req: Request, res: Response) {
     return res.status(500).json({ success: false, error: (error as Error).message });
   }
 }
+
+export async function ga4GoogleAds(req: Request, res: Response) {
+  try {
+    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID) as string | undefined;
+    const days = Number(req.body?.days ?? 30);
+    if (!propertyId) {
+      return res.status(400).json({ success: false, error: 'propertyId é obrigatório (env GA4_PROPERTY_ID ou body.propertyId)' });
+    }
+
+    const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+    const body = {
+      dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+      dimensions: [
+        { name: 'date' },
+        { name: 'sessionCampaignName' },
+        { name: 'sessionSourceMedium' },
+        { name: 'eventName' },
+      ],
+      metrics: [
+        { name: 'conversions' },
+        { name: 'eventCount' },
+        { name: 'eventValue' },
+        { name: 'totalRevenue' },
+        { name: 'sessions' },
+        { name: 'totalUsers' },
+      ],
+      dimensionFilter: {
+        andGroup: {
+          expressions: [
+            {
+              filter: {
+                fieldName: 'sessionSourceMedium',
+                stringFilter: {
+                  matchType: 'CONTAINS',
+                  value: 'google / cpc',
+                  caseSensitive: false,
+                },
+              },
+            },
+          ],
+        },
+      },
+      limit: 1000,
+      orderBys: [
+        { desc: true, metric: { metricName: 'conversions' } },
+      ],
+    };
+
+    const raw = await runGa4Api<any>(url, body);
+    const data = formatGa4Response(raw);
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('GA4 Google Ads error:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+}

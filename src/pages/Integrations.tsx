@@ -13,7 +13,6 @@ import MetaSyncButton from "@/components/MetaSyncButton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import GoogleAdsSyncButton from "@/components/GoogleAdsSyncButton";
 import {
   Facebook,
   Instagram,
@@ -260,11 +259,6 @@ export default function Integrations() {
                             : "Sincronização pendente"}
                         </span>
                       </div>
-                      {integration.platform_key === "google_ads" && integration.status === "active" && (
-                        <div className="pt-2">
-                          <GoogleAdsSyncButton variant="outline" size="sm" className="w-full" />
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
                 );
