@@ -176,10 +176,16 @@ export default function ProjectManagementV3() {
   };
 
   const handleCreateTask = async () => {
+    console.log('Creating task with:', {
+      selectedFolderId,
+      selectedListId,
+      newTaskName,
+    });
+
     if (!selectedFolderId || !selectedListId) {
       toast({
         title: 'Selecione uma lista',
-        description: 'Selecione uma lista antes de criar uma tarefa.',
+        description: `Pasta ID: ${selectedFolderId || 'vazio'}, Lista ID: ${selectedListId || 'vazio'}`,
         variant: 'destructive',
       });
       return;
@@ -205,9 +211,10 @@ export default function ProjectManagementV3() {
       setNewTaskStatus('pendente');
       setNewTaskPriority('media');
     } catch (error) {
+      console.error('Error creating task:', error);
       toast({
         title: 'Erro ao criar tarefa',
-        description: 'Não foi possível criar a tarefa.',
+        description: error instanceof Error ? error.message : 'Não foi possível criar a tarefa.',
         variant: 'destructive',
       });
     }
@@ -376,9 +383,11 @@ export default function ProjectManagementV3() {
                                 variant="ghost"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedFolderId(selectedFolder.id);
-                                  setSelectedListId(list.id);
-                                  setNewTaskOpen(true);
+                                  if (selectedFolder) {
+                                    setSelectedFolderId(selectedFolder.id);
+                                    setSelectedListId(list.id);
+                                    setNewTaskOpen(true);
+                                  }
                                 }}
                               >
                                 <Plus className="h-4 w-4" />
