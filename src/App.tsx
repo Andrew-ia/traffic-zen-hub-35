@@ -5,13 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
-import TrafficAnalysis from "./pages/TrafficAnalysis";
 import Campaigns from "./pages/Campaigns";
 import CampaignDetails from "./pages/CampaignDetails";
 import AdDetails from "./pages/AdDetails";
 import Reports from "./pages/Reports";
 import Leads from "./pages/Leads";
-import VirtualTryOn from "./pages/VirtualTryOn";
+import VirtualTryOn from "./pages/VirtualTryOnV2";
 import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
 import Integrations from "./pages/Integrations";
@@ -19,11 +18,10 @@ import GA4 from "./pages/GA4";
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import Instagram from "./pages/Instagram";
-import GoogleAds from "./pages/GoogleAds";
 import AIChat from "./pages/AIChat";
 import NotFound from "./pages/NotFound";
-import CreativesV2 from "./pages/CreativesV2";
 import Cashflow from "./pages/Cashflow";
+import ProjectManagement from "./pages/ProjectManagement";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 
@@ -67,14 +65,12 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/chat" element={<AIChat />} />
-            <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
-            <Route path="/creatives" element={<CreativesV2 />} />
+            <Route path="/projects" element={<ProjectManagement />} />
             <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
             <Route path="/ads/:adId" element={<AdDetails />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/meta-ads" element={<MetaAds />} />
             <Route path="/instagram" element={<Instagram />} />
-            <Route path="/google-ads" element={<GoogleAds />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/gerador-looks" element={<VirtualTryOn />} />

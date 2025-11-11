@@ -55,6 +55,33 @@ import {
 import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
 import { importCashflowXlsx } from './api/finance/cashflow.js';
+import {
+  getFolders,
+  getFolderById,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+} from './api/pm/folders.js';
+import {
+  getLists,
+  getAllListsForWorkspace,
+  getListById,
+  createList,
+  updateList,
+  deleteList,
+} from './api/pm/lists.js';
+import {
+  getTasks,
+  getAllTasksForWorkspace,
+  getTaskById,
+  createTask,
+  updateTask,
+  deleteTask,
+} from './api/pm/tasks.js';
+import {
+  getHierarchy,
+  getFolderHierarchy,
+} from './api/pm/hierarchy.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -163,6 +190,34 @@ app.get('/api/ai/dashboard', getAIDashboard);
 // AI Chat endpoints
 app.use('/api/ai/chat', chatRouter);
 app.use('/api/ai/conversations', conversationsRouter);
+
+// Project Management endpoints
+// Hierarchy
+app.get('/api/pm/hierarchy/:workspaceId', getHierarchy);
+app.get('/api/pm/hierarchy/:workspaceId/:folderId', getFolderHierarchy);
+
+// Folders
+app.get('/api/pm/folders/:workspaceId', getFolders);
+app.get('/api/pm/folders/:workspaceId/:folderId', getFolderById);
+app.post('/api/pm/folders/:workspaceId', createFolder);
+app.put('/api/pm/folders/:workspaceId/:folderId', updateFolder);
+app.delete('/api/pm/folders/:workspaceId/:folderId', deleteFolder);
+
+// Lists
+app.get('/api/pm/lists/:workspaceId', getAllListsForWorkspace);
+app.get('/api/pm/lists/:workspaceId/:folderId', getLists);
+app.get('/api/pm/lists/:workspaceId/list/:listId', getListById);
+app.post('/api/pm/lists/:workspaceId/:folderId', createList);
+app.put('/api/pm/lists/:workspaceId/:listId', updateList);
+app.delete('/api/pm/lists/:workspaceId/:listId', deleteList);
+
+// Tasks
+app.get('/api/pm/tasks/:workspaceId', getAllTasksForWorkspace);
+app.get('/api/pm/tasks/:workspaceId/:listId', getTasks);
+app.get('/api/pm/tasks/:workspaceId/:taskId/details', getTaskById);
+app.post('/api/pm/tasks/:workspaceId/:listId', createTask);
+app.put('/api/pm/tasks/:workspaceId/:taskId', updateTask);
+app.delete('/api/pm/tasks/:workspaceId/:taskId', deleteTask);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

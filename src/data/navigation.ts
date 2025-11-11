@@ -11,6 +11,7 @@ import {
   Instagram,
   MessageSquare,
   Wallet,
+  Kanban,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -23,13 +24,11 @@ export interface NavigationItem {
 export const mainNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
   { name: "AI Chat", href: "/chat", icon: MessageSquare, keywords: ["chat", "ai", "assistente", "perguntas"] },
-  { name: "Análise de Tráfego", href: "/traffic-analysis", icon: BarChart3, keywords: ["trafego", "analytics"] },
+  { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
   { name: "Campanhas", href: "/campaigns", icon: Target, keywords: ["ads", "campanhas"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
   { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
-  { name: "Google Ads", href: "/google-ads", icon: Search, keywords: ["google", "search", "display"] },
   { name: "Fluxo de Caixa", href: "/cashflow", icon: Wallet, keywords: ["financeiro", "caixa", "fluxo"] },
-  { name: "Biblioteca de Criativos", href: "/creatives", icon: Sparkles, keywords: ["criativos", "biblioteca", "assets"] },
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
   { name: "GA4", href: "/ga4", icon: BarChart3, keywords: ["ga4", "gtm", "analytics"] },
