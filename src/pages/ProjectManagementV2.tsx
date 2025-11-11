@@ -22,7 +22,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { KanbanBoard } from '@/components/pm/KanbanBoard';
+import { KanbanBoard } from '@/components/pm/KanbanBoardV2';
+import { TaskDetailModal } from '@/components/pm/TaskDetailModal';
+import type { PMTaskFull } from '@/types/project-management';
 import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, usePMTasks } from '@/hooks/useProjectManagement';
 import { toast } from '@/hooks/use-toast';
 import type { TaskStatus, TaskPriority } from '@/types/project-management';
@@ -53,6 +55,10 @@ export default function ProjectManagementV2() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+
+  // Task detail modal state
+  const [selectedTask, setSelectedTask] = useState<PMTaskFull | null>(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -575,7 +581,11 @@ export default function ProjectManagementV2() {
                             {list.tasks.map((task) => (
                               <div
                                 key={task.id}
-                                className="p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                                className="p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                                onClick={() => {
+                                  setSelectedTask(task);
+                                  setTaskModalOpen(true);
+                                }}
                               >
                                 <div className="flex items-start justify-between">
                                   <div className="flex-1">
@@ -615,6 +625,14 @@ export default function ProjectManagementV2() {
           )}
         </div>
       </div>
+
+      {/* Task Detail Modal */}
+      <TaskDetailModal
+        task={selectedTask}
+        open={taskModalOpen}
+        onOpenChange={setTaskModalOpen}
+        workspaceId={WORKSPACE_ID}
+      />
     </div>
   );
 }
