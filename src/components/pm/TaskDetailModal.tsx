@@ -259,7 +259,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                 )}
 
                 {/* Creatives */}
-                {(campaignData.primaryText || campaignData.headline || campaignData.description || campaignData.cta) && (
+                {(campaignData.primaryText || campaignData.headline || campaignData.description || campaignData.cta || campaignData.creativeUrl) && (
                   <div className="space-y-2 pb-3 border-b">
                     <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos</div>
                     {campaignData.primaryText && (
@@ -284,6 +284,12 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">CTA:</span>
                         <span className="font-medium">{campaignData.cta}</span>
+                      </div>
+                    )}
+                    {campaignData.creativeUrl && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">URL do Criativo:</span>
+                        <p className="font-medium mt-1 break-all text-blue-600">{campaignData.creativeUrl}</p>
                       </div>
                     )}
                   </div>

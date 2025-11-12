@@ -22,6 +22,7 @@ interface CampaignData {
   headline: string;
   description: string;
   cta: string;
+  creativeUrl: string;
 
   // Step 4: Budget & Schedule
   budget: string;
@@ -57,6 +58,7 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
     headline: '',
     description: '',
     cta: 'Comprar Agora',
+    creativeUrl: '',
     budget: '',
     startDate: '',
     endDate: '',
@@ -237,6 +239,17 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="creative-url">URL do Criativo (Imagem/Vídeo)</Label>
+                <Input
+                  id="creative-url"
+                  type="url"
+                  placeholder="Ex: https://exemplo.com/imagem.jpg"
+                  value={data.creativeUrl}
+                  onChange={(e) => handleChange('creativeUrl', e.target.value)}
+                  className="mt-1"
+                />
+              </div>
             </>
           )}
 
@@ -310,6 +323,9 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
                     <p className="text-gray-700 dark:text-gray-300">{data.primaryText}</p>
                     <p className="text-gray-600 dark:text-gray-400">{data.description}</p>
                     <p className="text-blue-600 font-medium">CTA: {data.cta}</p>
+                    {data.creativeUrl && (
+                      <p className="text-green-600 font-medium break-all">URL: {data.creativeUrl}</p>
+                    )}
                   </div>
                 </div>
               </div>
