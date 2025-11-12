@@ -1258,25 +1258,101 @@ export function CreateItemModal({
                                             <div className="space-y-2">
                                               <Separator />
                                               {Array.from({ length: count }).map((_, cIdx) => {
-                                                const urlKey = `conjunto_${idx + 1}.criativo_${cIdx + 1}.url`;
-                                                const value = templateValues[urlKey] ?? '';
+                                                const prefixKey = `conjunto_${idx + 1}.criativo_${cIdx + 1}`;
+                                                const urlKey = `${prefixKey}.url`;
+                                                const nomeKey = `${prefixKey}.nome`;
+                                                const textoPrincipalKey = `${prefixKey}.texto_principal`;
+                                                const tituloKey = `${prefixKey}.titulo`;
+                                                const descricaoKey = `${prefixKey}.descricao`;
+                                                const ctaKey = `${prefixKey}.cta`;
+
+                                                const urlValue = templateValues[urlKey] ?? '';
+                                                const nomeValue = templateValues[nomeKey] ?? '';
+                                                const textoValue = templateValues[textoPrincipalKey] ?? '';
+                                                const tituloValue = templateValues[tituloKey] ?? '';
+                                                const descricaoValue = templateValues[descricaoKey] ?? '';
+                                                const ctaValue = templateValues[ctaKey] ?? '';
+
                                                 return (
-                                                  <div key={`adset-${idx}-creative-${cIdx}`} className="space-y-1 rounded-md border p-2">
+                                                  <div key={`adset-${idx}-creative-${cIdx}`} className="space-y-3 rounded-md border p-3 bg-muted/20">
                                                     <div className="flex items-center justify-between">
-                                                      <h6 className="text-xs font-medium">Criativo {cIdx + 1}</h6>
+                                                      <h6 className="text-sm font-semibold">Criativo {cIdx + 1}</h6>
                                                       {count > 1 && (
                                                         <Button variant="ghost" size="sm" onClick={() => removeCreative(idx, cIdx)}>
                                                           Remover
                                                         </Button>
                                                       )}
                                                     </div>
+
+                                                    {/* Nome do Criativo */}
                                                     <div>
-                                                      <Label htmlFor={`creative-url-${idx}-${cIdx}`}>URL do Criativo</Label>
+                                                      <Label htmlFor={`creative-nome-${idx}-${cIdx}`} className="text-xs">Nome do Criativo</Label>
+                                                      <Input
+                                                        id={`creative-nome-${idx}-${cIdx}`}
+                                                        placeholder="Ex: Banner Hero 1"
+                                                        value={nomeValue}
+                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [nomeKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
+                                                      />
+                                                    </div>
+
+                                                    {/* Texto Principal */}
+                                                    <div>
+                                                      <Label htmlFor={`creative-texto-${idx}-${cIdx}`} className="text-xs">Texto Principal</Label>
+                                                      <Input
+                                                        id={`creative-texto-${idx}-${cIdx}`}
+                                                        placeholder="Ex: A nova coleção chegou!"
+                                                        value={textoValue}
+                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [textoPrincipalKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
+                                                      />
+                                                    </div>
+
+                                                    {/* Título */}
+                                                    <div>
+                                                      <Label htmlFor={`creative-titulo-${idx}-${cIdx}`} className="text-xs">Título</Label>
+                                                      <Input
+                                                        id={`creative-titulo-${idx}-${cIdx}`}
+                                                        placeholder="Ex: Novidades 2025"
+                                                        value={tituloValue}
+                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [tituloKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
+                                                      />
+                                                    </div>
+
+                                                    {/* Descrição */}
+                                                    <div>
+                                                      <Label htmlFor={`creative-descricao-${idx}-${cIdx}`} className="text-xs">Descrição</Label>
+                                                      <Input
+                                                        id={`creative-descricao-${idx}-${cIdx}`}
+                                                        placeholder="Ex: Frete grátis acima de R$ 199"
+                                                        value={descricaoValue}
+                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [descricaoKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
+                                                      />
+                                                    </div>
+
+                                                    {/* CTA */}
+                                                    <div>
+                                                      <Label htmlFor={`creative-cta-${idx}-${cIdx}`} className="text-xs">CTA (Call To Action)</Label>
+                                                      <Input
+                                                        id={`creative-cta-${idx}-${cIdx}`}
+                                                        placeholder="Ex: Comprar Agora"
+                                                        value={ctaValue}
+                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [ctaKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
+                                                      />
+                                                    </div>
+
+                                                    {/* URL do Criativo */}
+                                                    <div>
+                                                      <Label htmlFor={`creative-url-${idx}-${cIdx}`} className="text-xs font-semibold">URL do Criativo</Label>
                                                       <Input
                                                         id={`creative-url-${idx}-${cIdx}`}
                                                         placeholder="https://..."
-                                                        value={value}
+                                                        value={urlValue}
                                                         onChange={(e) => setTemplateValues((prev) => ({ ...prev, [urlKey]: e.target.value }))}
+                                                        className="h-8 text-sm"
                                                       />
                                                     </div>
                                                   </div>

@@ -274,7 +274,16 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                         const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
                         const conjunto = match ? Number(match[1]) : 'N/A';
                         const criativo = match ? Number(match[2]) : 'N/A';
-                        return { key, urlValue, conjunto, criativo };
+                        const prefixKey = `conjunto_${conjunto}.criativo_${criativo}`;
+
+                        // Get other creative fields
+                        const nome = templateValues[`${prefixKey}.nome`] || '';
+                        const textoPrincipal = templateValues[`${prefixKey}.texto_principal`] || '';
+                        const titulo = templateValues[`${prefixKey}.titulo`] || '';
+                        const descricao = templateValues[`${prefixKey}.descricao`] || '';
+                        const cta = templateValues[`${prefixKey}.cta`] || '';
+
+                        return { key, urlValue, conjunto, criativo, nome, textoPrincipal, titulo, descricao, cta };
                       }
                       return null;
                     })
@@ -287,9 +296,42 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                         <div className="space-y-2">
                           <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Criativos</h5>
                           {creativeUrls.map((item) => (
-                            <div key={item?.key} className="py-2 px-3 rounded-md border border-blue-200 bg-blue-50/30">
-                              <div className="text-xs font-medium text-muted-foreground mb-1">
+                            <div key={item?.key} className="py-3 px-3 rounded-md border border-blue-200 bg-blue-50/30 space-y-2">
+                              <div className="text-xs font-semibold text-foreground">
                                 Criativo {item?.criativo} (Conjunto {item?.conjunto})
+                              </div>
+                              {item?.nome && (
+                                <div className="text-xs">
+                                  <span className="font-medium text-muted-foreground">Nome: </span>
+                                  <span className="text-foreground">{item.nome}</span>
+                                </div>
+                              )}
+                              {item?.textoPrincipal && (
+                                <div className="text-xs">
+                                  <span className="font-medium text-muted-foreground">Texto Principal: </span>
+                                  <span className="text-foreground">{item.textoPrincipal}</span>
+                                </div>
+                              )}
+                              {item?.titulo && (
+                                <div className="text-xs">
+                                  <span className="font-medium text-muted-foreground">Título: </span>
+                                  <span className="text-foreground">{item.titulo}</span>
+                                </div>
+                              )}
+                              {item?.descricao && (
+                                <div className="text-xs">
+                                  <span className="font-medium text-muted-foreground">Descrição: </span>
+                                  <span className="text-foreground">{item.descricao}</span>
+                                </div>
+                              )}
+                              {item?.cta && (
+                                <div className="text-xs">
+                                  <span className="font-medium text-muted-foreground">CTA: </span>
+                                  <span className="text-foreground">{item.cta}</span>
+                                </div>
+                              )}
+                              <div className="text-xs">
+                                <span className="font-medium text-muted-foreground">URL: </span>
                               </div>
                               <a
                                 href={item?.urlValue}
