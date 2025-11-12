@@ -5,7 +5,22 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+
+interface Creative {
+  id: string;
+  primaryText: string;
+  headline: string;
+  description: string;
+  cta: string;
+  creativeUrl: string;
+}
+
+interface AdSet {
+  id: string;
+  name: string;
+  creatives: Creative[];
+}
 
 interface CampaignData {
   // Step 1: Campaign Info
@@ -17,17 +32,13 @@ interface CampaignData {
   ageMax: string;
   interests: string;
 
-  // Step 3: Creatives
-  primaryText: string;
-  headline: string;
-  description: string;
-  cta: string;
-  creativeUrl: string;
-
-  // Step 4: Budget & Schedule
+  // Step 3: Budget & Schedule
   budget: string;
   startDate: string;
   endDate: string;
+
+  // Step 4: Ad Sets & Creatives
+  adSets: AdSet[];
 
   // Step 5: Review & Submit
   // No new fields, just review
@@ -41,8 +52,8 @@ interface CampaignFormWizardProps {
 const STEPS = [
   { id: 1, title: 'Informações da Campanha', description: 'Nome e objetivo' },
   { id: 2, title: 'Público-Alvo', description: 'Idade e interesses' },
-  { id: 3, title: 'Criativos', description: 'Textos e CTA' },
-  { id: 4, title: 'Orçamento e Datas', description: 'Budget e período' },
+  { id: 3, title: 'Orçamento e Datas', description: 'Budget e período' },
+  { id: 4, title: 'Conjuntos e Criativos', description: 'Ad Sets e Criativos' },
   { id: 5, title: 'Revisão', description: 'Confira tudo' },
 ];
 
@@ -54,18 +65,125 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
     ageMin: '',
     ageMax: '',
     interests: '',
-    primaryText: '',
-    headline: '',
-    description: '',
-    cta: 'Comprar Agora',
-    creativeUrl: '',
     budget: '',
     startDate: '',
     endDate: '',
+    adSets: [
+      {
+        id: '1',
+        name: '',
+        creatives: [
+          {
+            id: '1',
+            primaryText: '',
+            headline: '',
+            description: '',
+            cta: 'Comprar Agora',
+            creativeUrl: '',
+          },
+        ],
+      },
+    ],
   });
 
-  const handleChange = (field: keyof CampaignData, value: string) => {
+  const handleChange = (field: keyof Omit<CampaignData, 'adSets'>, value: string) => {
     setData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const updateAdSet = (adSetId: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      adSets: prev.adSets.map(ads =>
+        ads.id === adSetId ? { ...ads, [field]: value } : ads
+      ),
+    }));
+  };
+
+  const updateCreative = (adSetId: string, creativeId: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      adSets: prev.adSets.map(ads =>
+        ads.id === adSetId
+          ? {
+              ...ads,
+              creatives: ads.creatives.map(c =>
+                c.id === creativeId ? { ...c, [field]: value } : c
+              ),
+            }
+          : ads
+      ),
+    }));
+  };
+
+  const addAdSet = () => {
+    const newAdSetId = Math.max(...data.adSets.map(a => parseInt(a.id)), 0) + 1;
+    setData(prev => ({
+      ...prev,
+      adSets: [
+        ...prev.adSets,
+        {
+          id: newAdSetId.toString(),
+          name: '',
+          creatives: [
+            {
+              id: '1',
+              primaryText: '',
+              headline: '',
+              description: '',
+              cta: 'Comprar Agora',
+              creativeUrl: '',
+            },
+          ],
+        },
+      ],
+    }));
+  };
+
+  const removeAdSet = (adSetId: string) => {
+    if (data.adSets.length > 1) {
+      setData(prev => ({
+        ...prev,
+        adSets: prev.adSets.filter(ads => ads.id !== adSetId),
+      }));
+    }
+  };
+
+  const addCreative = (adSetId: string) => {
+    setData(prev => ({
+      ...prev,
+      adSets: prev.adSets.map(ads =>
+        ads.id === adSetId
+          ? {
+              ...ads,
+              creatives: [
+                ...ads.creatives,
+                {
+                  id: (Math.max(...ads.creatives.map(c => parseInt(c.id)), 0) + 1).toString(),
+                  primaryText: '',
+                  headline: '',
+                  description: '',
+                  cta: 'Comprar Agora',
+                  creativeUrl: '',
+                },
+              ],
+            }
+          : ads
+      ),
+    }));
+  };
+
+  const removeCreative = (adSetId: string, creativeId: string) => {
+    setData(prev => ({
+      ...prev,
+      adSets: prev.adSets.map(ads =>
+        ads.id === adSetId
+          ? {
+              ...ads,
+              creatives: ads.creatives.filter(c => c.id !== creativeId),
+            }
+          : ads
+      ),
+    }));
   };
 
   const canProceed = () => {
@@ -75,9 +193,18 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
       case 2:
         return data.ageMin && data.ageMax;
       case 3:
-        return data.primaryText.trim() && data.headline.trim() && data.description.trim();
-      case 4:
         return data.budget && data.startDate && data.endDate;
+      case 4:
+        return data.adSets.length > 0 &&
+          data.adSets.every(ads =>
+            ads.name.trim() &&
+            ads.creatives.length > 0 &&
+            ads.creatives.every(c =>
+              c.primaryText.trim() &&
+              c.headline.trim() &&
+              c.description.trim()
+            )
+          );
       case 5:
         return true;
       default:
@@ -112,7 +239,7 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
       </div>
 
       {/* Form Content */}
-      <Card className="min-h-[300px]">
+      <Card className="min-h-[400px]">
         <CardHeader>
           <CardTitle>{STEPS[step - 1]?.title}</CardTitle>
           <CardDescription>{STEPS[step - 1]?.description}</CardDescription>
@@ -190,71 +317,8 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
             </>
           )}
 
-          {/* Step 3: Creatives */}
+          {/* Step 3: Budget & Schedule */}
           {step === 3 && (
-            <>
-              <div>
-                <Label htmlFor="primary-text">Texto Principal *</Label>
-                <Textarea
-                  id="primary-text"
-                  placeholder="Ex: A nova coleção chegou! Garanta já."
-                  value={data.primaryText}
-                  onChange={(e) => handleChange('primaryText', e.target.value)}
-                  className="mt-1 resize-none"
-                  rows={2}
-                />
-              </div>
-              <div>
-                <Label htmlFor="headline">Título *</Label>
-                <Input
-                  id="headline"
-                  placeholder="Ex: Novidades Vermezzo"
-                  value={data.headline}
-                  onChange={(e) => handleChange('headline', e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="description">Descrição *</Label>
-                <Input
-                  id="description"
-                  placeholder="Ex: Frete grátis acima de R$ 199"
-                  value={data.description}
-                  onChange={(e) => handleChange('description', e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="cta">CTA (Call To Action)</Label>
-                <Select value={data.cta} onValueChange={(v) => handleChange('cta', v)}>
-                  <SelectTrigger id="cta">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Comprar Agora">Comprar Agora</SelectItem>
-                    <SelectItem value="Saiba Mais">Saiba Mais</SelectItem>
-                    <SelectItem value="Cadastrar-se">Cadastrar-se</SelectItem>
-                    <SelectItem value="Enviar Mensagem">Enviar Mensagem</SelectItem>
-                    <SelectItem value="Entrar em Contato">Entrar em Contato</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="creative-url">URL do Criativo (Imagem/Vídeo)</Label>
-                <Input
-                  id="creative-url"
-                  type="url"
-                  placeholder="Ex: https://exemplo.com/imagem.jpg"
-                  value={data.creativeUrl}
-                  onChange={(e) => handleChange('creativeUrl', e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-            </>
-          )}
-
-          {/* Step 4: Budget & Schedule */}
-          {step === 4 && (
             <>
               <div>
                 <Label htmlFor="budget">Orçamento (R$) *</Label>
@@ -292,41 +356,208 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
             </>
           )}
 
+          {/* Step 4: Ad Sets & Creatives */}
+          {step === 4 && (
+            <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2">
+              {data.adSets.map((adSet, adSetIndex) => (
+                <div key={adSet.id} className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                  {/* Ad Set Header */}
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Label htmlFor={`adset-name-${adSet.id}`}>Nome do Conjunto de Anúncios *</Label>
+                      <Input
+                        id={`adset-name-${adSet.id}`}
+                        placeholder="Ex: Público Frio - Mulheres 25-44"
+                        value={adSet.name}
+                        onChange={(e) => updateAdSet(adSet.id, 'name', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    {data.adSets.length > 1 && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => removeAdSet(adSet.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Creatives */}
+                  <div className="space-y-3 border-t pt-4">
+                    <div className="flex justify-between items-center">
+                      <Label className="text-sm font-semibold">Criativos</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addCreative(adSet.id)}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Adicionar Criativo
+                      </Button>
+                    </div>
+
+                    {adSet.creatives.map((creative, creativeIndex) => (
+                      <div key={creative.id} className="border rounded p-3 space-y-3 bg-white dark:bg-slate-950">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-muted-foreground">
+                            Criativo #{creativeIndex + 1}
+                          </span>
+                          {adSet.creatives.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeCreative(adSet.id, creative.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          )}
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`headline-${adSet.id}-${creative.id}`} className="text-xs">
+                            Título *
+                          </Label>
+                          <Input
+                            id={`headline-${adSet.id}-${creative.id}`}
+                            placeholder="Ex: Novidades Vermezzo"
+                            value={creative.headline}
+                            onChange={(e) => updateCreative(adSet.id, creative.id, 'headline', e.target.value)}
+                            className="mt-1 h-8 text-sm"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`primary-text-${adSet.id}-${creative.id}`} className="text-xs">
+                            Texto Principal *
+                          </Label>
+                          <Textarea
+                            id={`primary-text-${adSet.id}-${creative.id}`}
+                            placeholder="Ex: A nova coleção chegou! Garanta já."
+                            value={creative.primaryText}
+                            onChange={(e) => updateCreative(adSet.id, creative.id, 'primaryText', e.target.value)}
+                            className="mt-1 resize-none"
+                            rows={2}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`description-${adSet.id}-${creative.id}`} className="text-xs">
+                            Descrição *
+                          </Label>
+                          <Input
+                            id={`description-${adSet.id}-${creative.id}`}
+                            placeholder="Ex: Frete grátis acima de R$ 199"
+                            value={creative.description}
+                            onChange={(e) => updateCreative(adSet.id, creative.id, 'description', e.target.value)}
+                            className="mt-1 h-8 text-sm"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label htmlFor={`cta-${adSet.id}-${creative.id}`} className="text-xs">
+                              CTA
+                            </Label>
+                            <Select value={creative.cta} onValueChange={(v) => updateCreative(adSet.id, creative.id, 'cta', v)}>
+                              <SelectTrigger id={`cta-${adSet.id}-${creative.id}`} className="h-8 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Comprar Agora">Comprar Agora</SelectItem>
+                                <SelectItem value="Saiba Mais">Saiba Mais</SelectItem>
+                                <SelectItem value="Cadastrar-se">Cadastrar-se</SelectItem>
+                                <SelectItem value="Enviar Mensagem">Enviar Mensagem</SelectItem>
+                                <SelectItem value="Entrar em Contato">Entrar em Contato</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor={`url-${adSet.id}-${creative.id}`} className="text-xs">
+                              URL do Criativo
+                            </Label>
+                            <Input
+                              id={`url-${adSet.id}-${creative.id}`}
+                              type="url"
+                              placeholder="https://exemplo.com/img.jpg"
+                              value={creative.creativeUrl}
+                              onChange={(e) => updateCreative(adSet.id, creative.id, 'creativeUrl', e.target.value)}
+                              className="mt-1 h-8 text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <Button
+                variant="outline"
+                onClick={addAdSet}
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Adicionar Conjunto de Anúncios
+              </Button>
+            </div>
+          )}
+
           {/* Step 5: Review */}
           {step === 5 && (
             <div className="space-y-4">
-              <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Campanha:</span>
-                  <span className="text-sm font-semibold">{data.campaignName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Objetivo:</span>
-                  <span className="text-sm font-semibold capitalize">{data.objective}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Público:</span>
-                  <span className="text-sm font-semibold">{data.ageMin} - {data.ageMax} anos</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Orçamento:</span>
-                  <span className="text-sm font-semibold">R$ {data.budget}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Período:</span>
-                  <span className="text-sm font-semibold">{data.startDate} até {data.endDate}</span>
-                </div>
-                <div className="border-t pt-3">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Criativo:</span>
-                  <div className="mt-2 text-sm space-y-1">
-                    <p className="font-semibold">{data.headline}</p>
-                    <p className="text-gray-700 dark:text-gray-300">{data.primaryText}</p>
-                    <p className="text-gray-600 dark:text-gray-400">{data.description}</p>
-                    <p className="text-blue-600 font-medium">CTA: {data.cta}</p>
-                    {data.creativeUrl && (
-                      <p className="text-green-600 font-medium break-all">URL: {data.creativeUrl}</p>
-                    )}
+              <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg space-y-4">
+                {/* Campaign Info */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm">Informações da Campanha</h4>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Nome:</span>
+                    <span className="font-semibold">{data.campaignName}</span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Objetivo:</span>
+                    <span className="font-semibold capitalize">{data.objective}</span>
+                  </div>
+                </div>
+
+                {/* Audience */}
+                <div className="space-y-2 border-t pt-2">
+                  <h4 className="font-semibold text-sm">Público-Alvo</h4>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Faixa Etária:</span>
+                    <span className="font-semibold">{data.ageMin} - {data.ageMax} anos</span>
+                  </div>
+                  {data.interests && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Interesses:</span>
+                      <span className="font-semibold">{data.interests}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Budget & Dates */}
+                <div className="space-y-2 border-t pt-2">
+                  <h4 className="font-semibold text-sm">Orçamento & Datas</h4>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Orçamento:</span>
+                    <span className="font-semibold">R$ {data.budget}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Período:</span>
+                    <span className="font-semibold">{data.startDate} até {data.endDate}</span>
+                  </div>
+                </div>
+
+                {/* Ad Sets Summary */}
+                <div className="space-y-2 border-t pt-2">
+                  <h4 className="font-semibold text-sm">Conjuntos de Anúncios ({data.adSets.length})</h4>
+                  {data.adSets.map((adSet, idx) => (
+                    <div key={adSet.id} className="bg-white dark:bg-slate-950 p-2 rounded text-sm space-y-1">
+                      <p className="font-medium">{adSet.name || `Conjunto ${idx + 1}`}</p>
+                      <p className="text-xs text-muted-foreground">{adSet.creatives.length} criativo(s)</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
