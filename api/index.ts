@@ -18,13 +18,13 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 
-// Auth endpoints
-app.post('/api/auth/login', login);
-app.get('/api/auth/me', authMiddleware, me);
-app.post('/api/auth/users', ...adminOnly, createUser);
+// Auth endpoints (note: /api prefix is already handled by Vercel routing)
+app.post('/auth/login', login);
+app.get('/auth/me', authMiddleware, me);
+app.post('/auth/users', ...adminOnly, createUser);
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
