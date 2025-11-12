@@ -1230,8 +1230,8 @@ export function CreateItemModal({
                                         </div>
 
                                         {/* Age Card */}
-                                        <div className="rounded-md border border-dashed p-3 bg-blue-50 dark:bg-blue-950/20">
-                                          <div className="grid grid-cols-2 gap-2">
+                                        <div className="rounded-md border border-dashed p-3 bg-blue-50 dark:bg-blue-950/20 w-fit">
+                                          <div className="flex gap-4">
                                             <div>
                                               <Label className="text-xs">Idade mínima</Label>
                                               <Input
