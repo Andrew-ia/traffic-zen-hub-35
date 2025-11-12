@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus,
   ChevronDown,
@@ -10,11 +10,17 @@ import {
   Calendar as CalendarIcon,
   Eye,
   Filter,
+  Trash2,
+  Edit,
+  LayoutDashboard,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useNavigate } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { KanbanBoard } from '@/components/pm/KanbanBoardV2';
+import { CalendarView } from '@/components/pm/CalendarView';
 import {
   Dialog,
   DialogContent,
@@ -25,18 +31,21 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { KanbanBoard } from '@/components/pm/KanbanBoardV2';
+// Removed KanbanBoard and Select imports after removing Quadro/Kanban view
 import { TaskDetailModal } from '@/components/pm/TaskDetailModal';
+import { CreateItemModal } from '@/components/pm/CreateItemModal';
+import { EmojiPicker } from '@/components/pm/EmojiPicker';
 import type { PMTaskFull } from '@/types/project-management';
-import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask } from '@/hooks/useProjectManagement';
+import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, useDeletePMList, useCreatePMDocument, useCreatePMReminder, useUpdatePMList, useUploadPMDocumentAttachment, useDeletePMFolder, usePMDocuments, useUploadPMTaskAttachment, useUpdatePMFolder } from '@/hooks/useProjectManagement';
+import { supabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import type { TaskStatus, TaskPriority } from '@/types/project-management';
 
@@ -58,23 +67,35 @@ const priorityColors: Record<TaskPriority, string> = {
 };
 
 export default function ProjectManagementV3() {
+  const navigate = useNavigate();
   const { data: hierarchyData, isLoading } = usePMHierarchy(WORKSPACE_ID);
+  const { data: documentsData } = usePMDocuments(WORKSPACE_ID);
   const createFolder = useCreatePMFolder();
   const createList = useCreatePMList();
   const createTask = useCreatePMTask();
+  const deleteList = useDeletePMList();
+  const deleteFolder = useDeletePMFolder();
+  const createDocument = useCreatePMDocument();
+  const createReminder = useCreatePMReminder();
+  const uploadTaskAttachment = useUploadPMTaskAttachment();
+  const uploadDocumentAttachment = useUploadPMDocumentAttachment();
+  const updateFolder = useUpdatePMFolder();
 
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set());
+  // Visão inicial (Overview): estados de recolher/expandir
+  const [collapsedFoldersOverview, setCollapsedFoldersOverview] = useState<Set<string>>(new Set());
+  const [collapsedListsOverview, setCollapsedListsOverview] = useState<Set<string>>(new Set());
+
+  // Removido: criação automática do exemplo Black Friday
 
   // Task detail modal state
   const [selectedTask, setSelectedTask] = useState<PMTaskFull | null>(null);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
 
-  // Filters
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterPriority, setFilterPriority] = useState<string>('all');
+  // Removed Quadro filters (status/priority) after removing Kanban view
 
   // New folder dialog state
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -88,12 +109,95 @@ export default function ProjectManagementV3() {
   const [newListIcon, setNewListIcon] = useState('📋');
   const [newListColor, setNewListColor] = useState('#8B5CF6');
 
-  // New task dialog state
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
-  const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>('pendente');
-  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('media');
+  // New item modal state (replaces old task dialog)
+  const [newItemOpen, setNewItemOpen] = useState(false);
+
+  // Edit list dialog state
+  const [editListOpen, setEditListOpen] = useState(false);
+  const [editingListId, setEditingListId] = useState<string | null>(null);
+  const [editListName, setEditListName] = useState('');
+  const [editListIcon, setEditListIcon] = useState('📋');
+  const [editListColor, setEditListColor] = useState('#8B5CF6');
+  const updateList = useUpdatePMList();
+
+  const handleOpenEditList = (list: { id: string; name: string; icon?: string; color?: string }) => {
+    setEditingListId(list.id);
+    setEditListName(list.name);
+    setEditListIcon(list.icon || '📋');
+    setEditListColor(list.color || '#8B5CF6');
+    setEditListOpen(true);
+  };
+
+  // Edit folder dialog state
+  const [editFolderOpen, setEditFolderOpen] = useState(false);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState('');
+  const [editFolderIcon, setEditFolderIcon] = useState('📁');
+  const [editFolderColor, setEditFolderColor] = useState('#3B82F6');
+
+  const handleOpenEditFolder = (folder: { id: string; name: string; icon?: string; color?: string }) => {
+    setEditingFolderId(folder.id);
+    setEditFolderName(folder.name);
+    setEditFolderIcon(folder.icon || '📁');
+    setEditFolderColor(folder.color || '#3B82F6');
+    setEditFolderOpen(true);
+  };
+
+  const handleUpdateList = async () => {
+    if (!editingListId) return;
+    try {
+      await updateList.mutateAsync({
+        workspaceId: WORKSPACE_ID,
+        listId: editingListId,
+        data: {
+          name: editListName,
+          icon: editListIcon,
+          color: editListColor,
+        },
+      });
+      toast({
+        title: 'Lista atualizada!',
+        description: `A lista foi atualizada com sucesso.`,
+      });
+      setEditListOpen(false);
+      setEditingListId(null);
+    } catch (error) {
+      console.error('Error updating list:', error);
+      toast({
+        title: 'Erro ao atualizar lista',
+        description: error instanceof Error ? error.message : 'Não foi possível atualizar a lista.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleUpdateFolder = async () => {
+    if (!editingFolderId) return;
+    try {
+      await updateFolder.mutateAsync({
+        workspaceId: WORKSPACE_ID,
+        folderId: editingFolderId,
+        data: {
+          name: editFolderName,
+          icon: editFolderIcon,
+          color: editFolderColor,
+        },
+      });
+      toast({
+        title: 'Pasta atualizada!',
+        description: `A pasta foi atualizada com sucesso.`,
+      });
+      setEditFolderOpen(false);
+      setEditingFolderId(null);
+    } catch (error) {
+      console.error('Error updating folder:', error);
+      toast({
+        title: 'Erro ao atualizar pasta',
+        description: error instanceof Error ? error.message : 'Não foi possível atualizar a pasta.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const toggleFolder = (folderId: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -113,6 +217,28 @@ export default function ProjectManagementV3() {
       newExpanded.add(listId);
     }
     setExpandedLists(newExpanded);
+  };
+
+  // Overview: recolher/expandir Pasta
+  const toggleFolderOverview = (folderId: string) => {
+    const next = new Set(collapsedFoldersOverview);
+    if (next.has(folderId)) {
+      next.delete(folderId);
+    } else {
+      next.add(folderId);
+    }
+    setCollapsedFoldersOverview(next);
+  };
+
+  // Overview: recolher/expandir Lista dentro do card
+  const toggleListOverview = (listId: string) => {
+    const next = new Set(collapsedListsOverview);
+    if (next.has(listId)) {
+      next.delete(listId);
+    } else {
+      next.add(listId);
+    }
+    setCollapsedListsOverview(next);
   };
 
   const handleCreateFolder = async () => {
@@ -151,7 +277,7 @@ export default function ProjectManagementV3() {
     }
 
     try {
-      await createList.mutateAsync({
+      const created = await createList.mutateAsync({
         workspace_id: WORKSPACE_ID,
         folder_id: selectedFolderId,
         name: newListName,
@@ -162,6 +288,27 @@ export default function ProjectManagementV3() {
         title: 'Lista criada!',
         description: `A lista "${newListName}" foi criada com sucesso.`,
       });
+      // Após criar a lista, crie automaticamente a primeira tarefa em "pendente"
+      try {
+        const createdListId = (created as any)?.data?.id ?? (created as any)?.id;
+        if (createdListId) {
+          await createTask.mutateAsync({
+            workspace_id: WORKSPACE_ID,
+            folder_id: selectedFolderId,
+            list_id: createdListId,
+            name: `Primeira tarefa de ${newListName}`,
+            description: 'Criada automaticamente ao criar a lista',
+            status: 'pendente',
+            priority: 'media',
+          });
+          toast({
+            title: 'Tarefa inicial criada',
+            description: `Uma tarefa pendente foi criada em "${newListName}" para aparecer no Kanban.`,
+          });
+        }
+      } catch (err) {
+        console.error('Erro ao criar tarefa inicial da lista:', err);
+      }
       setNewListOpen(false);
       setNewListName('');
       setNewListIcon('📋');
@@ -175,11 +322,18 @@ export default function ProjectManagementV3() {
     }
   };
 
-  const handleCreateTask = async () => {
+  const handleCreateTask = async (data: {
+    name: string;
+    description: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    attachments?: File[];
+    metadata?: Record<string, any>;
+  }) => {
     console.log('Creating task with:', {
       selectedFolderId,
       selectedListId,
-      newTaskName,
+      ...data,
     });
 
     if (!selectedFolderId || !selectedListId) {
@@ -192,29 +346,209 @@ export default function ProjectManagementV3() {
     }
 
     try {
-      await createTask.mutateAsync({
+      const result = await createTask.mutateAsync({
         workspace_id: WORKSPACE_ID,
         folder_id: selectedFolderId,
         list_id: selectedListId,
-        name: newTaskName,
-        description: newTaskDescription,
-        status: newTaskStatus,
-        priority: newTaskPriority,
+        name: data.name,
+        description: data.description,
+        status: data.status,
+        priority: data.priority,
+        metadata: data.metadata || {},
       });
+
+      const createdTaskId = result?.data?.id ?? result?.id;
+
+      // Se houver anexos, fazer upload para cada um
+      if (data.attachments && data.attachments.length > 0 && createdTaskId) {
+        for (const file of data.attachments) {
+          try {
+            const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+            const timestamp = Date.now();
+            const path = `pm/${WORKSPACE_ID}/tasks/${createdTaskId}/${timestamp}-${sanitize(file.name)}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from('creatives')
+              .upload(path, file, { contentType: file.type });
+
+            if (uploadError) {
+              console.error('Erro ao enviar anexo:', uploadError);
+              continue;
+            }
+
+            const { data: publicUrlData } = supabase.storage
+              .from('creatives')
+              .getPublicUrl(path);
+
+            const publicUrl = publicUrlData.publicUrl;
+
+            await uploadTaskAttachment.mutateAsync({
+              taskId: createdTaskId,
+              data: {
+                file_name: file.name,
+                file_url: publicUrl,
+                file_type: file.type,
+                file_size: file.size,
+              },
+            });
+          } catch (err) {
+            console.error('Erro ao processar anexo:', err);
+          }
+        }
+      }
+
       toast({
         title: 'Tarefa criada!',
-        description: `A tarefa "${newTaskName}" foi criada com sucesso.`,
+        description: `A tarefa "${data.name}" foi criada com sucesso.`,
       });
-      setNewTaskOpen(false);
-      setNewTaskName('');
-      setNewTaskDescription('');
-      setNewTaskStatus('pendente');
-      setNewTaskPriority('media');
+      setNewItemOpen(false);
     } catch (error) {
       console.error('Error creating task:', error);
       toast({
         title: 'Erro ao criar tarefa',
         description: error instanceof Error ? error.message : 'Não foi possível criar a tarefa.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCreateDocument = async (data: { name: string; content: string; file?: File }) => {
+    if (!selectedFolderId || !selectedListId) {
+      toast({ title: 'Selecione uma lista', variant: 'destructive' });
+      return;
+    }
+    try {
+      const result = await createDocument.mutateAsync({
+        workspace_id: WORKSPACE_ID,
+        folder_id: selectedFolderId,
+        list_id: selectedListId,
+        name: data.name,
+        content: data.content,
+      });
+
+      // If there is an attached file, upload it to Supabase Storage and save the public URL
+      if (data.file) {
+        try {
+          const createdDocId = result?.data?.id ?? result?.id; // handle both wrapped and direct response
+          if (createdDocId) {
+            const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+            const ext = data.file.name.split('.').pop() || 'bin';
+            const timestamp = Date.now();
+            const path = `pm/${WORKSPACE_ID}/documents/${createdDocId}/${timestamp}-${sanitize(data.file.name)}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from('creatives')
+              .upload(path, data.file, { contentType: data.file.type });
+
+            if (uploadError) {
+              throw uploadError;
+            }
+
+            const { data: publicUrlData } = supabase.storage
+              .from('creatives')
+              .getPublicUrl(path);
+
+            const publicUrl = publicUrlData.publicUrl;
+
+            await uploadDocumentAttachment.mutateAsync({
+              documentId: createdDocId,
+              workspaceId: WORKSPACE_ID,
+              data: {
+                file_name: data.file.name,
+                file_url: publicUrl,
+                file_type: data.file.type,
+                file_size: data.file.size,
+              },
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao enviar anexo:', err);
+          toast({
+            title: 'Anexo não salvo',
+            description: 'O documento foi criado, mas houve erro ao enviar o anexo.',
+            variant: 'destructive',
+          });
+        }
+      }
+      toast({
+        title: 'Documento criado!',
+        description: `O documento "${data.name}" foi criado com sucesso.`,
+      });
+      setNewItemOpen(false);
+    } catch (error) {
+      console.error('Error creating document:', error);
+      toast({
+        title: 'Erro ao criar documento',
+        description: error instanceof Error ? error.message : 'Não foi possível criar o documento.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCreateReminder = async (data: {
+    name: string;
+    description: string;
+    dueDate: string;
+    notifyVia: string;
+    email?: string;
+    phone?: string;
+    telegram_chat_id?: string;
+  }) => {
+    if (!selectedFolderId || !selectedListId) {
+      toast({ title: 'Selecione uma lista', variant: 'destructive' });
+      return;
+    }
+    try {
+      await createReminder.mutateAsync({
+        workspace_id: WORKSPACE_ID,
+        folder_id: selectedFolderId,
+        list_id: selectedListId,
+        name: data.name,
+        description: data.description,
+        due_date: data.dueDate,
+        notify_via: data.notifyVia as any,
+        email: data.email,
+        phone: data.phone,
+        telegram_chat_id: data.telegram_chat_id,
+      });
+      toast({
+        title: 'Lembrete criado!',
+        description: `O lembrete "${data.name}" foi criado com sucesso.`,
+      });
+      setNewItemOpen(false);
+    } catch (error) {
+      console.error('Error creating reminder:', error);
+      toast({
+        title: 'Erro ao criar lembrete',
+        description: error instanceof Error ? error.message : 'Não foi possível criar o lembrete.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteList = async (listId: string, listName: string) => {
+    if (!confirm(`Tem certeza que deseja excluir a lista "${listName}"? Todas as tarefas serão excluídas.`)) {
+      return;
+    }
+
+    try {
+      await deleteList.mutateAsync({
+        workspaceId: WORKSPACE_ID,
+        listId,
+      });
+      toast({
+        title: 'Lista excluída!',
+        description: `A lista "${listName}" foi removida com sucesso.`,
+      });
+      // Clear selection if deleted list was selected
+      if (selectedListId === listId) {
+        setSelectedListId(null);
+      }
+    } catch (error) {
+      console.error('Error deleting list:', error);
+      toast({
+        title: 'Erro ao excluir lista',
+        description: 'Não foi possível excluir a lista.',
         variant: 'destructive',
       });
     }
@@ -234,18 +568,13 @@ export default function ProjectManagementV3() {
   // Get all tasks for selected folder
   const allTasks = selectedFolder?.lists.flatMap((list) => list.tasks) || [];
 
-  // Apply filters
-  const filteredTasks = allTasks.filter((task) => {
-    if (filterStatus !== 'all' && task.status !== filterStatus) return false;
-    if (filterPriority !== 'all' && task.priority !== filterPriority) return false;
-    return true;
-  });
+  // Removed filteredTasks (used only by Quadro/Kanban view)
 
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <div className="w-64 border-r bg-card flex flex-col">
-        <div className="p-4 border-b">
+        <div className="px-3 py-2.5 border-b">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Vermezzo - HUB</h2>
             <Button size="icon" variant="ghost" onClick={() => setNewFolderOpen(true)}>
@@ -254,8 +583,8 @@ export default function ProjectManagementV3() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
-          <div className="space-y-1">
+        <div className="flex-1 overflow-y-auto px-2 py-1">
+          <div className="space-y-0.5">
             {folders.map((folder) => {
               const isExpanded = expandedFolders.has(folder.id);
               const isSelected = selectedFolderId === folder.id;
@@ -263,31 +592,77 @@ export default function ProjectManagementV3() {
               return (
                 <div key={folder.id}>
                   {/* Folder */}
-                  <button
+                  <div
                     onClick={() => {
                       toggleFolder(folder.id);
                       setSelectedFolderId(folder.id);
                       setSelectedListId(null);
                     }}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted transition-colors ${
+                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors cursor-pointer ${
                       isSelected ? 'bg-muted' : ''
                     }`}
                   >
                     {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 shrink-0" />
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     ) : (
-                      <ChevronRight className="h-4 w-4 shrink-0" />
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                     )}
-                    <span>{folder.icon}</span>
-                    <span className="truncate flex-1 text-left">{folder.name}</span>
-                    <Badge variant="secondary" className="text-xs">
+                    <span className="text-sm">{folder.icon}</span>
+                    <span className="truncate flex-1 text-left text-xs">{folder.name}</span>
+                    <Badge variant="secondary" className="text-[10px] px-1 h-4">
                       {folder.task_count}
                     </Badge>
-                  </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditFolder(folder);
+                          }}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar Pasta
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          disabled={deleteFolder.isPending}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const ok = confirm(`Excluir a pasta "${folder.name}"? Todas as listas e tarefas serão removidas.`);
+                            if (!ok) return;
+                            try {
+                              await deleteFolder.mutateAsync({ workspaceId: WORKSPACE_ID, folderId: folder.id });
+                              toast({ title: 'Pasta excluída', description: 'A pasta foi removida com sucesso.' });
+                              if (selectedFolderId === folder.id) {
+                                setSelectedFolderId(null);
+                                setSelectedListId(null);
+                              }
+                            } catch (err) {
+                              console.error('Erro ao excluir pasta:', err);
+                              toast({ title: 'Falha ao excluir pasta', variant: 'destructive' });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Excluir Pasta
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
 
                   {/* Lists */}
                   {isExpanded && (
-                    <div className="ml-6 mt-1 space-y-1">
+                    <div className="ml-5 mt-0.5 space-y-0.5">
                       {folder.lists.map((list) => (
                         <button
                           key={list.id}
@@ -295,13 +670,13 @@ export default function ProjectManagementV3() {
                             setSelectedFolderId(folder.id);
                             setSelectedListId(list.id);
                           }}
-                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted transition-colors ${
+                          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors ${
                             selectedListId === list.id ? 'bg-muted' : ''
                           }`}
                         >
-                          <span>{list.icon}</span>
-                          <span className="truncate flex-1 text-left">{list.name}</span>
-                          <Badge variant="secondary" className="text-xs">
+                          <span className="text-sm">{list.icon}</span>
+                          <span className="truncate flex-1 text-left text-xs">{list.name}</span>
+                          <Badge variant="secondary" className="text-[10px] px-1 h-4">
                             {list.tasks.length}
                           </Badge>
                         </button>
@@ -317,15 +692,60 @@ export default function ProjectManagementV3() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
+        {/* Global Top Bar */}
+        {!selectedFolder && (
+          <div className="border-b bg-card px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <KanbanIcon className="h-5 w-5" />
+              <h1 className="text-xl font-semibold">Projetos</h1>
+            </div>
+          </div>
+        )}
+
+        {/* Header quando há pasta selecionada */}
         {selectedFolder && (
-          <div className="border-b bg-card p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">{selectedFolder.icon}</span>
-                <h1 className="text-2xl font-bold">{selectedFolder.name}</h1>
-              </div>
+          <div className="border-b bg-card px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{selectedFolder.icon}</span>
+                  <h1 className="text-2xl font-bold">{selectedFolder.name}</h1>
+                </div>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Voltar para a tela principal da própria página (Overview)
+                    setSelectedFolderId(null);
+                    setSelectedListId(null);
+                    setExpandedFolders(new Set());
+                    setExpandedLists(new Set());
+                  }}
+                > 
+                  <LayoutDashboard className="h-4 w-4 mr-2" />
+                  Início
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  aria-label="Excluir pasta"
+                  disabled={deleteFolder.isPending}
+                  onClick={async () => {
+                    const ok = confirm(`Excluir a pasta "${selectedFolder.name}"? Todas as listas e tarefas serão removidas.`);
+                    if (!ok) return;
+                    try {
+                      await deleteFolder.mutateAsync({ workspaceId: WORKSPACE_ID, folderId: selectedFolder.id });
+                      toast({ title: 'Pasta excluída!', description: 'A pasta foi removida com sucesso.' });
+                      setSelectedFolderId(null);
+                      setSelectedListId(null);
+                    } catch (error) {
+                      console.error('Erro ao excluir pasta:', error);
+                      toast({ title: 'Erro ao excluir pasta', description: 'Não foi possível excluir a pasta.', variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => setNewListOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Nova Lista
@@ -334,7 +754,7 @@ export default function ProjectManagementV3() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="lista" className="mt-4">
+            <Tabs defaultValue="lista" className="mt-2">
               <TabsList>
                 <TabsTrigger value="overview" className="gap-2">
                   <Eye className="h-4 w-4" />
@@ -344,9 +764,9 @@ export default function ProjectManagementV3() {
                   <LayoutList className="h-4 w-4" />
                   Lista
                 </TabsTrigger>
-                <TabsTrigger value="quadro" className="gap-2">
+                <TabsTrigger value="kanban" className="gap-2">
                   <KanbanIcon className="h-4 w-4" />
-                  Quadro
+                  Kanban
                 </TabsTrigger>
                 <TabsTrigger value="calendario" className="gap-2">
                   <CalendarIcon className="h-4 w-4" />
@@ -355,15 +775,15 @@ export default function ProjectManagementV3() {
               </TabsList>
 
               {/* Lista View */}
-              <TabsContent value="lista" className="mt-4">
-                <div className="space-y-4">
+              <TabsContent value="lista" className="mt-2">
+                <div className="space-y-2">
                   {selectedFolder.lists.map((list) => {
                     const isListExpanded = expandedLists.has(list.id);
 
                     return (
                       <Card key={list.id}>
                         <div
-                          className="p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                          className="p-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
                           onClick={() => toggleList(list.id)}
                         >
                           <div className="flex items-center justify-between">
@@ -386,15 +806,45 @@ export default function ProjectManagementV3() {
                                   if (selectedFolder) {
                                     setSelectedFolderId(selectedFolder.id);
                                     setSelectedListId(list.id);
-                                    setNewTaskOpen(true);
+                                    setNewItemOpen(true);
                                   }
                                 }}
                               >
                                 <Plus className="h-4 w-4" />
                               </Button>
-                              <Button size="sm" variant="ghost">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenEditList({ id: list.id, name: list.name, icon: list.icon, color: list.color });
+                                    }}
+                                  >
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Editar Lista
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteList(list.id, list.name);
+                                    }}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Excluir Lista
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                         </div>
@@ -426,11 +876,7 @@ export default function ProjectManagementV3() {
                                         </Badge>
                                       )}
                                     </div>
-                                    {task.description && (
-                                      <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
-                                        {task.description}
-                                      </p>
-                                    )}
+                                    {/* Ocultado a pedido: não exibir a descrição abaixo do título */}
                                   </div>
                                 </div>
                               </div>
@@ -458,62 +904,43 @@ export default function ProjectManagementV3() {
                 </div>
               </TabsContent>
 
-              {/* Quadro/Kanban View */}
-              <TabsContent value="quadro" className="mt-4 h-[calc(100vh-250px)]">
-                <div className="flex gap-2 mb-4">
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos Status</SelectItem>
-                      <SelectItem value="pendente">Pendente</SelectItem>
-                      <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                      <SelectItem value="concluido">Concluído</SelectItem>
-                      <SelectItem value="bloqueado">Bloqueado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterPriority} onValueChange={setFilterPriority}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Prioridade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas Prioridades</SelectItem>
-                      <SelectItem value="baixa">Baixa</SelectItem>
-                      <SelectItem value="media">Média</SelectItem>
-                      <SelectItem value="alta">Alta</SelectItem>
-                      <SelectItem value="urgente">Urgente</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {/* Kanban View */}
+              <TabsContent value="kanban" className="mt-2">
+                <div className="h-[calc(100vh-12rem)]">
+                  <KanbanBoard tasks={allTasks} workspaceId={WORKSPACE_ID} />
                 </div>
-                <KanbanBoard tasks={filteredTasks} workspaceId={WORKSPACE_ID} />
               </TabsContent>
 
               {/* Calendário View */}
-              <TabsContent value="calendario" className="mt-4">
-                <div className="text-center py-12 text-muted-foreground">
-                  <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>Vista de calendário em desenvolvimento...</p>
+              <TabsContent value="calendario" className="mt-2">
+                <div className="h-[calc(100vh-12rem)]">
+                  <CalendarView
+                    tasks={allTasks}
+                    onTaskClick={(task) => {
+                      setSelectedTask(task);
+                      setTaskModalOpen(true);
+                    }}
+                  />
                 </div>
               </TabsContent>
 
               {/* Overview */}
-              <TabsContent value="overview" className="mt-4">
-                <div className="grid grid-cols-3 gap-4">
+              <TabsContent value="overview" className="mt-2">
+                <div className="grid grid-cols-3 gap-2">
                   <Card>
-                    <CardContent className="p-6">
+                    <CardContent className="p-3">
                       <div className="text-2xl font-bold">{selectedFolder.list_count}</div>
                       <div className="text-sm text-muted-foreground">Listas</div>
                     </CardContent>
                   </Card>
                   <Card>
-                    <CardContent className="p-6">
+                    <CardContent className="p-3">
                       <div className="text-2xl font-bold">{selectedFolder.task_count}</div>
                       <div className="text-sm text-muted-foreground">Tarefas</div>
                     </CardContent>
                   </Card>
                   <Card>
-                    <CardContent className="p-6">
+                    <CardContent className="p-3">
                       <div className="text-2xl font-bold">
                         {allTasks.filter((t) => t.status === 'concluido').length}
                       </div>
@@ -527,10 +954,170 @@ export default function ProjectManagementV3() {
         )}
 
         {!selectedFolder && (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold mb-2">Bem-vindo ao Gerenciamento de Projetos</h2>
-              <p>Selecione uma pasta na sidebar para começar</p>
+          <div className="flex-1 overflow-y-auto p-3">
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold">{hierarchyData?.data?.stats.folder_count ?? (hierarchyData?.data?.folders?.length || 0)}</div>
+                  <div className="text-sm text-muted-foreground">Pastas</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold">{hierarchyData?.data?.stats.list_count || 0}</div>
+                  <div className="text-sm text-muted-foreground">Listas</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold">{hierarchyData?.data?.stats.task_count || 0}</div>
+                  <div className="text-sm text-muted-foreground">Tarefas</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Workspace Overview: Folders → Lists → Tasks */}
+            <div className="space-y-3">
+              {folders.map((folder) => (
+                <Card key={folder.id}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{folder.icon}</span>
+                      <CardTitle className="text-base">{folder.name}</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">{folder.list_count} listas</Badge>
+                      <Badge variant="secondary" className="text-xs">{folder.task_count} tarefas</Badge>
+                      {/* Criar lista diretamente da visão inicial */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          // Seleciona a pasta e abre o modal de nova lista
+                          setSelectedFolderId(folder.id);
+                          setSelectedListId(null);
+                          setNewListOpen(true);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Nova Lista
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Recolher/Expandir pasta"
+                        onClick={() => toggleFolderOverview(folder.id)}
+                      >
+                        {collapsedFoldersOverview.has(folder.id) ? (
+                          <ChevronRight className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  {!collapsedFoldersOverview.has(folder.id) && (
+                    <CardContent className="space-y-2 p-3 pt-0">
+                      {folder.lists.map((list) => (
+                        <div key={list.id} className="border rounded-lg">
+                          <div className="flex items-center justify-between px-2 py-1.5 bg-muted/40">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              aria-label="Recolher/Expandir lista"
+                              onClick={() => toggleListOverview(list.id)}
+                              className="h-7 w-7"
+                            >
+                              {collapsedListsOverview.has(list.id) ? (
+                                <ChevronRight className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <span>{list.icon}</span>
+                            <span className="font-medium">{list.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">{list.task_count} tarefas</Badge>
+                            {/* Botão para adicionar nova tarefa diretamente na lista (visão inicial) */}
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              aria-label="Adicionar tarefa"
+                              className="h-7 w-7"
+                              onClick={() => {
+                                // Pré-seleciona a pasta e a lista e abre o modal de criação
+                                setSelectedFolderId(folder.id);
+                                setSelectedListId(list.id);
+                                setNewItemOpen(true);
+                              }}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          </div>
+                          {!collapsedListsOverview.has(list.id) && (
+                            <div className="divide-y">
+                              {list.tasks.length === 0 ? (
+                                <div className="px-3 py-2 text-sm text-muted-foreground">Nenhuma tarefa</div>
+                              ) : (
+                                list.tasks.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    className="w-full text-left px-3 py-2 hover:bg-muted/30 flex items-center justify-between"
+                                    onClick={() => {
+                                      setSelectedTask(t);
+                                      setTaskModalOpen(true);
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className={`h-2 w-2 rounded-full ${statusColors[t.status]}`} />
+                                      <span>{t.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-6 text-sm">
+                                      <span className="text-muted-foreground">{(t.metadata?.responsavel_nome as string) || t.assignee_name || 'Sem responsável'}</span>
+                                      <span className="text-muted-foreground">{t.due_date ? new Date(t.due_date).toLocaleDateString() : 'Sem prazo'}</span>
+                                      <span className={`px-2 py-0.5 rounded text-xs capitalize ${priorityColors[t.priority || 'media']}`}>{t.priority || 'media'}</span>
+                                    </div>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </CardContent>
+                  )}
+                </Card>
+              ))}
+            </div>
+
+            {/* Documents */}
+            <div className="mt-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Documentos</CardTitle>
+                  <CardDescription>Últimos documentos do workspace</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {documentsData?.data?.length ? (
+                      documentsData.data.slice(0, 10).map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between text-sm">
+                          <span className="truncate">{doc.name}</span>
+                          <span className="text-muted-foreground">
+                            {(folders.flatMap((f) => f.lists).find((l) => l.id === doc.list_id)?.name) || '—'}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-muted-foreground">Nenhum documento</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         )}
@@ -555,7 +1142,15 @@ export default function ProjectManagementV3() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Ícone</Label>
-                <Input value={newFolderIcon} onChange={(e) => setNewFolderIcon(e.target.value)} placeholder="📁" />
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={newFolderIcon}
+                    onChange={(e) => setNewFolderIcon(e.target.value)}
+                    placeholder="📁"
+                    className="flex-1"
+                  />
+                  <EmojiPicker value={newFolderIcon} onSelect={(emoji) => setNewFolderIcon(emoji)} />
+                </div>
               </div>
               <div>
                 <Label>Cor</Label>
@@ -569,6 +1164,82 @@ export default function ProjectManagementV3() {
             </Button>
             <Button onClick={handleCreateFolder} disabled={!newFolderName}>
               Criar Pasta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit List Dialog */}
+      <Dialog open={editListOpen} onOpenChange={setEditListOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Lista</DialogTitle>
+            <DialogDescription>Atualize o nome, ícone e cor da lista</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nome</Label>
+              <Input
+                value={editListName}
+                onChange={(e) => setEditListName(e.target.value)}
+                placeholder="Ex: Campanhas Ativas"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Ícone</Label>
+                <Input value={editListIcon} onChange={(e) => setEditListIcon(e.target.value)} placeholder="📋" />
+              </div>
+              <div>
+                <Label>Cor</Label>
+                <Input type="color" value={editListColor} onChange={(e) => setEditListColor(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditListOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdateList} disabled={!editListName}>
+              Salvar Alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Folder Dialog */}
+      <Dialog open={editFolderOpen} onOpenChange={setEditFolderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Pasta</DialogTitle>
+            <DialogDescription>Atualize o nome, ícone e cor da pasta</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nome</Label>
+              <Input
+                value={editFolderName}
+                onChange={(e) => setEditFolderName(e.target.value)}
+                placeholder="Ex: MÍDIA PAGA"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Ícone</Label>
+                <Input value={editFolderIcon} onChange={(e) => setEditFolderIcon(e.target.value)} placeholder="📁" />
+              </div>
+              <div>
+                <Label>Cor</Label>
+                <Input type="color" value={editFolderColor} onChange={(e) => setEditFolderColor(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditFolderOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdateFolder} disabled={!editFolderName}>
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -613,70 +1284,18 @@ export default function ProjectManagementV3() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Criar Nova Tarefa</DialogTitle>
-            <DialogDescription>Adicione uma tarefa à lista selecionada</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Nome</Label>
-              <Input
-                value={newTaskName}
-                onChange={(e) => setNewTaskName(e.target.value)}
-                placeholder="Ex: Criar campanha de Black Friday"
-              />
-            </div>
-            <div>
-              <Label>Descrição</Label>
-              <Input
-                value={newTaskDescription}
-                onChange={(e) => setNewTaskDescription(e.target.value)}
-                placeholder="Detalhes da tarefa..."
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Status</Label>
-                <Select value={newTaskStatus} onValueChange={(v) => setNewTaskStatus(v as TaskStatus)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pendente">Pendente</SelectItem>
-                    <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                    <SelectItem value="concluido">Concluído</SelectItem>
-                    <SelectItem value="bloqueado">Bloqueado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Prioridade</Label>
-                <Select value={newTaskPriority} onValueChange={(v) => setNewTaskPriority(v as TaskPriority)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="baixa">Baixa</SelectItem>
-                    <SelectItem value="media">Média</SelectItem>
-                    <SelectItem value="alta">Alta</SelectItem>
-                    <SelectItem value="urgente">Urgente</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewTaskOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreateTask} disabled={!newTaskName}>
-              Criar Tarefa
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Create Item Modal (Task, Document, Reminder) */}
+      <CreateItemModal
+        open={newItemOpen}
+        onOpenChange={setNewItemOpen}
+        onCreateTask={handleCreateTask}
+        onCreateDocument={handleCreateDocument}
+        onCreateReminder={handleCreateReminder}
+        folderName={selectedFolderId ? hierarchyData?.data.folders.find(f => f.id === selectedFolderId)?.name : undefined}
+        listName={selectedListId ? hierarchyData?.data.folders
+          .find(f => f.id === selectedFolderId)?.lists
+          .find(l => l.id === selectedListId)?.name : undefined}
+      />
 
       {/* Task Detail Modal */}
       <TaskDetailModal task={selectedTask} open={taskModalOpen} onOpenChange={setTaskModalOpen} workspaceId={WORKSPACE_ID} />

@@ -46,8 +46,8 @@ export function Header({ onMenuClick }: HeaderProps) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 h-16 border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-full items-center gap-2 sm:gap-4 px-3 sm:px-6">
+    <header className="sticky top-0 z-30 h-12 border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
+      <div className="flex h-full items-center gap-2 px-2 sm:px-3">
         {/* Menu Button for Mobile/Tablet */}
         <Button
           variant="ghost"

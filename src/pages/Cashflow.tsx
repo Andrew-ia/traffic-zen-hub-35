@@ -179,15 +179,15 @@ const CashflowDashboard = () => {
     return map;
   }, [data]);
 
-  const statusDefaults = ["A receber", "A pagar", "Pago", "Recebido", "Cancelado", "Em aberto"];
   const statusOptions = useMemo(() => {
+    const statusDefaults = ["A receber", "A pagar", "Pago", "Recebido", "Cancelado", "Em aberto"];
     const set = new Set<string>(statusDefaults);
     data?.entries.forEach((e) => e.status && set.add(e.status));
     return Array.from(set);
   }, [data]);
 
-  const bankDefaults = ["Nubank", "Itaú", "Bradesco", "Banco do Brasil", "Santander", "Caixa", "Inter"];
   const bankOptions = useMemo(() => {
+    const bankDefaults = ["Nubank", "Itaú", "Bradesco", "Banco do Brasil", "Santander", "Caixa", "Inter"];
     const set = new Set<string>(bankDefaults);
     data?.entries.forEach((e) => e.bank && set.add(e.bank));
     return Array.from(set);

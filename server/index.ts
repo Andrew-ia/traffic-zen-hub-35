@@ -77,11 +77,26 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  uploadTaskAttachment,
+  getTaskAttachments,
+  deleteTaskAttachment,
 } from './api/pm/tasks.js';
 import {
   getHierarchy,
   getFolderHierarchy,
 } from './api/pm/hierarchy.js';
+import {
+  createDocument,
+  getDocuments,
+  uploadAttachment,
+  getAttachments,
+} from './api/pm/documents.js';
+import {
+  createReminder,
+  getReminders,
+  getPendingReminders,
+  markReminderAsSent,
+} from './api/pm/reminders.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -203,6 +218,11 @@ app.post('/api/pm/folders/:workspaceId', createFolder);
 app.put('/api/pm/folders/:workspaceId/:folderId', updateFolder);
 app.delete('/api/pm/folders/:workspaceId/:folderId', deleteFolder);
 
+// Task attachments (place BEFORE generic tasks routes to avoid route conflicts)
+app.post('/api/pm/tasks/:taskId/attachments', uploadTaskAttachment);
+app.get('/api/pm/tasks/:taskId/attachments', getTaskAttachments);
+app.delete('/api/pm/tasks/:taskId/attachments/:attachmentId', deleteTaskAttachment);
+
 // Lists
 app.get('/api/pm/lists/:workspaceId', getAllListsForWorkspace);
 app.get('/api/pm/lists/:workspaceId/:folderId', getLists);
@@ -218,6 +238,22 @@ app.get('/api/pm/tasks/:workspaceId/:taskId/details', getTaskById);
 app.post('/api/pm/tasks/:workspaceId/:listId', createTask);
 app.put('/api/pm/tasks/:workspaceId/:taskId', updateTask);
 app.delete('/api/pm/tasks/:workspaceId/:taskId', deleteTask);
+app.post('/api/pm/tasks/:taskId/attachments', uploadTaskAttachment);
+app.get('/api/pm/tasks/:taskId/attachments', getTaskAttachments);
+
+// Documents
+app.get('/api/pm/documents/:workspaceId', getDocuments);
+app.get('/api/pm/documents/:workspaceId/:listId', getDocuments);
+app.post('/api/pm/documents/:workspaceId/:listId', createDocument);
+app.post('/api/pm/documents/:documentId/attachments', uploadAttachment);
+app.get('/api/pm/documents/:documentId/attachments', getAttachments);
+
+// Reminders
+app.get('/api/pm/reminders/pending', getPendingReminders);
+app.get('/api/pm/reminders/:workspaceId', getReminders);
+app.get('/api/pm/reminders/:workspaceId/:listId', getReminders);
+app.post('/api/pm/reminders/:workspaceId/:listId', createReminder);
+app.post('/api/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

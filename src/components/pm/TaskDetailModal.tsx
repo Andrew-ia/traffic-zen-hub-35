@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -19,8 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, User, Trash2, Save } from 'lucide-react';
-import { useUpdatePMTask, useDeletePMTask } from '@/hooks/useProjectManagement';
+import { Calendar, User, Trash2, Save, Paperclip, Upload } from 'lucide-react';
+import { useUpdatePMTask, useDeletePMTask, useUploadPMTaskAttachment, usePMTaskAttachments, useDeletePMTaskAttachment } from '@/hooks/useProjectManagement';
+import { supabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import type { PMTaskFull, TaskStatus, TaskPriority } from '@/types/project-management';
 import { format } from 'date-fns';
@@ -66,21 +67,27 @@ const priorityLabels: Record<TaskPriority, string> = {
 export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskDetailModalProps) {
   const updateTask = useUpdatePMTask();
   const deleteTask = useDeletePMTask();
+  const uploadTaskAttachment = useUploadPMTaskAttachment();
+  const deleteTaskAttachment = useDeletePMTaskAttachment();
 
   const [name, setName] = useState(task?.name || '');
   const [description, setDescription] = useState(task?.description || '');
   const [status, setStatus] = useState<TaskStatus>(task?.status || 'pendente');
   const [priority, setPriority] = useState<TaskPriority>(task?.priority || 'media');
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const { data: taskAttachments = [] } = usePMTaskAttachments(task?.id || undefined);
 
   // Update local state when task changes
-  useState(() => {
+  useEffect(() => {
     if (task) {
       setName(task.name);
       setDescription(task.description || '');
       setStatus(task.status);
       setPriority(task.priority || 'media');
+      setAttachmentFile(null);
     }
-  });
+  }, [task]);
 
   if (!task) return null;
 
@@ -134,21 +141,17 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-5xl w-[92vw] max-h-[90vh] overflow-y-auto p-6">
+        <DialogHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-10 border-b">
           <DialogTitle>Detalhes da Tarefa</DialogTitle>
           <DialogDescription>
-            <div className="flex items-center gap-2 mt-2">
-              <span>{task.folder_icon}</span>
-              <span>{task.folder_name}</span>
-              <span className="text-muted-foreground">/</span>
-              <span>{task.list_icon}</span>
-              <span>{task.list_name}</span>
-            </div>
+            {task.folder_icon} {task.folder_name} / {task.list_icon} {task.list_name}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-6">
+          {/* Coluna Esquerda: Nome, Descrição, Tags */}
+          <div className="space-y-6">
           {/* Name */}
           <div>
             <Label htmlFor="task-name">Nome da Tarefa</Label>
@@ -168,16 +171,34 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Adicione uma descrição..."
-              rows={4}
+              rows={10}
             />
           </div>
 
-          {/* Status and Priority */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Tags */}
+          {task.tags && task.tags.length > 0 && (
+            <div className="border-t pt-6">
+              <h4 className="font-semibold text-sm mb-2">Tags</h4>
+              <div className="flex flex-wrap gap-2">
+                {task.tags.map((tag) => (
+                  <Badge key={tag} variant="outline">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          </div>
+
+          {/* Coluna Direita: Status/Prioridade, Informações, Contadores, Anexos */}
+          <div className="space-y-6">
+
+          {/* Status and Priority (vertical stack) */}
+          <div className="flex flex-col gap-3">
             <div>
               <Label htmlFor="task-status">Status</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
-                <SelectTrigger>
+                <SelectTrigger id="task-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -196,7 +217,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
             <div>
               <Label htmlFor="task-priority">Prioridade</Label>
               <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
-                <SelectTrigger>
+                <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -213,47 +234,9 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
             </div>
           </div>
 
-          {/* Metadata */}
-          <div className="border-t pt-4 space-y-2">
-            <h4 className="font-semibold text-sm">Informações</h4>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <User className="h-4 w-4" />
-                <span>Criado por:</span>
-                <span className="font-medium text-foreground">
-                  {task.created_by_name || 'Desconhecido'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Calendar className="h-4 w-4" />
-                <span>Criado em:</span>
-                <span className="font-medium text-foreground">
-                  {format(new Date(task.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                </span>
-              </div>
-
-              {task.assignee_name && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <User className="h-4 w-4" />
-                  <span>Responsável:</span>
-                  <span className="font-medium text-foreground">{task.assignee_name}</span>
-                </div>
-              )}
-
-              {task.due_date && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
-                  <span>Vencimento:</span>
-                  <span className="font-medium text-foreground">
-                    {format(new Date(task.due_date), 'dd/MM/yyyy', { locale: ptBR })}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Counters */}
-            <div className="flex gap-4 pt-2">
+          {/* Counters (Informações removidas conforme solicitado) */}
+          <div className="border-t pt-6">
+            <div className="flex flex-col gap-2">
               <Badge variant="secondary">
                 {task.subtask_count} subtarefa(s)
               </Badge>
@@ -266,22 +249,159 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
             </div>
           </div>
 
-          {/* Tags */}
-          {task.tags && task.tags.length > 0 && (
-            <div className="border-t pt-4">
-              <h4 className="font-semibold text-sm mb-2">Tags</h4>
-              <div className="flex flex-wrap gap-2">
-                {task.tags.map((tag) => (
-                  <Badge key={tag} variant="outline">
-                    {tag}
-                  </Badge>
-                ))}
+          </div>
+
+          {/* Attachments Section */}
+          <div className="border-t pt-6">
+            <h4 className="font-semibold text-sm flex items-center gap-2 mb-4">
+              <Paperclip className="h-4 w-4" />
+              Anexos ({task.attachment_count || 0})
+            </h4>
+            <div className="space-y-3">
+              {/* Dropzone */}
+              <div
+                className={`px-2 py-1 transition-colors cursor-pointer ${isDragging ? 'text-primary' : 'text-muted-foreground'} hover:text-foreground`}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) setAttachmentFile(file);
+                }}
+                onClick={() => {
+                  const inputEl = document.getElementById('task-attachment') as HTMLInputElement | null;
+                  inputEl?.click();
+                }}
+                aria-label="Arraste e solte o arquivo aqui ou clique para escolher"
+              >
+                <div className="flex items-center justify-start gap-2 text-sm">
+                  <Upload className="h-4 w-4" />
+                  <span>{attachmentFile ? `Selecionado: ${attachmentFile.name}` : 'Arraste e solte o arquivo aqui, ou clique para escolher'}</span>
+                </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-3">
+                {/* Input oculto */}
+                <Input
+                  type="file"
+                  id="task-attachment"
+                  onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
+                  className="sr-only"
+                />
+                {/* Botão custom para escolher arquivo */}
+                <Button
+                  onClick={() => {
+                    const inputEl = document.getElementById('task-attachment') as HTMLInputElement | null;
+                    inputEl?.click();
+                  }}
+                  className="whitespace-nowrap"
+                >
+                  Escolher arquivo
+                </Button>
+                {/* Nome do arquivo selecionado */}
+                <div className="h-10 rounded-md border bg-muted flex items-center px-3 text-sm text-foreground/80">
+                  {attachmentFile ? attachmentFile.name : 'Nenhum arquivo escolhido'}
+                </div>
+                <Button
+                  size="default"
+                  variant="outline"
+                  disabled={!attachmentFile || uploadTaskAttachment.isPending || !task}
+                  onClick={async () => {
+                    if (!attachmentFile || !task) return;
+                    try {
+                      const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+                      const timestamp = Date.now();
+                      const path = `pm/${workspaceId}/tasks/${task.id}/${timestamp}-${sanitize(attachmentFile.name)}`;
+
+                      const { error: uploadError } = await supabase.storage
+                        .from('creatives')
+                        .upload(path, attachmentFile, { contentType: attachmentFile.type });
+                      if (uploadError) throw uploadError;
+
+                      const { data: publicUrlData } = supabase.storage
+                        .from('creatives')
+                        .getPublicUrl(path);
+                      const publicUrl = publicUrlData.publicUrl;
+
+                      await uploadTaskAttachment.mutateAsync({
+                        taskId: task.id,
+                        data: {
+                          file_name: attachmentFile.name,
+                          file_url: publicUrl,
+                          file_type: attachmentFile.type,
+                          file_size: attachmentFile.size,
+                        },
+                      });
+
+                      toast({ title: 'Anexo enviado', description: 'Arquivo anexado à tarefa com sucesso.' });
+                      setAttachmentFile(null);
+                      const inputEl = document.getElementById('task-attachment') as HTMLInputElement | null;
+                      if (inputEl) inputEl.value = '';
+                    } catch (err) {
+                      console.error('Erro ao enviar anexo da tarefa:', err);
+                      toast({ title: 'Falha ao enviar anexo', variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Enviar
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
+                📎 Anexe documentos, imagens ou arquivos relacionados a esta tarefa
+              </p>
+              {taskAttachments && taskAttachments.length > 0 && (
+                <div className="mt-3 max-h-[40vh] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {taskAttachments.map((att: any) => (
+                    <div
+                      key={att.id}
+                      className="border rounded-md p-3 flex items-center gap-3 hover:bg-muted"
+                    >
+                      {att.file_type?.startsWith('image/') ? (
+                        <img src={att.file_url} alt={att.file_name} className="h-16 w-16 object-cover rounded" />
+                      ) : (
+                        <Paperclip className="h-4 w-4" />
+                      )}
+                      <a
+                        href={att.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm truncate flex-1"
+                        title={att.file_name}
+                      >
+                        {att.file_name}
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          try {
+                            await deleteTaskAttachment.mutateAsync({ taskId: task.id, attachmentId: att.id });
+                            toast({ title: 'Anexo removido', description: 'O documento foi removido da tarefa.' });
+                          } catch (err) {
+                            console.error('Erro ao remover anexo:', err);
+                            toast({ title: 'Falha ao remover anexo', variant: 'destructive' });
+                          }
+                        }}
+                        disabled={deleteTaskAttachment.isPending}
+                        aria-label="Remover anexo"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t p-4">
           <Button
             variant="destructive"
             onClick={handleDelete}

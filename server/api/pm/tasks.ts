@@ -219,7 +219,10 @@ export async function createTask(req: Request, res: Response) {
       metadata,
       estimated_hours,
       parent_task_id,
+      created_by,
     } = req.body;
+
+    console.log('📝 Creating task with body:', { folder_id, name, description, status, priority });
 
     if (!workspaceId || !listId || !folder_id || !name) {
       return res.status(400).json({
@@ -245,9 +248,9 @@ export async function createTask(req: Request, res: Response) {
         workspace_id, folder_id, list_id, parent_task_id,
         name, description, status, priority,
         assignee_id, due_date, start_date, position,
-        tags, metadata, estimated_hours
+        tags, metadata, estimated_hours, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `;
 
@@ -267,13 +270,14 @@ export async function createTask(req: Request, res: Response) {
       tags || [],
       metadata || {},
       estimated_hours || null,
+      created_by || null,
     ]);
 
     // Log activity
     await pool.query(
       `INSERT INTO pm_task_activity (task_id, user_id, action, metadata)
        VALUES ($1, $2, 'created', $3)`,
-      [result.rows[0].id, assignee_id || null, { task_name: name }]
+      [result.rows[0].id, created_by || null, { task_name: name }]
     );
 
     return res.status(201).json({
@@ -477,5 +481,119 @@ export async function deleteTask(req: Request, res: Response) {
       success: false,
       error: 'Failed to delete task',
     });
+  }
+}
+
+/**
+ * Upload attachment to task
+ * POST /api/pm/tasks/:taskId/attachments
+ */
+export async function uploadTaskAttachment(req: Request, res: Response) {
+  try {
+    const { taskId } = req.params;
+    const { file_name, file_url, file_type, file_size } = req.body;
+
+    if (!taskId) {
+      return res.status(400).json({ success: false, error: 'Task ID is required' });
+    }
+    if (!file_name || !file_url) {
+      return res.status(400).json({ success: false, error: 'file_name and file_url are required' });
+    }
+
+    const pool = getPool();
+
+    // Determine the user to attribute the upload to
+    const taskUserResult = await pool.query(
+      'SELECT created_by, assignee_id FROM pm_tasks WHERE id = $1',
+      [taskId]
+    );
+    const taskUserRow = taskUserResult.rows[0];
+    const userId = taskUserRow?.created_by || taskUserRow?.assignee_id || null;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Task has no created_by or assignee_id to attribute the attachment',
+      });
+    }
+
+    const query = `
+      INSERT INTO pm_task_attachments (task_id, user_id, file_name, file_url, file_type, file_size)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [
+      taskId,
+      userId,
+      file_name,
+      file_url,
+      file_type || null,
+      file_size || null,
+    ]);
+
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error uploading task attachment:', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload task attachment' });
+  }
+}
+
+/**
+ * Get attachments for a task
+ * GET /api/pm/tasks/:taskId/attachments
+ */
+export async function getTaskAttachments(req: Request, res: Response) {
+  try {
+    const { taskId } = req.params;
+
+    if (!taskId) {
+      return res.status(400).json({ success: false, error: 'Task ID is required' });
+    }
+
+    const pool = getPool();
+    const query = `
+      SELECT *
+      FROM pm_task_attachments
+      WHERE task_id = $1
+      ORDER BY uploaded_at DESC
+    `;
+    const result = await pool.query(query, [taskId]);
+
+    return res.status(200).json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error fetching task attachments:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch task attachments' });
+  }
+}
+
+/**
+ * Delete attachment from task
+ * DELETE /api/pm/tasks/:taskId/attachments/:attachmentId
+ */
+export async function deleteTaskAttachment(req: Request, res: Response) {
+  try {
+    const { taskId, attachmentId } = req.params as { taskId?: string; attachmentId?: string };
+
+    if (!taskId || !attachmentId) {
+      return res.status(400).json({ success: false, error: 'Task ID and Attachment ID are required' });
+    }
+
+    const pool = getPool();
+    const query = `
+      DELETE FROM pm_task_attachments
+      WHERE id = $1 AND task_id = $2
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [attachmentId, taskId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Attachment not found for this task' });
+    }
+
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Error deleting task attachment:', error);
+    return res.status(500).json({ success: false, error: 'Failed to delete task attachment' });
   }
 }

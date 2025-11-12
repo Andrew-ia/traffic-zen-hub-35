@@ -38,8 +38,8 @@ export function MainLayout({ children }: MainLayoutProps) {
         
         <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out lg:pl-64">
           <Header onMenuClick={() => setSidebarOpen(true)} />
-          <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-x-hidden">
-            <div className="mx-auto max-w-7xl">
+          <main className="flex-1 p-2 overflow-x-hidden">
+            <div className="mx-auto max-w-full">
               {children}
             </div>
           </main>

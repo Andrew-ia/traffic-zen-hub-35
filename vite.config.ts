@@ -15,6 +15,37 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Vendor chunks for large libraries
+          if (id.includes('node_modules/recharts')) return 'recharts';
+          if (id.includes('node_modules/@dnd-kit')) return 'dnd-kit';
+          if (id.includes('node_modules/googleapis')) return 'googleapis';
+          if (id.includes('node_modules/@google/generative-ai')) return 'generative-ai';
+          if (id.includes('node_modules/openai')) return 'openai';
+          if (id.includes('node_modules/@anthropic-ai')) return 'anthropic-ai';
+          if (id.includes('node_modules/google-ads-api')) return 'google-ads';
+
+          // Radix UI components
+          if (id.includes('node_modules/@radix-ui')) return 'radix-ui';
+
+          // Page-specific chunks
+          if (id.includes('src/pages/MetaAds')) return 'pages-meta';
+          if (id.includes('src/pages/Instagram')) return 'pages-instagram';
+          if (id.includes('src/pages/ProjectManagement')) return 'pages-pm';
+          if (id.includes('src/pages/AIChat')) return 'pages-ai';
+          if (id.includes('src/pages/Cashflow')) return 'pages-cashflow';
+          if (id.includes('src/pages/GA4')) return 'pages-ga4';
+
+          // AI components chunk
+          if (id.includes('src/components/ai/')) return 'components-ai';
+        },
+      },
+    },
+    chunkSizeWarningLimit: 800,
+  },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {

@@ -12,7 +12,8 @@ import type {
   UpdatePMTaskDTO,
 } from '../types/project-management';
 
-const API_BASE_URL = 'http://localhost:3001/api/pm';
+// Use caminho relativo para aproveitar o proxy do Vite (localhost:8080 -> 3001)
+const API_BASE_URL = '/api/pm';
 const WORKSPACE_ID = '00000000-0000-0000-0000-000000000010';
 
 // ========================================
@@ -408,6 +409,208 @@ export function useDeletePMTask() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['pm-tasks', variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['pm-hierarchy', variables.workspaceId] });
+    },
+  });
+}
+
+// ========================================
+// DOCUMENTS
+// ========================================
+
+import type { PMDocument, PMDocumentAttachment, CreatePMDocumentDTO } from '../types/project-management';
+
+export interface PMDocumentsResponse {
+  success: boolean;
+  data: PMDocument[];
+}
+
+export function usePMDocuments(workspaceId: string, listId?: string) {
+  return useQuery<PMDocumentsResponse>({
+    queryKey: ['pm-documents', workspaceId, listId],
+    queryFn: async () => {
+      const url = listId
+        ? `${API_BASE_URL}/documents/${workspaceId}/${listId}`
+        : `${API_BASE_URL}/documents/${workspaceId}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch documents');
+      }
+      return response.json();
+    },
+  });
+}
+
+export function useCreatePMDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreatePMDocumentDTO) => {
+      const response = await fetch(`${API_BASE_URL}/documents/${data.workspace_id}/${data.list_id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to create document');
+      }
+
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pm-documents', variables.workspace_id] });
+      queryClient.invalidateQueries({ queryKey: ['pm-hierarchy', variables.workspace_id] });
+    },
+  });
+}
+
+export function useUploadPMDocumentAttachment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      documentId: string;
+      data: {
+        file_name: string;
+        file_url: string; // Data URL or public URL
+        file_type?: string;
+        file_size?: number;
+      };
+      workspaceId?: string;
+    }) => {
+      const response = await fetch(`${API_BASE_URL}/documents/${params.documentId}/attachments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.data),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload attachment');
+      }
+
+      return response.json();
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.workspaceId) {
+        queryClient.invalidateQueries({ queryKey: ['pm-documents', variables.workspaceId] });
+        queryClient.invalidateQueries({ queryKey: ['pm-hierarchy', variables.workspaceId] });
+      }
+    },
+  });
+}
+
+export function useUploadPMTaskAttachment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ taskId, data }: { taskId: string; data: { file_name: string; file_url: string; file_type?: string; file_size?: number } }) => {
+      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        throw new Error('Falha ao enviar anexo da tarefa');
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate tasks and hierarchy to reflect new attachment_count
+      queryClient.invalidateQueries({ queryKey: ['pm-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['pm-hierarchy'] });
+      queryClient.invalidateQueries({ queryKey: ['pm-task-attachments', variables.taskId] });
+    },
+  });
+}
+
+export function usePMTaskAttachments(taskId?: string) {
+  return useQuery({
+    queryKey: ['pm-task-attachments', taskId],
+    queryFn: async () => {
+      if (!taskId) return [];
+      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments`);
+      if (!res.ok) {
+        throw new Error('Falha ao listar anexos da tarefa');
+      }
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useDeletePMTaskAttachment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ taskId, attachmentId }: { taskId: string; attachmentId: string }) => {
+      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments/${attachmentId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error('Falha ao remover anexo da tarefa');
+      }
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pm-task-attachments', variables.taskId] });
+      queryClient.invalidateQueries({ queryKey: ['pm-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['pm-hierarchy'] });
+    },
+  });
+}
+
+// ========================================
+// REMINDERS
+// ========================================
+
+import type { PMReminder, CreatePMReminderDTO } from '../types/project-management';
+
+export interface PMRemindersResponse {
+  success: boolean;
+  data: PMReminder[];
+}
+
+export function usePMReminders(workspaceId: string, listId?: string) {
+  return useQuery<PMRemindersResponse>({
+    queryKey: ['pm-reminders', workspaceId, listId],
+    queryFn: async () => {
+      const url = listId
+        ? `${API_BASE_URL}/reminders/${workspaceId}/${listId}`
+        : `${API_BASE_URL}/reminders/${workspaceId}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch reminders');
+      }
+      return response.json();
+    },
+  });
+}
+
+export function useCreatePMReminder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreatePMReminderDTO) => {
+      const response = await fetch(`${API_BASE_URL}/reminders/${data.workspace_id}/${data.list_id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to create reminder');
+      }
+
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pm-reminders', variables.workspace_id] });
+      queryClient.invalidateQueries({ queryKey: ['pm-hierarchy', variables.workspace_id] });
     },
   });
 }

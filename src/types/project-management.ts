@@ -187,6 +187,93 @@ export interface UpdatePMTaskDTO {
   position?: number;
   tags?: string[];
   metadata?: Record<string, any>;
+}
+
+// ========================================
+// DOCUMENTS
+// ========================================
+
+export interface PMDocument {
+  id: string;
+  workspace_id: string;
+  folder_id: string;
+  list_id: string;
+  name: string;
+  content: string | null;
+  position: number;
+  status: 'active' | 'archived';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PMDocumentAttachment {
+  id: string;
+  document_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  file_size: number | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface CreatePMDocumentDTO {
+  workspace_id: string;
+  folder_id: string;
+  list_id: string;
+  name: string;
+  content?: string;
+  position?: number;
+}
+
+export interface UpdatePMDocumentDTO {
+  name?: string;
+  content?: string;
+  position?: number;
+  status?: 'active' | 'archived';
+}
+
+// ========================================
+// REMINDERS
+// ========================================
+
+export type ReminderNotifyVia = 'email' | 'whatsapp' | 'telegram' | 'all';
+export type ReminderStatus = 'pending' | 'sent' | 'cancelled';
+
+export interface PMReminder {
+  id: string;
+  workspace_id: string;
+  folder_id: string;
+  list_id: string;
+  name: string;
+  description: string | null;
+  due_date: string;
+  notify_via: ReminderNotifyVia;
+  notification_sent: boolean;
+  notification_sent_at: string | null;
+  status: ReminderStatus;
+  email: string | null;
+  phone: string | null;
+  telegram_chat_id: string | null;
+  position: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePMReminderDTO {
+  workspace_id: string;
+  folder_id: string;
+  list_id: string;
+  name: string;
+  description?: string;
+  due_date: string;
+  notify_via: ReminderNotifyVia;
+  email?: string;
+  phone?: string;
+  telegram_chat_id?: string;
+  position?: number;
   estimated_hours?: number;
   actual_hours?: number;
 }

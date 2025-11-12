@@ -1,14 +1,4 @@
 import { useState } from 'react';
-import {
-  DndContext,
-  DragEndEvent,
-  DragOverlay,
-  DragStartEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { KanbanCard } from './KanbanCardV2';
@@ -27,43 +17,48 @@ const STATUSES: { status: TaskStatus; label: string; color: string }[] = [
   { status: 'em_andamento', label: 'Em Andamento', color: 'bg-blue-500' },
   { status: 'concluido', label: 'Concluído', color: 'bg-green-500' },
   { status: 'bloqueado', label: 'Bloqueado', color: 'bg-red-500' },
+  { status: 'cancelado', label: 'Cancelado', color: 'bg-yellow-600' },
 ];
 
 export function KanbanBoard({ tasks, workspaceId }: KanbanBoardProps) {
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<PMTaskFull | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [draggedOverColumn, setDraggedOverColumn] = useState<TaskStatus | null>(null);
   const updateTask = useUpdatePMTask();
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    })
-  );
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDraggedTaskId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveId(null);
+  const handleDragOver = (e: React.DragEvent, status: TaskStatus) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDraggedOverColumn(status);
+  };
 
-    if (!over) return;
+  const handleDragLeave = () => {
+    setDraggedOverColumn(null);
+  };
 
-    const taskId = active.id as string;
-    const newStatus = over.id as TaskStatus;
+  const handleDrop = (e: React.DragEvent, newStatus: TaskStatus) => {
+    e.preventDefault();
+    setDraggedOverColumn(null);
 
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task || task.status === newStatus) return;
+    if (!draggedTaskId) return;
 
-    // Update task status
+    const task = tasks.find((t) => t.id === draggedTaskId);
+    if (!task || task.status === newStatus) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    // Atualiza o status da tarefa
     updateTask.mutate(
       {
         workspaceId,
-        taskId,
+        taskId: draggedTaskId,
         data: { status: newStatus },
       },
       {
@@ -76,12 +71,14 @@ export function KanbanBoard({ tasks, workspaceId }: KanbanBoardProps) {
         onError: () => {
           toast({
             title: 'Erro ao atualizar tarefa',
-            description: 'Não foi possível alterar o status da tarefa.',
+            description: 'Não foi possível mover a tarefa.',
             variant: 'destructive',
           });
         },
       }
     );
+
+    setDraggedTaskId(null);
   };
 
   const handleTaskClick = (task: PMTaskFull) => {
@@ -89,56 +86,65 @@ export function KanbanBoard({ tasks, workspaceId }: KanbanBoardProps) {
     setModalOpen(true);
   };
 
-  const activeTask = activeId ? tasks.find((t) => t.id === activeId) : null;
-
   return (
     <>
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-4 gap-4 h-full">
-          {STATUSES.map(({ status, label, color }) => {
-            const columnTasks = tasks.filter((task) => task.status === status);
+      <div className="grid grid-cols-5 gap-2 h-full">
+        {STATUSES.map(({ status, label, color }) => {
+          const columnTasks = tasks
+            .filter((task) => task.status === status)
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at));
 
-            return (
-              <SortableContext
-                key={status}
-                id={status}
-                items={columnTasks.map((t) => t.id)}
-                strategy={verticalListSortingStrategy}
+          const isDragging = Boolean(draggedTaskId);
+          const isOver = draggedOverColumn === status;
+
+          return (
+            <Card key={status} className="flex flex-col h-full">
+              <CardHeader className="pb-2 pt-2.5 px-3">
+                <CardTitle className="text-xs font-semibold flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-2 h-2 rounded-full ${color}`} />
+                    <span>{label}</span>
+                  </div>
+                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{columnTasks.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent
+                onDragOver={(e) => handleDragOver(e, status)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, status)}
+                className={`flex-1 space-y-1.5 overflow-y-auto transition-colors px-2 pb-2 ${
+                  isOver ? 'ring-2 ring-primary/50 bg-primary/5' : isDragging ? 'ring-1 ring-muted' : ''
+                }`}
               >
-                <Card className="flex flex-col h-full">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${color}`} />
-                        {label}
-                      </div>
-                      <Badge variant="secondary">{columnTasks.length}</Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex-1 space-y-2 overflow-y-auto">
-                    {columnTasks.map((task) => (
-                      <KanbanCard key={task.id} task={task} onClick={() => handleTaskClick(task)} />
-                    ))}
-                    {columnTasks.length === 0 && (
-                      <div className="text-center py-8 text-sm text-muted-foreground border-2 border-dashed rounded-lg">
-                        Arraste tarefas aqui
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </SortableContext>
-            );
-          })}
-        </div>
-
-        <DragOverlay>
-          {activeTask ? (
-            <div className="opacity-50">
-              <KanbanCard task={activeTask} />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+                {columnTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, task.id)}
+                    onDragEnd={() => setDraggedTaskId(null)}
+                    className={`cursor-move ${draggedTaskId === task.id ? 'opacity-50' : ''}`}
+                  >
+                    <KanbanCard task={task} onClick={() => handleTaskClick(task)} />
+                  </div>
+                ))}
+                {columnTasks.length === 0 && (
+                  <div
+                    className={`text-center py-6 text-xs border-2 border-dashed rounded-md transition-colors ${
+                      isDragging
+                        ? isOver
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-muted-foreground/40 text-muted-foreground'
+                        : 'text-muted-foreground border-muted-foreground/20'
+                    }`}
+                  >
+                    Arraste aqui
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
       {/* Task Detail Modal */}
       <TaskDetailModal

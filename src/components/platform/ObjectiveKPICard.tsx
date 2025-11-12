@@ -106,32 +106,32 @@ export function ObjectiveKPICard({ data, loading }: ObjectiveKPICardProps) {
 
   return (
     <Card className={`border-l-4 ${config.borderColor} ${config.bgColor} hover:shadow-md transition-all overflow-hidden`}>
-      <CardContent className="p-4">
+      <CardContent className="p-3">
         {loading ? (
-          <div className="space-y-2">
-            <div className="h-3 bg-muted animate-pulse rounded w-20" />
-            <div className="h-7 bg-muted animate-pulse rounded w-24" />
-            <div className="h-3 bg-muted animate-pulse rounded w-16" />
+          <div className="space-y-1.5">
+            <div className="h-2.5 bg-muted animate-pulse rounded w-16" />
+            <div className="h-6 bg-muted animate-pulse rounded w-20" />
+            <div className="h-2.5 bg-muted animate-pulse rounded w-14" />
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {/* Header com ícone e título */}
             <div className="flex items-center justify-between">
-              <div className="text-xs text-muted-foreground font-medium">
+              <div className="text-[10px] text-muted-foreground font-medium">
                 {data.resultLabel}
               </div>
               <div className={`opacity-40`}>
-                <Icon className={`h-5 w-5 ${config.color}`} />
+                <Icon className={`h-4 w-4 ${config.color}`} />
               </div>
             </div>
 
             {/* Valor principal: Resultados */}
-            <div className="text-2xl font-bold">
+            <div className="text-xl font-bold">
               {formatNumber(data.totalResults)}
             </div>
 
             {/* Métricas secundárias */}
-            <div className="space-y-1 text-xs">
+            <div className="space-y-0.5 text-[10px]">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Investimento:</span>
                 <span className="font-semibold">{formatCurrency(data.totalSpend)}</span>
@@ -153,7 +153,7 @@ export function ObjectiveKPICard({ data, loading }: ObjectiveKPICardProps) {
                 </div>
               )}
 
-              <div className="flex justify-between items-center pt-1 border-t border-border/50">
+              <div className="flex justify-between items-center pt-0.5 border-t border-border/50">
                 <span className="text-muted-foreground">{data.campaignCount} campanhas</span>
               </div>
             </div>
@@ -170,7 +170,7 @@ interface ObjectiveKPIGridProps {
 
 export function ObjectiveKPIGrid({ children }: ObjectiveKPIGridProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-4 gap-2">
       {children}
     </div>
   );

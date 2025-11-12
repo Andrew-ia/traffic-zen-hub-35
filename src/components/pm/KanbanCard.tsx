@@ -28,6 +28,8 @@ const priorityLabels: Record<TaskPriority, string> = {
 export function KanbanCard({ task }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
+    // Expor metadados para o drop reconhecer a coluna do card
+    data: { type: 'card', column: task.status },
   });
 
   const style = {

@@ -7,8 +7,8 @@ import { PlatformFilters } from "@/components/platform/PlatformFilters";
 import { CompactKPICard } from "@/components/platform/CompactKPICard";
 import { MetricCard, MetricsGrid } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
-import { DemographicCharts } from "@/components/platform/DemographicCharts";
-import { FunnelCard } from "@/components/platform/FunnelCard";
+import { DemographicCharts, AgeChart, GenderChart } from "@/components/platform/DemographicCharts";
+import { FunnelCard, type FunnelType } from "@/components/platform/FunnelCard";
 import { ObjectiveKPICard, ObjectiveKPIGrid } from "@/components/platform/ObjectiveKPICard";
 import { usePlatformMetrics, useTimeSeries, useDemographics, useMetricsByObjective } from "@/hooks/usePlatformMetrics";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
@@ -26,6 +26,28 @@ export default function MetaAds() {
   const [accountFilter, setAccountFilter] = useState("a611cf99-40f1-41ad-854a-f74e28478599");
   const [objectiveFilter, setObjectiveFilter] = useState("all");
   const [chartMetric, setChartMetric] = useState<"spend" | "results" | "revenue">("spend");
+  // Mapear objetivo para tipo de funil automaticamente
+  const getFunnelTypeFromObjective = (objective: string): FunnelType => {
+    const mapping: Record<string, FunnelType> = {
+      "OUTCOME_LEADS": "leads",
+      "LEAD_GENERATION": "leads",
+      "OUTCOME_SALES": "sales",
+      "SALES": "sales",
+      "CONVERSIONS": "sales",
+      "PURCHASE": "sales",
+      "OUTCOME_ENGAGEMENT": "engagement",
+      "MESSAGES": "messages",
+      "OUTCOME_MESSAGES": "messages",
+      "OUTCOME_TRAFFIC": "traffic",
+      "TRAFFIC": "traffic",
+      "LINK_CLICKS": "traffic",
+    };
+    return mapping[objective] || "traffic";
+  };
+
+  const [funnelType, setFunnelType] = useState<FunnelType>(
+    objectiveFilter !== "all" ? getFunnelTypeFromObjective(objectiveFilter) : "traffic"
+  );
 
   // Carregar contas da integração (dashboard) para alinhar com filtro de contas
   const { data: integrationOverview } = useIntegrationOverview();
@@ -41,6 +63,13 @@ export default function MetaAds() {
   useEffect(() => {
     setPage(1);
   }, [statusFilter, debouncedSearch, accountFilter, objectiveFilter]);
+
+  // Atualizar tipo de funil automaticamente quando o filtro de objetivo mudar
+  useEffect(() => {
+    if (objectiveFilter !== "all") {
+      setFunnelType(getFunnelTypeFromObjective(objectiveFilter));
+    }
+  }, [objectiveFilter]);
 
   const { data, isLoading, error } = useCampaigns({
     status: statusFilter,
@@ -165,8 +194,8 @@ export default function MetaAds() {
       {isLoading && metricsLoading && (
         <div className="space-y-3">
           {/* KPIs Skeleton */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[...Array(5)].map((_, i) => (
+          <div className="grid grid-cols-2 gap-3">
+            {[...Array(2)].map((_, i) => (
               <Card key={i}>
                 <CardContent className="p-4">
                   <Skeleton className="h-3 w-20 mb-2" />
@@ -270,7 +299,7 @@ export default function MetaAds() {
 
       {/* KPIs Compactos */}
       {!(isLoading && metricsLoading) && (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <CompactKPICard
           title="Investimento"
           value={new Intl.NumberFormat("pt-BR", {
@@ -279,29 +308,6 @@ export default function MetaAds() {
             maximumFractionDigits: 0,
           }).format(totalSpend)}
           icon={DollarSign}
-          loading={metricsLoading}
-        />
-        <CompactKPICard
-          title="Conversões"
-          value={new Intl.NumberFormat("pt-BR").format(totalResults)}
-          icon={Target}
-          loading={metricsLoading}
-        />
-        <CompactKPICard
-          title="ROAS"
-          value={avgRoas > 0 ? `${avgRoas.toFixed(2)}x` : "-"}
-          icon={TrendingUp}
-          trend={avgRoas > 0 ? `${avgRoas.toFixed(1)}x` : undefined}
-          trendUp={avgRoas > 1}
-          loading={metricsLoading}
-        />
-        <CompactKPICard
-          title="Custo/Resultado"
-          value={avgCostPerResult > 0 ? new Intl.NumberFormat("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-          }).format(avgCostPerResult) : "-"}
-          icon={ShoppingCart}
           loading={metricsLoading}
         />
         <CompactKPICard
@@ -331,6 +337,60 @@ export default function MetaAds() {
             ))}
           </ObjectiveKPIGrid>
         </div>
+      )}
+
+      {/* Métricas Rápidas - 6 cards horizontais */}
+      {!(isLoading && metricsLoading) && (
+        <Card>
+          <CardContent className="p-3">
+            <h3 className="text-sm font-semibold mb-2">Métricas</h3>
+            <div className="grid grid-cols-6 gap-2">
+              <MetricCard
+                label="CTR"
+                value={(() => {
+                  const v = metrics?.ctr ?? 0;
+                  return v ? `${v.toFixed(2)}%` : "-";
+                })()}
+                loading={metricsLoading}
+              />
+              <MetricCard
+                label="CPC"
+                value={(() => {
+                  const v = metrics?.cpc ?? 0;
+                  return v
+                    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
+                    : "-";
+                })()}
+                loading={metricsLoading}
+              />
+              <MetricCard
+                label="CPM"
+                value={(() => {
+                  const v = metrics?.cpm ?? 0;
+                  return v
+                    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
+                    : "-";
+                })()}
+                loading={metricsLoading}
+              />
+              <MetricCard
+                label="Impressões"
+                value={metrics?.impressions ? new Intl.NumberFormat("pt-BR").format(metrics.impressions) : "-"}
+                loading={metricsLoading}
+              />
+              <MetricCard
+                label="Alcance"
+                value={metrics?.reach ? new Intl.NumberFormat("pt-BR").format(metrics.reach) : "-"}
+                loading={metricsLoading}
+              />
+              <MetricCard
+                label="Cliques"
+                value={metrics?.clicks ? new Intl.NumberFormat("pt-BR").format(metrics.clicks) : "-"}
+                loading={metricsLoading}
+              />
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Erro */}
@@ -374,173 +434,61 @@ export default function MetaAds() {
         </Card>
       )}
 
-      {/* Layout Principal em 3 Colunas - Mostrar apenas se houver campanhas */}
+      {/* Layout Principal - Mostrar apenas se houver campanhas */}
       {!error && !isLoading && campaigns.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
-          {/* Coluna Esquerda (40%) - Performance + Campanhas */}
-          <div className="lg:col-span-4 space-y-3 min-h-0">
-            {/* Gráfico de Performance Compacto */}
-            <Card>
-              <CardContent className="pt-4 pb-2">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold">Performance</h3>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setChartMetric("spend")}
-                      className={`px-2 py-1 text-xs rounded transition ${
-                        chartMetric === "spend"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      }`}
-                    >
-                      Invest
-                    </button>
-                    <button
-                      onClick={() => setChartMetric("results")}
-                      className={`px-2 py-1 text-xs rounded transition ${
-                        chartMetric === "results"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      }`}
-                    >
-                      Result
-                    </button>
-                    <button
-                      onClick={() => setChartMetric("revenue")}
-                      className={`px-2 py-1 text-xs rounded transition ${
-                        chartMetric === "revenue"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      }`}
-                    >
-                      Receita
-                    </button>
-                  </div>
-                </div>
-                <div className="h-[200px]">
-                  <PerformanceChart
-                    data={timeSeriesData ?? []}
-                    metric={chartMetric}
-                    title=""
-                    description=""
-                  />
-                </div>
-              </CardContent>
-            </Card>
+        <div className="space-y-3">
+          {/* Linha 1: Funil, Demografia (Faixa Etária) e Gênero - 3 cards horizontais */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {/* Funil */}
+            <FunnelCard
+              title="Funil"
+              funnelType={funnelType}
+              metrics={{
+                // Dados que vêm diretamente da API filtrados por objetivo
+                impressions: metrics?.impressions ?? 0,
+                clicks: metrics?.clicks ?? 0,
+                reach: metrics?.reach ?? 0,
+                // O totalResults já vem filtrado pelo objetivo da campanha
+                // Quando filtra por OUTCOME_LEADS, totalResults = quantidade de leads
+                // Quando filtra por OUTCOME_SALES, totalResults = quantidade de vendas, etc.
+                leads: metrics?.totalResults ?? 0,
+                sales: metrics?.totalResults ?? 0,
+                engagements: metrics?.totalResults ?? 0,
+                messages: metrics?.totalResults ?? 0,
+                visits: metrics?.linkClicks ?? metrics?.clicks ?? 0,
+              }}
+              onTypeChange={setFunnelType}
+              loading={metricsLoading}
+            />
 
-            {/* Tabela de Campanhas Compacta */}
-            <Card className="overflow-hidden">
-              <div className="max-h-[450px] overflow-y-auto">
-                <CampaignsTable
-                  title="Campanhas"
-                  campaigns={campaigns}
-                  isLoading={isLoading}
-                  page={page}
-                  pageSize={PAGE_SIZE}
-                  total={total}
-                  onPageChange={setPage}
-                  showCreateButton={false}
-                />
-              </div>
-            </Card>
+            {/* Demografia - Faixa Etária */}
+            <AgeChart
+              ageData={demographics?.ageData ?? []}
+              loading={demographicsLoading}
+            />
+
+            {/* Gênero */}
+            <GenderChart
+              genderData={demographics?.genderData ?? []}
+              loading={demographicsLoading}
+            />
           </div>
 
-        {/* Coluna Central (30%) - Funil + Métricas */}
-        <div className="lg:col-span-3 space-y-3">
-          <FunnelCard
-            title="Funil"
-            steps={(() => {
-              // Usar métricas filtradas em vez de traffic
-              const impressions = metrics?.impressions ?? 0;
-              const clicks = metrics?.clicks ?? 0;
-              const results = metrics?.totalResults ?? 0;
-              return [
-                { label: "Impressões", value: impressions },
-                { label: "Cliques", value: clicks },
-                { label: "Conversões", value: results },
-              ];
-            })()}
-            loading={metricsLoading}
-          />
-
-          {/* Métricas Rápidas */}
-          <Card>
-            <CardContent className="pt-4 pb-2">
-              <h3 className="text-sm font-semibold mb-3">Métricas</h3>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <MetricCard
-                  label="CTR"
-                  value={(() => {
-                    const v = metrics?.ctr ?? 0;
-                    return v ? `${v.toFixed(2)}%` : "-";
-                  })()}
-                  loading={metricsLoading}
-                />
-                <MetricCard
-                  label="CPC"
-                  value={(() => {
-                    const v = metrics?.cpc ?? 0;
-                    return v
-                      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
-                      : "-";
-                  })()}
-                  loading={metricsLoading}
-                />
-                <MetricCard
-                  label="CPM"
-                  value={(() => {
-                    const v = metrics?.cpm ?? 0;
-                    return v
-                      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
-                      : "-";
-                  })()}
-                  loading={metricsLoading}
-                />
-                <MetricCard
-                  label="Impressões"
-                  value={metrics?.impressions ? new Intl.NumberFormat("pt-BR").format(metrics.impressions) : "-"}
-                  loading={metricsLoading}
-                />
-                <MetricCard
-                  label="Alcance"
-                  value={metrics?.reach ? new Intl.NumberFormat("pt-BR").format(metrics.reach) : "-"}
-                  loading={metricsLoading}
-                />
-                <MetricCard
-                  label="Cliques"
-                  value={metrics?.clicks ? new Intl.NumberFormat("pt-BR").format(metrics.clicks) : "-"}
-                  loading={metricsLoading}
-                />
-              </div>
-            </CardContent>
+          {/* Linha 2: Tabela de Campanhas - largura total */}
+          <Card className="overflow-hidden">
+            <div className="max-h-[650px] overflow-y-auto">
+              <CampaignsTable
+                title="Campanhas"
+                campaigns={campaigns}
+                isLoading={isLoading}
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={total}
+                onPageChange={setPage}
+                showCreateButton={false}
+              />
+            </div>
           </Card>
-        </div>
-
-        {/* Coluna Direita (30%) - Demografia */}
-        <div className="lg:col-span-3 space-y-3">
-          {/* Gráficos de Demografia Compactos */}
-          <DemographicCharts
-            ageData={demographics?.ageData ?? []}
-            genderData={demographics?.genderData ?? []}
-            loading={demographicsLoading}
-          />
-
-          {/* ROI Card Destacado */}
-          <Card className="overflow-hidden bg-gradient-to-br from-emerald-50 via-teal-50 to-green-50 dark:from-emerald-950/30 dark:via-teal-950/30 dark:to-green-950/30 border-emerald-200 dark:border-emerald-800">
-            <CardContent className="p-6">
-              <div className="text-center">
-                <div className="text-xs text-muted-foreground font-medium mb-2">Retorno Total sobre Investimento</div>
-                <div className="text-4xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 bg-clip-text text-transparent mb-2">
-                  {avgRoas > 0 ? `${avgRoas.toFixed(2)}x` : "-"}
-                </div>
-                <div className="text-xs text-muted-foreground">ROAS médio do período</div>
-                <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-800">
-                  <div className="text-2xl">🎯📈💰</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
         </div>
       )}
       </>
