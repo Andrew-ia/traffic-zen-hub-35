@@ -859,7 +859,7 @@ export function CreateItemModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] sm:max-h-[92vh] overflow-y-auto p-4">
-        <DialogHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-10 border-b">
+        <DialogHeader className="border-b">
           <DialogTitle>Criar Novo Item</DialogTitle>
           {folderName && listName && (
             <p className="text-sm text-muted-foreground">
@@ -1191,7 +1191,7 @@ export function CreateItemModal({
                         return (
                           <div key={`${idx}-${section.title}`} className={sectionSpaceClass}>
                             {!hideHeader && (
-                              <div className="flex items-center justify-between sticky top-0 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-1">
+                              <div className="flex items-center justify-between py-1">
                                 <h4 className="text-sm font-semibold">{section.title}</h4>
                                 {isAdsetSection && (
                                   <Button variant="outline" size="sm" onClick={() => { setAdsetCount((c) => c + 1); setCreativeCounts((counts) => [...counts, 1]); }}>
