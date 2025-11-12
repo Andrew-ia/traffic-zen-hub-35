@@ -44,6 +44,19 @@ export function createDatabasePool(): Pool {
 let pool: Pool | null = null;
 
 export function getPool(): Pool {
+  // For serverless environments (like Vercel), create a new pool each time
+  // to avoid connection issues across function invocations
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    const serverlessPool = new Pool({
+      connectionString: getDatabaseUrl(),
+      max: 1, // Limit to 1 connection for serverless
+      idleTimeoutMillis: 1000,
+      connectionTimeoutMillis: 5000,
+    });
+
+    return serverlessPool;
+  }
+
   if (!pool) {
     pool = createDatabasePool();
 
