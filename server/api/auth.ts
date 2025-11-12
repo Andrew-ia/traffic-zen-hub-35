@@ -1,6 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { getPool } from '../config/database.js';
+import { Client } from 'pg';
+
+function getDatabaseUrl(): string {
+  const url = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');
+  }
+  return url;
+}
 
 /**
  * Simple HMAC-based token utilities (no external deps)
@@ -63,6 +71,8 @@ function mapWorkspaceRoleToAppRole(workspaceRole?: string | null): 'adm' | 'basi
 const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '';
 
 export async function login(req: Request, res: Response) {
+  const client = new Client({ connectionString: getDatabaseUrl() });
+
   try {
     const { email, username, password } = req.body || {};
     const identifier = email || username;
@@ -71,10 +81,11 @@ export async function login(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'missing_credentials' });
     }
 
-    const pool = getPool();
+    await client.connect();
+
     // Validate password using pgcrypto's crypt() against stored hash
     // Allow login with either email or full_name (username)
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `SELECT u.id, u.email, u.full_name,
               wm.role as workspace_role
          FROM users u
@@ -87,6 +98,7 @@ export async function login(req: Request, res: Response) {
     );
 
     if (!rows.length) {
+      await client.end();
       return res.status(401).json({ success: false, error: 'invalid_login' });
     }
 
@@ -100,9 +112,15 @@ export async function login(req: Request, res: Response) {
     };
     const token = signToken(payload);
 
+    await client.end();
     res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.full_name, role: appRole } });
   } catch (err) {
     console.error('Login error', err);
+    try {
+      await client.end();
+    } catch (endErr) {
+      // Ignore end errors
+    }
     res.status(500).json({ success: false, error: 'server_error' });
   }
 }
