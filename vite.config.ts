@@ -19,8 +19,11 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Critical: React must be in a single vendor chunk to avoid duplication
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+          // Critical: Group React and UI libraries together to share React context
+          if (id.includes('node_modules/react') ||
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/@radix-ui') ||
+              id.includes('node_modules/react-router')) {
             return 'vendor-react';
           }
 
@@ -32,9 +35,6 @@ export default defineConfig(({ mode }) => ({
           if (id.includes('node_modules/openai')) return 'openai';
           if (id.includes('node_modules/@anthropic-ai')) return 'anthropic-ai';
           if (id.includes('node_modules/google-ads-api')) return 'google-ads';
-
-          // Radix UI components
-          if (id.includes('node_modules/@radix-ui')) return 'radix-ui';
 
           // Page-specific chunks
           if (id.includes('src/pages/MetaAds')) return 'pages-meta';
