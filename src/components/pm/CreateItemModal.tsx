@@ -859,7 +859,7 @@ export function CreateItemModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] sm:max-h-[92vh] overflow-y-auto p-4">
-        <DialogHeader className="border-b">
+        <DialogHeader className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-10 border-b">
           <DialogTitle>Criar Novo Item</DialogTitle>
           {folderName && listName && (
             <p className="text-sm text-muted-foreground">
