@@ -174,7 +174,7 @@ export function CreateItemModal({
       {
         title: 'Configuração do Anúncio',
         fields: [
-          { label: 'Qtd. de Criativos por Conjunto', type: 'select', options: ['3', '4', '5'], default: '3' },
+          { label: 'Qtd. de Criativos por Conjunto', type: 'select', options: ['1', '2', '3', '4', '5'], default: '1' },
           { label: 'Formato', type: 'select', options: ['Imagem ou Vídeo Único', 'Carrossel', 'Coleção'], default: 'Imagem ou Vídeo Único' },
           // Removido: Criativo Dinâmico
           // Removido: Anúncio em Parceria
