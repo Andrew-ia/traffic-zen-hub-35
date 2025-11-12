@@ -503,18 +503,21 @@ export async function uploadTaskAttachment(req: Request, res: Response) {
     const pool = getPool();
 
     // Determine the user to attribute the upload to
-    const taskUserResult = await pool.query(
-      'SELECT created_by, assignee_id FROM pm_tasks WHERE id = $1',
-      [taskId]
-    );
-    const taskUserRow = taskUserResult.rows[0];
-    const userId = taskUserRow?.created_by || taskUserRow?.assignee_id || null;
+    // First, check if user_id is provided in request body
+    let userId = (req.body as any).user_id || null;
+
+    // If not provided, try to get from task
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Task has no created_by or assignee_id to attribute the attachment',
-      });
+      const taskUserResult = await pool.query(
+        'SELECT created_by, assignee_id FROM pm_tasks WHERE id = $1',
+        [taskId]
+      );
+      const taskUserRow = taskUserResult.rows[0];
+      userId = taskUserRow?.created_by || taskUserRow?.assignee_id || null;
     }
+
+    // user_id can be null if task has no creator/assignee and user doesn't provide one
+    // This is acceptable for system-created tasks
 
     const query = `
       INSERT INTO pm_task_attachments (task_id, user_id, file_name, file_url, file_type, file_size)
