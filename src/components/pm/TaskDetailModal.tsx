@@ -231,105 +231,130 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                 <FileText className="h-4 w-4" />
                 Campanha Meta Ads
               </h3>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
                 {/* Campaign Info */}
-                {(campaignData.campaignName || campaignData.objective) && (
-                  <div className="space-y-3">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase">Informações</div>
-                    {campaignData.campaignName && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Nome:</span>
-                        <p className="font-medium text-sm">{campaignData.campaignName}</p>
-                      </div>
-                    )}
-                    {campaignData.objective && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Objetivo:</span>
-                        <p className="font-medium text-sm capitalize">{campaignData.objective}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="grid grid-cols-2 gap-6">
+                  {(campaignData.campaignName || campaignData.objective) && (
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold text-muted-foreground uppercase">Informações</div>
+                      {campaignData.campaignName && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Nome:</span>
+                          <p className="font-medium text-sm">{campaignData.campaignName}</p>
+                        </div>
+                      )}
+                      {campaignData.objective && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Objetivo:</span>
+                          <p className="font-medium text-sm capitalize">{campaignData.objective}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                {/* Audience */}
-                {(campaignData.ageMin || campaignData.ageMax || campaignData.interests) && (
-                  <div className="space-y-3">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase">Público-Alvo</div>
-                    {(campaignData.ageMin || campaignData.ageMax) && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Faixa Etária:</span>
-                        <p className="font-medium text-sm">{campaignData.ageMin} - {campaignData.ageMax} anos</p>
-                      </div>
-                    )}
-                    {campaignData.interests && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Interesses:</span>
-                        <p className="font-medium text-sm">{campaignData.interests}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {/* Audience */}
+                  {(campaignData.ageMin || campaignData.ageMax || campaignData.interests) && (
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold text-muted-foreground uppercase">Público-Alvo</div>
+                      {(campaignData.ageMin || campaignData.ageMax) && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Faixa Etária:</span>
+                          <p className="font-medium text-sm">{campaignData.ageMin} - {campaignData.ageMax} anos</p>
+                        </div>
+                      )}
+                      {campaignData.interests && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Interesses:</span>
+                          <p className="font-medium text-sm">{campaignData.interests}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                {/* Budget & Dates */}
-                {(campaignData.budget || campaignData.startDate || campaignData.endDate) && (
-                  <div className="space-y-3">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase">Orçamento & Datas</div>
-                    {campaignData.budget && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Orçamento:</span>
-                        <p className="font-medium text-sm text-green-600">R$ {Number(campaignData.budget).toFixed(2)}</p>
-                      </div>
-                    )}
-                    {campaignData.startDate && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Início:</span>
-                        <p className="font-medium text-sm">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</p>
-                      </div>
-                    )}
-                    {campaignData.endDate && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Término:</span>
-                        <p className="font-medium text-sm">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {/* Budget & Dates */}
+                  {(campaignData.budget || campaignData.startDate || campaignData.endDate) && (
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold text-muted-foreground uppercase">Orçamento & Datas</div>
+                      {campaignData.budget && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Orçamento:</span>
+                          <p className="font-medium text-sm text-green-600">R$ {Number(campaignData.budget).toFixed(2)}</p>
+                        </div>
+                      )}
+                      {campaignData.startDate && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Início:</span>
+                          <p className="font-medium text-sm">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                      )}
+                      {campaignData.endDate && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">Término:</span>
+                          <p className="font-medium text-sm">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-                {/* Creatives */}
-                {(campaignData.primaryText || campaignData.headline || campaignData.description || campaignData.cta || campaignData.creativeUrl) && (
-                  <div className="space-y-3 col-span-2">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos</div>
-                    <div className="bg-muted/50 p-3 rounded-lg space-y-2">
-                      {campaignData.headline && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Título:</span>
-                          <p className="font-medium text-sm">{campaignData.headline}</p>
+                {/* Ad Sets & Creatives */}
+                {campaignData.adSets && campaignData.adSets.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase">Conjuntos de Anúncios ({campaignData.adSets.length})</div>
+                    <div className="space-y-3">
+                      {campaignData.adSets.map((adSet: any, adSetIdx: number) => (
+                        <div key={adSet.id} className="border rounded-lg p-3 bg-muted/30 space-y-3">
+                          {/* Ad Set Header */}
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground">Conjunto #{adSetIdx + 1}</p>
+                            <p className="font-medium text-sm">{adSet.name}</p>
+                          </div>
+
+                          {/* Creatives */}
+                          {adSet.creatives && adSet.creatives.length > 0 && (
+                            <div className="space-y-2 border-t pt-3">
+                              <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos ({adSet.creatives.length})</div>
+                              <div className="space-y-2">
+                                {adSet.creatives.map((creative: any, creativeIdx: number) => (
+                                  <div key={creative.id} className="bg-white dark:bg-slate-950 p-2 rounded border text-sm space-y-1">
+                                    <p className="text-xs font-semibold text-muted-foreground">Criativo #{creativeIdx + 1}</p>
+                                    {creative.headline && (
+                                      <div>
+                                        <span className="text-xs text-muted-foreground">Título:</span>
+                                        <p className="font-medium">{creative.headline}</p>
+                                      </div>
+                                    )}
+                                    {creative.primaryText && (
+                                      <div>
+                                        <span className="text-xs text-muted-foreground">Texto Principal:</span>
+                                        <p className="text-xs">{creative.primaryText}</p>
+                                      </div>
+                                    )}
+                                    {creative.description && (
+                                      <div>
+                                        <span className="text-xs text-muted-foreground">Descrição:</span>
+                                        <p className="text-xs">{creative.description}</p>
+                                      </div>
+                                    )}
+                                    {creative.cta && (
+                                      <div>
+                                        <span className="text-xs text-muted-foreground">CTA:</span>
+                                        <Badge variant="secondary" className="ml-1 text-xs">{creative.cta}</Badge>
+                                      </div>
+                                    )}
+                                    {creative.creativeUrl && (
+                                      <div>
+                                        <span className="text-xs text-muted-foreground">URL:</span>
+                                        <p className="text-xs text-blue-600 break-all font-mono">{creative.creativeUrl}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {campaignData.primaryText && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Texto Principal:</span>
-                          <p className="text-sm">{campaignData.primaryText}</p>
-                        </div>
-                      )}
-                      {campaignData.description && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Descrição:</span>
-                          <p className="text-sm">{campaignData.description}</p>
-                        </div>
-                      )}
-                      {campaignData.cta && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">CTA:</span>
-                          <Badge variant="secondary" className="ml-2">{campaignData.cta}</Badge>
-                        </div>
-                      )}
-                      {campaignData.creativeUrl && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">URL do Criativo:</span>
-                          <p className="text-sm text-blue-600 break-all font-mono text-xs">{campaignData.creativeUrl}</p>
-                        </div>
-                      )}
+                      ))}
                     </div>
                   </div>
                 )}
