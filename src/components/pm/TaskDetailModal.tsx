@@ -200,77 +200,131 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
             <div className="border-t pt-6">
               <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Dados do Template
+                Configuração do Template
               </h4>
-              <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
-                <div className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/50">
-                  <span className="text-xs font-medium text-muted-foreground">Template</span>
-                  <Badge variant="secondary">{templateName}</Badge>
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+                {/* Template header */}
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">{templateName}</Badge>
+                  {templateCategory && <Badge variant="outline" className="text-xs">{templateCategory}</Badge>}
                 </div>
-                {templateCategory && (
-                  <div className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/50">
-                    <span className="text-xs font-medium text-muted-foreground">Categoria</span>
-                    <Badge variant="outline">{templateCategory}</Badge>
-                  </div>
-                )}
 
-                {/* Display creative URLs if available */}
-                {Object.entries(templateValues).map(([key, value]) => {
-                  // Extract creative URLs (conjunto_X.criativo_Y.url pattern)
-                  if (key.includes('criativo') && key.includes('.url') && value) {
-                    const urlValue = String(value);
-                    if (urlValue.startsWith('http')) {
-                      const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
-                      const conjunto = match ? Number(match[1]) : 'N/A';
-                      const criativo = match ? Number(match[2]) : 'N/A';
-                      return (
-                        <div key={key} className="py-2 px-3 rounded-md border border-dashed">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-xs font-medium text-muted-foreground">
-                              Criativo {criativo} (Conjunto {conjunto})
-                            </span>
-                          </div>
-                          <a
-                            href={urlValue}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all flex items-center gap-1"
-                          >
-                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                            {urlValue}
-                          </a>
-                        </div>
-                      );
-                    }
-                  }
-                  return null;
-                })}
+                {/* Build a clean display of only filled fields */}
+                {(() => {
+                  const fieldsToDisplay: Array<{ label: string; value: string; category?: string }> = [];
 
-                {/* Display other important template fields */}
-                {Object.entries(templateValues)
-                  .filter(([key]) => {
-                    // Show important fields but skip URLs and technical keys
+                  // Collect all non-empty fields
+                  Object.entries(templateValues).forEach(([key, value]) => {
+                    if (!value || value === '' || (Array.isArray(value) && value.length === 0)) return;
+
+                    const stringValue = String(value);
                     const lowerKey = key.toLowerCase();
+
+                    // Skip empty values, URLs, and pure technical keys
+                    if (stringValue === '—' || key.includes('.url') || key === '__wizardStep') return;
+
+                    // Parse the key to create a readable label
+                    let label = key
+                      .replace(/^conjunto_\d+\./, '') // Remove conjunto prefix
+                      .replace(/^criativo_\d+\./, '') // Remove criativo prefix
+                      .replace(/_/g, ' ')
+                      .split('.')
+                      .pop() || '';
+
+                    // Capitalize first letter
+                    label = label.charAt(0).toUpperCase() + label.slice(1);
+
+                    // Determine category for grouping
+                    let category = 'Outros';
+                    if (lowerKey.includes('criativo') || lowerKey.includes('criativo')) {
+                      category = 'Criativos';
+                    } else if (lowerKey.includes('conjunto')) {
+                      category = 'Conjuntos';
+                    } else if (lowerKey.includes('orçamento') || lowerKey.includes('orcamento') || lowerKey.includes('budget')) {
+                      category = 'Orçamento';
+                    } else if (lowerKey.includes('data')) {
+                      category = 'Datas';
+                    } else if (lowerKey.includes('objetivo')) {
+                      category = 'Objetivo';
+                    } else if (lowerKey.includes('nome')) {
+                      category = 'Informações';
+                    }
+
+                    fieldsToDisplay.push({ label, value: stringValue, category });
+                  });
+
+                  // Group by category
+                  const grouped = fieldsToDisplay.reduce(
+                    (acc, field) => {
+                      if (!acc[field.category || 'Outros']) {
+                        acc[field.category || 'Outros'] = [];
+                      }
+                      acc[field.category || 'Outros'].push(field);
+                      return acc;
+                    },
+                    {} as Record<string, typeof fieldsToDisplay>
+                  );
+
+                  // Display creative URLs first (most important)
+                  const creativeUrls = Object.entries(templateValues)
+                    .filter(([key, value]) => key.includes('criativo') && key.includes('.url') && value)
+                    .map(([key, value]) => {
+                      const urlValue = String(value);
+                      if (urlValue.startsWith('http')) {
+                        const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
+                        const conjunto = match ? Number(match[1]) : 'N/A';
+                        const criativo = match ? Number(match[2]) : 'N/A';
+                        return { key, urlValue, conjunto, criativo };
+                      }
+                      return null;
+                    })
+                    .filter(Boolean);
+
+                  if (creativeUrls.length > 0) {
                     return (
-                      (lowerKey.includes('nome') ||
-                        lowerKey.includes('objetivo') ||
-                        lowerKey.includes('orçamento') ||
-                        lowerKey.includes('orcamento') ||
-                        lowerKey.includes('data_de')) &&
-                      !key.includes('.') && // Skip nested fields for now
-                      key !== 'nome_da_campanha' // Skip duplicates already shown
+                      <>
+                        {/* Creative URLs Section */}
+                        <div className="space-y-2">
+                          <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Criativos</h5>
+                          {creativeUrls.map((item) => (
+                            <div key={item?.key} className="py-2 px-3 rounded-md border border-blue-200 bg-blue-50/30">
+                              <div className="text-xs font-medium text-muted-foreground mb-1">
+                                Criativo {item?.criativo} (Conjunto {item?.conjunto})
+                              </div>
+                              <a
+                                href={item?.urlValue}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all flex items-center gap-1"
+                                title={item?.urlValue}
+                              >
+                                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                {item?.urlValue}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Other fields by category */}
+                        {Object.entries(grouped)
+                          .filter(([cat]) => cat !== 'Criativos')
+                          .map(([category, fields]) => (
+                            <div key={category} className="space-y-2">
+                              <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{category}</h5>
+                              {fields.map((field) => (
+                                <div key={`${category}-${field.label}`} className="py-2 px-3 rounded-md bg-muted/40">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">{field.label}</div>
+                                  <div className="text-sm text-foreground break-words">{field.value}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                      </>
                     );
-                  })
-                  .map(([key, value]) => {
-                    if (!value || value === '') return null;
-                    const displayKey = key.replace(/_/g, ' ').replace(/^./, (s) => s.toUpperCase());
-                    return (
-                      <div key={key} className="py-2 px-3 rounded-md bg-muted/30 text-xs">
-                        <div className="font-medium text-muted-foreground mb-1">{displayKey}</div>
-                        <div className="text-foreground break-words">{String(value)}</div>
-                      </div>
-                    );
-                  })}
+                  }
+
+                  return null;
+                })()}
               </div>
             </div>
           )}
