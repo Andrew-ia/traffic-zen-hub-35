@@ -220,8 +220,8 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                     const stringValue = String(value);
                     const lowerKey = key.toLowerCase();
 
-                    // Skip empty values, URLs, and pure technical keys
-                    if (stringValue === '—' || key.includes('.url') || key === '__wizardStep') return;
+                    // Skip empty values, URLs, pure technical keys
+                    if (stringValue === '—' || !stringValue || key.includes('.url') || key === '__wizardStep') return;
 
                     // Parse the key to create a readable label
                     let label = key
@@ -236,18 +236,24 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
 
                     // Determine category for grouping
                     let category = 'Outros';
-                    if (lowerKey.includes('criativo') || lowerKey.includes('criativo')) {
+                    if (lowerKey.includes('criativo') && !key.includes('.')) {
                       category = 'Criativos';
-                    } else if (lowerKey.includes('conjunto')) {
+                    } else if (lowerKey.includes('conjunto') && !key.includes('.')) {
                       category = 'Conjuntos';
+                    } else if (lowerKey.includes('qtd') || lowerKey.includes('criativos')) {
+                      category = 'Configuração do Anúncio';
+                    } else if (lowerKey.includes('formato') || lowerKey.includes('dinamico') || lowerKey.includes('parceria')) {
+                      category = 'Configuração do Anúncio';
                     } else if (lowerKey.includes('orçamento') || lowerKey.includes('orcamento') || lowerKey.includes('budget')) {
                       category = 'Orçamento';
-                    } else if (lowerKey.includes('data')) {
-                      category = 'Datas';
+                    } else if (lowerKey.includes('data') || lowerKey.includes('programação') || lowerKey.includes('programacao')) {
+                      category = 'Programação';
                     } else if (lowerKey.includes('objetivo')) {
                       category = 'Objetivo';
-                    } else if (lowerKey.includes('nome')) {
+                    } else if (lowerKey.includes('nome') || lowerKey.includes('público') || lowerKey.includes('publico')) {
                       category = 'Informações';
+                    } else if (lowerKey.includes('responsável') || lowerKey.includes('responsavel') || lowerKey.includes('status')) {
+                      category = 'Gestão Interna';
                     }
 
                     fieldsToDisplay.push({ label, value: stringValue, category });
