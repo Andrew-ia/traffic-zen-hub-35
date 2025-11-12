@@ -19,6 +19,11 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Critical: React must be in a single vendor chunk to avoid duplication
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+
           // Vendor chunks for large libraries
           if (id.includes('node_modules/recharts')) return 'recharts';
           if (id.includes('node_modules/@dnd-kit')) return 'dnd-kit';
