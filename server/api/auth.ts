@@ -64,23 +64,26 @@ const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID |
 
 export async function login(req: Request, res: Response) {
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
+    const { email, username, password } = req.body || {};
+    const identifier = email || username;
+
+    if (!identifier || !password) {
       return res.status(400).json({ success: false, error: 'missing_credentials' });
     }
 
     const pool = getPool();
     // Validate password using pgcrypto's crypt() against stored hash
+    // Allow login with either email or full_name (username)
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.full_name,
               wm.role as workspace_role
          FROM users u
          LEFT JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = $3
-        WHERE u.email = $1
+        WHERE (LOWER(u.email) = LOWER($1) OR LOWER(u.full_name) = LOWER($1))
           AND u.status = 'active'
           AND crypt($2, u.password_hash) = u.password_hash
         LIMIT 1`,
-      [email, password, WORKSPACE_ID]
+      [identifier, password, WORKSPACE_ID]
     );
 
     if (!rows.length) {

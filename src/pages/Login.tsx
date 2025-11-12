@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 export default function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +15,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const ok = await login(email.trim(), password);
+    const ok = await login(username.trim(), password);
     if (!ok) setError('Login inválido. Verifique e tente novamente.');
     setLoading(false);
   };
@@ -29,8 +29,14 @@ export default function Login() {
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm mb-1">E-mail</label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label className="block text-sm mb-1">Nome de usuário ou E-mail</label>
+              <Input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Digite seu nome ou email"
+                required
+              />
             </div>
             <div>
               <label className="block text-sm mb-1">Senha</label>
