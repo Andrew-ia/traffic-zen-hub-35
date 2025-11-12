@@ -408,6 +408,36 @@ export function CreateItemModal({
     });
   };
 
+  // Initialize template defaults when switching to templates tab
+  useEffect(() => {
+    if (activeTab === 'templates' && Object.keys(templateValues).length === 0) {
+      const currentTemplate = TEMPLATES[selectedTemplateIndex];
+      const initialValues: Record<string, any> = {};
+      const keyOfHelper = (label: string) => label.replace(/\s+/g, '_').toLowerCase();
+
+      const collectDefaults = (fields: TemplateField[], parentKey?: string) => {
+        fields.forEach((field) => {
+          if (field.type === 'group' && field.fields) {
+            const groupKey = parentKey ? `${parentKey}.${keyOfHelper(field.label)}` : keyOfHelper(field.label);
+            collectDefaults(field.fields, groupKey);
+          } else if (field.default !== undefined) {
+            const fieldKey = keyOfHelper(field.label);
+            const key = parentKey ? `${parentKey}.${fieldKey}` : fieldKey;
+            initialValues[key] = field.default;
+          }
+        });
+      };
+
+      currentTemplate.sections.forEach((section) => {
+        collectDefaults(section.fields);
+      });
+
+      if (Object.keys(initialValues).length > 0) {
+        setTemplateValues(initialValues);
+      }
+    }
+  }, [activeTab, selectedTemplateIndex]);
+
   const keyOf = (label: string) => label.replace(/\s+/g, '_').toLowerCase();
 
   // Converte os valores do template em um texto legível em vez de JSON
@@ -839,28 +869,7 @@ export function CreateItemModal({
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (open && activeTab === 'templates') {
-      // Initialize template values with defaults when opening templates tab
-      const currentTemplate = TEMPLATES[selectedTemplateIndex];
-      const initialValues: Record<string, any> = {};
-
-      const collectDefaults = (fields: TemplateField[], parentKey?: string) => {
-        fields.forEach((field) => {
-          if (field.type === 'group' && field.fields) {
-            collectDefaults(field.fields, parentKey ? `${parentKey}.${keyOf(field.label)}` : keyOf(field.label));
-          } else if (field.default !== undefined) {
-            const key = parentKey ? `${parentKey}.${keyOf(field.label)}` : keyOf(field.label);
-            initialValues[key] = field.default;
-          }
-        });
-      };
-
-      currentTemplate.sections.forEach((section) => {
-        collectDefaults(section.fields);
-      });
-
-      setTemplateValues(initialValues);
-    } else if (!open) {
+    if (!open) {
       // Reset all fields when closing
       setTaskName('');
       setTaskDescription('');
