@@ -229,13 +229,15 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
 
                   // Collect all non-empty fields
                   Object.entries(templateValues).forEach(([key, value]) => {
-                    if (!value || value === '' || (Array.isArray(value) && value.length === 0)) return;
+                    // Skip empty values and technical keys
+                    if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) return;
+                    if (key === '__wizardStep') return;
 
                     const stringValue = String(value);
                     const lowerKey = key.toLowerCase();
 
-                    // Skip empty values, URLs, pure technical keys
-                    if (stringValue === '—' || !stringValue || key.includes('.url') || key === '__wizardStep') return;
+                    // Skip URLs (displayed separately) and pure technical keys
+                    if (stringValue === '—' || !stringValue || key.includes('.url')) return;
 
                     // Parse the key to create a readable label
                     let label = key
@@ -250,15 +252,17 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
 
                     // Determine category for grouping
                     let category = 'Outros';
-                    if (lowerKey.includes('criativo') && !key.includes('.')) {
+                    if (lowerKey.includes('criativo') && key.includes('.')) {
                       category = 'Criativos';
                     } else if (lowerKey.includes('conjunto') && !key.includes('.')) {
                       category = 'Conjuntos';
-                    } else if (lowerKey.includes('qtd') || lowerKey.includes('criativos')) {
+                    } else if (lowerKey.includes('idade_minima') || lowerKey.includes('idade_maxima')) {
+                      category = 'Segmentação';
+                    } else if (lowerKey.includes('qtd') || lowerKey.includes('formato') || (lowerKey.includes('criativo') && lowerKey.includes('copy'))) {
                       category = 'Configuração do Anúncio';
-                    } else if (lowerKey.includes('formato') || lowerKey.includes('dinamico') || lowerKey.includes('parceria')) {
-                      category = 'Configuração do Anúncio';
-                    } else if (lowerKey.includes('orçamento') || lowerKey.includes('orcamento') || lowerKey.includes('budget')) {
+                    } else if (lowerKey.includes('texto_principal') || lowerKey.includes('titulo') || lowerKey.includes('descricao') || lowerKey.includes('cta')) {
+                      category = 'Criativos';
+                    } else if (lowerKey.includes('orçamento') || lowerKey.includes('orcamento') || lowerKey.includes('budget') || lowerKey.includes('valor')) {
                       category = 'Orçamento';
                     } else if (lowerKey.includes('data') || lowerKey.includes('programação') || lowerKey.includes('programacao')) {
                       category = 'Programação';
@@ -266,7 +270,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                       category = 'Objetivo';
                     } else if (lowerKey.includes('nome') || lowerKey.includes('público') || lowerKey.includes('publico')) {
                       category = 'Informações';
-                    } else if (lowerKey.includes('responsável') || lowerKey.includes('responsavel') || lowerKey.includes('status')) {
+                    } else if (lowerKey.includes('responsável') || lowerKey.includes('responsavel') || lowerKey.includes('status') || lowerKey.includes('prioridade')) {
                       category = 'Gestão Interna';
                     }
 
