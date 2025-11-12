@@ -744,7 +744,7 @@ export function CreateItemModal({
           const showGroupLabel = !isProgramacaoGroup; // oculta rótulo "Programação" para alinhar com "Nome do Conjunto"
           const groupSpacingClass = isProgramacaoGroup ? 'space-y-0' : (isCompactGroup ? 'space-y-1' : 'space-y-2');
           const innerGridClass = isAgeGroup
-            ? 'grid grid-cols-2 gap-4 max-w-sm'
+            ? 'flex flex-wrap gap-4'
             : (isCompactGroup ? 'grid grid-cols-2 gap-1.5' : 'grid grid-cols-1 md:grid-cols-2 gap-2');
           return (
             <div className={groupSpacingClass}>
