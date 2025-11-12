@@ -106,16 +106,29 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   };
 
   const handleAttachmentUpload = async () => {
-    if (!attachmentFile) return;
+    if (!attachmentFile || !task) return;
     try {
+      // Convert file to Base64/data URL
+      const fileData: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Falha ao ler arquivo'));
+        reader.readAsDataURL(attachmentFile);
+      });
+
       await uploadAttachment.mutateAsync({
-        workspaceId,
         taskId: task.id,
-        file: attachmentFile,
+        data: {
+          file_name: attachmentFile.name,
+          file_url: fileData,
+          file_type: attachmentFile.type,
+          file_size: attachmentFile.size,
+        },
       });
       setAttachmentFile(null);
       toast({ title: 'Arquivo enviado com sucesso' });
     } catch (error) {
+      console.error('Upload error:', error);
       toast({ title: 'Erro ao enviar arquivo', variant: 'destructive' });
     }
   };
