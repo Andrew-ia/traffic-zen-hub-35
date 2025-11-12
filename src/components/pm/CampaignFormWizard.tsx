@@ -239,12 +239,12 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
       </div>
 
       {/* Form Content */}
-      <Card className="min-h-[400px]">
+      <Card className="min-h-[350px] flex flex-col">
         <CardHeader>
           <CardTitle>{STEPS[step - 1]?.title}</CardTitle>
           <CardDescription>{STEPS[step - 1]?.description}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 flex-1">
           {/* Step 1: Campaign Info */}
           {step === 1 && (
             <>
@@ -566,7 +566,7 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex gap-3 justify-between">
+      <div className="flex gap-3 justify-between relative z-10">
         <Button
           variant="outline"
           onClick={() => setStep(step - 1)}
