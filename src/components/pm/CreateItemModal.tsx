@@ -839,7 +839,28 @@ export function CreateItemModal({
   };
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) {
+    if (open && activeTab === 'templates') {
+      // Initialize template values with defaults when opening templates tab
+      const currentTemplate = TEMPLATES[selectedTemplateIndex];
+      const initialValues: Record<string, any> = {};
+
+      const collectDefaults = (fields: TemplateField[], parentKey?: string) => {
+        fields.forEach((field) => {
+          if (field.type === 'group' && field.fields) {
+            collectDefaults(field.fields, parentKey ? `${parentKey}.${keyOf(field.label)}` : keyOf(field.label));
+          } else if (field.default !== undefined) {
+            const key = parentKey ? `${parentKey}.${keyOf(field.label)}` : keyOf(field.label);
+            initialValues[key] = field.default;
+          }
+        });
+      };
+
+      currentTemplate.sections.forEach((section) => {
+        collectDefaults(section.fields);
+      });
+
+      setTemplateValues(initialValues);
+    } else if (!open) {
       // Reset all fields when closing
       setTaskName('');
       setTaskDescription('');

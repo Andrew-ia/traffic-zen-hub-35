@@ -84,6 +84,20 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   const templateName = templateBlob?.template || '';
   const templateCategory = templateBlob?.category || '';
 
+  // DEBUG: Log all template values
+  useEffect(() => {
+    if (templateValues && Object.keys(templateValues).length > 0) {
+      console.log('=== TEMPLATE VALUES DEBUG ===');
+      console.log('All values:', templateValues);
+      console.log('Keys count:', Object.keys(templateValues).length);
+      Object.entries(templateValues).forEach(([k, v]) => {
+        if (k !== '__wizardStep' && !k.includes('.url')) {
+          console.log(`${k}: ${v}`);
+        }
+      });
+    }
+  }, [templateValues]);
+
   // Update local state when task changes
   useEffect(() => {
     if (task) {
