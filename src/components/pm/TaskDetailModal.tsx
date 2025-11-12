@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, User, Trash2, Save, Paperclip, Upload } from 'lucide-react';
+import { Calendar, User, Trash2, Save, Paperclip, Upload, FileText, ExternalLink } from 'lucide-react';
 import { useUpdatePMTask, useDeletePMTask, useUploadPMTaskAttachment, usePMTaskAttachments, useDeletePMTaskAttachment } from '@/hooks/useProjectManagement';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
@@ -77,6 +77,12 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const { data: taskAttachments = [] } = usePMTaskAttachments(task?.id || undefined);
+
+  // Extract template metadata if available
+  const templateBlob = task?.metadata?.template_blob as any;
+  const templateValues = templateBlob?.values || {};
+  const templateName = templateBlob?.template || '';
+  const templateCategory = templateBlob?.category || '';
 
   // Update local state when task changes
   useEffect(() => {
@@ -185,6 +191,86 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                     {tag}
                   </Badge>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Template Data */}
+          {templateName && (
+            <div className="border-t pt-6">
+              <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Dados do Template
+              </h4>
+              <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
+                <div className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/50">
+                  <span className="text-xs font-medium text-muted-foreground">Template</span>
+                  <Badge variant="secondary">{templateName}</Badge>
+                </div>
+                {templateCategory && (
+                  <div className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/50">
+                    <span className="text-xs font-medium text-muted-foreground">Categoria</span>
+                    <Badge variant="outline">{templateCategory}</Badge>
+                  </div>
+                )}
+
+                {/* Display creative URLs if available */}
+                {Object.entries(templateValues).map(([key, value]) => {
+                  // Extract creative URLs (conjunto_X.criativo_Y.url pattern)
+                  if (key.includes('criativo') && key.includes('.url') && value) {
+                    const urlValue = String(value);
+                    if (urlValue.startsWith('http')) {
+                      const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
+                      const conjunto = match ? Number(match[1]) : 'N/A';
+                      const criativo = match ? Number(match[2]) : 'N/A';
+                      return (
+                        <div key={key} className="py-2 px-3 rounded-md border border-dashed">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Criativo {criativo} (Conjunto {conjunto})
+                            </span>
+                          </div>
+                          <a
+                            href={urlValue}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline break-all flex items-center gap-1"
+                          >
+                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                            {urlValue}
+                          </a>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })}
+
+                {/* Display other important template fields */}
+                {Object.entries(templateValues)
+                  .filter(([key]) => {
+                    // Show important fields but skip URLs and technical keys
+                    const lowerKey = key.toLowerCase();
+                    return (
+                      (lowerKey.includes('nome') ||
+                        lowerKey.includes('objetivo') ||
+                        lowerKey.includes('orçamento') ||
+                        lowerKey.includes('orcamento') ||
+                        lowerKey.includes('data_de')) &&
+                      !key.includes('.') && // Skip nested fields for now
+                      key !== 'nome_da_campanha' // Skip duplicates already shown
+                    );
+                  })
+                  .map(([key, value]) => {
+                    if (!value || value === '') return null;
+                    const displayKey = key.replace(/_/g, ' ').replace(/^./, (s) => s.toUpperCase());
+                    return (
+                      <div key={key} className="py-2 px-3 rounded-md bg-muted/30 text-xs">
+                        <div className="font-medium text-muted-foreground mb-1">{displayKey}</div>
+                        <div className="text-foreground break-words">{String(value)}</div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}
