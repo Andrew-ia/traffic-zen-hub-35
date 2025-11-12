@@ -545,7 +545,7 @@ export function CreateItemModal({
             {(() => {
               const lbl = (field.label || '').toLowerCase();
               const compactNumeric = (lbl.includes('idade mínima') || lbl.includes('idade maxima') || lbl.includes('idade máxima'));
-              const widthClass = compactNumeric ? 'w-[160px]' : '';
+              const widthClass = compactNumeric ? 'w-20' : '';
               return (
                 <Input
                   className={`h-9 text-sm ${widthClass}`}
