@@ -84,6 +84,9 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   const templateName = templateBlob?.template || '';
   const templateCategory = templateBlob?.category || '';
 
+  // Extract campaign data if available
+  const campaignData = task?.metadata?.campaign_data as any;
+
   // DEBUG: Log all template values
   useEffect(() => {
     if (templateValues && Object.keys(templateValues).length > 0) {
@@ -205,6 +208,111 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                     {tag}
                   </Badge>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Campaign Data */}
+          {campaignData && Object.keys(campaignData).length > 0 && (
+            <div className="border-t pt-6">
+              <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Dados da Campanha Meta Ads
+              </h4>
+              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                {/* Campaign Info */}
+                {(campaignData.campaignName || campaignData.objective) && (
+                  <div className="space-y-2 pb-3 border-b">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase">Informações da Campanha</div>
+                    {campaignData.campaignName && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Nome:</span>
+                        <span className="font-medium">{campaignData.campaignName}</span>
+                      </div>
+                    )}
+                    {campaignData.objective && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Objetivo:</span>
+                        <span className="font-medium capitalize">{campaignData.objective}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Audience */}
+                {(campaignData.ageMin || campaignData.ageMax || campaignData.interests) && (
+                  <div className="space-y-2 pb-3 border-b">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase">Público-Alvo</div>
+                    {(campaignData.ageMin || campaignData.ageMax) && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Faixa Etária:</span>
+                        <span className="font-medium">{campaignData.ageMin} - {campaignData.ageMax} anos</span>
+                      </div>
+                    )}
+                    {campaignData.interests && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Interesses:</span>
+                        <span className="font-medium">{campaignData.interests}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Creatives */}
+                {(campaignData.primaryText || campaignData.headline || campaignData.description || campaignData.cta) && (
+                  <div className="space-y-2 pb-3 border-b">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos</div>
+                    {campaignData.primaryText && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Texto Principal:</span>
+                        <p className="font-medium mt-1">{campaignData.primaryText}</p>
+                      </div>
+                    )}
+                    {campaignData.headline && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Título:</span>
+                        <span className="font-medium">{campaignData.headline}</span>
+                      </div>
+                    )}
+                    {campaignData.description && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Descrição:</span>
+                        <span className="font-medium">{campaignData.description}</span>
+                      </div>
+                    )}
+                    {campaignData.cta && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">CTA:</span>
+                        <span className="font-medium">{campaignData.cta}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Budget & Schedule */}
+                {(campaignData.budget || campaignData.startDate || campaignData.endDate) && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase">Orçamento e Datas</div>
+                    {campaignData.budget && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Orçamento:</span>
+                        <span className="font-medium">R$ {Number(campaignData.budget).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {campaignData.startDate && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Início:</span>
+                        <span className="font-medium">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</span>
+                      </div>
+                    )}
+                    {campaignData.endDate && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Término:</span>
+                        <span className="font-medium">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator';
 import type { TaskStatus, TaskPriority, ReminderNotifyVia } from '@/types/project-management';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CampaignFormWizard } from './CampaignFormWizard';
 // removed duplicate react import
 
 interface CreateItemModalProps {
@@ -908,9 +909,9 @@ export function CreateItemModal({
               <Bell className="h-4 w-4" />
               Lembrete
             </TabsTrigger>
-            <TabsTrigger value="templates" className="flex items-center gap-2">
+            <TabsTrigger value="campaign" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Templates
+              Campanha Meta
             </TabsTrigger>
           </TabsList>
 
@@ -1096,361 +1097,22 @@ export function CreateItemModal({
             </div>
           </TabsContent>
 
-          {/* TEMPLATES TAB */}
-          <TabsContent value="templates" className="space-y-3 mt-2">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label>Template selecionado</Label>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{TEMPLATES[selectedTemplateIndex].template_name}</Badge>
-                  <span className="text-xs text-muted-foreground">{TEMPLATES[selectedTemplateIndex].category}</span>
-                </div>
-              </div>
-              <div className="min-w-[240px]">
-                <Label>Escolher template</Label>
-                <Select value={String(selectedTemplateIndex)} onValueChange={(v) => setSelectedTemplateIndex(Number(v))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione um template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TEMPLATES.map((t, idx) => (
-                      <SelectItem key={t.template_name} value={String(idx)}>
-                        {t.template_name} — {t.category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Wizard: Campanha → Conjunto → Criativos (sem hooks dentro do JSX) */}
-            {(() => {
-              const wizardStep = ((templateValues as any)?.__wizardStep as number) ?? 0;
-              const steps = ['Lista'];
-
-              // Agrupamento das seções baseado em títulos explícitos (PT-BR)
-              // Evita falsos positivos, como "Conjunto de Anúncios" cair em "Criativos" por conter "anúncio".
-              const adsetTitleHints = ['conjunto de anúncios', 'conjunto de anuncio', 'conjunto'];
-              const adsTitleHints = ['configuração do anúncio', 'destino do anúncio', 'criativos', 'criativo', 'anúncio'];
-              const campaignTitleHints = ['informações gerais', 'configurações de campanha', 'campanha'];
-
-              const currentTemplate = TEMPLATES[selectedTemplateIndex];
-              const groupedSections: { campaign: typeof currentTemplate.sections; adset: typeof currentTemplate.sections; ads: typeof currentTemplate.sections } = {
-                campaign: [],
-                adset: [],
-                ads: [],
-              };
-
-              currentTemplate.sections.forEach((section) => {
-                const title = section.title.toLowerCase();
-                // Ordem de prioridade: adset > ads > campaign para evitar colisões
-                const isAdset = adsetTitleHints.some((k) => title.includes(k));
-                const isAds = adsTitleHints.some((k) => title.includes(k));
-                const isCampaign = campaignTitleHints.some((k) => title.includes(k));
-
-                if (isAdset) {
-                  groupedSections.adset.push(section);
-                } else if (isAds) {
-                  groupedSections.ads.push(section);
-                } else if (isCampaign) {
-                  groupedSections.campaign.push(section);
-                } else {
-                  // Padrão: se nada casar, entra em campanha
-                  groupedSections.campaign.push(section);
-                }
-              });
-
-              const currentSections = [
-                ...groupedSections.campaign,
-                ...groupedSections.adset,
-                ...groupedSections.ads,
-              ] as typeof currentTemplate.sections;
-
-              // Validação: bloquear avanço quando houver campos obrigatórios vazios na etapa atual
-              const isEmpty = (v: any) =>
-                v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
-
-              const missingRequiredCount = (() => {
-                let count = 0;
-                currentSections.forEach((section) => {
-                  section.fields.forEach((field) => {
-                    if (field.type === 'group' && field.fields && field.fields.length > 0) {
-                      const parentKey = keyOf(field.label);
-                      field.fields.forEach((sf) => {
-                        // Só conta subcampos marcados como obrigatórios
-                        if ((sf as any).required) {
-                          const v = templateValues[`${parentKey}.${keyOf(sf.label)}`];
-                          if (isEmpty(v)) count++;
-                        }
-                      });
-                    } else if ((field as any).required) {
-                      const v = templateValues[keyOf(field.label)];
-                      if (isEmpty(v)) count++;
-                    }
-                  });
+          {/* CAMPAIGN TAB */}
+          <TabsContent value="campaign" className="space-y-4 mt-4">
+            <CampaignFormWizard
+              onSubmit={(data) => {
+                onCreateTask({
+                  name: data.campaignName,
+                  description: `Meta Ads - ${data.objective}`,
+                  status: 'pendente',
+                  priority: 'media',
+                  metadata: {
+                    campaign_data: data,
+                  },
                 });
-                return count;
-              })();
-
-              return (
-                <div className={'space-y-3'}>
-                  {/* Cabeçalho de etapas removido em modo lista única */}
-
-                  {/* Conteúdo da etapa sem rolagem vertical interna */}
-                  <div id="template-scrollarea" className="pr-2">
-                    <div className={'space-y-3'}>
-                      {currentSections.length === 0 && (
-                        <div className="text-sm text-muted-foreground">Nenhuma seção detectada.</div>
-                      )}
-
-                      {currentSections.map((section, idx) => {
-                        const titleLower = section.title.toLowerCase();
-                        const isCampaignSection = campaignTitleHints.some((k) => titleLower.includes(k));
-                        const isAdsetSection = adsetTitleHints.some((k) => titleLower.includes(k));
-                        const isAdsSection = adsTitleHints.some((k) => titleLower.includes(k));
-                        const hideHeader = (isCampaignSection && (titleLower.includes('informações gerais') || titleLower.includes('configurações de campanha'))) || (isAdsetSection && titleLower.includes('conjunto de anúncios'));
-                        const sectionSpaceClass = isCampaignSection ? 'space-y-2' : isAdsetSection ? 'space-y-2' : 'space-y-3';
-                        const gridColsClass = isCampaignSection
-                          ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5'
-                          : isAdsetSection
-                          ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-1.5'
-                          : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2';
-
-                        return (
-                          <div key={`${idx}-${section.title}`} className={sectionSpaceClass}>
-                            {!hideHeader && (
-                              <div className="flex items-center justify-between py-1">
-                                <h4 className="text-sm font-semibold">{section.title}</h4>
-                                {isAdsetSection && (
-                                  <Button variant="outline" size="sm" onClick={() => { setAdsetCount((c) => c + 1); setCreativeCounts((counts) => [...counts, 1]); }}>
-                                    + Adicionar conjunto
-                                  </Button>
-                                )}
-                              </div>
-                            )}
-                            {isAdsetSection && hideHeader && (
-                              <div className="flex items-center justify-end py-1">
-                                <Button variant="outline" size="sm" onClick={() => { setAdsetCount((c) => c + 1); setCreativeCounts((counts) => [...counts, 1]); }}>
-                                  + Adicionar conjunto
-                                </Button>
-                              </div>
-                            )}
-                            {isAdsetSection ? (
-                              (() => {
-                                const countKey = keyOf('Qtd. de Conjuntos de Anúncios');
-                                const perSetFields = section.fields.filter((f) => keyOf(f.label) !== countKey);
-                                return (
-                                  <div className="space-y-2">
-                                    {Array.from({ length: adsetCount }).map((_, idx) => (
-                                      <div key={`adset-${idx}`} className="space-y-2 rounded-md border p-2">
-                                        <div className="flex items-center justify-between">
-                                          <h5 className="text-xs font-medium">Conjunto {idx + 1}</h5>
-                                          <div className="flex items-center gap-2">
-                                            <Button variant="outline" size="sm" onClick={() => addCreative(idx)}>
-                                              + Adicionar criativo
-                                            </Button>
-                                            {adsetCount > 1 && (
-                                              <Button variant="ghost" size="sm" onClick={() => removeAdset(idx)}>
-                                                Remover conjunto
-                                              </Button>
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        {/* Age Card */}
-                                        <div className="rounded-md border border-dashed p-3 bg-blue-50 dark:bg-blue-950/20 w-fit">
-                                          <div className="flex gap-4">
-                                            <div>
-                                              <Label className="text-xs">Idade mínima</Label>
-                                              <Input
-                                                type="number"
-                                                placeholder="Ex: 18"
-                                                value={templateValues[`conjunto_${idx + 1}.idade_minima`] ?? ''}
-                                                onChange={(e) => setTemplateValues((prev) => ({ ...prev, [`conjunto_${idx + 1}.idade_minima`]: e.target.value }))}
-                                                className="h-8 text-sm w-20"
-                                              />
-                                            </div>
-                                            <div>
-                                              <Label className="text-xs">Idade máxima</Label>
-                                              <Input
-                                                type="number"
-                                                placeholder="Ex: 65"
-                                                value={templateValues[`conjunto_${idx + 1}.idade_maxima`] ?? ''}
-                                                onChange={(e) => setTemplateValues((prev) => ({ ...prev, [`conjunto_${idx + 1}.idade_maxima`]: e.target.value }))}
-                                                className="h-8 text-sm w-20"
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        <div className={gridColsClass}>
-                                          {perSetFields.map((field) => {
-                                            const labelLower = field.label.toLowerCase();
-                                            let itemColClass = '';
-                                            if (labelLower.includes('idade')) {
-                                              itemColClass = 'sm:col-span-2 lg:col-span-2';
-                                            }
-                                            return (
-                                              <div key={`${section.title}-${field.label}-${idx}`} className={itemColClass}>
-                                                {renderField(field, `conjunto_${idx + 1}`)}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                        {(() => {
-                                          const count = creativeCounts[idx] ?? 1;
-                                          return (
-                                            <div className="space-y-2">
-                                              <Separator />
-                                              {Array.from({ length: count }).map((_, cIdx) => {
-                                                const prefixKey = `conjunto_${idx + 1}.criativo_${cIdx + 1}`;
-                                                const urlKey = `${prefixKey}.url`;
-                                                const nomeKey = `${prefixKey}.nome`;
-                                                const textoPrincipalKey = `${prefixKey}.texto_principal`;
-                                                const tituloKey = `${prefixKey}.titulo`;
-                                                const descricaoKey = `${prefixKey}.descricao`;
-                                                const ctaKey = `${prefixKey}.cta`;
-
-                                                const urlValue = templateValues[urlKey] ?? '';
-                                                const nomeValue = templateValues[nomeKey] ?? '';
-                                                const textoValue = templateValues[textoPrincipalKey] ?? '';
-                                                const tituloValue = templateValues[tituloKey] ?? '';
-                                                const descricaoValue = templateValues[descricaoKey] ?? '';
-                                                const ctaValue = templateValues[ctaKey] ?? '';
-
-                                                return (
-                                                  <div key={`adset-${idx}-creative-${cIdx}`} className="space-y-3 rounded-md border p-3 bg-muted/20">
-                                                    <div className="flex items-center justify-between">
-                                                      <h6 className="text-sm font-semibold">Criativo {cIdx + 1}</h6>
-                                                      {count > 1 && (
-                                                        <Button variant="ghost" size="sm" onClick={() => removeCreative(idx, cIdx)}>
-                                                          Remover
-                                                        </Button>
-                                                      )}
-                                                    </div>
-
-                                                    {/* Nome do Criativo */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-nome-${idx}-${cIdx}`} className="text-xs">Nome do Criativo</Label>
-                                                      <Input
-                                                        id={`creative-nome-${idx}-${cIdx}`}
-                                                        placeholder="Ex: Banner Hero 1"
-                                                        value={nomeValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [nomeKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-
-                                                    {/* Texto Principal */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-texto-${idx}-${cIdx}`} className="text-xs">Texto Principal</Label>
-                                                      <Input
-                                                        id={`creative-texto-${idx}-${cIdx}`}
-                                                        placeholder="Ex: A nova coleção chegou!"
-                                                        value={textoValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [textoPrincipalKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-
-                                                    {/* Título */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-titulo-${idx}-${cIdx}`} className="text-xs">Título</Label>
-                                                      <Input
-                                                        id={`creative-titulo-${idx}-${cIdx}`}
-                                                        placeholder="Ex: Novidades 2025"
-                                                        value={tituloValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [tituloKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-
-                                                    {/* Descrição */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-descricao-${idx}-${cIdx}`} className="text-xs">Descrição</Label>
-                                                      <Input
-                                                        id={`creative-descricao-${idx}-${cIdx}`}
-                                                        placeholder="Ex: Frete grátis acima de R$ 199"
-                                                        value={descricaoValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [descricaoKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-
-                                                    {/* CTA */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-cta-${idx}-${cIdx}`} className="text-xs">CTA (Call To Action)</Label>
-                                                      <Input
-                                                        id={`creative-cta-${idx}-${cIdx}`}
-                                                        placeholder="Ex: Comprar Agora"
-                                                        value={ctaValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [ctaKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-
-                                                    {/* URL do Criativo */}
-                                                    <div>
-                                                      <Label htmlFor={`creative-url-${idx}-${cIdx}`} className="text-xs font-semibold">URL do Criativo</Label>
-                                                      <Input
-                                                        id={`creative-url-${idx}-${cIdx}`}
-                                                        placeholder="https://..."
-                                                        value={urlValue}
-                                                        onChange={(e) => setTemplateValues((prev) => ({ ...prev, [urlKey]: e.target.value }))}
-                                                        className="h-8 text-sm"
-                                                      />
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          );
-                                        })()}
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              })()
-                            ) : (
-                              <div className={gridColsClass}>
-                                {(isAdsSection ? section.fields.filter((f) => {
-                                  const l = f.label.toLowerCase();
-                                  return !(
-                                    l.includes('qtd. de criativos por conjunto') ||
-                                    l.includes('formato') ||
-                                    l.includes('criativo')
-                                  );
-                                }) : section.fields).map((field) => {
-                                  const labelLower = field.label.toLowerCase();
-                                  let itemColClass = '';
-                                  if (isAdsetSection) {
-                                    if (labelLower.includes('idade')) {
-                                      itemColClass = 'sm:col-span-2 lg:col-span-2';
-                                    } else if (labelLower.includes('nome do conjunto')) {
-                                      itemColClass = '';
-                                    } else if (labelLower.includes('programação') || labelLower.includes('programacao')) {
-                                      itemColClass = '';
-                                    }
-                                  }
-                                  return (
-                                    <div key={`${section.title}-${field.label}`} className={itemColClass}>{renderField(field)}</div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Navegação removida no modo lista única */}
-                </div>
-              );
-            })()}
-
+                handleOpenChange(false);
+              }}
+            />
           </TabsContent>
         </Tabs>
 
@@ -1458,9 +1120,11 @@ export function CreateItemModal({
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit}>
-            Criar {activeTab === 'task' || activeTab === 'templates' ? 'Tarefa' : 'Lembrete'}
-          </Button>
+          {activeTab !== 'campaign' && (
+            <Button onClick={handleSubmit}>
+              Criar {activeTab === 'task' ? 'Tarefa' : 'Lembrete'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
