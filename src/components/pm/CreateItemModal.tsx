@@ -159,15 +159,6 @@ export function CreateItemModal({
               { label: 'Data de Término (Conjunto)', type: 'date', optional: true },
             ],
           },
-          // Público-alvo: remover título e os campos de Gênero, Advantage+ e Público Personalizado
-          {
-            label: 'Idade',
-            type: 'group',
-            fields: [
-              { label: 'Idade mínima', type: 'number', placeholder: 'Ex: 18', default: 18 },
-              { label: 'Idade máxima', type: 'number', placeholder: 'Ex: 65', default: 65 },
-            ],
-          },
           // Removido: Regras de Valor
         ],
       },
