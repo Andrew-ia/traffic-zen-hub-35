@@ -186,7 +186,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-1 resize-none"
-                  rows={4}
+                  rows={2}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
