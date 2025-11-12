@@ -1228,6 +1228,33 @@ export function CreateItemModal({
                                             )}
                                           </div>
                                         </div>
+
+                                        {/* Age Card */}
+                                        <div className="rounded-md border border-dashed p-3 bg-blue-50 dark:bg-blue-950/20">
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <Label className="text-xs">Idade mínima</Label>
+                                              <Input
+                                                type="number"
+                                                placeholder="Ex: 18"
+                                                value={templateValues[`conjunto_${idx + 1}.idade_minima`] ?? ''}
+                                                onChange={(e) => setTemplateValues((prev) => ({ ...prev, [`conjunto_${idx + 1}.idade_minima`]: e.target.value }))}
+                                                className="h-8 text-sm w-20"
+                                              />
+                                            </div>
+                                            <div>
+                                              <Label className="text-xs">Idade máxima</Label>
+                                              <Input
+                                                type="number"
+                                                placeholder="Ex: 65"
+                                                value={templateValues[`conjunto_${idx + 1}.idade_maxima`] ?? ''}
+                                                onChange={(e) => setTemplateValues((prev) => ({ ...prev, [`conjunto_${idx + 1}.idade_maxima`]: e.target.value }))}
+                                                className="h-8 text-sm w-20"
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+
                                         <div className={gridColsClass}>
                                           {perSetFields.map((field) => {
                                             const labelLower = field.label.toLowerCase();
