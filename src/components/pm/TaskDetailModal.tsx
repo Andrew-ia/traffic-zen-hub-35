@@ -294,22 +294,20 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                     .filter(([key, value]) => key.includes('criativo') && key.includes('.url') && value)
                     .map(([key, value]) => {
                       const urlValue = String(value);
-                      if (urlValue.startsWith('http')) {
-                        const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
-                        const conjunto = match ? Number(match[1]) : 'N/A';
-                        const criativo = match ? Number(match[2]) : 'N/A';
-                        const prefixKey = `conjunto_${conjunto}.criativo_${criativo}`;
+                      // Display creatives with any URL value (http, test data, or any string)
+                      const match = key.match(/conjunto_(\d+)\.criativo_(\d+)/);
+                      const conjunto = match ? Number(match[1]) : 'N/A';
+                      const criativo = match ? Number(match[2]) : 'N/A';
+                      const prefixKey = `conjunto_${conjunto}.criativo_${criativo}`;
 
-                        // Get other creative fields
-                        const nome = templateValues[`${prefixKey}.nome`] || '';
-                        const textoPrincipal = templateValues[`${prefixKey}.texto_principal`] || '';
-                        const titulo = templateValues[`${prefixKey}.titulo`] || '';
-                        const descricao = templateValues[`${prefixKey}.descricao`] || '';
-                        const cta = templateValues[`${prefixKey}.cta`] || '';
+                      // Get other creative fields
+                      const nome = templateValues[`${prefixKey}.nome`] || '';
+                      const textoPrincipal = templateValues[`${prefixKey}.texto_principal`] || '';
+                      const titulo = templateValues[`${prefixKey}.titulo`] || '';
+                      const descricao = templateValues[`${prefixKey}.descricao`] || '';
+                      const cta = templateValues[`${prefixKey}.cta`] || '';
 
-                        return { key, urlValue, conjunto, criativo, nome, textoPrincipal, titulo, descricao, cta };
-                      }
-                      return null;
+                      return { key, urlValue, conjunto, criativo, nome, textoPrincipal, titulo, descricao, cta };
                     })
                     .filter(Boolean);
 
