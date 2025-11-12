@@ -189,7 +189,6 @@ export function CreateItemModal({
               { label: 'CTA', type: 'select', options: ['Comprar Agora', 'Saiba Mais', 'Cadastrar-se', 'Enviar Mensagem', 'Entrar em Contato'], default: 'Comprar Agora' },
             ],
           },
-          { label: 'Anexos', type: 'file_upload' },
         ],
       },
       // Removido: seção "Destino do Anúncio" (inclui Canal de Mensagens)
