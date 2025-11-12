@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
 import { mainNavigation } from "@/data/navigation";
+import { useAuth } from "@/hooks/useAuth";
 import { useResponsive } from "@/hooks/use-responsive";
 
 interface SidebarProps {
@@ -14,6 +15,7 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
   const location = useLocation();
   const { isMobile } = useResponsive();
+  const { user, hasAccess } = useAuth();
 
   // Close sidebar on route change for mobile
   useEffect(() => {
@@ -37,7 +39,10 @@ export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
           </div>
 
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-            {mainNavigation.map((item) => (
+            {(mainNavigation.filter((item) => {
+              if (!user) return false;
+              return hasAccess(item.href);
+            })).map((item) => (
               <NavLink
                 key={item.name}
                 to={item.href}
@@ -58,17 +63,7 @@ export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
             ))}
           </nav>
 
-          <div className="p-4 border-t border-border/50">
-            <div className="rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 p-4 backdrop-blur-sm">
-              <p className="text-sm font-medium mb-1">Upgrade para Pro</p>
-              <p className="text-xs text-muted-foreground mb-3">
-                Desbloqueie recursos avançados
-              </p>
-              <Button size="sm" className="w-full text-xs">
-                Upgrade
-              </Button>
-            </div>
-          </div>
+          
         </div>
       </aside>
   );

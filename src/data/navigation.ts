@@ -34,6 +34,7 @@ export const mainNavigation: NavigationItem[] = [
   { name: "GA4", href: "/ga4", icon: BarChart3, keywords: ["ga4", "gtm", "analytics"] },
   { name: "Rastreamento Digital", href: "/tracking", icon: Sparkles, keywords: ["tags", "gtm", "rastreamento"] },
   { name: "Integrações", href: "/integrations", icon: Plug, keywords: ["config", "conexões"] },
+  { name: "Usuários", href: "/admin/users", icon: Plug, keywords: ["admin", "usuários", "acesso"] },
 ];
 
 export function findNavigationLabel(pathname: string): string | undefined {

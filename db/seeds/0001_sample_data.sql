@@ -2,11 +2,19 @@
 -- Executar apenas em ambientes de testes / desenvolvimento
 
 WITH upsert_user AS (
-  INSERT INTO users (id, email, full_name, auth_provider, status)
-  VALUES ('00000000-0000-0000-0000-000000000001', 'founder@trafficpro.dev', 'Founder TrafficPro', 'password', 'active')
+  INSERT INTO users (id, email, full_name, password_hash, auth_provider, status)
+  VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'founder@trafficpro.dev',
+    'Founder TrafficPro',
+    crypt('admin123', gen_salt('bf')),
+    'password',
+    'active'
+  )
   ON CONFLICT (id) DO UPDATE
     SET email = EXCLUDED.email,
         full_name = EXCLUDED.full_name,
+        password_hash = EXCLUDED.password_hash,
         status = 'active'
   RETURNING id AS user_id
 ),

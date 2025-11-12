@@ -24,6 +24,10 @@ import Cashflow from "./pages/Cashflow";
 import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
+import Login from "./pages/Login";
+import AdminUsers from "./pages/AdminUsers";
+import { AuthProvider } from "./hooks/useAuth";
+import { RequireAuth } from "@/components/layout/RequireAuth";
 
 const queryClient = new QueryClient();
 
@@ -60,31 +64,37 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <MainLayout>
-          <PageViewTracker />
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/chat" element={<AIChat />} />
-            <Route path="/projects" element={<ProjectManagement />} />
-            <Route path="/campaigns/:campaignId" element={<CampaignDetails />} />
-            <Route path="/ads/:adId" element={<AdDetails />} />
-            <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/meta-ads" element={<MetaAds />} />
-            <Route path="/instagram" element={<Instagram />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/leads" element={<Leads />} />
-            <Route path="/gerador-looks" element={<VirtualTryOn />} />
-            <Route path="/automations" element={<Automations />} />
-            <Route path="/experiments" element={<Experiments />} />
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/ga4" element={<GA4 />} />
-            <Route path="/gtm" element={<GA4 />} />
-            <Route path="/tracking" element={<Tracking />} />
-            <Route path="/cashflow" element={<Cashflow />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </MainLayout>
+        <AuthProvider>
+          <MainLayout>
+            <PageViewTracker />
+            <Routes>
+              <Route path="/login" element={<Login />} />
+
+              <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+              <Route path="/chat" element={<RequireAuth><AIChat /></RequireAuth>} />
+              <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
+              <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
+              <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
+              <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
+              <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
+              <Route path="/instagram" element={<RequireAuth><Instagram /></RequireAuth>} />
+              <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
+              <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
+              <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
+              <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
+              <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
+              <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
+              <Route path="/ga4" element={<RequireAuth><GA4 /></RequireAuth>} />
+              <Route path="/gtm" element={<RequireAuth><GA4 /></RequireAuth>} />
+              <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
+              <Route path="/cashflow" element={<RequireAuth><Cashflow /></RequireAuth>} />
+              <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
+
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </MainLayout>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

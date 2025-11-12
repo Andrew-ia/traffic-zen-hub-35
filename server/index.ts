@@ -1,8 +1,11 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startSimpleWorker } from './workers/simpleSyncWorker.js';
+import { getPool } from './config/database.js';
 import {
   saveCredentials,
   getCredentials,
@@ -55,6 +58,7 @@ import {
 import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
 import { importCashflowXlsx } from './api/finance/cashflow.js';
+import { login, me, createUser, authMiddleware, adminOnly } from './api/auth.js';
 import {
   getFolders,
   getFolderById,
@@ -130,6 +134,11 @@ app.get('/health', (req, res) => {
 });
 
 // API Routes
+
+// Auth endpoints (simple internal use)
+app.post('/api/auth/login', login);
+app.get('/api/auth/me', authMiddleware, me);
+app.post('/api/auth/users', ...adminOnly, createUser);
 
 // Credentials endpoints
 app.post('/api/integrations/credentials', saveCredentials);
@@ -255,6 +264,16 @@ app.get('/api/pm/reminders/:workspaceId/:listId', getReminders);
 app.post('/api/pm/reminders/:workspaceId/:listId', createReminder);
 app.post('/api/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
 
+// Serve frontend build (SPA) from /dist when deployed online
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../dist');
+app.use(express.static(distPath));
+// SPA fallback: send index.html for non-API routes
+app.get(/^\/(?!api\/).*$/, (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', err);
@@ -289,6 +308,9 @@ async function start() {
       throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
     }
 
+    // Ensure at least one admin user exists
+    await ensureAdminUser();
+
     // Start the simple worker (no Redis required!)
     workerIntervalId = startSimpleWorker();
 
@@ -307,6 +329,53 @@ async function start() {
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
+  }
+}
+
+/**
+ * Ensure an admin user exists with membership in the configured workspace.
+ * Uses ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_NAME env vars when provided,
+ * otherwise falls back to a development-safe default.
+ */
+async function ensureAdminUser() {
+  try {
+    const email = process.env.ADMIN_EMAIL || 'founder@trafficpro.dev';
+    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    const fullName = process.env.ADMIN_NAME || 'Founder TrafficPro';
+    const workspaceId = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+
+    if (!email || !password) {
+      console.warn('ADMIN_EMAIL/ADMIN_PASSWORD not set; using defaults for development.');
+    }
+
+    const pool = getPool();
+
+    // Upsert user with bcrypt hash via pgcrypto's crypt()
+    const userRes = await pool.query(
+      `INSERT INTO users (email, full_name, password_hash, auth_provider, status)
+       VALUES ($1, $2, crypt($3, gen_salt('bf')), 'password', 'active')
+       ON CONFLICT (email) DO UPDATE
+         SET full_name = EXCLUDED.full_name,
+             password_hash = crypt($3, gen_salt('bf')),
+             status = 'active'
+       RETURNING id`,
+      [email, fullName, password]
+    );
+
+    const userId = userRes.rows[0]?.id;
+    if (!userId) return;
+
+    // Ensure workspace membership exists
+    await pool.query(
+      `INSERT INTO workspace_members (workspace_id, user_id, role, invitation_status)
+       VALUES ($1, $2, 'owner', 'accepted')
+       ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = 'owner', invitation_status = 'accepted', updated_at = now()`,
+      [workspaceId, userId]
+    );
+
+    console.log(`✅ Admin bootstrap ensured for ${email} in workspace ${workspaceId}`);
+  } catch (err) {
+    console.error('Failed to ensure admin user', err);
   }
 }
 

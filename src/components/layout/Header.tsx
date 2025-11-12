@@ -13,6 +13,7 @@ import {
 import { ModeToggle } from "@/components/theme/mode-toggle";
 import { useCommandMenu } from "./CommandMenu";
 import { useResponsive } from "@/hooks/use-responsive";
+import { useAuth } from "@/hooks/useAuth";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -28,6 +29,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const { open, openHelp } = useCommandMenu();
   const { isMobile, isTablet } = useResponsive();
+  const { logout } = useAuth();
   const isMac = useMemo(() => {
     if (typeof window === "undefined") return false;
     return /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
@@ -129,7 +131,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                 </>
               )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Sair</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => logout()}>Sair</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
