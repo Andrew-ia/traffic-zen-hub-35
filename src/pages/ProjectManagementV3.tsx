@@ -68,8 +68,11 @@ const priorityColors: Record<TaskPriority, string> = {
 
 export default function ProjectManagementV3() {
   const navigate = useNavigate();
-  const { data: hierarchyData, isLoading } = usePMHierarchy(WORKSPACE_ID);
-  const { data: documentsData } = usePMDocuments(WORKSPACE_ID);
+  const { data: hierarchyData, isLoading, error: hierarchyError } = usePMHierarchy(WORKSPACE_ID);
+  // Only load documents when hierarchy is loaded and successful
+  const { data: documentsData } = usePMDocuments(WORKSPACE_ID, undefined, {
+    enabled: !!hierarchyData?.success && !isLoading
+  });
   const createFolder = useCreatePMFolder();
   const createList = useCreatePMList();
   const createTask = useCreatePMTask();
@@ -573,7 +576,32 @@ export default function ProjectManagementV3() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-muted-foreground">Carregando...</div>
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" />
+          <p className="mt-4 text-sm text-muted-foreground">Carregando projetos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error handling
+  const error = hierarchyData?.success === false;
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <p className="text-lg font-medium text-destructive">Erro ao carregar projetos</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Verifique sua conexão e tente novamente
+          </p>
+          <Button 
+            onClick={() => window.location.reload()} 
+            variant="outline" 
+            className="mt-4"
+          >
+            Tentar novamente
+          </Button>
+        </div>
       </div>
     );
   }

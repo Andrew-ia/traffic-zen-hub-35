@@ -51,6 +51,10 @@ export function usePMHierarchy(workspaceId: string = WORKSPACE_ID || '') {
       }
       return response.json();
     },
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes 
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }
 
@@ -425,7 +429,7 @@ export interface PMDocumentsResponse {
   data: PMDocument[];
 }
 
-export function usePMDocuments(workspaceId: string, listId?: string) {
+export function usePMDocuments(workspaceId: string, listId?: string, options?: { enabled?: boolean }) {
   return useQuery<PMDocumentsResponse>({
     queryKey: ['pm-documents', workspaceId, listId],
     queryFn: async () => {
@@ -438,6 +442,8 @@ export function usePMDocuments(workspaceId: string, listId?: string) {
       }
       return response.json();
     },
+    enabled: options?.enabled,
+    staleTime: 60 * 1000, // 1 minute
   });
 }
 
