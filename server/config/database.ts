@@ -27,7 +27,7 @@ export function getDatabaseUrl(): string {
 export async function createDatabaseClient(): Promise<Client> {
   const client = new Client({
     connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? { rejectUnauthorized: true } : undefined,
+    ssl: process.env.VERCEL ? {} : undefined,
   });
 
   await client.connect();
@@ -60,7 +60,7 @@ export function getPool(): Pool {
       max: 1, // Limit to 1 connection for serverless
       idleTimeoutMillis: 1000,
       connectionTimeoutMillis: 5000,
-      ssl: { rejectUnauthorized: true }, // Required for Supabase Pooler on Vercel
+      ssl: {}, // Required for Supabase Pooler on Vercel
     });
 
     return serverlessPool;
