@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Page</title>
+</head>
+<body>
+    <h1>Test Page - Traffic Zen Hub</h1>
+    <p>Se você conseguir ver esta página, o frontend está funcionando.</p>
+    <p>Environment: <span id="env">-</span></p>
+    
+    <script>
+        document.getElementById('env').textContent = 
+            typeof import !== 'undefined' ? 'Module' : 'Legacy';
+        
+        // Test fetch to API
+        fetch('/api/health')
+            .then(res => res.json())
+            .then(data => {
+                console.log('API Response:', data);
+                document.body.innerHTML += '<p>API Status: OK</p>';
+            })
+            .catch(err => {
+                console.error('API Error:', err);
+                document.body.innerHTML += '<p>API Status: ERROR - ' + err.message + '</p>';
+            });
+    </script>
+</body>
+</html>

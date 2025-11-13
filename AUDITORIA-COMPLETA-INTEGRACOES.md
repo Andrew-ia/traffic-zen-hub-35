@@ -28,7 +28,7 @@
 
 ✅ **SINCRONIZAÇÃO FUNCIONANDO PERFEITAMENTE**
 
-Executei o script `sync-incremental.js` e confirmei:
+Executei o script `sync-incremental.ts` e confirmei:
 - 7 campanhas sincronizadas
 - 15 ad sets sincronizados
 - 36 anúncios sincronizados
@@ -48,7 +48,7 @@ Executei o script `sync-incremental.js` e confirmei:
 **Versão da API:** Meta Marketing API v19.0
 **Arquivos principais:**
 - `/scripts/meta/sync-campaigns.js` - Sincronização de estrutura (campanhas, ad sets, ads, audiences, criativos)
-- `/scripts/meta/sync-incremental.js` - Sincronização de métricas (últimos 7 dias)
+- `/scripts/meta/sync-incremental.ts` - Sincronização de métricas (últimos 7 dias)
 - `/scripts/meta/backfill-insights.js` - Histórico completo de métricas
 - `/scripts/meta/sync-missing-creatives.js` - Criativos que faltam
 
@@ -358,7 +358,7 @@ Tabela dedicada: `ads_spend_google`
 **Prioridade 3 - Confiabilidade**
 - [ ] Implementar refresh automático de tokens Meta (60 dias)
 - [ ] Aumentar rate limiting (max: 50, duration: 60000)
-- [ ] Adicionar exponential backoff em `sync-incremental.js`
+- [ ] Adicionar exponential backoff em `sync-incremental.ts`
 
 **Prioridade 4 - Dados**
 - [ ] Verificar formato de budget (centavos vs BRL) com API
@@ -521,7 +521,7 @@ Semana 12-14: FASE 5 - Dashboard Avançado          [                    ] 0%
 ### 9.1 Ações Imediatas (HOJE)
 
 1. **Verificar sincronização Meta:**
-   - Executar: `node scripts/meta/sync-incremental.js`
+   - Executar: `npx tsx scripts/meta/sync-incremental.ts`
    - Confirmar dados no Supabase
    - ✅ **JÁ TESTADO E FUNCIONANDO**
 

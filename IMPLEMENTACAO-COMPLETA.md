@@ -201,7 +201,7 @@ bash setup-cron.sh
 ```
 
 **O que faz:**
-- Executa `scripts/meta/sync-incremental.js --days=1` todos os dias às 3h
+- Executa `scripts/meta/sync-incremental.ts --days=1` todos os dias às 3h
 - Log em `/tmp/meta-sync.log`
 
 **Verificar:**
@@ -215,7 +215,7 @@ tail -f /tmp/meta-sync.log
 
 **Remover:**
 ```bash
-crontab -l | grep -v 'meta/sync-incremental.js' | crontab -
+crontab -l | grep -v 'meta/sync-incremental.ts' | crontab -
 ```
 
 ---

@@ -5,7 +5,7 @@ set -a && source .env.local && set +a
 
 # Sincronização incremental Meta (últimos 7 dias)
 META_DAYS=${META_DAYS:-7}
-node scripts/meta/sync-incremental.js --days="$META_DAYS"
+npx tsx scripts/meta/sync-incremental.ts --days="$META_DAYS"
 
 # Sincronização Google Ads (últimos 7 dias)
 GOOGLE_DAYS=${GOOGLE_DAYS:-7}

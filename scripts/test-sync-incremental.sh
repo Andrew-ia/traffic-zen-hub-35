@@ -22,7 +22,7 @@ echo ""
 
 # Passo 2: Sincronizar 1 dia
 echo -e "${BLUE}🔄 Passo 2: Sincronizando último dia...${NC}"
-node scripts/meta/sync-incremental.js --days=1 --metrics-only > /dev/null 2>&1
+npx tsx scripts/meta/sync-incremental.ts --days=1 --metrics-only > /dev/null 2>&1
 echo -e "${GREEN}✅ Sincronização de 1 dia concluída${NC}"
 echo ""
 
@@ -34,7 +34,7 @@ echo ""
 
 # Passo 4: Sincronizar novamente o mesmo período
 echo -e "${BLUE}🔄 Passo 4: Sincronizando novamente o mesmo período...${NC}"
-node scripts/meta/sync-incremental.js --days=1 --metrics-only > /dev/null 2>&1
+npx tsx scripts/meta/sync-incremental.ts --days=1 --metrics-only > /dev/null 2>&1
 echo -e "${GREEN}✅ Segunda sincronização concluída${NC}"
 echo ""
 

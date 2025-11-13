@@ -37,6 +37,7 @@ export async function createDatabaseClient(): Promise<Client> {
 export function createDatabasePool(): Pool {
   return new Pool({
     connectionString: getDatabaseUrl(),
+    ssl: { rejectUnauthorized: false },
     max: 20, // Maximum number of clients in the pool
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,

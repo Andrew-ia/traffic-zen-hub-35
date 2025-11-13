@@ -1,15 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { Client } from 'pg';
-import { getPool } from '../config/database.js';
-
-function getDatabaseUrl(): string {
-  const url = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');
-  }
-  return url;
-}
+import { getPool, getDatabaseUrl } from '../config/database.js';
 
 /**
  * Simple HMAC-based token utilities (no external deps)
@@ -69,7 +61,7 @@ function mapWorkspaceRoleToAppRole(workspaceRole?: string | null): 'adm' | 'basi
   }
 }
 
-const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '';
+const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
 export async function login(req: Request, res: Response) {
   const client = new Client({ connectionString: getDatabaseUrl() });

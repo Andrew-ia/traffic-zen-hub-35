@@ -1,10 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { Pool } from 'pg';
+import { getPool } from '../../config/database.js';
 
 const router = Router();
-const pool = new Pool({
-  connectionString: process.env.SUPABASE_DATABASE_URL,
-});
+const pool = getPool();
 
 /**
  * GET /api/ai/conversations?workspaceId=xxx

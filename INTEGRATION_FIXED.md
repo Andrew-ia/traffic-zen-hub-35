@@ -104,7 +104,7 @@ Agora **FUNCIONA DE VERDADE**:
 4. **Worker executa**
    - Busca credenciais criptografadas
    - Decripta com ENCRYPTION_KEY
-   - Executa `node scripts/meta/sync-incremental.js`
+   - Executa `npx tsx scripts/meta/sync-incremental.ts`
    - Atualiza progress no banco
 
 5. **Frontend monitora**

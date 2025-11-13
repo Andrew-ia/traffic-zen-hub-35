@@ -1,4 +1,4 @@
-import { DatabaseClient, SyncContext, defaultLogger } from './db.ts';
+import { DatabaseClient, SyncContext, defaultLogger } from './db.js';
 
 const GRAPH_VERSION = 'v19.0';
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;

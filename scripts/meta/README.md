@@ -20,7 +20,7 @@ node scripts/meta/sync-campaigns.js
 
 ---
 
-### 2. `sync-incremental.js` - Sincronização Incremental ⭐ NOVO
+### 2. `sync-incremental.ts` - Sincronização Incremental ⭐ NOVO
 Sincroniza apenas dados dos últimos N dias (configurável).
 
 ```bash
@@ -28,16 +28,16 @@ Sincroniza apenas dados dos últimos N dias (configurável).
 npm run sync:meta:incremental -- --days=7
 
 # Último dia (rápido)
-node scripts/meta/sync-incremental.js --days=1
+npx tsx scripts/meta/sync-incremental.ts --days=1
 
 # Últimos 30 dias
-node scripts/meta/sync-incremental.js --days=30
+npx tsx scripts/meta/sync-incremental.ts --days=30
 
 # Apenas campanhas
-node scripts/meta/sync-incremental.js --days=7 --campaigns-only
+npx tsx scripts/meta/sync-incremental.ts --days=7 --campaigns-only
 
 # Apenas métricas
-node scripts/meta/sync-incremental.js --days=7 --metrics-only
+npx tsx scripts/meta/sync-incremental.ts --days=7 --metrics-only
 ```
 
 **Quando usar:**
@@ -128,7 +128,7 @@ npm run sync:meta
 ### Dados não atualizam
 Tente aumentar o período:
 ```bash
-node scripts/meta/sync-incremental.js --days=15
+npx tsx scripts/meta/sync-incremental.ts --days=15
 ```
 
 ---

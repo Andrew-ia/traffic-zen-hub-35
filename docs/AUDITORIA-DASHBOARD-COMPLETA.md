@@ -540,7 +540,7 @@ https://www.googleapis.com/auth/adwords
 #### Scripts a criar:
 - [ ] `/scripts/google-ads/auth-oauth.js` - Autenticação
 - [ ] `/scripts/google-ads/sync-campaigns.js` - Sincronizar campanhas
-- [ ] `/scripts/google-ads/sync-incremental.js` - Sincronização incremental
+- [ ] `/scripts/google-ads/sync-incremental.ts` - Sincronização incremental
 - [ ] `/scripts/google-ads/backfill-metrics.js` - Preencher histórico
 
 #### Backend:

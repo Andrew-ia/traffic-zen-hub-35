@@ -534,7 +534,7 @@ async function runAudit() {
     issues.push({
       severity: 'CRÍTICO',
       issue: `Dados ${dateInfo.days_behind} dias atrasados`,
-      recommendation: 'Verificar se o script de sincronização está rodando diariamente. Executar: node scripts/meta/sync-incremental.js --days=7'
+      recommendation: 'Verificar se o script de sincronização está rodando diariamente. Executar: npx tsx scripts/meta/sync-incremental.ts --days=7'
     });
   }
 
@@ -558,7 +558,7 @@ async function runAudit() {
     issues.push({
       severity: 'BAIXO',
       issue: 'Dados demográficos ausentes ou incompletos',
-      recommendation: 'Verificar se a sincronização de breakdowns está habilitada no script sync-incremental.js'
+      recommendation: 'Verificar se a sincronização de breakdowns está habilitada no script sync-incremental.ts'
     });
   }
 

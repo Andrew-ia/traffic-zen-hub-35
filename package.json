@@ -15,7 +15,7 @@
     "preview": "vite preview",
     "check:env": "node scripts/check-env.mjs",
     "sync:meta": "node scripts/meta/sync-campaigns.js",
-    "sync:meta:incremental": "node scripts/meta/sync-incremental.js",
+    "sync:meta:incremental": "tsx scripts/meta/sync-incremental.ts",
     "backfill:meta": "node scripts/meta/backfill-insights.js",
     "sync:google": "node scripts/google-ads/sync-google-ads.js",
     "sync:meta:daily": "bash scripts/meta/run-daily.sh",
@@ -23,7 +23,9 @@
     "check:data": "node scripts/check-data-sync.js",
     "server": "tsx server/index.ts",
     "generate:encryption-key": "node server/scripts/generate-encryption-key.js",
-    "import:cashflow": "tsx scripts/financial/import-cashflow.ts"
+    "import:cashflow": "tsx scripts/financial/import-cashflow.ts",
+    "test:env": "node scripts/test-env.ts",
+    "test:api": "tsx scripts/test-api-health.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -91,6 +93,7 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^13.0.0",
     "vaul": "^0.9.9",
+    "vercel": "^48.9.2",
     "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },

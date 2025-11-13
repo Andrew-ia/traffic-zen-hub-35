@@ -20,7 +20,7 @@
 
 ### ✨ Novos Arquivos
 
-1. **[scripts/meta/sync-incremental.js](scripts/meta/sync-incremental.js)** - Script principal
+1. **[scripts/meta/sync-incremental.ts](scripts/meta/sync-incremental.ts)** - Script principal
    - Sincronização inteligente com filtro de dias
    - Parâmetros: `--days=X`, `--campaigns-only`, `--metrics-only`
    - UPSERT automático (não duplica!)
@@ -42,7 +42,7 @@
 
 1. **[package.json](package.json)**
    ```json
-   "sync:meta:incremental": "node scripts/meta/sync-incremental.js"
+   "sync:meta:incremental": "npx tsx scripts/meta/sync-incremental.ts"
    ```
 
 2. **[src/pages/Integrations.tsx](src/pages/Integrations.tsx)**
@@ -69,16 +69,16 @@
 npm run sync:meta:incremental -- --days=7
 
 # Sincronizar último dia (rápido)
-node scripts/meta/sync-incremental.js --days=1
+npx tsx scripts/meta/sync-incremental.ts --days=1
 
 # Apenas campanhas dos últimos 15 dias
-node scripts/meta/sync-incremental.js --days=15 --campaigns-only
+npx tsx scripts/meta/sync-incremental.ts --days=15 --campaigns-only
 
 # Apenas métricas do último dia
-node scripts/meta/sync-incremental.js --days=1 --metrics-only
+npx tsx scripts/meta/sync-incremental.ts --days=1 --metrics-only
 
 # Último mês completo
-node scripts/meta/sync-incremental.js --days=30
+npx tsx scripts/meta/sync-incremental.ts --days=30
 ```
 
 ---
@@ -113,7 +113,7 @@ $ node scripts/check-meta-data.js | grep Métricas
 Métricas: 475
 
 # Teste 2: Sincronizar 7 dias
-$ node scripts/meta/sync-incremental.js --days=7
+$ npx tsx scripts/meta/sync-incremental.ts --days=7
 ✅ Sincronização incremental concluída com sucesso!
 
 # Teste 3: Contagem depois
@@ -121,7 +121,7 @@ $ node scripts/check-meta-data.js | grep Métricas
 Métricas: 476
 
 # Teste 4: Sincronizar NOVAMENTE os mesmos 7 dias
-$ node scripts/meta/sync-incremental.js --days=7
+$ npx tsx scripts/meta/sync-incremental.ts --days=7
 ✅ Sincronização incremental concluída com sucesso!
 
 # Teste 5: Contagem final
@@ -217,10 +217,10 @@ source .env.local
 # Fim de semana: 7 dias
 if [ $(date +%u) -lt 6 ]; then
   echo "📅 Dia útil: sincronizando 3 dias"
-  node scripts/meta/sync-incremental.js --days=3
+  npx tsx scripts/meta/sync-incremental.ts --days=3
 else
   echo "📅 Fim de semana: sincronizando 7 dias"
-  node scripts/meta/sync-incremental.js --days=7
+  npx tsx scripts/meta/sync-incremental.ts --days=7
 fi
 ```
 

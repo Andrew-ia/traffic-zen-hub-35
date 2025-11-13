@@ -108,7 +108,7 @@ SELECT get_avg_ticket('workspace-uuid', 30);
 
 ### ✅ 4. TESTE DE SINCRONIZAÇÃO META ADS
 
-**Executado:** `node scripts/meta/sync-incremental.js --days=1 --campaigns-only`
+**Executado:** `npx tsx scripts/meta/sync-incremental.ts --days=1 --campaigns-only`
 **Resultado:** ✅ FUNCIONANDO PERFEITAMENTE
 
 ```

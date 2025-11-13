@@ -36,23 +36,23 @@ O sistema de sincronização incremental permite atualizar apenas os dados recen
 npm run sync:meta:incremental -- --days=7
 
 # Sincronizar últimos 3 dias
-node scripts/meta/sync-incremental.js --days=3
+npx tsx scripts/meta/sync-incremental.ts --days=3
 
 # Sincronizar apenas campanhas dos últimos 15 dias
-node scripts/meta/sync-incremental.js --days=15 --campaigns-only
+npx tsx scripts/meta/sync-incremental.ts --days=15 --campaigns-only
 
 # Sincronizar apenas métricas dos últimos dias
-node scripts/meta/sync-incremental.js --days=1 --metrics-only
+npx tsx scripts/meta/sync-incremental.ts --days=1 --metrics-only
 
 # Sincronizar último mês
-node scripts/meta/sync-incremental.js --days=30
+npx tsx scripts/meta/sync-incremental.ts --days=30
 ```
 
 ## Arquivos Criados/Modificados
 
 ### Novos Arquivos
 
-1. **`scripts/meta/sync-incremental.js`**
+1. **`scripts/meta/sync-incremental.ts`**
    - Script principal de sincronização incremental
    - Aceita parâmetros: `--days`, `--campaigns-only`, `--metrics-only`
    - Usa filtro `updated_time` da API do Meta para buscar apenas dados recentes
@@ -68,7 +68,7 @@ node scripts/meta/sync-incremental.js --days=30
 ### Arquivos Modificados
 
 1. **`package.json`**
-   - Adicionado script: `"sync:meta:incremental": "node scripts/meta/sync-incremental.js"`
+   - Adicionado script: `"sync:meta:incremental": "npx tsx scripts/meta/sync-incremental.ts"`
 
 2. **`src/pages/Integrations.tsx`**
    - Importado `MetaSyncButton`
@@ -78,7 +78,7 @@ node scripts/meta/sync-incremental.js --days=30
 
 ### Lógica de Sincronização
 
-O script `sync-incremental.js` funciona assim:
+O script `sync-incremental.ts` funciona assim:
 
 1. **Campanhas** (se não for `--metrics-only`):
    - Busca campanhas com `updated_time > (hoje - N dias)`
@@ -161,11 +161,11 @@ cd "$(dirname "$0")/../.."
 source .env.local
 
 # Sincronizar últimos 3 dias
-node scripts/meta/sync-incremental.js --days=3
+npx tsx scripts/meta/sync-incremental.ts --days=3
 
 # Se for domingo, sincronizar últimos 30 dias
 if [ $(date +%u) -eq 7 ]; then
-  node scripts/meta/sync-incremental.js --days=30
+  npx tsx scripts/meta/sync-incremental.ts --days=30
 fi
 ```
 

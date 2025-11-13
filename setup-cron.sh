@@ -14,14 +14,14 @@ echo ""
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Define o comando do cron
-CRON_COMMAND="0 3 * * * cd $SCRIPT_DIR && /usr/local/bin/node scripts/meta/sync-incremental.js --days=1 >> /tmp/meta-sync.log 2>&1"
+CRON_COMMAND="0 3 * * * cd $SCRIPT_DIR && /usr/local/bin/npx --yes tsx scripts/meta/sync-incremental.ts --days=1 >> /tmp/meta-sync.log 2>&1"
 
 # Verifica se já existe
-if crontab -l 2>/dev/null | grep -q "meta/sync-incremental.js"; then
+if crontab -l 2>/dev/null | grep -q "meta/sync-incremental.ts"; then
     echo "⚠️  Cron job já existe!"
     echo ""
     echo "Cron jobs atuais:"
-    crontab -l | grep "meta/sync-incremental.js"
+    crontab -l | grep "meta/sync-incremental.ts"
     echo ""
     read -p "Deseja substituir? (y/n) " -n 1 -r
     echo
@@ -31,7 +31,7 @@ if crontab -l 2>/dev/null | grep -q "meta/sync-incremental.js"; then
     fi
 
     # Remove o antigo
-    crontab -l | grep -v "meta/sync-incremental.js" | crontab -
+    crontab -l | grep -v "meta/sync-incremental.ts" | crontab -
 fi
 
 # Adiciona o novo
@@ -41,7 +41,7 @@ echo "✅ Cron job configurado com sucesso!"
 echo ""
 echo "📋 Detalhes:"
 echo "   Frequência: Diariamente às 3h da manhã"
-echo "   Script: scripts/meta/sync-incremental.js --days=1"
+echo "   Script: scripts/meta/sync-incremental.ts --days=1"
 echo "   Log: /tmp/meta-sync.log"
 echo ""
 echo "🔍 Verificar cron jobs:"
@@ -51,5 +51,5 @@ echo "📝 Ver logs:"
 echo "   tail -f /tmp/meta-sync.log"
 echo ""
 echo "❌ Remover cron job:"
-echo "   crontab -l | grep -v 'meta/sync-incremental.js' | crontab -"
+echo "   crontab -l | grep -v 'meta/sync-incremental.ts' | crontab -"
 echo ""

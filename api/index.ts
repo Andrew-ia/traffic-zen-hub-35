@@ -84,12 +84,19 @@ dotenv.config({ path: '.env.local' });
 const app = express();
 
 // Middleware
-app.use(helmet({ contentSecurityPolicy: false }));
+// app.use(helmet({ contentSecurityPolicy: false })); // Temporariamente desabilitado
 app.use(cors({
   origin: true,
   credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));
+
+// Debug middleware
+app.use((req, res, next) => {
+  console.log('🔍 Request:', req.method, req.url, 'Headers:', req.headers);
+  next();
+});
+
 // Normalize Vercel /api prefix so Express routes are defined without /api
 app.use((req, _res, next) => {
   if (req.url === '/api') {

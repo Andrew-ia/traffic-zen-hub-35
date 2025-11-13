@@ -1,7 +1,9 @@
-import { spawn } from 'child_process';
 import { getPool } from '../config/database.js';
 import { generatePostSyncInsights } from '../services/postSyncInsights.js';
 import type { SyncJobData } from '../types/index.js';
+import { runMetaSync } from '../../supabase/functions/_shared/metaSync.js';
+import { runInstagramSync } from '../../supabase/functions/_shared/instagramSync.js';
+import type { SyncContext } from '../../supabase/functions/_shared/db.js';
 
 /**
  * Simple sync worker without Redis/BullMQ
@@ -9,8 +11,6 @@ import type { SyncJobData } from '../types/index.js';
  */
 
 let isProcessing = false;
-// Track Instagram media processing totals per job to compute granular progress
-const igProgressState: Map<string, { totalMedia?: number }> = new Map();
 
 function resolveMetaCredentials(credentials: any) {
   const appId = credentials.appId ?? credentials.app_id;
@@ -36,227 +36,51 @@ function resolveInstagramCredentials(credentials: any) {
   return { igUserId, accessToken };
 }
 
-/**
- * Execute the Instagram sync script
- */
-async function executeInstagramSync(jobData: SyncJobData): Promise<{ stdout: string; stderr: string }> {
+async function executeInstagramSync(jobData: SyncJobData): Promise<any> {
+  const pool = getPool();
   const { workspaceId, parameters } = jobData;
   const credentials = resolveInstagramCredentials(jobData.credentials as any);
 
-  console.log(`\n🚀 Starting Instagram sync job ${jobData.jobId}`);
-  console.log(`   Workspace: ${workspaceId}`);
-  console.log(`   Period: ${parameters.days} days`);
-
-  // Environment variables with credentials
-  const env = {
-    ...process.env,
-    IG_USER_ID: credentials.igUserId,
-    IG_ACCESS_TOKEN: credentials.accessToken,
-    IG_WORKSPACE_ID: workspaceId,
-    SYNC_DAYS: String(parameters.days),
+  const ctx: SyncContext = {
+    db: {
+      query: (text: string, params?: any[]) => pool.query(text, params),
+    },
+    reportProgress: (progress) => updateJobStatus(jobData.jobId, 'processing', { progress }),
   };
 
-  return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-
-    const child = spawn('node', ['scripts/instagram/sync-insights.js'], {
-      env,
-      cwd: process.cwd(),
-    });
-
-    child.stdout.on('data', (data) => {
-      const output = data.toString();
-      stdout += output;
-      console.log(output.trim());
-
-      // Update job progress based on output
-      updateProgressFromOutput(jobData.jobId, output);
-    });
-
-    child.stderr.on('data', (data) => {
-      const output = data.toString();
-      stderr += output;
-      console.error(output.trim());
-    });
-
-    child.on('error', (error) => {
-      console.error(`❌ Process error:`, error);
-      reject(error);
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log(`✅ Instagram sync job ${jobData.jobId} completed successfully`);
-        resolve({ stdout, stderr });
-      } else {
-        const error = new Error(`Process exited with code ${code}`);
-        console.error(`❌ Instagram sync job ${jobData.jobId} failed with code ${code}`);
-        reject(error);
-      }
-    });
-  });
+  return runInstagramSync(
+    {
+      igUserId: credentials.igUserId,
+      accessToken: credentials.accessToken,
+      workspaceId,
+      days: parameters.days,
+    },
+    ctx,
+  );
 }
 
-/**
- * Execute the Meta sync script
- */
-async function executeMetaSync(jobData: SyncJobData): Promise<{ stdout: string; stderr: string }> {
+async function executeMetaSync(jobData: SyncJobData): Promise<any> {
+  const pool = getPool();
   const { workspaceId, parameters } = jobData;
   const credentials = resolveMetaCredentials(jobData.credentials as any);
 
-  console.log(`\n🚀 Starting Meta sync job ${jobData.jobId}`);
-  console.log(`   Workspace: ${workspaceId}`);
-  console.log(`   Period: ${parameters.days} days`);
-  console.log(`   Type: ${parameters.type}`);
-
-  // Build command arguments
-  const args = ['scripts/meta/sync-incremental.js', `--days=${parameters.days}`];
-
-  if (parameters.type === 'campaigns') {
-    args.push('--campaigns-only');
-  } else if (parameters.type === 'metrics') {
-    args.push('--metrics-only');
-  }
-
-  // Environment variables with credentials
-  const env = {
-    ...process.env,
-    META_APP_ID: credentials.appId,
-    META_APP_SECRET: credentials.appSecret,
-    META_ACCESS_TOKEN: credentials.accessToken,
-    META_AD_ACCOUNT_ID: credentials.adAccountId,
-    META_WORKSPACE_ID: workspaceId,
-    SYNC_DAYS: String(parameters.days),
+  const ctx: SyncContext = {
+    db: {
+      query: (text: string, params?: any[]) => pool.query(text, params),
+    },
+    reportProgress: (progress) => updateJobStatus(jobData.jobId, 'processing', { progress }),
   };
 
-  return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-
-    const child = spawn('node', args, {
-      env,
-      cwd: process.cwd(),
-    });
-
-    child.stdout.on('data', (data) => {
-      const output = data.toString();
-      stdout += output;
-      console.log(output.trim());
-
-      // Update job progress based on output
-      updateProgressFromOutput(jobData.jobId, output);
-    });
-
-    child.stderr.on('data', (data) => {
-      const output = data.toString();
-      stderr += output;
-      console.error(output.trim());
-    });
-
-    child.on('error', (error) => {
-      console.error(`❌ Process error:`, error);
-      reject(error);
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log(`✅ Meta sync job ${jobData.jobId} completed successfully`);
-        resolve({ stdout, stderr });
-      } else {
-        const error = new Error(`Process exited with code ${code}`);
-        console.error(`❌ Meta sync job ${jobData.jobId} failed with code ${code}`);
-        reject(error);
-      }
-    });
-  });
-}
-
-/**
- * Update job progress based on script output
- */
-async function updateProgressFromOutput(jobId: string, output: string) {
-  const pool = getPool();
-  let progress = 0;
-
-  // Meta Ads progress (Portuguese log messages)
-  if (output.includes('Buscando campanhas')) {
-    progress = 10;
-  } else if (output.includes('campanhas encontradas')) {
-    progress = 25;
-  } else if (output.includes('Ad sets sincronizados')) {
-    progress = 50;
-  } else if (output.includes('Anúncios sincronizados')) {
-    progress = 60;
-  } else if (output.includes('Sincronizando métricas')) {
-    progress = 70;
-  } else if (output.includes('Métricas')) {
-    progress = 85;
-  }
-
-  // Instagram progress (English/Portuguese log messages)
-  if (output.includes('Starting Instagram Insights sync')) {
-    progress = Math.max(progress, 5);
-  }
-  if (output.includes('Fetching user insights')) {
-    progress = Math.max(progress, 15);
-  }
-  if (output.includes('Fetching recent media posts')) {
-    progress = Math.max(progress, 40);
-  }
-  if (output.includes('Found') && output.includes('recent media posts')) {
-    // e.g., "✅ Found 12 recent media posts"
-    const match = output.match(/Found\s+(\d+)\s+recent media posts/i);
-    if (match) {
-      const total = parseInt(match[1], 10);
-      const state = igProgressState.get(jobId) || {};
-      state.totalMedia = total;
-      igProgressState.set(jobId, state);
-      progress = Math.max(progress, total > 0 ? 50 : 45);
-    }
-  }
-  if (output.includes('Fetching insights for') && output.includes('media posts')) {
-    // e.g., "📊 Fetching insights for 12 media posts..."
-    const match = output.match(/Fetching insights for\s+(\d+)\s+media posts/i);
-    if (match) {
-      const total = parseInt(match[1], 10);
-      const state = igProgressState.get(jobId) || {};
-      state.totalMedia = total;
-      igProgressState.set(jobId, state);
-      progress = Math.max(progress, 55);
-    }
-  }
-  if (output.includes('Progress:') && output.includes('media processed')) {
-    // e.g., "   Progress: 5/12 media processed"
-    const match = output.match(/Progress:\s*(\d+)\/(\d+)\s+media processed/i);
-    if (match) {
-      const processed = parseInt(match[1], 10);
-      const total = parseInt(match[2], 10);
-      const pct = total > 0 ? processed / total : 0;
-      // Map media processing progress to 60–90% range
-      const mapped = 60 + Math.round(pct * 30);
-      progress = Math.max(progress, mapped);
-    }
-  }
-  if (output.includes('Processed insights for') && output.includes('media posts')) {
-    progress = Math.max(progress, 95);
-  }
-  if (output.includes('Token sem permissão para mídia')) {
-    // Skipped media due to permission; still consider sync almost done
-    progress = Math.max(progress, 85);
-  }
-  if (output.includes('Instagram Insights sync completed successfully')) {
-    progress = Math.max(progress, 100);
-    // Cleanup state for finished job
-    igProgressState.delete(jobId);
-  }
-
-  if (progress > 0) {
-    await pool.query(
-      'UPDATE sync_jobs SET progress = $1, updated_at = now() WHERE id = $2',
-      [progress, jobId]
-    );
-  }
+  return runMetaSync(
+    {
+      accessToken: credentials.accessToken,
+      adAccountId: credentials.adAccountId,
+      workspaceId,
+      days: parameters.days,
+      type: parameters.type ?? 'all',
+    },
+    ctx,
+  );
 }
 
 /**
@@ -333,11 +157,11 @@ async function processJob(job: any, jobData: SyncJobData) {
     });
 
     // Execute the sync based on platform
-    let result;
+    let resultSummary: any = null;
     if (jobData.platformKey === 'instagram') {
-      result = await executeInstagramSync(jobData);
+      resultSummary = await executeInstagramSync(jobData);
     } else if (jobData.platformKey === 'meta') {
-      result = await executeMetaSync(jobData);
+      resultSummary = await executeMetaSync(jobData);
     } else {
       throw new Error(`Unsupported platform: ${jobData.platformKey}`);
     }
@@ -357,8 +181,7 @@ async function processJob(job: any, jobData: SyncJobData) {
     await updateJobStatus(jobId, 'completed', {
       progress: 100,
       result: {
-        stdout: result.stdout,
-        stderr: result.stderr,
+        summary: resultSummary,
         success: true,
         insights,
       },
@@ -498,4 +321,10 @@ export function startSimpleWorker() {
   pollForJobs();
 
   return intervalId;
+}
+
+export async function runWorkerIteration(maxJobs = 1): Promise<void> {
+  for (let i = 0; i < maxJobs; i++) {
+    await pollForJobs();
+  }
 }
