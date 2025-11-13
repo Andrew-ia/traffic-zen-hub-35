@@ -229,6 +229,10 @@ app.get('/integrations/test-credentials/:workspaceId/:platformKey', async (req, 
     const { getPool } = await import('../server/config/database.js');
     
     const pool = getPool();
+    
+    // Test database connection
+    const dbTest = await pool.query('SELECT NOW() as timestamp');
+    
     const result = await pool.query(
       `SELECT id, created_at, updated_at FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2`,
       [workspaceId, platformKey]
@@ -238,13 +242,17 @@ app.get('/integrations/test-credentials/:workspaceId/:platformKey', async (req, 
       success: true,
       data: {
         exists: result.rows.length > 0,
-        credentials: result.rows[0] || null
+        credentials: result.rows[0] || null,
+        db_connected: true,
+        db_timestamp: dbTest.rows[0]?.timestamp
       }
     });
   } catch (error) {
+    console.error('Test credentials error:', error);
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
