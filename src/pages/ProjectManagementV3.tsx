@@ -49,7 +49,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import type { TaskStatus, TaskPriority } from '@/types/project-management';
 
-const WORKSPACE_ID = '00000000-0000-0000-0000-000000000010';
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || '';
 
 const statusColors: Record<TaskStatus, string> = {
   pendente: 'bg-gray-500',

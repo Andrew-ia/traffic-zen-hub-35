@@ -37,6 +37,7 @@ interface UsePlatformMetricsParams {
   status?: CampaignStatusFilter;
   objective?: string;
 }
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 async function fetchPlatformMetrics({
   platform,
@@ -62,7 +63,7 @@ async function fetchPlatformMetrics({
     params.append("objective", objective);
   }
 
-  const response = await fetch(`/api/metrics/aggregate?${params.toString()}`);
+  const response = await fetch(`${API_BASE}/api/metrics/aggregate?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch platform metrics");
@@ -138,7 +139,7 @@ async function fetchTimeSeries({
     params.append("objective", objective);
   }
 
-  const response = await fetch(`/api/metrics/timeseries?${params.toString()}`);
+  const response = await fetch(`${API_BASE}/api/metrics/timeseries?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch time series data");
@@ -194,7 +195,7 @@ async function fetchDemographics({
     params.append("objective", objective);
   }
 
-  const response = await fetch(`/api/metrics/demographics?${params.toString()}`);
+  const response = await fetch(`${API_BASE}/api/metrics/demographics?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch demographics data");
@@ -253,7 +254,7 @@ async function fetchMetricsByObjective({
     params.append("status", status);
   }
 
-  const response = await fetch(`/api/metrics/aggregate-by-objective?${params.toString()}`);
+  const response = await fetch(`${API_BASE}/api/metrics/aggregate-by-objective?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch metrics by objective");

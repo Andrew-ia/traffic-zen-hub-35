@@ -1,6 +1,6 @@
 // Frontend service refatorado para chamar o backend com segurança
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fileToBase64 = (file: File): Promise<string> =>

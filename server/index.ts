@@ -23,8 +23,8 @@ import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-lo
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
-import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.ts';
-import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.ts';
+import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
+import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.js';
 import { getDemographics } from './api/analytics/demographics.js';
 import {
   getCampaignLibrary,
@@ -110,13 +110,31 @@ const PORT = process.env.API_PORT || 3001;
 
 // Middleware
 app.use(helmet());
+const allowedOrigins = new Set([
+  process.env.FRONTEND_URL || 'http://localhost:8080',
+  'http://localhost:8081',
+  'http://localhost:8082',
+  'http://localhost:8083',
+]);
+
+function isAllowedOrigin(origin?: string): boolean {
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+  try {
+    const u = new URL(origin);
+    if (u.hostname.endsWith('.vercel.app')) return true;
+  } catch { return false; }
+  return false;
+}
+
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:8080',
-    'http://localhost:8081',
-    'http://localhost:8082',
-    'http://localhost:8083'
-  ],
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin || undefined)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 // Increase JSON body limit to handle base64-encoded uploads
@@ -311,8 +329,7 @@ async function start() {
     // Ensure at least one admin user exists
     await ensureAdminUser();
 
-    // Start the simple worker (no Redis required!)
-    workerIntervalId = startSimpleWorker();
+    workerIntervalId = null;
 
     // Start Express server
     app.listen(PORT, () => {
@@ -321,7 +338,7 @@ async function start() {
       console.log('🚀 TrafficPro API Server');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Server running on: http://localhost:${PORT}`);
-      console.log(`🔧 Worker active: PostgreSQL Polling (no Redis needed!)`);
+      console.log(`🔧 Worker desativado: sincronização apenas sob demanda`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');

@@ -42,3 +42,4 @@ google-cloud-cli-darwin-arm64.tar.gz
 # Supabase temp files
 supabase/.temp/
 supabase/setup-vault.sql
+.vercel

@@ -1,6 +1,6 @@
-import { getPool } from '../config/database';
+import { getPool } from '../config/database.js';
 
-import { generateInsightFromPrompt } from '../services/genai';
+import { generateInsightFromPrompt } from '../services/genai.js';
 
 export async function generatePromptInsight(
   aiAgentId: string,

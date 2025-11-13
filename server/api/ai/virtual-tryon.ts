@@ -170,10 +170,6 @@ async function generateSingleImage(
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent({
         contents,
-        generationConfig: {
-          responseModalities: ['IMAGE', 'TEXT'],
-          candidateCount: 1,
-        },
       });
 
       const { images, caption } = extractImagesAndCaptionFromResponse(result.response);

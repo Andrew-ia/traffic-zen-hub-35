@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { mainNavigation } from '@/data/navigation';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 export default function AdminUsers() {
   const { data: members, refetch } = useWorkspaceMembers();
@@ -65,7 +66,7 @@ export default function AdminUsers() {
     setLoading(true);
     setMessage(null);
     try {
-      const res = await fetch('/api/auth/users', {
+      const res = await fetch(`${API_BASE}/api/auth/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

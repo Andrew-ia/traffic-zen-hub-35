@@ -12,9 +12,9 @@ import type {
   UpdatePMTaskDTO,
 } from '../types/project-management';
 
-// Use caminho relativo para aproveitar o proxy do Vite (localhost:8080 -> 3001)
-const API_BASE_URL = '/api/pm';
-const WORKSPACE_ID = '00000000-0000-0000-0000-000000000010';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+const PM_API = `${API_BASE}/api/pm`;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 // ========================================
 // HIERARCHY
@@ -40,11 +40,11 @@ export interface PMHierarchyResponse {
   };
 }
 
-export function usePMHierarchy(workspaceId: string = WORKSPACE_ID) {
+export function usePMHierarchy(workspaceId: string = WORKSPACE_ID || '') {
   return useQuery<PMHierarchyResponse>({
     queryKey: ['pm-hierarchy', workspaceId],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/hierarchy/${workspaceId}`);
+      const response = await fetch(`${PM_API}/hierarchy/${workspaceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch hierarchy');
       }
@@ -62,11 +62,11 @@ export interface PMFoldersResponse {
   data: PMFolder[];
 }
 
-export function usePMFolders(workspaceId: string = WORKSPACE_ID) {
+export function usePMFolders(workspaceId: string = WORKSPACE_ID || '') {
   return useQuery<PMFoldersResponse>({
     queryKey: ['pm-folders', workspaceId],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/folders/${workspaceId}`);
+      const response = await fetch(`${PM_API}/folders/${workspaceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch folders');
       }
@@ -79,7 +79,7 @@ export function usePMFolder(workspaceId: string, folderId: string) {
   return useQuery<{ success: boolean; data: PMFolder }>({
     queryKey: ['pm-folder', workspaceId, folderId],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/folders/${workspaceId}/${folderId}`);
+      const response = await fetch(`${PM_API}/folders/${workspaceId}/${folderId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch folder');
       }
@@ -94,7 +94,7 @@ export function useCreatePMFolder() {
 
   return useMutation({
     mutationFn: async (data: CreatePMFolderDTO) => {
-      const response = await fetch(`${API_BASE_URL}/folders/${data.workspace_id}`, {
+      const response = await fetch(`${PM_API}/folders/${data.workspace_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -122,7 +122,7 @@ export function useUpdatePMFolder() {
       folderId: string;
       data: UpdatePMFolderDTO;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/folders/${workspaceId}/${folderId}`, {
+      const response = await fetch(`${PM_API}/folders/${workspaceId}/${folderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -150,7 +150,7 @@ export function useDeletePMFolder() {
       workspaceId: string;
       folderId: string;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/folders/${workspaceId}/${folderId}`, {
+      const response = await fetch(`${PM_API}/folders/${workspaceId}/${folderId}`, {
         method: 'DELETE',
       });
 
@@ -181,8 +181,8 @@ export function usePMLists(workspaceId: string, folderId?: string) {
     queryKey: ['pm-lists', workspaceId, folderId],
     queryFn: async () => {
       const url = folderId
-        ? `${API_BASE_URL}/lists/${workspaceId}/${folderId}`
-        : `${API_BASE_URL}/lists/${workspaceId}`;
+        ? `${PM_API}/lists/${workspaceId}/${folderId}`
+        : `${PM_API}/lists/${workspaceId}`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch lists');
@@ -196,7 +196,7 @@ export function usePMList(workspaceId: string, listId: string) {
   return useQuery<{ success: boolean; data: PMList }>({
     queryKey: ['pm-list', workspaceId, listId],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/lists/${workspaceId}/list/${listId}`);
+      const response = await fetch(`${PM_API}/lists/${workspaceId}/list/${listId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch list');
       }
@@ -211,7 +211,7 @@ export function useCreatePMList() {
 
   return useMutation({
     mutationFn: async (data: CreatePMListDTO) => {
-      const response = await fetch(`${API_BASE_URL}/lists/${data.workspace_id}/${data.folder_id}`, {
+      const response = await fetch(`${PM_API}/lists/${data.workspace_id}/${data.folder_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -239,7 +239,7 @@ export function useUpdatePMList() {
       listId: string;
       data: UpdatePMListDTO;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/lists/${workspaceId}/${listId}`, {
+      const response = await fetch(`${PM_API}/lists/${workspaceId}/${listId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -267,7 +267,7 @@ export function useDeletePMList() {
       workspaceId: string;
       listId: string;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/lists/${workspaceId}/${listId}`, {
+      const response = await fetch(`${PM_API}/lists/${workspaceId}/${listId}`, {
         method: 'DELETE',
       });
 
@@ -309,8 +309,8 @@ export function usePMTasks(workspaceId: string, listId?: string, filters?: {
       if (filters?.folder_id) params.append('folder_id', filters.folder_id);
 
       const url = listId
-        ? `${API_BASE_URL}/tasks/${workspaceId}/${listId}?${params.toString()}`
-        : `${API_BASE_URL}/tasks/${workspaceId}?${params.toString()}`;
+        ? `${PM_API}/tasks/${workspaceId}/${listId}?${params.toString()}`
+        : `${PM_API}/tasks/${workspaceId}?${params.toString()}`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -325,7 +325,7 @@ export function usePMTask(workspaceId: string, taskId: string) {
   return useQuery<{ success: boolean; data: PMTaskFull }>({
     queryKey: ['pm-task', workspaceId, taskId],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/tasks/${workspaceId}/${taskId}/details`);
+      const response = await fetch(`${PM_API}/tasks/${workspaceId}/${taskId}/details`);
       if (!response.ok) {
         throw new Error('Failed to fetch task');
       }
@@ -340,7 +340,7 @@ export function useCreatePMTask() {
 
   return useMutation({
     mutationFn: async (data: CreatePMTaskDTO) => {
-      const response = await fetch(`${API_BASE_URL}/tasks/${data.workspace_id}/${data.list_id}`, {
+      const response = await fetch(`${PM_API}/tasks/${data.workspace_id}/${data.list_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -368,7 +368,7 @@ export function useUpdatePMTask() {
       taskId: string;
       data: UpdatePMTaskDTO;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/tasks/${workspaceId}/${taskId}`, {
+      const response = await fetch(`${PM_API}/tasks/${workspaceId}/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -396,7 +396,7 @@ export function useDeletePMTask() {
       workspaceId: string;
       taskId: string;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/tasks/${workspaceId}/${taskId}`, {
+      const response = await fetch(`${PM_API}/tasks/${workspaceId}/${taskId}`, {
         method: 'DELETE',
       });
 
@@ -429,8 +429,8 @@ export function usePMDocuments(workspaceId: string, listId?: string) {
     queryKey: ['pm-documents', workspaceId, listId],
     queryFn: async () => {
       const url = listId
-        ? `${API_BASE_URL}/documents/${workspaceId}/${listId}`
-        : `${API_BASE_URL}/documents/${workspaceId}`;
+        ? `${PM_API}/documents/${workspaceId}/${listId}`
+        : `${PM_API}/documents/${workspaceId}`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch documents');
@@ -445,7 +445,7 @@ export function useCreatePMDocument() {
 
   return useMutation({
     mutationFn: async (data: CreatePMDocumentDTO) => {
-      const response = await fetch(`${API_BASE_URL}/documents/${data.workspace_id}/${data.list_id}`,
+      const response = await fetch(`${PM_API}/documents/${data.workspace_id}/${data.list_id}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -480,7 +480,7 @@ export function useUploadPMDocumentAttachment() {
       };
       workspaceId?: string;
     }) => {
-      const response = await fetch(`${API_BASE_URL}/documents/${params.documentId}/attachments`, {
+      const response = await fetch(`${PM_API}/documents/${params.documentId}/attachments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params.data),
@@ -506,7 +506,7 @@ export function useUploadPMTaskAttachment() {
 
   return useMutation({
     mutationFn: async ({ taskId, data }: { taskId: string; data: { file_name: string; file_url: string; file_type?: string; file_size?: number } }) => {
-      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments`, {
+      const res = await fetch(`${PM_API}/tasks/${taskId}/attachments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -530,7 +530,7 @@ export function usePMTaskAttachments(taskId?: string) {
     queryKey: ['pm-task-attachments', taskId],
     queryFn: async () => {
       if (!taskId) return [];
-      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments`);
+      const res = await fetch(`${PM_API}/tasks/${taskId}/attachments`);
       if (!res.ok) {
         throw new Error('Falha ao listar anexos da tarefa');
       }
@@ -546,7 +546,7 @@ export function useDeletePMTaskAttachment() {
 
   return useMutation({
     mutationFn: async ({ taskId, attachmentId }: { taskId: string; attachmentId: string }) => {
-      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/attachments/${attachmentId}`, {
+      const res = await fetch(`${PM_API}/tasks/${taskId}/attachments/${attachmentId}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -578,8 +578,8 @@ export function usePMReminders(workspaceId: string, listId?: string) {
     queryKey: ['pm-reminders', workspaceId, listId],
     queryFn: async () => {
       const url = listId
-        ? `${API_BASE_URL}/reminders/${workspaceId}/${listId}`
-        : `${API_BASE_URL}/reminders/${workspaceId}`;
+        ? `${PM_API}/reminders/${workspaceId}/${listId}`
+        : `${PM_API}/reminders/${workspaceId}`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch reminders');
@@ -594,7 +594,7 @@ export function useCreatePMReminder() {
 
   return useMutation({
     mutationFn: async (data: CreatePMReminderDTO) => {
-      const response = await fetch(`${API_BASE_URL}/reminders/${data.workspace_id}/${data.list_id}`,
+      const response = await fetch(`${PM_API}/reminders/${data.workspace_id}/${data.list_id}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

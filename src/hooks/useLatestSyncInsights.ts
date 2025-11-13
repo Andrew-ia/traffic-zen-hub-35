@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { SyncInsightsSummary } from "@/types/sync";
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
 
@@ -14,7 +15,7 @@ interface LatestInsightsResponse {
 }
 
 async function fetchLatestInsights(): Promise<LatestInsightsResponse> {
-  const response = await fetch(`/api/integrations/sync/workspace/${WORKSPACE_ID}?limit=1`, {
+  const response = await fetch(`${API_BASE}/api/integrations/sync/workspace/${WORKSPACE_ID}?limit=1`, {
     headers: {
       Accept: "application/json",
     },

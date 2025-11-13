@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 interface AICreativeGeneratorProps {
   workspaceId: string;
@@ -67,7 +68,7 @@ export function AICreativeGenerator({
     setSuccess(null);
 
     try {
-      const response = await fetch('/api/ai/generate-creative', {
+      const response = await fetch(`${API_BASE}/api/ai/generate-creative`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

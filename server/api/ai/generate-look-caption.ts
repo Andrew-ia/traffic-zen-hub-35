@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { getPool } from '../../config/database.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 /**
  * Generate a caption for a Virtual Try-On look using OpenAI GPT-4

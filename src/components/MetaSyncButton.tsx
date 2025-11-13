@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import FullscreenLoader from "@/components/ui/fullscreen-loader";
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 interface MetaSyncButtonProps {
   variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
@@ -56,7 +57,7 @@ export default function MetaSyncButton({
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
       setProgress(null);
 
-      const response = await fetch("/api/integrations/sync", {
+      const response = await fetch(`${API_BASE}/api/integrations/sync`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,7 +106,7 @@ export default function MetaSyncButton({
         }
 
         try {
-          const statusResponse = await fetch(`/api/integrations/sync/${jobId}`);
+          const statusResponse = await fetch(`${API_BASE}/api/integrations/sync/${jobId}`);
           const statusPayload = await statusResponse.json().catch(() => ({}));
 
           if (!statusResponse.ok) {

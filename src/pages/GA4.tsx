@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { gtmPush, initGtm, isValidGtmId } from "@/lib/gtm";
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 const EVENT_LABELS: Record<string, string> = {
   page_view: "Visualização de página",
@@ -194,7 +195,7 @@ export default function GA4() {
     try {
       const property = ga4PropertyId.trim();
       if (!property) throw new Error("Informe o GA4 Property ID.");
-      const resp = await fetch(`/api/ga4/realtime`, {
+      const resp = await fetch(`${API_BASE}/api/ga4/realtime`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ propertyId: property }),
@@ -229,7 +230,7 @@ export default function GA4() {
     try {
       const property = ga4PropertyId.trim();
       if (!property) throw new Error("Informe o GA4 Property ID.");
-      const resp = await fetch(`/api/ga4/report`, {
+      const resp = await fetch(`${API_BASE}/api/ga4/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ propertyId: property, days: reportDays }),

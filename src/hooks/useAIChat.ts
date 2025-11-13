@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { ChatMessage, ChatConversation, SendMessageRequest } from '@/types/chat';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
 
 export function useAIChat(workspaceId: string) {
   const [loading, setLoading] = useState(false);

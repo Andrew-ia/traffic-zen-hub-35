@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
-import { generateAIResponse } from '../../services/aiService';
+import { generateAIResponse } from '../../services/aiService.js';
 
 const router = Router();
 const pool = new Pool({

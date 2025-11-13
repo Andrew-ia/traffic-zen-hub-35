@@ -22,31 +22,40 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const STORAGE_KEY = 'trafficpro.auth.token';
-const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 const OVERRIDES_PREFIX = 'trafficpro.page_access_overrides';
+const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+const DISABLE_AUTH = import.meta.env.VITE_DISABLE_AUTH === 'true';
+const DEFAULT_USER: User = {
+  id: 'dev-user',
+  email: (import.meta.env.VITE_ADMIN_EMAIL as string | undefined) || 'founder@trafficpro.dev',
+  role: 'adm',
+};
 
  
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(DISABLE_AUTH ? 'dev-token' : null);
+  const [user, setUser] = useState<User | null>(DISABLE_AUTH ? DEFAULT_USER : null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
+    if (DISABLE_AUTH) {
+      setIsLoading(false);
+      return;
+    }
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved && !token) {
       setToken(saved);
-      // Try to fetch current user
-      fetch('/api/auth/me', { headers: { Authorization: `Bearer ${saved}` } })
+      fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${saved}` } })
         .then(async (r) => (r.ok ? r.json() : Promise.reject(r)))
         .then((data) => {
           if (data?.success && data?.user) setUser(data.user);
           setIsLoading(false);
         })
         .catch(() => {
-          // invalid token
           window.localStorage.removeItem(STORAGE_KEY);
           setToken(null);
           setUser(null);
@@ -58,8 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   const login = async (username: string, password: string) => {
+    if (DISABLE_AUTH) {
+      setUser(DEFAULT_USER);
+      setToken('dev-token');
+      navigate('/');
+      return true;
+    }
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -103,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const hasAccess = (path: string) => {
+    if (DISABLE_AUTH) return true;
     if (user?.id && WORKSPACE_ID) {
       const key = `${OVERRIDES_PREFIX}:${WORKSPACE_ID}:${user.id}`;
       const raw = window.localStorage.getItem(key);

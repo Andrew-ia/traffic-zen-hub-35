@@ -1,7 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 if (!WORKSPACE_ID) {
   throw new Error("Missing VITE_WORKSPACE_ID environment variable.");

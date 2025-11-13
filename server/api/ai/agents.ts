@@ -15,7 +15,7 @@ function getWorkspaceId(): string {
       'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
     );
   }
-  return wid;
+  return wid.trim();
 }
 
 // GET /api/ai/agents - Listar todos os agentes
@@ -215,7 +215,7 @@ export async function runAgent(req: Request, res: Response) {
           // Por fim, um prompt padrão genérico
           `Gere um insight acionável para o agente "${agent.name}" com base nas métricas do workspace.`;
 
-        const { generatePromptInsight } = await import('../../agents/promptInsightGenerator');
+        const { generatePromptInsight } = await import('../../agents/promptInsightGenerator.js');
         let llmInsights = 0;
         try {
           llmInsights = await generatePromptInsight(

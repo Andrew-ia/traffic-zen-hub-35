@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { Client } from 'pg';
+import { getPool } from '../config/database.js';
 
 function getDatabaseUrl(): string {
   const url = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
@@ -182,4 +183,3 @@ export async function createUser(req: Request, res: Response) {
 
 // Route-level middlewares for admin-only
 export const adminOnly = [authMiddleware, requireAdmin];
-

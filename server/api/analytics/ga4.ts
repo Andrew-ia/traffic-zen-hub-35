@@ -21,20 +21,21 @@ function readCredentialsFromFile(filePath: string): { client_email: string; priv
 }
 
 function getServiceAccountCredentials(): { clientEmail: string; privateKey: string } {
-  // Prefer GOOGLE_APPLICATION_CREDENTIALS path if provided
+  // Prefer explicit env vars to avoid filesystem dependency in serverless
+  const clientEmail = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = process.env.GA4_SERVICE_ACCOUNT_KEY;
+  if (clientEmail && privateKey) {
+    return { clientEmail, privateKey: normalizePrivateKey(privateKey) };
+  }
+
+  // Fallback to GOOGLE_APPLICATION_CREDENTIALS path if provided
   const credsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (credsPath) {
     const { client_email, private_key } = readCredentialsFromFile(credsPath);
     return { clientEmail: client_email, privateKey: private_key };
   }
 
-  // Fallback to explicit env vars
-  const clientEmail = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = process.env.GA4_SERVICE_ACCOUNT_KEY;
-  if (!clientEmail || !privateKey) {
-    throw new Error('Missing GA4 service account credentials. Set GOOGLE_APPLICATION_CREDENTIALS or GA4_SERVICE_ACCOUNT_EMAIL/GA4_SERVICE_ACCOUNT_KEY.');
-  }
-  return { clientEmail, privateKey: normalizePrivateKey(privateKey) };
+  throw new Error('Missing GA4 service account credentials. Set GA4_SERVICE_ACCOUNT_EMAIL/GA4_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS.');
 }
 
 async function getAccessToken(): Promise<string> {

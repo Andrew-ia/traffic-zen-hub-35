@@ -8,7 +8,7 @@ import {
   getPerformanceByObjective,
   getMetricsTrend,
   getCampaignDetails,
-} from '../tools/dataQueries';
+} from '../tools/dataQueries.js';
 
 // Initialize Gemini client lazily to ensure env vars are loaded
 let genAI: GoogleGenerativeAI | null = null;
