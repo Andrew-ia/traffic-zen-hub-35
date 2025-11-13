@@ -5,16 +5,13 @@ import { Client, Pool } from 'pg';
  */
 
 export function getDatabaseUrl(): string {
-  const url = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  // Use Pooler URL for Vercel serverless, direct connection for local
+  const url = process.env.VERCEL
+    ? (process.env.SUPABASE_POOLER_URL || process.env.SUPABASE_DATABASE_URL)
+    : (process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL);
 
   if (!url) {
     throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');
-  }
-
-  // Add SSL and timeout parameters for Vercel serverless
-  if (process.env.VERCEL && !url.includes('sslmode')) {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}sslmode=require&connect_timeout=10`;
   }
 
   return url;
@@ -27,7 +24,7 @@ export function getDatabaseUrl(): string {
 export async function createDatabaseClient(): Promise<Client> {
   const client = new Client({
     connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? {} : undefined,
+    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
   });
 
   await client.connect();
@@ -60,7 +57,7 @@ export function getPool(): Pool {
       max: 1, // Limit to 1 connection for serverless
       idleTimeoutMillis: 1000,
       connectionTimeoutMillis: 5000,
-      ssl: {}, // Required for Supabase Pooler on Vercel
+      ssl: { rejectUnauthorized: false }, // Required for Supabase Pooler on Vercel
     });
 
     return serverlessPool;

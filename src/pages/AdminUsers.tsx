@@ -8,7 +8,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { mainNavigation } from '@/data/navigation';
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+import { resolveApiBase } from '@/lib/apiBase';
+
+const API_BASE = resolveApiBase();
 
 export default function AdminUsers() {
   const { data: members, refetch } = useWorkspaceMembers();

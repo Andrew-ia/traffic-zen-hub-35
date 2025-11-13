@@ -7,7 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { gtmPush, initGtm, isValidGtmId } from "@/lib/gtm";
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+import { resolveApiBase } from "@/lib/apiBase";
+const API_BASE = resolveApiBase();
 
 const EVENT_LABELS: Record<string, string> = {
   page_view: "Visualização de página",

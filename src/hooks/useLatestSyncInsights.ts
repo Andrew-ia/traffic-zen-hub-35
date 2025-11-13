@@ -1,6 +1,8 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { SyncInsightsSummary } from "@/types/sync";
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+import { resolveApiBase } from "@/lib/apiBase";
+
+const API_BASE = resolveApiBase();
 
 const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
 

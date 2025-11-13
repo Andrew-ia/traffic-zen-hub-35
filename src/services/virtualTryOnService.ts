@@ -1,6 +1,7 @@
 // Frontend service refatorado para chamar o backend com segurança
+import { resolveApiBase } from '@/lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+const API_BASE = resolveApiBase();
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fileToBase64 = (file: File): Promise<string> =>

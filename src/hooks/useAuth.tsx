@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { resolveApiBase } from '@/lib/apiBase';
 
 type Role = 'adm' | 'basico' | 'simples';
 
@@ -24,7 +25,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = 'trafficpro.auth.token';
 const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 const OVERRIDES_PREFIX = 'trafficpro.page_access_overrides';
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+const API_BASE = resolveApiBase();
 const DISABLE_AUTH = import.meta.env.VITE_DISABLE_AUTH === 'true';
 const DEFAULT_USER: User = {
   id: 'dev-user',

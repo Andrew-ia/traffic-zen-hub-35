@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { resolveApiBase } from '@/lib/apiBase';
 import type {
   PMFolder,
   PMList,
@@ -12,7 +13,7 @@ import type {
   UpdatePMTaskDTO,
 } from '../types/project-management';
 
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+const API_BASE = resolveApiBase();
 const PM_API = `${API_BASE}/api/pm`;
 const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
