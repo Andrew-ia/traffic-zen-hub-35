@@ -12,7 +12,10 @@ import { getDatabaseUrl } from '../../config/database.js';
  * GET /api/pm/hierarchy/:workspaceId
  */
 export async function getHierarchy(req: Request, res: Response) {
-  const client = new Client({ connectionString: getDatabaseUrl() });
+  const client = new Client({
+    connectionString: getDatabaseUrl(),
+    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
+  });
 
   try {
     const { workspaceId } = req.params;
@@ -110,7 +113,10 @@ export async function getHierarchy(req: Request, res: Response) {
  * GET /api/pm/hierarchy/:workspaceId/:folderId
  */
 export async function getFolderHierarchy(req: Request, res: Response) {
-  const client = new Client({ connectionString: getDatabaseUrl() });
+  const client = new Client({
+    connectionString: getDatabaseUrl(),
+    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
+  });
 
   try {
     const { workspaceId, folderId } = req.params;

@@ -11,15 +11,23 @@ export function getDatabaseUrl(): string {
     throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');
   }
 
+  // Add SSL and timeout parameters for Vercel serverless
+  if (process.env.VERCEL && !url.includes('sslmode')) {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}sslmode=require&connect_timeout=10`;
+  }
+
   return url;
 }
 
 /**
  * Create a new PostgreSQL client (for single queries)
+ * With SSL configuration for serverless environments
  */
 export async function createDatabaseClient(): Promise<Client> {
   const client = new Client({
     connectionString: getDatabaseUrl(),
+    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
   });
 
   await client.connect();
@@ -52,6 +60,7 @@ export function getPool(): Pool {
       max: 1, // Limit to 1 connection for serverless
       idleTimeoutMillis: 1000,
       connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false }, // Required for Supabase on Vercel
     });
 
     return serverlessPool;
