@@ -47,11 +47,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       return;
     }
+    
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved && !token) {
+    console.log('🔄 Auth check triggered. Token in state:', !!token, 'Token in localStorage:', !!saved);
+    
+    if (saved && !token && !user) {
       console.log('🔑 Token found in localStorage, validating...');
       setToken(saved);
-      fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${saved}` } })
+      
+      // Set loading to true while validating
+      setIsLoading(true);
+      
+      fetch(`${API_BASE}/api/auth/me`, { 
+        headers: { Authorization: `Bearer ${saved}` },
+        // Add timeout to prevent hanging
+        signal: AbortSignal.timeout(10000)
+      })
         .then(async (r) => {
           console.log('🔍 Auth validation response:', r.status, r.ok);
           return r.ok ? r.json() : Promise.reject(r);
@@ -61,6 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (data?.success && data?.user) {
             setUser(data.user);
             console.log('👤 User set:', data.user);
+          } else {
+            console.log('⚠️ Invalid response from auth endpoint');
+            throw new Error('Invalid auth response');
           }
           setIsLoading(false);
         })
@@ -71,11 +85,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setIsLoading(false);
         });
+    } else if (!saved && !user) {
+      console.log('🚫 No saved token found');
+      setIsLoading(false);
+    } else if (saved && token && user) {
+      console.log('✅ Already authenticated');
+      setIsLoading(false);
     } else {
-      console.log('🚫 No saved token or token already set. Token exists:', !!token, 'Saved exists:', !!saved);
+      console.log('🔄 Auth state unclear, finishing loading');
       setIsLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const login = async (username: string, password: string) => {
     if (DISABLE_AUTH) {
@@ -148,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   };
 
-  const value = useMemo<AuthContextValue>(() => ({ user, token, isLoading, login, logout, hasAccess }), [user, token, isLoading, login, logout, hasAccess]);
+  const value = useMemo<AuthContextValue>(() => ({ user, token, isLoading, login, logout, hasAccess }), [user, token, isLoading]);
 
   // If user navigates to a blocked route, redirect to home or login
   useEffect(() => {
