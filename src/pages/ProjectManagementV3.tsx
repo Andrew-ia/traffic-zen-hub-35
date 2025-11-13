@@ -45,7 +45,7 @@ import { CreateItemModal } from '@/components/pm/CreateItemModal';
 import { EmojiPicker } from '@/components/pm/EmojiPicker';
 import type { PMTaskFull } from '@/types/project-management';
 import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, useDeletePMList, useCreatePMDocument, useCreatePMReminder, useUpdatePMList, useUploadPMDocumentAttachment, useDeletePMFolder, usePMDocuments, useUploadPMTaskAttachment, useUpdatePMFolder } from '@/hooks/useProjectManagement';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, hasSupabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import type { TaskStatus, TaskPriority } from '@/types/project-management';
 
@@ -359,40 +359,48 @@ export default function ProjectManagementV3() {
 
       const createdTaskId = result?.data?.id ?? result?.id;
 
-      // Se houver anexos, fazer upload para cada um
+      // Se houver anexos, fazer upload para cada um (somente se Supabase estiver configurado)
       if (data.attachments && data.attachments.length > 0 && createdTaskId) {
-        for (const file of data.attachments) {
-          try {
-            const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
-            const timestamp = Date.now();
-            const path = `pm/${WORKSPACE_ID}/tasks/${createdTaskId}/${timestamp}-${sanitize(file.name)}`;
+        if (!hasSupabase || !supabase) {
+          toast({
+            title: 'Armazenamento indisponível',
+            description: 'Uploads de anexos estão desativados (Supabase não configurado).',
+            variant: 'destructive',
+          });
+        } else {
+          for (const file of data.attachments) {
+            try {
+              const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+              const timestamp = Date.now();
+              const path = `pm/${WORKSPACE_ID}/tasks/${createdTaskId}/${timestamp}-${sanitize(file.name)}`;
 
-            const { error: uploadError } = await supabase.storage
-              .from('creatives')
-              .upload(path, file, { contentType: file.type });
+              const { error: uploadError } = await supabase.storage
+                .from('creatives')
+                .upload(path, file, { contentType: file.type });
 
-            if (uploadError) {
-              console.error('Erro ao enviar anexo:', uploadError);
-              continue;
+              if (uploadError) {
+                console.error('Erro ao enviar anexo:', uploadError);
+                continue;
+              }
+
+              const { data: publicUrlData } = supabase.storage
+                .from('creatives')
+                .getPublicUrl(path);
+
+              const publicUrl = publicUrlData.publicUrl;
+
+              await uploadTaskAttachment.mutateAsync({
+                taskId: createdTaskId,
+                data: {
+                  file_name: file.name,
+                  file_url: publicUrl,
+                  file_type: file.type,
+                  file_size: file.size,
+                },
+              });
+            } catch (err) {
+              console.error('Erro ao processar anexo:', err);
             }
-
-            const { data: publicUrlData } = supabase.storage
-              .from('creatives')
-              .getPublicUrl(path);
-
-            const publicUrl = publicUrlData.publicUrl;
-
-            await uploadTaskAttachment.mutateAsync({
-              taskId: createdTaskId,
-              data: {
-                file_name: file.name,
-                file_url: publicUrl,
-                file_type: file.type,
-                file_size: file.size,
-              },
-            });
-          } catch (err) {
-            console.error('Erro ao processar anexo:', err);
           }
         }
       }
@@ -426,48 +434,56 @@ export default function ProjectManagementV3() {
         content: data.content,
       });
 
-      // If there is an attached file, upload it to Supabase Storage and save the public URL
+      // Se houver arquivo anexado, enviar para Storage e salvar URL pública (somente se Supabase estiver configurado)
       if (data.file) {
-        try {
-          const createdDocId = result?.data?.id ?? result?.id; // handle both wrapped and direct response
-          if (createdDocId) {
-            const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
-            const ext = data.file.name.split('.').pop() || 'bin';
-            const timestamp = Date.now();
-            const path = `pm/${WORKSPACE_ID}/documents/${createdDocId}/${timestamp}-${sanitize(data.file.name)}`;
-
-            const { error: uploadError } = await supabase.storage
-              .from('creatives')
-              .upload(path, data.file, { contentType: data.file.type });
-
-            if (uploadError) {
-              throw uploadError;
-            }
-
-            const { data: publicUrlData } = supabase.storage
-              .from('creatives')
-              .getPublicUrl(path);
-
-            const publicUrl = publicUrlData.publicUrl;
-
-            await uploadDocumentAttachment.mutateAsync({
-              documentId: createdDocId,
-              workspaceId: WORKSPACE_ID,
-              data: {
-                file_name: data.file.name,
-                file_url: publicUrl,
-                file_type: data.file.type,
-                file_size: data.file.size,
-              },
-            });
-          }
-        } catch (err) {
-          console.error('Erro ao enviar anexo:', err);
+        if (!hasSupabase || !supabase) {
           toast({
-            title: 'Anexo não salvo',
-            description: 'O documento foi criado, mas houve erro ao enviar o anexo.',
+            title: 'Armazenamento indisponível',
+            description: 'Uploads de anexos estão desativados (Supabase não configurado).',
             variant: 'destructive',
           });
+        } else {
+          try {
+            const createdDocId = result?.data?.id ?? result?.id; // handle both wrapped and direct response
+            if (createdDocId) {
+              const sanitize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
+              const ext = data.file.name.split('.').pop() || 'bin';
+              const timestamp = Date.now();
+              const path = `pm/${WORKSPACE_ID}/documents/${createdDocId}/${timestamp}-${sanitize(data.file.name)}`;
+
+              const { error: uploadError } = await supabase.storage
+                .from('creatives')
+                .upload(path, data.file, { contentType: data.file.type });
+
+              if (uploadError) {
+                throw uploadError;
+              }
+
+              const { data: publicUrlData } = supabase.storage
+                .from('creatives')
+                .getPublicUrl(path);
+
+              const publicUrl = publicUrlData.publicUrl;
+
+              await uploadDocumentAttachment.mutateAsync({
+                documentId: createdDocId,
+                workspaceId: WORKSPACE_ID,
+                data: {
+                  file_name: data.file.name,
+                  file_url: publicUrl,
+                  file_type: data.file.type,
+                  file_size: data.file.size,
+                },
+              });
+            }
+          } catch (err) {
+            console.error('Erro ao enviar anexo:', err);
+            toast({
+              title: 'Anexo não salvo',
+              description: 'O documento foi criado, mas houve erro ao enviar o anexo.',
+              variant: 'destructive',
+            });
+          }
         }
       }
       toast({
