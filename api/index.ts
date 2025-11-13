@@ -222,6 +222,27 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Database health check
+app.get('/db-health', async (req, res) => {
+  try {
+    const { getPool } = await import('../server/config/database.js');
+    const pool = getPool();
+    const result = await pool.query('SELECT NOW() as timestamp, version() as version');
+    res.json({ 
+      success: true, 
+      database: 'connected',
+      timestamp: result.rows[0]?.timestamp,
+      version: result.rows[0]?.version?.substring(0, 50) + '...'
+    });
+  } catch (error) {
+    console.error('Database health check failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Database connection failed' 
+    });
+  }
+});
+
 // Test credentials endpoint
 app.get('/integrations/test-credentials/:workspaceId/:platformKey', async (req, res) => {
   try {
