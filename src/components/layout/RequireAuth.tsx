@@ -8,8 +8,10 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   console.log('🛡️ RequireAuth check:', { 
     path: location.pathname, 
     user: !!user, 
+    userEmail: user?.email,
     isLoading,
-    hasAccess: user ? hasAccess(location.pathname) : 'N/A' 
+    hasAccess: user ? hasAccess(location.pathname) : 'N/A',
+    timestamp: new Date().toISOString()
   });
 
   // Show loading state while checking authentication
