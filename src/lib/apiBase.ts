@@ -15,7 +15,8 @@ export function resolveApiBase(): string {
   }
 
   const isLocalEnvUrl = LOCALHOST_REGEX.test(envUrl);
-  if (import.meta.env.PROD && isLocalEnvUrl) {
+  if (import.meta.env.PROD) {
+    if (!isLocalEnvUrl) return envUrl;
     return getBrowserOrigin() || envUrl;
   }
 

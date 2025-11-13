@@ -24,13 +24,14 @@ export default defineConfig(({ mode }) => {
   setDef('import.meta.env.VITE_API_URL', pick('VITE_API_URL', 'API_URL'));
   setDef('import.meta.env.VITE_DISABLE_AUTH', pick('VITE_DISABLE_AUTH'));
 
+  const devProxyTarget = pick('API_URL') || 'http://localhost:3001';
   return ({
   server: {
     host: "::",
     port: 8080,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: devProxyTarget,
         changeOrigin: true,
       },
     },
