@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../../config/database.js';
 import { decryptCredentials } from '../../services/encryption.js';
+import { runWorkerIteration } from '../../workers/simpleSyncWorker.js';
 import type {
   ApiResponse,
   SyncJobResponse,
@@ -18,12 +19,23 @@ import type {
 export async function startSync(req: Request, res: Response) {
   try {
     const { workspaceId, platformKey, days, type } = req.body;
+    const envWorkspaceId = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    const normalizedWorkspaceId = String(workspaceId || envWorkspaceId || '').trim();
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedWorkspaceId);
 
     // Validate input
-    if (!workspaceId || !platformKey) {
+    if (!normalizedWorkspaceId || !platformKey) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: workspaceId, platformKey',
+      } as ApiResponse);
+    }
+
+    if (!isUuid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid workspaceId format. Provide a UUID',
       } as ApiResponse);
     }
 
@@ -67,13 +79,13 @@ export async function startSync(req: Request, res: Response) {
       WHERE workspace_id = $1 AND platform_key = $2
       LIMIT 1
       `,
-      [workspaceId, platformKey]
+      [normalizedWorkspaceId, platformKey]
     );
 
     if (credResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Credentials not found. Please configure credentials first.',
+        error: `Credentials not found for workspace ${normalizedWorkspaceId}. Please configure credentials first.`,
       } as ApiResponse);
     }
 
@@ -93,10 +105,10 @@ export async function startSync(req: Request, res: Response) {
       )
       VALUES ($1, $2, $3, 'sync', 'queued', $4::jsonb)
       `,
-      [jobId, workspaceId, platformKey, JSON.stringify(parameters)]
+      [jobId, normalizedWorkspaceId, platformKey, JSON.stringify(parameters)]
     );
 
-    console.log(`📋 Created sync job ${jobId} for workspace ${workspaceId}`);
+    console.log(`📋 Created sync job ${jobId} for workspace ${normalizedWorkspaceId}`);
 
     res.json({
       success: true,
@@ -107,6 +119,10 @@ export async function startSync(req: Request, res: Response) {
         message: 'Sync job created and queued successfully',
       } as SyncJobResponse,
     } as ApiResponse<SyncJobResponse>);
+
+    runWorkerIteration(1).catch((err) => {
+      console.error('Background sync worker failed', err);
+    });
   } catch (error) {
     console.error('Error starting sync:', error);
     res.status(500).json({
