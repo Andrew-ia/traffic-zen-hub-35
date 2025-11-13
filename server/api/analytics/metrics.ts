@@ -157,8 +157,9 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       totalCampaigns: Number(row.total_campaigns || 0),
     });
   } catch (err: any) {
-    console.error('getAggregateMetrics error', err);
-    res.status(500).json({ error: 'failed_to_fetch_metrics' });
+    console.error('getAggregateMetrics error:', err.message);
+    console.error('Full error:', err);
+    res.status(500).json({ error: 'failed_to_fetch_metrics', details: err.message });
   }
 }
 
@@ -243,8 +244,9 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
 
     res.json(data);
   } catch (err: any) {
-    console.error('getTimeSeriesMetrics error', err);
-    res.status(500).json({ error: 'failed_to_fetch_timeseries' });
+    console.error('getTimeSeriesMetrics error:', err.message);
+    console.error('Full error:', err);
+    res.status(500).json({ error: 'failed_to_fetch_timeseries', details: err.message });
   }
 }
 
