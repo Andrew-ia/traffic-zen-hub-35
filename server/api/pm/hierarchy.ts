@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
-import { Client } from 'pg';
-import { getDatabaseUrl } from '../../config/database.js';
+import { getPool } from '../../config/database.js';
 
 /**
  * PM Hierarchy API endpoint
@@ -12,10 +11,7 @@ import { getDatabaseUrl } from '../../config/database.js';
  * GET /api/pm/hierarchy/:workspaceId
  */
 export async function getHierarchy(req: Request, res: Response) {
-  const client = new Client({
-    connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
-  });
+  const pool = getPool();
 
   try {
     const { workspaceId } = req.params;
@@ -28,7 +24,6 @@ export async function getHierarchy(req: Request, res: Response) {
       });
     }
 
-    await client.connect();
     const statusFilter = includeArchived === 'true' ? '' : "AND status = 'active'";
 
     // Fetch folders
@@ -38,7 +33,7 @@ export async function getHierarchy(req: Request, res: Response) {
       WHERE workspace_id = $1 ${statusFilter}
       ORDER BY position ASC, created_at ASC
     `;
-    const foldersResult = await client.query(foldersQuery, [workspaceId]);
+    const foldersResult = await pool.query(foldersQuery, [workspaceId]);
 
     // Fetch lists
     const listsQuery = `
@@ -47,7 +42,7 @@ export async function getHierarchy(req: Request, res: Response) {
       WHERE workspace_id = $1 ${statusFilter}
       ORDER BY folder_id, position ASC, created_at ASC
     `;
-    const listsResult = await client.query(listsQuery, [workspaceId]);
+    const listsResult = await pool.query(listsQuery, [workspaceId]);
 
     // Fetch tasks with full details
     const tasksQuery = `
@@ -56,7 +51,7 @@ export async function getHierarchy(req: Request, res: Response) {
       WHERE workspace_id = $1
       ORDER BY list_id, position ASC, created_at ASC
     `;
-    const tasksResult = await client.query(tasksQuery, [workspaceId]);
+    const tasksResult = await pool.query(tasksQuery, [workspaceId]);
 
     // Build hierarchy
     const folders = foldersResult.rows.map((folder) => {
@@ -79,8 +74,6 @@ export async function getHierarchy(req: Request, res: Response) {
       };
     });
 
-    await client.end();
-
     return res.json({
       success: true,
       data: {
@@ -95,11 +88,6 @@ export async function getHierarchy(req: Request, res: Response) {
     });
   } catch (error) {
     console.error('Error fetching hierarchy:', error);
-    try {
-      await client.end();
-    } catch (e) {
-      // Ignore connection close errors
-    }
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch hierarchy',
@@ -113,10 +101,7 @@ export async function getHierarchy(req: Request, res: Response) {
  * GET /api/pm/hierarchy/:workspaceId/:folderId
  */
 export async function getFolderHierarchy(req: Request, res: Response) {
-  const client = new Client({
-    connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
-  });
+  const pool = getPool();
 
   try {
     const { workspaceId, folderId } = req.params;
@@ -128,18 +113,15 @@ export async function getFolderHierarchy(req: Request, res: Response) {
       });
     }
 
-    await client.connect();
-
     // Fetch folder
     const folderQuery = `
       SELECT *
       FROM pm_folders
       WHERE id = $1 AND workspace_id = $2
     `;
-    const folderResult = await client.query(folderQuery, [folderId, workspaceId]);
+    const folderResult = await pool.query(folderQuery, [folderId, workspaceId]);
 
     if (folderResult.rows.length === 0) {
-      await client.end();
       return res.status(404).json({
         success: false,
         error: 'Folder not found',
@@ -153,7 +135,7 @@ export async function getFolderHierarchy(req: Request, res: Response) {
       WHERE folder_id = $1 AND workspace_id = $2
       ORDER BY position ASC, created_at ASC
     `;
-    const listsResult = await client.query(listsQuery, [folderId, workspaceId]);
+    const listsResult = await pool.query(listsQuery, [folderId, workspaceId]);
 
     // Fetch tasks
     const tasksQuery = `
@@ -162,7 +144,7 @@ export async function getFolderHierarchy(req: Request, res: Response) {
       WHERE folder_id = $1 AND workspace_id = $2
       ORDER BY list_id, position ASC, created_at ASC
     `;
-    const tasksResult = await client.query(tasksQuery, [folderId, workspaceId]);
+    const tasksResult = await pool.query(tasksQuery, [folderId, workspaceId]);
 
     // Build hierarchy
     const lists = listsResult.rows.map((list) => {
@@ -181,19 +163,12 @@ export async function getFolderHierarchy(req: Request, res: Response) {
       task_count: lists.reduce((sum, list) => sum + list.task_count, 0),
     };
 
-    await client.end();
-
     return res.json({
       success: true,
       data: folder,
     });
   } catch (error) {
     console.error('Error fetching folder hierarchy:', error);
-    try {
-      await client.end();
-    } catch (e) {
-      // Ignore connection close errors
-    }
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch folder hierarchy',
