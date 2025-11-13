@@ -23,7 +23,7 @@ export default function MetaAds() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateRange, setDateRange] = useState("30");
-  const [accountFilter, setAccountFilter] = useState("a611cf99-40f1-41ad-854a-f74e28478599");
+  const [accountFilter, setAccountFilter] = useState("all");
   const [objectiveFilter, setObjectiveFilter] = useState("all");
   const [chartMetric, setChartMetric] = useState<"spend" | "results" | "revenue">("spend");
   // Mapear objetivo para tipo de funil automaticamente
