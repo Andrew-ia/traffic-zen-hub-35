@@ -5,8 +5,16 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, hasAccess, isLoading } = useAuth();
   const location = useLocation();
 
+  console.log('🛡️ RequireAuth check:', { 
+    path: location.pathname, 
+    user: !!user, 
+    isLoading,
+    hasAccess: user ? hasAccess(location.pathname) : 'N/A' 
+  });
+
   // Show loading state while checking authentication
   if (isLoading) {
+    console.log('⏳ RequireAuth: Still loading auth state...');
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
@@ -18,13 +26,16 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!user && location.pathname !== '/login') {
+    console.log('🚫 RequireAuth: No user, redirecting to login');
     return <Navigate to="/login" replace />;
   }
 
   if (user && !hasAccess(location.pathname)) {
+    console.log('🚫 RequireAuth: User has no access to', location.pathname);
     return <Navigate to="/" replace />;
   }
 
+  console.log('✅ RequireAuth: Access granted');
   return <>{children}</>;
 }
 

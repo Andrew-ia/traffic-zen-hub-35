@@ -58,7 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
         .then((data) => {
           console.log('✅ Auth validation successful:', data);
-          if (data?.success && data?.user) setUser(data.user);
+          if (data?.success && data?.user) {
+            setUser(data.user);
+            console.log('👤 User set:', data.user);
+          }
           setIsLoading(false);
         })
         .catch((error) => {
@@ -69,6 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsLoading(false);
         });
     } else {
+      console.log('🚫 No saved token or token already set. Token exists:', !!token, 'Saved exists:', !!saved);
       setIsLoading(false);
     }
   }, [token]);
