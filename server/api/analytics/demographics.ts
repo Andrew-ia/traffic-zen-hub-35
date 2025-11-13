@@ -170,6 +170,10 @@ export async function getDemographics(req: Request, res: Response) {
     });
   } catch (error) {
     console.error('Error in getDemographics:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    // Return empty data instead of error to prevent UI crashes
+    return res.json({
+      ageData: [],
+      genderData: [],
+    });
   }
 }
