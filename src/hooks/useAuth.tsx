@@ -36,36 +36,39 @@ const DEFAULT_USER: User = {
  
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(DISABLE_AUTH ? 'dev-token' : null);
+  // Initialize with localStorage data immediately 
+  const [token, setToken] = useState<string | null>(() => {
+    if (DISABLE_AUTH) return 'dev-token';
+    return typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
+  });
   const [user, setUser] = useState<User | null>(DISABLE_AUTH ? DEFAULT_USER : null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
     if (DISABLE_AUTH) {
       setIsLoading(false);
+      setAuthChecked(true);
       return;
     }
+
+    if (authChecked) return; // Prevent multiple checks
     
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    console.log('🔄 Auth check triggered. Token in state:', !!token, 'Token in localStorage:', !!saved);
+    console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
     
-    if (saved && !token && !user) {
-      console.log('🔑 Token found in localStorage, validating...');
-      setToken(saved);
-      
-      // Set loading to true while validating
-      setIsLoading(true);
+    if (token && !user) {
+      console.log('🔑 Token exists, validating...');
       
       fetch(`${API_BASE}/api/auth/me`, { 
-        headers: { Authorization: `Bearer ${saved}` },
-        // Add timeout to prevent hanging
+        headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(10000)
       })
         .then(async (r) => {
           console.log('🔍 Auth validation response:', r.status, r.ok);
-          return r.ok ? r.json() : Promise.reject(r);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
         })
         .then((data) => {
           console.log('✅ Auth validation successful:', data);
@@ -77,25 +80,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             throw new Error('Invalid auth response');
           }
           setIsLoading(false);
+          setAuthChecked(true);
         })
         .catch((error) => {
-          console.log('❌ Auth validation failed, clearing token:', error.status || error.message);
+          console.log('❌ Auth validation failed, clearing session:', error.message);
           window.localStorage.removeItem(STORAGE_KEY);
           setToken(null);
           setUser(null);
           setIsLoading(false);
+          setAuthChecked(true);
         });
-    } else if (!saved && !user) {
-      console.log('🚫 No saved token found');
+    } else if (!token) {
+      console.log('🚫 No token found');
       setIsLoading(false);
-    } else if (saved && token && user) {
+      setAuthChecked(true);
+    } else {
       console.log('✅ Already authenticated');
       setIsLoading(false);
-    } else {
-      console.log('🔄 Auth state unclear, finishing loading');
-      setIsLoading(false);
+      setAuthChecked(true);
     }
-  }, []);
+  }, [token, user, authChecked]);
 
   const login = async (username: string, password: string) => {
     if (DISABLE_AUTH) {
