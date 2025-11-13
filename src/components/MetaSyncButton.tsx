@@ -3,7 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import FullscreenLoader from "@/components/ui/fullscreen-loader";
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+import { resolveApiBase } from "@/lib/apiBase";
+
+const API_BASE = resolveApiBase();
 
 interface MetaSyncButtonProps {
   variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";

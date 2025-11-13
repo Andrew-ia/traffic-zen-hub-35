@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { gtmPush, initGtm, isValidGtmId } from "@/lib/gtm";
 import { resolveApiBase } from "@/lib/apiBase";
+
 const API_BASE = resolveApiBase();
 
 const EVENT_LABELS: Record<string, string> = {

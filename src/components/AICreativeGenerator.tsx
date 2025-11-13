@@ -14,7 +14,9 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-const API_BASE = import.meta.env.VITE_API_URL || window.location.origin;
+import { resolveApiBase } from '@/lib/apiBase';
+
+const API_BASE = resolveApiBase();
 
 interface AICreativeGeneratorProps {
   workspaceId: string;
