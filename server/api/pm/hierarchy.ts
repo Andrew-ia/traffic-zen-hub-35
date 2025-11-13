@@ -14,7 +14,7 @@ import { getDatabaseUrl } from '../../config/database.js';
 export async function getHierarchy(req: Request, res: Response) {
   const client = new Client({
     connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
+    ssl: process.env.VERCEL ? { rejectUnauthorized: true } : undefined,
   });
 
   try {
@@ -115,7 +115,7 @@ export async function getHierarchy(req: Request, res: Response) {
 export async function getFolderHierarchy(req: Request, res: Response) {
   const client = new Client({
     connectionString: getDatabaseUrl(),
-    ssl: process.env.VERCEL ? { rejectUnauthorized: false } : undefined,
+    ssl: process.env.VERCEL ? { rejectUnauthorized: true } : undefined,
   });
 
   try {
