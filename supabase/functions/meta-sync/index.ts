@@ -90,7 +90,7 @@ async function fetchCampaigns(accessToken: string, adAccountId: string, since: s
   return data.data || [];
 }
 
-async function fetchAdSets(accessToken: string, campaignIds: string[]): Promise<any[]> {
+async function fetchAdSets(accessToken: string, adAccountId: string, campaignIds: string[]): Promise<any[]> {
   if (campaignIds.length === 0) return [];
 
   const fields = [
@@ -111,7 +111,7 @@ async function fetchAdSets(accessToken: string, campaignIds: string[]): Promise<
   ].join(',');
 
   const idsFilter = campaignIds.map((id) => `"${id}"`).join(',');
-  const url = `${GRAPH_URL}/act_${accessToken}/adsets?fields=${fields}&filtering=[{"field":"campaign_id","operator":"IN","value":[${idsFilter}]}]&access_token=${accessToken}&limit=500`;
+  const url = `${GRAPH_URL}/act_${adAccountId}/adsets?fields=${fields}&filtering=[{"field":"campaign_id","operator":"IN","value":[${idsFilter}]}]&access_token=${accessToken}&limit=500`;
 
   const data = await fetchMetaApi(url);
   return data.data || [];

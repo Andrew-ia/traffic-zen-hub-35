@@ -1,14 +1,21 @@
 import { Client, Pool } from 'pg';
+import dotenv from 'dotenv';
+
+// Ensure environment variables are loaded early for modules importing database utilities
+try {
+  dotenv.config({ path: '.env.local' });
+} catch {}
 
 /**
  * Database configuration and connection utilities
  */
 
 export function getDatabaseUrl(): string {
-  // Use Pooler URL for Vercel serverless, direct connection for local
-  const url = process.env.VERCEL
-    ? (process.env.SUPABASE_POOLER_URL || process.env.SUPABASE_DATABASE_URL)
-    : (process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL);
+  // Prefer Supabase Pooler when available (works locally and serverless)
+  const url =
+    process.env.SUPABASE_POOLER_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
+    process.env.DATABASE_URL;
 
   if (!url) {
     throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');

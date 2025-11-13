@@ -59,12 +59,28 @@ export default function InstagramSyncButton({
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
       setProgress(null);
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+      let response: Response | null = null;
       try {
         const health = await fetch(`${API_BASE}/health`, { headers: { Accept: 'application/json' } });
-        if (!health.ok) {
-          throw new Error('API indisponível');
-        }
+        if (!health.ok) throw new Error('API indisponível');
+        response = await fetch(`${API_BASE}/api/integrations/simple-sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            workspaceId,
+            platformKey: "instagram",
+            days,
+            type: "all",
+          }),
+          signal: controller.signal,
+        });
       } catch (e) {
+        window.clearTimeout(timeoutId);
         setSyncing(false);
         setStatusMessage(null);
         toast({
@@ -73,21 +89,10 @@ export default function InstagramSyncButton({
           variant: 'destructive',
         });
         return;
+      } finally {
+        window.clearTimeout(timeoutId);
       }
-
-      const response = await fetch(`${API_BASE}/api/integrations/simple-sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          workspaceId,
-          platformKey: "instagram",
-          days,
-          type: "all",
-        }),
-      });
+      
 
       const payload = await response.json().catch(() => ({}));
 

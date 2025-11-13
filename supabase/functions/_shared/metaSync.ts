@@ -302,11 +302,6 @@ async function upsertCampaign(
   platformAccountId: string,
   campaign: any,
 ) {
-  const settings = {
-    effective_status: campaign.effective_status,
-    created_time: campaign.created_time,
-    updated_time: campaign.updated_time,
-  };
 
   await db.query(
     `
@@ -323,13 +318,12 @@ async function upsertCampaign(
         daily_budget,
         lifetime_budget,
         targeting,
-        settings,
         last_synced_at,
         archived,
         updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, 'synced', $7, $8, $9, $10, '{}'::jsonb, $11::jsonb, now(), false, now()
+        $1, $2, $3, $4, $5, $6, 'synced', $7, $8, $9, $10, '{}'::jsonb, now(), false, now()
       )
       ON CONFLICT (platform_account_id, external_id)
       DO UPDATE SET
@@ -340,7 +334,6 @@ async function upsertCampaign(
         end_date = EXCLUDED.end_date,
         daily_budget = EXCLUDED.daily_budget,
         lifetime_budget = EXCLUDED.lifetime_budget,
-        settings = EXCLUDED.settings,
         last_synced_at = now(),
         updated_at = now()
     `,
@@ -355,7 +348,6 @@ async function upsertCampaign(
       campaign.stop_time ? new Date(campaign.stop_time) : null,
       centsToNumber(campaign.daily_budget),
       centsToNumber(campaign.lifetime_budget),
-      JSON.stringify(settings),
     ],
   );
 }
@@ -377,17 +369,6 @@ async function upsertAdSet(
   campaignId: string,
   adSet: any,
 ) {
-  const settings = {
-    effective_status: adSet.effective_status,
-    created_time: adSet.created_time,
-    updated_time: adSet.updated_time,
-    billing_event: adSet.billing_event ?? null,
-    optimization_goal: adSet.optimization_goal ?? null,
-    pacing_type: adSet.pacing_type ?? null,
-    campaign_daily_budget: adSet.campaign?.daily_budget ? centsToNumber(adSet.campaign.daily_budget) : null,
-    campaign_budget_remaining: adSet.campaign?.budget_remaining ? centsToNumber(adSet.campaign.budget_remaining) : null,
-    campaign_bid_strategy: adSet.campaign?.bid_strategy ?? null,
-  };
 
   await db.query(
     `
@@ -407,12 +388,11 @@ async function upsertAdSet(
         targeting,
         destination_type,
         promoted_object,
-        settings,
         last_synced_at,
         updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb, $16::jsonb, now(), now()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb, now(), now()
       )
       ON CONFLICT (campaign_id, external_id)
       DO UPDATE SET
@@ -428,7 +408,6 @@ async function upsertAdSet(
         targeting = EXCLUDED.targeting,
         destination_type = EXCLUDED.destination_type,
         promoted_object = EXCLUDED.promoted_object,
-        settings = EXCLUDED.settings,
         last_synced_at = now(),
         updated_at = now()
     `,
@@ -448,7 +427,6 @@ async function upsertAdSet(
       JSON.stringify(adSet.targeting ?? {}),
       adSet.destination_type || null,
       JSON.stringify(adSet.promoted_object ?? {}),
-      JSON.stringify(settings),
     ],
   );
 }
@@ -536,13 +514,6 @@ async function upsertAd(
   ad: any,
   creativeAssetId: string | null,
 ) {
-  const settings = {
-    effective_status: ad.effective_status,
-    created_time: ad.created_time,
-    updated_time: ad.updated_time,
-    creative_id: ad.creative?.id ?? null,
-    creative_name: ad.creative?.name ?? null,
-  };
 
   await db.query(
     `
@@ -553,19 +524,17 @@ async function upsertAd(
         name,
         status,
         creative_asset_id,
-        settings,
         last_synced_at,
         updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7::jsonb, now(), now()
+        $1, $2, $3, $4, $5, $6, now(), now()
       )
       ON CONFLICT (ad_set_id, external_id)
       DO UPDATE SET
         name = EXCLUDED.name,
         status = EXCLUDED.status,
         creative_asset_id = EXCLUDED.creative_asset_id,
-        settings = EXCLUDED.settings,
         last_synced_at = now(),
         updated_at = now()
     `,
@@ -576,7 +545,6 @@ async function upsertAd(
       ad.name,
       mapAdStatus(ad.status, ad.effective_status),
       creativeAssetId,
-      JSON.stringify(settings),
     ],
   );
 }

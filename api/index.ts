@@ -222,6 +222,33 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Test credentials endpoint
+app.get('/integrations/test-credentials/:workspaceId/:platformKey', async (req, res) => {
+  try {
+    const { workspaceId, platformKey } = req.params;
+    const { getPool } = await import('../server/config/database.js');
+    
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT id, created_at, updated_at FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2`,
+      [workspaceId, platformKey]
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        exists: result.rows.length > 0,
+        credentials: result.rows[0] || null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Export the Express app as a Vercel serverless function
 export default (req: VercelRequest, res: VercelResponse) => {
   return app(req as any, res as any);

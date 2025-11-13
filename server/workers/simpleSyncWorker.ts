@@ -18,8 +18,8 @@ function resolveMetaCredentials(credentials: any) {
   const accessToken = credentials.accessToken ?? credentials.access_token;
   const adAccountId = credentials.adAccountId ?? credentials.ad_account_id;
 
-  if (!appId || !appSecret || !accessToken || !adAccountId) {
-    throw new Error('Missing required Meta credentials in integration_credentials record');
+  if (!accessToken || !adAccountId) {
+    throw new Error('Missing required Meta credentials: accessToken and adAccountId');
   }
 
   return { appId, appSecret, accessToken, adAccountId };
@@ -326,5 +326,77 @@ export function startSimpleWorker() {
 export async function runWorkerIteration(maxJobs = 1): Promise<void> {
   for (let i = 0; i < maxJobs; i++) {
     await pollForJobs();
+  }
+}
+
+/**
+ * Process a job directly without polling (for serverless environments)
+ */
+export async function processJobDirectly(jobData: SyncJobData): Promise<any> {
+  const jobId = jobData.jobId;
+  
+  try {
+    console.log(`🔄 Processing job ${jobId} directly`);
+
+    // Update status to processing
+    await updateJobStatus(jobId, 'processing', {
+      progress: 0,
+      started_at: new Date(),
+    });
+
+    // Execute the sync based on platform
+    let resultSummary: any = null;
+    if (jobData.platformKey === 'instagram') {
+      resultSummary = await executeInstagramSync(jobData);
+    } else if (jobData.platformKey === 'meta') {
+      resultSummary = await executeMetaSync(jobData);
+    } else {
+      throw new Error(`Unsupported platform: ${jobData.platformKey}`);
+    }
+
+    // Generate insights (with error handling)
+    let insights = null;
+    try {
+      insights = await generatePostSyncInsights({
+        workspaceId: jobData.workspaceId,
+        platformKey: jobData.platformKey,
+        days: jobData.parameters.days,
+      });
+    } catch (insightsError) {
+      console.error(`⚠️ Failed to build post-sync insights for job ${jobId}:`, insightsError);
+    }
+
+    const result = {
+      summary: resultSummary,
+      success: true,
+      insights,
+    };
+
+    // Mark job as completed
+    await updateJobStatus(jobId, 'completed', {
+      progress: 100,
+      result,
+      completed_at: new Date(),
+    });
+
+    console.log(`✅ Job ${jobId} completed successfully (direct processing)`);
+    return result;
+
+  } catch (error) {
+    // Mark job as failed
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = {
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    };
+
+    await updateJobStatus(jobId, 'failed', {
+      error_message: errorMessage,
+      error_details: errorDetails,
+      completed_at: new Date(),
+    });
+
+    console.error(`❌ Job ${jobId} failed (direct processing):`, errorMessage);
+    throw error; // Re-throw to be handled by caller
   }
 }

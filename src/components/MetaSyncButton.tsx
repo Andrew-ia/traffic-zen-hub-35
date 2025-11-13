@@ -59,35 +59,79 @@ export default function MetaSyncButton({
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
       setProgress(null);
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+      let response: Response | null = null;
       try {
         const health = await fetch(`${API_BASE}/health`, { headers: { Accept: 'application/json' } });
-        if (!health.ok) {
-          throw new Error('API indisponível');
-        }
+        if (!health.ok) throw new Error('API indisponível');
+
+        response = await fetch(`${API_BASE}/api/integrations/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            workspaceId,
+            platformKey: "meta",
+            days,
+            type: "all",
+          }),
+          signal: controller.signal,
+        });
       } catch (e) {
+        window.clearTimeout(timeoutId);
         setSyncing(false);
         setStatusMessage(null);
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+        if (supabaseUrl && anonKey) {
+          try {
+            setSyncing(true);
+            setStatusMessage('API indisponível. Usando Edge Function...');
+            const ef = await fetch(`${supabaseUrl}/functions/v1/meta-sync`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${anonKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ days, sync_type: 'all' }),
+            });
+            const efPayload = await ef.json().catch(() => ({}));
+            if (!ef.ok || efPayload?.success === false) {
+              throw new Error(efPayload?.error || 'Falha na Edge Function');
+            }
+            toast({
+              title: 'Sincronização iniciada (Edge Function)',
+              description: `Campanhas em atualização nos últimos ${days} dias.`,
+            });
+            setTimeout(() => {
+              setSyncing(false);
+              setStatusMessage(null);
+              setProgress(null);
+            }, 1500);
+            return;
+          } catch (efError) {
+            toast({
+              title: 'API indisponível',
+              description: 'Falha ao usar Edge Function também. Verifique VITE_API_URL/VITE_SUPABASE_*',
+              variant: 'destructive',
+            });
+            return;
+          }
+        }
+
         toast({
           title: 'API indisponível',
           description: 'Configure VITE_API_URL no ambiente de produção apontando para sua API.',
           variant: 'destructive',
         });
         return;
+      } finally {
+        window.clearTimeout(timeoutId);
       }
-
-      const response = await fetch(`${API_BASE}/api/integrations/sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          workspaceId,
-          platformKey: "meta",
-          days,
-          type: "all",
-        }),
-      });
 
       const payload = await response.json().catch(() => ({}));
 

@@ -238,35 +238,32 @@ async function upsertInstagramUserInsights(
       const date = point.end_time ? point.end_time.substring(0, 10) : null;
       if (!date) continue;
 
+      // Store insights in performance_metrics table with structured data
+      const extraMetrics = {
+        [metric]: Number(point.value ?? 0),
+        total_value: point.total_value ?? null,
+        breakdown: point.breakdown ?? point.value_breakdown ?? null,
+      };
+
       await db.query(
         `
-          INSERT INTO instagram_user_insights (
+          INSERT INTO performance_metrics (
             workspace_id,
-            ig_user_id,
-            metric,
-            value,
-            recorded_at,
-            period,
-            total_value,
-            breakdown
+            platform_account_id,
+            metric_date,
+            granularity,
+            extra_metrics
           )
-          VALUES ($1, $2, $3, $4, $5::date, $6, $7, $8::jsonb)
-          ON CONFLICT (workspace_id, ig_user_id, metric, recorded_at)
+          VALUES ($1, $2, $3::date, 'day', $4::jsonb)
+          ON CONFLICT (workspace_id, platform_account_id, metric_date, granularity)
           DO UPDATE SET
-            value = EXCLUDED.value,
-            total_value = EXCLUDED.total_value,
-            breakdown = EXCLUDED.breakdown,
-            updated_at = now()
+            extra_metrics = COALESCE(performance_metrics.extra_metrics, '{}'::jsonb) || EXCLUDED.extra_metrics
         `,
         [
           workspaceId,
-          igUserId,
-          metric,
-          Number(point.value ?? 0),
+          igUserId, // Using ig_user_id as platform_account_id
           date,
-          insight.period ?? 'day',
-          point.total_value ?? null,
-          JSON.stringify(point.breakdown ?? point.value_breakdown ?? null),
+          JSON.stringify(extraMetrics),
         ],
       );
     }
@@ -278,47 +275,47 @@ async function upsertInstagramMedia(
   workspaceId: string,
   media: any,
 ) {
+  // Store media in creative_assets table
   await db.query(
     `
-      INSERT INTO instagram_media (
+      INSERT INTO creative_assets (
         workspace_id,
         external_id,
-        caption,
-        media_type,
-        media_url,
+        name,
+        asset_type,
+        url,
         thumbnail_url,
-        permalink,
-        posted_at,
-        like_count,
-        comments_count,
-        updated_at
+        metadata,
+        last_synced_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
+        $1, $2, $3, $4, $5, $6, $7::jsonb, now()
       )
       ON CONFLICT (workspace_id, external_id)
       DO UPDATE SET
-        caption = EXCLUDED.caption,
-        media_type = EXCLUDED.media_type,
-        media_url = EXCLUDED.media_url,
+        name = EXCLUDED.name,
+        asset_type = EXCLUDED.asset_type,
+        url = EXCLUDED.url,
         thumbnail_url = EXCLUDED.thumbnail_url,
-        permalink = EXCLUDED.permalink,
-        like_count = EXCLUDED.like_count,
-        comments_count = EXCLUDED.comments_count,
-        updated_at = now()
+        metadata = EXCLUDED.metadata,
+        last_synced_at = now()
       RETURNING id
     `,
     [
       workspaceId,
       media.id,
-      media.caption ?? null,
-      media.media_type ?? null,
+      media.caption ?? `Instagram ${media.media_type || 'Post'}`,
+      media.media_type?.toLowerCase() || 'image',
       media.media_url ?? null,
       media.thumbnail_url ?? null,
-      media.permalink ?? null,
-      media.timestamp ? new Date(media.timestamp) : null,
-      Number(media.like_count ?? 0),
-      Number(media.comments_count ?? 0),
+      JSON.stringify({
+        platform: 'instagram',
+        permalink: media.permalink,
+        posted_at: media.timestamp,
+        like_count: Number(media.like_count ?? 0),
+        comments_count: Number(media.comments_count ?? 0),
+        media_type: media.media_type,
+      }),
     ],
   );
 }
@@ -337,30 +334,35 @@ async function upsertInstagramMediaInsights(
         ? insight.values[0].value.reduce((acc: number, item: any) => acc + Number(item.value ?? 0), 0)
         : Number(insight.values?.[0]?.total_value ?? 0);
 
+    // Store media insights in performance_metrics table with media_insights structure
+    const today = new Date().toISOString().split('T')[0];
+    const mediaInsights = { [mediaId]: { metrics: { [metric]: value } } };
+
     await db.query(
       `
-        INSERT INTO instagram_media_insights (
+        INSERT INTO performance_metrics (
           workspace_id,
-          media_external_id,
-          metric,
-          value,
-          recorded_at,
-          breakdown
+          platform_account_id,
+          metric_date,
+          granularity,
+          extra_metrics
         )
-        VALUES ($1, $2, $3, $4, now(), $5::jsonb)
-        ON CONFLICT (workspace_id, media_external_id, metric)
+        VALUES ($1, $2, $3::date, 'day', $4::jsonb)
+        ON CONFLICT (workspace_id, platform_account_id, metric_date, granularity)
         DO UPDATE SET
-          value = EXCLUDED.value,
-          breakdown = EXCLUDED.breakdown,
-          recorded_at = now(),
-          updated_at = now()
+          extra_metrics = COALESCE(
+            performance_metrics.extra_metrics, 
+            '{}'::jsonb
+          ) || jsonb_build_object(
+            'media_insights', 
+            COALESCE(performance_metrics.extra_metrics->'media_insights', '{}'::jsonb) || $4::jsonb->'media_insights'
+          )
       `,
       [
         workspaceId,
-        mediaId,
-        metric,
-        value,
-        JSON.stringify(insight.values?.[0]?.value ?? null),
+        'instagram_platform', // Using a platform identifier
+        today,
+        JSON.stringify({ media_insights: mediaInsights }),
       ],
     );
   }
