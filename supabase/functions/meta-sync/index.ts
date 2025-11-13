@@ -187,32 +187,36 @@ serve(async (req) => {
     const days = body.days || 7;
     const syncType = body.sync_type || 'all';
 
-    // Busca secrets do Vault
-    const { data: secrets, error: secretError } = await supabase.rpc('get_secrets', {
-      secret_names: ['meta_access_token', 'meta_ad_account_id', 'default_workspace_id'],
+    // Usar variáveis de ambiente diretamente (mais confiável)
+    const accessToken = Deno.env.get('META_ACCESS_TOKEN');
+    const adAccountId = Deno.env.get('META_AD_ACCOUNT_ID');
+    const workspaceId = body.workspace_id || Deno.env.get('WORKSPACE_ID') || Deno.env.get('VITE_WORKSPACE_ID');
+
+    console.log('🔍 Credentials check:', {
+      accessToken: !!accessToken,
+      adAccountId: !!adAccountId, 
+      workspaceId: !!workspaceId,
+      envVars: Object.keys(Deno.env.toObject()).filter(k => k.includes('META')).length
     });
 
-    if (secretError) throw new Error(`Error fetching secrets: ${secretError.message}`);
-
-    const accessToken = secrets.find((s: any) => s.name === 'meta_access_token')?.value;
-    const adAccountId = secrets.find((s: any) => s.name === 'meta_ad_account_id')?.value;
-    const workspaceId = body.workspace_id || secrets.find((s: any) => s.name === 'default_workspace_id')?.value;
-
     if (!accessToken || !adAccountId || !workspaceId) {
-      throw new Error('Missing required secrets');
+      throw new Error(`Missing required credentials. AccessToken: ${!!accessToken}, AdAccountId: ${!!adAccountId}, WorkspaceId: ${!!workspaceId}`);
     }
 
-    // Busca platform_account_id
+    // Busca platform_account_id (com e sem prefixo "act_")
+    const adAccountIdWithPrefix = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+    const adAccountIdWithoutPrefix = adAccountId.replace('act_', '');
+
     const { data: platformAccount } = await supabase
       .from('platform_accounts')
       .select('id')
       .eq('workspace_id', workspaceId)
       .eq('platform_key', 'meta')
-      .eq('external_id', adAccountId)
+      .or(`external_id.eq.${adAccountId},external_id.eq.${adAccountIdWithPrefix},external_id.eq.${adAccountIdWithoutPrefix}`)
       .single();
 
     if (!platformAccount) {
-      throw new Error('Platform account not found');
+      throw new Error(`Platform account not found for workspace ${workspaceId} and account ${adAccountId}`);
     }
 
     const platformAccountId = platformAccount.id;
