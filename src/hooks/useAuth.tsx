@@ -49,14 +49,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved && !token) {
+      console.log('🔑 Token found in localStorage, validating...');
       setToken(saved);
       fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${saved}` } })
-        .then(async (r) => (r.ok ? r.json() : Promise.reject(r)))
+        .then(async (r) => {
+          console.log('🔍 Auth validation response:', r.status, r.ok);
+          return r.ok ? r.json() : Promise.reject(r);
+        })
         .then((data) => {
+          console.log('✅ Auth validation successful:', data);
           if (data?.success && data?.user) setUser(data.user);
           setIsLoading(false);
         })
-        .catch(() => {
+        .catch((error) => {
+          console.log('❌ Auth validation failed, clearing token:', error.status || error.message);
           window.localStorage.removeItem(STORAGE_KEY);
           setToken(null);
           setUser(null);
