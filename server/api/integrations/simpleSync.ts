@@ -87,23 +87,40 @@ export async function startSync(req: Request, res: Response) {
 
     if (credResult.rows.length === 0) {
       try {
-        const secrets = await pool.query(
-          `
-            SELECT name, value
-            FROM get_secrets(ARRAY['meta_access_token','meta_ad_account_id'])
-          `
-        );
-
-        const accessTokenRow = secrets.rows.find((r: any) => r.name === 'meta_access_token');
-        const adAccountIdRow = secrets.rows.find((r: any) => r.name === 'meta_ad_account_id');
-
-        const accessToken = accessTokenRow?.value;
-        const adAccountId = adAccountIdRow?.value;
+        let secrets, accessToken, adAccountId;
+        
+        if (platformKey === 'instagram') {
+          secrets = await pool.query(
+            `
+              SELECT name, value
+              FROM get_secrets(ARRAY['ig_access_token','ig_user_id'])
+            `
+          );
+          
+          const accessTokenRow = secrets.rows.find((r: any) => r.name === 'ig_access_token');
+          const userIdRow = secrets.rows.find((r: any) => r.name === 'ig_user_id');
+          
+          accessToken = accessTokenRow?.value;
+          adAccountId = userIdRow?.value; // Using ig_user_id as account identifier
+        } else {
+          secrets = await pool.query(
+            `
+              SELECT name, value
+              FROM get_secrets(ARRAY['meta_access_token','meta_ad_account_id'])
+            `
+          );
+          
+          const accessTokenRow = secrets.rows.find((r: any) => r.name === 'meta_access_token');
+          const adAccountIdRow = secrets.rows.find((r: any) => r.name === 'meta_ad_account_id');
+          
+          accessToken = accessTokenRow?.value;
+          adAccountId = adAccountIdRow?.value;
+        }
 
         if (!accessToken || !adAccountId) {
           return res.status(404).json({
             success: false,
-            error: `Credentials not found for workspace ${normalizedWorkspaceId}. Configure integration_credentials or Vault secrets.`,
+            error: `Credentials not found for workspace ${normalizedWorkspaceId} and platform ${platformKey}. Configure integration_credentials or Vault secrets.`,
           } as ApiResponse);
         }
 
