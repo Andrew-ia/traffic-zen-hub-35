@@ -59,6 +59,22 @@ export default function MetaSyncButton({
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
       setProgress(null);
 
+      try {
+        const health = await fetch(`${API_BASE}/health`, { headers: { Accept: 'application/json' } });
+        if (!health.ok) {
+          throw new Error('API indisponível');
+        }
+      } catch (e) {
+        setSyncing(false);
+        setStatusMessage(null);
+        toast({
+          title: 'API indisponível',
+          description: 'Configure VITE_API_URL no ambiente de produção apontando para sua API.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const response = await fetch(`${API_BASE}/api/integrations/sync`, {
         method: "POST",
         headers: {
