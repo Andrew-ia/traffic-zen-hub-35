@@ -45,6 +45,14 @@ export default function MetaAds() {
     return mapping[objective] || "traffic";
   };
 
+  const funnelTypeObjectiveMap: Record<FunnelType, string> = {
+    traffic: "LINK_CLICKS",
+    leads: "OUTCOME_LEADS",
+    sales: "OUTCOME_SALES",
+    engagement: "OUTCOME_ENGAGEMENT",
+    messages: "MESSAGES",
+  };
+
   const [funnelType, setFunnelType] = useState<FunnelType>(
     objectiveFilter !== "all" ? getFunnelTypeFromObjective(objectiveFilter) : "traffic"
   );
@@ -467,7 +475,7 @@ export default function MetaAds() {
               title="Funil"
               funnelType={funnelType}
               metrics={funnelMetrics}
-              onTypeChange={setFunnelType}
+              onTypeChange={handleFunnelTypeChange}
               loading={metricsLoading}
             />
 
@@ -506,3 +514,10 @@ export default function MetaAds() {
     </div>
   );
 }
+  const handleFunnelTypeChange = (type: FunnelType) => {
+    setFunnelType(type);
+    const mappedObjective = funnelTypeObjectiveMap[type];
+    if (mappedObjective) {
+      setObjectiveFilter(mappedObjective);
+    }
+  };
