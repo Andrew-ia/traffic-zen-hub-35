@@ -79,6 +79,10 @@ export default function MetaAds() {
     }
   }, [objectiveFilter]);
 
+  // Calculate effective objective filter based on funnel type
+  const effectiveObjectiveFilter =
+    objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;
+
   const { data, isLoading, error } = useCampaigns({
     status: statusFilter,
     search: debouncedSearch,
