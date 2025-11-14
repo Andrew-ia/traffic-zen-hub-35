@@ -21,6 +21,15 @@ export interface PlatformMetrics {
   // Meta específico
   frequency?: number;
   linkClicks?: number;
+  landingPageViews?: number;
+  conversationsStarted?: number;
+  buttonClicks?: number;
+  engagements?: number;
+  saves?: number;
+  shares?: number;
+  addToCart?: number;
+  checkouts?: number;
+  purchases?: number;
 
   // Google específico
   qualityScore?: number;
@@ -90,6 +99,16 @@ export function usePlatformMetrics(params: UsePlatformMetricsParams) {
       cpm: 0,
       ctr: 0,
       cpc: 0,
+      linkClicks: 0,
+      landingPageViews: 0,
+      conversationsStarted: 0,
+      buttonClicks: 0,
+      engagements: 0,
+      saves: 0,
+      shares: 0,
+      addToCart: 0,
+      checkouts: 0,
+      purchases: 0,
       activeCampaigns: 0,
       totalCampaigns: 0,
     },

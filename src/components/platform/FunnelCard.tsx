@@ -24,8 +24,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-orange-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Visitas", value: metrics?.visits ?? 0 },
+      { label: "Cliques no link", value: metrics?.linkClicks ?? metrics?.clicks ?? 0 },
+      { label: "Visitas (Landing Page)", value: metrics?.landingPageViews ?? 0 },
     ],
   },
   leads: {
@@ -35,7 +35,7 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
       { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Leads", value: metrics?.leads ?? 0 },
+      { label: "Conversas iniciadas", value: metrics?.conversationsStarted ?? metrics?.leads ?? 0 },
     ],
   },
   sales: {
@@ -45,7 +45,9 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
       { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Vendas", value: metrics?.sales ?? 0 },
+      { label: "Adds to cart", value: metrics?.addToCart ?? 0 },
+      { label: "Checkouts", value: metrics?.checkouts ?? 0 },
+      { label: "Compras", value: metrics?.purchases ?? metrics?.sales ?? 0 },
     ],
   },
   engagement: {
@@ -54,8 +56,9 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-purple-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Alcance", value: metrics?.reach ?? 0 },
-      { label: "Engajamentos", value: metrics?.engagements ?? 0 },
+      { label: "Engajamentos totais", value: metrics?.engagements ?? 0 },
+      { label: "Cliques", value: metrics?.clicks ?? 0 },
+      { label: "Saves / Shares", value: (metrics?.saves ?? 0) + (metrics?.shares ?? 0) },
     ],
   },
   messages: {
@@ -64,8 +67,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-pink-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Conversas", value: metrics?.messages ?? 0 },
+      { label: "Cliques no botão", value: metrics?.buttonClicks ?? metrics?.clicks ?? 0 },
+      { label: "Conversas iniciadas", value: metrics?.conversationsStarted ?? metrics?.messages ?? 0 },
     ],
   },
 };
@@ -150,8 +153,10 @@ export function FunnelCard({
               { bg: "from-blue-500 to-blue-600", border: "border-blue-600", shadow: "shadow-blue-500/30" },
               { bg: "from-cyan-500 to-cyan-600", border: "border-cyan-600", shadow: "shadow-cyan-500/30" },
               { bg: "from-teal-500 to-teal-600", border: "border-teal-600", shadow: "shadow-teal-500/30" },
+              { bg: "from-indigo-500 to-indigo-600", border: "border-indigo-600", shadow: "shadow-indigo-500/30" },
+              { bg: "from-purple-500 to-purple-600", border: "border-purple-600", shadow: "shadow-purple-500/30" },
             ];
-            const color = colors[idx] || colors[colors.length - 1];
+            const color = colors[idx % colors.length];
 
             return (
               <div key={step.label} className="w-full relative" style={{ marginTop: idx > 0 ? '8px' : '0' }}>
@@ -208,4 +213,3 @@ export function FunnelCard({
     </Card>
   );
 }
-
