@@ -24,8 +24,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-orange-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques no link", value: metrics?.linkClicks ?? metrics?.clicks ?? 0 },
-      { label: "Visitas (Landing Page)", value: metrics?.landingPageViews ?? 0 },
+      { label: "Link Clicks", value: metrics?.linkClicks ?? 0 },
+      { label: "Landing Page Views", value: metrics?.landingPageViews ?? 0 },
     ],
   },
   leads: {
@@ -34,8 +34,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-blue-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Conversas iniciadas", value: metrics?.conversationsStarted ?? metrics?.leads ?? 0 },
+      { label: "Link Clicks", value: metrics?.linkClicks ?? 0 },
+      { label: "Conversas iniciadas", value: metrics?.conversationsStarted ?? 0 },
     ],
   },
   sales: {
@@ -44,10 +44,10 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-emerald-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Adds to cart", value: metrics?.addToCart ?? 0 },
-      { label: "Checkouts", value: metrics?.checkouts ?? 0 },
-      { label: "Compras", value: metrics?.purchases ?? metrics?.sales ?? 0 },
+      { label: "Link Clicks", value: metrics?.linkClicks ?? 0 },
+      { label: "Adds to Cart", value: metrics?.addToCart ?? 0 },
+      { label: "Checkouts Initiated", value: metrics?.checkouts ?? 0 },
+      { label: "Purchases", value: metrics?.purchases ?? 0 },
     ],
   },
   engagement: {
@@ -56,9 +56,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-purple-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Engajamentos totais", value: metrics?.engagements ?? 0 },
-      { label: "Cliques", value: metrics?.clicks ?? 0 },
-      { label: "Saves / Shares", value: (metrics?.saves ?? 0) + (metrics?.shares ?? 0) },
+      { label: "Post Engagement", value: metrics?.engagements ?? 0 },
+      { label: "Post Shares / Saves", value: (metrics?.shares ?? 0) + (metrics?.saves ?? 0) },
     ],
   },
   messages: {
@@ -67,8 +66,8 @@ export const FUNNEL_TYPES: Record<FunnelType, FunnelTypeConfig> = {
     color: "text-pink-600",
     steps: (metrics) => [
       { label: "Impressões", value: metrics?.impressions ?? 0 },
-      { label: "Cliques no botão", value: metrics?.buttonClicks ?? metrics?.clicks ?? 0 },
-      { label: "Conversas iniciadas", value: metrics?.conversationsStarted ?? metrics?.messages ?? 0 },
+      { label: "Link Clicks", value: metrics?.linkClicks ?? 0 },
+      { label: "Messaging Conversations Started", value: metrics?.conversationsStarted ?? 0 },
     ],
   },
 };

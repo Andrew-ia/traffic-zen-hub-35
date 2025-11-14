@@ -137,39 +137,40 @@ export default function MetaAds() {
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
 
-  // Construir métricas do funil baseado no tipo de funil e objetivo selecionado
-  const getConversationMetricByObjective = () => {
-    // Se o objetivo filtrado for de leads/mensagens, usar totalResults para conversationsStarted
-    const leadsObjectives = ['OUTCOME_LEADS', 'LEAD_GENERATION'];
-    const messagesObjectives = ['OUTCOME_MESSAGES', 'MESSAGES'];
-    
-    if (leadsObjectives.includes(effectiveObjectiveFilter) || funnelType === 'leads') {
-      return metrics?.totalResults ?? metrics?.conversationsStarted ?? 0;
+  // Construir métricas específicas do funil baseado no objetivo selecionado
+  const getMetricByObjective = (metricType: string) => {
+    // Mapear totalResults para a métrica correta baseada no objetivo
+    switch (funnelType) {
+      case 'leads':
+        return metricType === 'conversationsStarted' ? metrics?.totalResults ?? 0 : 0;
+      case 'sales':
+        return metricType === 'purchases' ? metrics?.totalResults ?? 0 : 0;
+      case 'messages':
+        return metricType === 'conversationsStarted' ? metrics?.totalResults ?? 0 : 0;
+      case 'traffic':
+        return metricType === 'landingPageViews' ? metrics?.totalResults ?? 0 : 0;
+      case 'engagement':
+        return metricType === 'engagements' ? metrics?.totalResults ?? 0 : 0;
+      default:
+        return 0;
     }
-    
-    if (messagesObjectives.includes(effectiveObjectiveFilter) || funnelType === 'messages') {
-      return metrics?.totalResults ?? metrics?.conversationsStarted ?? 0;
-    }
-    
-    return metrics?.conversationsStarted ?? 0;
   };
 
   const funnelMetrics = {
+    // Métricas base (sempre disponíveis)
     impressions: metrics?.impressions ?? 0,
     clicks: metrics?.clicks ?? 0,
     linkClicks: metrics?.linkClicks ?? metrics?.clicks ?? 0,
-    landingPageViews: metrics?.landingPageViews ?? 0,
-    conversationsStarted: getConversationMetricByObjective(),
-    leads: metrics?.totalResults ?? 0, // Para objetivo de leads
-    engagements: metrics?.engagements ?? metrics?.totalResults ?? 0,
-    saves: metrics?.saves ?? 0,
-    shares: metrics?.shares ?? 0,
-    buttonClicks: metrics?.buttonClicks ?? metrics?.linkClicks ?? metrics?.clicks ?? 0,
+    
+    // Métricas específicas por tipo de funil
+    landingPageViews: getMetricByObjective('landingPageViews'),
+    conversationsStarted: getMetricByObjective('conversationsStarted'),
     addToCart: metrics?.addToCart ?? 0,
     checkouts: metrics?.checkouts ?? 0,
-    purchases: metrics?.purchases ?? metrics?.totalResults ?? 0,
-    sales: metrics?.totalResults ?? 0, // Para objetivo de vendas
-    messages: metrics?.totalResults ?? 0, // Para objetivo de mensagens
+    purchases: getMetricByObjective('purchases'),
+    engagements: getMetricByObjective('engagements'),
+    saves: metrics?.saves ?? 0,
+    shares: metrics?.shares ?? 0,
   };
 
   // Calcular KPIs a partir de métricas ou campanhas
