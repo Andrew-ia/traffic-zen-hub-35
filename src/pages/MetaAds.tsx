@@ -85,7 +85,7 @@ export default function MetaAds() {
     page,
     pageSize: PAGE_SIZE,
     platform: "meta",
-    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+    objective: effectiveObjectiveFilter,
     dateRange: Number(dateRange),
     accountId: accountFilter,
   });
@@ -96,7 +96,7 @@ export default function MetaAds() {
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
-    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+    objective: effectiveObjectiveFilter,
   });
 
   // Buscar dados de série temporal
@@ -106,7 +106,7 @@ export default function MetaAds() {
     accountId: accountFilter,
     metric: chartMetric,
     status: statusFilter,
-    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+    objective: effectiveObjectiveFilter,
   });
 
   // Buscar dados demográficos
@@ -114,7 +114,7 @@ export default function MetaAds() {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
-    objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+    objective: effectiveObjectiveFilter,
   });
 
   // Buscar métricas por objetivo (só quando filtro = "all")
@@ -516,8 +516,7 @@ export default function MetaAds() {
 }
   const handleFunnelTypeChange = (type: FunnelType) => {
     setFunnelType(type);
-    const mappedObjective = funnelTypeObjectiveMap[type];
-    if (mappedObjective) {
-      setObjectiveFilter(mappedObjective);
-    }
   };
+
+  const effectiveObjectiveFilter =
+    objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;

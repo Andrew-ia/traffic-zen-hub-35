@@ -4,7 +4,7 @@ import { resolveApiBase } from "@/lib/apiBase";
 
 const API_BASE = resolveApiBase();
 
-const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 if (!WORKSPACE_ID) {
   throw new Error("Missing VITE_WORKSPACE_ID environment variable.");

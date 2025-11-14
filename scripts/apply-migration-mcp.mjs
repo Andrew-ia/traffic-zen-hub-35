@@ -16,8 +16,13 @@ if (!sqlFilePath) {
   process.exit(1);
 }
 
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.SUPABASE_DATABASE_URL) {
-  console.error("Missing Supabase credentials in .env.local (SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DATABASE_URL).");
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_DATABASE_URL = process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_POOLER_URL;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_DATABASE_URL) {
+  console.error("Missing Supabase credentials (SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DATABASE_URL or SUPABASE_POOLER_URL). Check .env.local.");
   process.exit(1);
 }
 
@@ -32,7 +37,7 @@ const filename = path.basename(sqlAbsolutePath);
 const migrationVersion =
   providedVersion ??
   new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-const rawDatabaseUrl = process.env.SUPABASE_DATABASE_URL;
+const rawDatabaseUrl = SUPABASE_DATABASE_URL;
 const decodedPassword = (() => {
   try {
     const url = new URL(rawDatabaseUrl);
@@ -57,18 +62,18 @@ async function main() {
     args: [
       "@aliyun-rds/supabase-mcp-server",
       "--url",
-      process.env.SUPABASE_URL,
+      SUPABASE_URL,
       "--anon-key",
-      process.env.SUPABASE_ANON_KEY,
+      SUPABASE_ANON_KEY,
       "--service-key",
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SUPABASE_SERVICE_ROLE_KEY,
       "--db-url",
       databaseUrlWithSsl,
     ],
     env: {
-      SUPABASE_URL: process.env.SUPABASE_URL,
-      SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY,
       DATABASE_URL: databaseUrlWithSsl,
       SUPABASE_AUTH_JWT_SECRET: process.env.SUPABASE_LEGACY_JWT_SECRET ?? "",
       PGSSLMODE: "no-verify",
