@@ -1,32 +1,8 @@
--- Derived views for day-level performance metrics.
-create or replace view v_metrics as
-select
-  d,
-  platform,
-  account_id,
-  campaign_id,
-  adset_id,
-  ad_id,
-  objective,
-  spend,
-  impressions,
-  reach,
-  clicks,
-  conv_primary,
-  conv_value,
-  messages_started,
-  purchases,
-  revenue,
-  case when impressions > 0 then clicks::numeric / impressions else null end as ctr,
-  case when clicks > 0 then spend / clicks else null end as cpc,
-  case when impressions > 0 then spend * 1000 / impressions else null end as cpm,
-  case when clicks > 0 then conv_primary::numeric / clicks else null end as cvr_click_to_kpi,
-  case when reach > 0 then impressions::numeric / reach else null end as frequency,
-  case when conv_primary > 0 then spend / conv_primary else null end as cost_per_result,
-  case when revenue > 0 and spend > 0 then revenue / spend else null end as roas
-from fact_ads_daily;
+-- 0029_fix_kpi_view_messaging_started_only.sql
+-- Ajusta a view v_campaign_kpi para contabilizar apenas conversas iniciadas (sem continuadas)
 
--- Primary KPI view per campaign/adset/ad using performance_metrics aggregation.
+drop view if exists v_campaign_kpi;
+
 create or replace view v_campaign_kpi as
 with metrics as (
   select
@@ -191,33 +167,3 @@ select
     else null
   end as roas
 from final;
-
--- Creative level performance aggregated by day (ad level metrics mapped to creative assets).
-create or replace view v_creative_performance as
-select
-  ca.workspace_id,
-  pa.platform_key,
-  pm.platform_account_id,
-  ca.id as creative_id,
-  pm.metric_date,
-  count(distinct ads.id) as ads_count,
-  count(distinct ad_sets.id) as ad_set_count,
-  count(distinct campaigns.id) as campaign_count,
-  sum(pm.spend::numeric) as spend,
-  sum(pm.impressions::numeric) as impressions,
-  sum(pm.clicks::numeric) as clicks,
-  sum(pm.conversions::numeric) as conversions,
-  sum(pm.conversion_value::numeric) as revenue
-from performance_metrics pm
-join ads on ads.id = pm.ad_id
-join ad_sets on ad_sets.id = ads.ad_set_id
-join campaigns on campaigns.id = ad_sets.campaign_id
-join creative_assets ca on ca.id = ads.creative_asset_id
-join platform_accounts pa on pa.id = pm.platform_account_id
-where pm.granularity = 'day'
-group by
-  ca.workspace_id,
-  pa.platform_key,
-  pm.platform_account_id,
-  ca.id,
-  pm.metric_date;
