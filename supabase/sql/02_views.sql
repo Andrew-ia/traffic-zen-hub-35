@@ -192,6 +192,10 @@ select
   end as roas
 from final;
 
+-- Legacy compatibility view for clients still querying vw_campaign_kpi
+create or replace view vw_campaign_kpi as
+select * from v_campaign_kpi;
+
 -- Creative level performance aggregated by day (ad level metrics mapped to creative assets).
 create or replace view v_creative_performance as
 select
