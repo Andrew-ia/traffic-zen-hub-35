@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
 
   const devProxyTarget = pick('API_URL') || 'http://localhost:3001';
   return ({
+  base: "/",
   server: {
     host: "::",
     port: 8080,
