@@ -23,8 +23,19 @@ export default function MetaSyncButton({
   const [syncing, setSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [currentStage, setCurrentStage] = useState(0);
   const { toast } = useToast();
   const pollRef = useRef<number | null>(null);
+
+  // Define the sync stages
+  const syncStages = [
+    "Conectando com Meta API",
+    "Buscando contas de anúncios", 
+    "Sincronizando campanhas",
+    "Processando conjuntos de anúncios",
+    "Coletando métricas de performance",
+    "Finalizando sincronização"
+  ];
 
   useEffect(() => {
     return () => {
@@ -39,6 +50,13 @@ export default function MetaSyncButton({
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
+  };
+
+  const resetSyncState = () => {
+    setSyncing(false);
+    setStatusMessage(null);
+    setProgress(null);
+    setCurrentStage(0);
   };
 
   const handleSync = async () => {
@@ -56,8 +74,9 @@ export default function MetaSyncButton({
 
     try {
       setSyncing(true);
+      setCurrentStage(0);
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
-      setProgress(null);
+      setProgress(0);
 
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 20000);
@@ -82,15 +101,16 @@ export default function MetaSyncButton({
         });
       } catch (e) {
         window.clearTimeout(timeoutId);
-        setSyncing(false);
-        setStatusMessage(null);
+        setCurrentStage(1);
+        setStatusMessage('API principal indisponível. Tentando rota alternativa...');
 
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
         const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
         if (supabaseUrl && anonKey) {
           try {
-            setSyncing(true);
-            setStatusMessage('API indisponível. Usando Edge Function...');
+            setCurrentStage(2);
+            setStatusMessage('Usando Edge Function para sincronização...');
+            setProgress(15);
             const ef = await fetch(`${supabaseUrl}/functions/v1/meta-sync`, {
               method: 'POST',
               headers: {
@@ -107,10 +127,10 @@ export default function MetaSyncButton({
               title: 'Sincronização iniciada (Edge Function)',
               description: `Campanhas em atualização nos últimos ${days} dias.`,
             });
+            setProgress(100);
+            setCurrentStage(syncStages.length - 1);
             setTimeout(() => {
-              setSyncing(false);
-              setStatusMessage(null);
-              setProgress(null);
+              resetSyncState();
             }, 1500);
             return;
           } catch (efError) {
@@ -149,7 +169,9 @@ export default function MetaSyncButton({
         description: `Buscando dados dos últimos ${days} dias.`,
       });
 
-      setStatusMessage("Sincronizando dados do Meta...");
+      setCurrentStage(1);
+      setStatusMessage("Conectando com Meta API...");
+      setProgress(10);
 
       let attempts = 0;
       const maxAttempts = 120; // 4 minutos (2s * 120)
@@ -158,7 +180,7 @@ export default function MetaSyncButton({
         attempts += 1;
         if (attempts > maxAttempts) {
           clearPolling();
-          setSyncing(false);
+          resetSyncState();
           toast({
             title: "Tempo excedido",
             description: "A sincronização está demorando. Verifique novamente em alguns minutos.",
@@ -177,12 +199,35 @@ export default function MetaSyncButton({
 
           const status = statusPayload?.data?.status;
           const pct = statusPayload?.data?.progress;
+          
+          // Update progress and stage based on percentage
           if (typeof pct === "number") {
-            setProgress(Math.max(0, Math.min(100, Math.round(pct))));
+            const progressValue = Math.max(0, Math.min(100, Math.round(pct)));
+            setProgress(progressValue);
+            
+            // Update stage based on progress
+            const stageIndex = Math.floor((progressValue / 100) * (syncStages.length - 1));
+            setCurrentStage(Math.min(stageIndex, syncStages.length - 1));
+            
+            // Set appropriate message based on stage
+            if (progressValue < 20) {
+              setStatusMessage("Conectando com Meta API...");
+            } else if (progressValue < 40) {
+              setStatusMessage("Buscando contas de anúncios...");
+            } else if (progressValue < 60) {
+              setStatusMessage("Sincronizando campanhas...");
+            } else if (progressValue < 80) {
+              setStatusMessage("Processando conjuntos de anúncios...");
+            } else if (progressValue < 95) {
+              setStatusMessage("Coletando métricas de performance...");
+            } else {
+              setStatusMessage("Finalizando sincronização...");
+            }
           }
 
           if (status === "completed") {
             clearPolling();
+            setCurrentStage(syncStages.length - 1);
             setStatusMessage("Sincronização concluída. Atualizando dashboards...");
             setProgress(100);
             toast({
@@ -190,24 +235,16 @@ export default function MetaSyncButton({
               description: "Os dados do Meta foram atualizados com sucesso.",
             });
             setTimeout(() => {
-              setSyncing(false);
-              setStatusMessage(null);
-              setProgress(null);
+              resetSyncState();
             }, 1200);
           } else if (status === "failed") {
             clearPolling();
-            setSyncing(false);
-            setStatusMessage(null);
-            setProgress(null);
+            resetSyncState();
             toast({
               title: "Erro na sincronização",
               description: statusPayload?.data?.error_message || "Falha ao sincronizar dados.",
               variant: "destructive",
             });
-          } else {
-            setStatusMessage(
-              status === "processing" ? "Processando dados do Meta..." : "Sincronização em andamento..."
-            );
           }
         } catch (error) {
           console.error("Erro ao verificar status da sincronização:", error);
@@ -215,9 +252,7 @@ export default function MetaSyncButton({
       }, 2000);
     } catch (error) {
       clearPolling();
-      setSyncing(false);
-      setStatusMessage(null);
-      setProgress(null);
+      resetSyncState();
       toast({
         title: "Erro na sincronização",
         description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.",
@@ -233,6 +268,8 @@ export default function MetaSyncButton({
           title="Sincronizando Meta Ads"
           subtitle={statusMessage ?? `Buscando últimos ${days} dias`}
           progress={progress}
+          stages={syncStages}
+          currentStage={currentStage}
         />
       )}
       <Button
