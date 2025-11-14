@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 // Ensure environment variables are loaded early for modules importing database utilities
 try {
   dotenv.config({ path: '.env.local' });
-} catch {}
+} catch { void 0 }
 
 /**
  * Database configuration and connection utilities

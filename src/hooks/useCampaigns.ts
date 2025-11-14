@@ -20,6 +20,8 @@ export interface CampaignQueryOptions {
   pageSize?: number;
   platform?: string;
   objective?: string;
+  dateRange?: number;
+  accountId?: string;
 }
 
 interface CampaignQueryRow {
@@ -64,10 +66,15 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
     pageSize = 0, // 0 => fetch all
     platform = "all",
     objective = "all",
+    dateRange = 30,
+    accountId = "all",
   } = options;
 
+  const normalizedDateRange = Number.isFinite(dateRange) ? Math.max(1, Math.min(Number(dateRange), 90)) : 30;
+  const normalizedAccountId = accountId && accountId !== "all" ? accountId : "all";
+
   return useQuery({
-    queryKey: ["campaigns", platform, status, search, page, pageSize, objective],
+    queryKey: ["campaigns", platform, status, search, page, pageSize, objective, normalizedDateRange, normalizedAccountId],
     queryFn: async (): Promise<CampaignQueryResult> => {
       let query = supabase
         .from("campaigns")
@@ -104,7 +111,9 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
       // Filtro de platform precisa ser feito via platform_account_id + subquery
       // Não podemos filtrar diretamente por platform_accounts.platform_key no Supabase
       // Então vamos buscar os IDs das contas da plataforma primeiro
-      if (platform !== "all") {
+      if (normalizedAccountId !== "all") {
+        query = query.eq("platform_account_id", normalizedAccountId);
+      } else if (platform !== "all") {
         const { data: platformAccounts } = await supabase
           .from("platform_accounts")
           .select("id")
@@ -140,7 +149,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         const end = new Date();
         end.setHours(0, 0, 0, 0);
         const start = new Date(end);
-        start.setDate(start.getDate() - 29);
+        start.setDate(start.getDate() - (normalizedDateRange - 1));
         const fromDate = start.toISOString().slice(0, 10);
         const toDate = end.toISOString().slice(0, 10);
 
@@ -153,6 +162,12 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
 
         if (platform !== 'all') {
           kpiQuery = kpiQuery.eq('platform_key', platform);
+        }
+        if (normalizedAccountId !== 'all') {
+          kpiQuery = kpiQuery.eq('platform_account_id', normalizedAccountId);
+        }
+        if (objective !== 'all') {
+          kpiQuery = kpiQuery.eq('objective', objective);
         }
 
         const { data: kpiRows, error: kpiError } = await kpiQuery;
@@ -211,24 +226,45 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
       const end = new Date();
       end.setHours(0, 0, 0, 0);
       const start = new Date(end);
-      start.setDate(start.getDate() - 29);
+      start.setDate(start.getDate() - (normalizedDateRange - 1));
       const fromDate = start.toISOString().slice(0, 10);
       const toDate = end.toISOString().slice(0, 10);
 
       const campaignIds = (data as CampaignQueryRow[]).map((row) => row.id);
 
       // Fetch KPI data from v_campaign_kpi view
-      const { data: kpiData } = campaignIds.length > 0
-        ? await supabase
+      let kpiData: CampaignKPIRow[] | null = [];
+      if (campaignIds.length > 0) {
+        // Split campaign IDs into chunks to avoid URL length limits
+        const chunkSize = 10;
+        const allKpiData: CampaignKPIRow[] = [];
+        
+        for (let i = 0; i < campaignIds.length; i += chunkSize) {
+          const chunk = campaignIds.slice(i, i + chunkSize);
+          
+          let kpiQueryBuilder = supabase
             .from('v_campaign_kpi')
-            .select('campaign_id, result_label, result_value, cost_per_result, spend, roas, instagram_follows')
+            .select('campaign_id, result_label, result_value, cost_per_result, spend, roas')
             .eq('workspace_id', WORKSPACE_ID)
             .is('ad_set_id', null)
             .is('ad_id', null)
-            .in('campaign_id', campaignIds)
+            .in('campaign_id', chunk)
             .gte('metric_date', fromDate)
-            .lte('metric_date', toDate)
-        : { data: [] };
+            .lte('metric_date', toDate);
+
+          if (platform !== 'all') {
+            kpiQueryBuilder = kpiQueryBuilder.eq('platform_key', platform);
+          }
+
+          const { data: chunkData, error: chunkError } = await kpiQueryBuilder;
+          
+          if (!chunkError && chunkData) {
+            allKpiData.push(...(chunkData as CampaignKPIRow[]));
+          }
+        }
+        
+        kpiData = allKpiData;
+      }
 
       // Aggregate KPI by campaign
       const kpiByCampaign = new Map<string, {
@@ -250,14 +286,13 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
             resultValue: row.result_value || 0,
             costPerResult: null,
             spend: row.spend || 0,
-            roas: null,
-            instagramFollows: (row as any).instagram_follows || 0,
+            roas: row.roas || null,
+            instagramFollows: 0, // Temporarily set to 0, will be fetched separately if needed
           });
         } else {
           existing.resultValue += row.result_value || 0;
           existing.spend += row.spend || 0;
-          existing.instagramFollows += (row as any).instagram_follows || 0;
-          if (row.roas && row.revenue) {
+          if (row.roas) {
             existing.roas = (existing.roas || 0) + row.roas;
           }
         }

@@ -8,7 +8,7 @@ import { SuggestedQuestions } from '@/components/ai/SuggestedQuestions';
 import { useAIChat } from '@/hooks/useAIChat';
 import type { ChatMessage as ChatMessageType } from '@/types/chat';
 
-const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || '00000000-0000-0000-0000-000000000010';
 
 export default function AIChat() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);

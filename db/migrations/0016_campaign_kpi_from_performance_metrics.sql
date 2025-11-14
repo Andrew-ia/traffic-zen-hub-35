@@ -24,7 +24,6 @@ WITH metrics AS (
   JOIN platform_accounts pa ON pa.id = pm.platform_account_id
   LEFT JOIN campaigns c ON c.id = pm.campaign_id
   WHERE pm.granularity = 'day'
-    AND pm.workspace_id = '00000000-0000-0000-0000-000000000010'
 ),
 metrics_with_actions AS (
   SELECT
@@ -90,7 +89,7 @@ metrics_with_actions AS (
     FROM jsonb_array_elements(COALESCE(m.extra_metrics -> 'actions', '[]'::jsonb)) AS action
   ) acts ON TRUE
 ),
-final AS (
+aggregated AS (
   SELECT
     mwa.metric_date,
     mwa.workspace_id,
@@ -98,34 +97,64 @@ final AS (
     mwa.platform_account_id,
     mwa.account_external_id,
     mwa.campaign_id,
-    mwa.ad_set_id,
-    mwa.ad_id,
     mwa.objective,
-    mwa.spend,
-    mwa.clicks,
-    mwa.conversion_value,
-    mwa.conversions,
+    SUM(mwa.spend)::numeric AS spend,
+    SUM(mwa.clicks)::numeric AS clicks,
+    SUM(mwa.conversion_value)::numeric AS conversion_value,
+    SUM(mwa.conversions)::numeric AS conversions,
+    SUM(mwa.conversations_started_derived)::numeric AS conversations_started_derived,
+    SUM(mwa.messaging_connections_derived)::numeric AS messaging_connections_derived,
+    SUM(mwa.leads)::numeric AS leads,
+    SUM(mwa.video_views)::numeric AS video_views,
+    SUM(mwa.engagements)::numeric AS engagements,
+    SUM(mwa.conversations)::numeric AS conversations,
+    SUM(mwa.purchases)::numeric AS purchases
+  FROM metrics_with_actions mwa
+  GROUP BY
+    mwa.metric_date,
+    mwa.workspace_id,
+    mwa.platform_key,
+    mwa.platform_account_id,
+    mwa.account_external_id,
+    mwa.campaign_id,
+    mwa.objective
+),
+final AS (
+  SELECT
+    agg.metric_date,
+    agg.workspace_id,
+    agg.platform_key,
+    agg.platform_account_id,
+    agg.account_external_id,
+    agg.campaign_id,
+    NULL::uuid AS ad_set_id,
+    NULL::uuid AS ad_id,
+    agg.objective,
+    agg.spend,
+    agg.clicks,
+    agg.conversion_value,
+    agg.conversions,
     CASE
-      WHEN mwa.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN 'Leads'
-      WHEN mwa.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN 'Conversas'
-      WHEN mwa.objective IN ('LINK_CLICKS', 'OUTCOME_TRAFFIC', 'TRAFFIC') THEN 'Cliques'
-      WHEN mwa.objective IN ('OUTCOME_ENGAGEMENT', 'POST_ENGAGEMENT', 'ENGAGEMENT') THEN 'Engajamentos'
-      WHEN mwa.objective IN ('VIDEO_VIEWS') THEN 'Views'
-      WHEN mwa.objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') THEN 'Compras'
-      WHEN mwa.platform_key = 'google_ads' THEN 'Cliques'
+      WHEN agg.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN 'Leads'
+      WHEN agg.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN 'Conversas'
+      WHEN agg.objective IN ('LINK_CLICKS', 'OUTCOME_TRAFFIC', 'TRAFFIC') THEN 'Cliques'
+      WHEN agg.objective IN ('OUTCOME_ENGAGEMENT', 'POST_ENGAGEMENT', 'ENGAGEMENT') THEN 'Engajamentos'
+      WHEN agg.objective IN ('VIDEO_VIEWS') THEN 'Views'
+      WHEN agg.objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') THEN 'Compras'
+      WHEN agg.platform_key = 'google_ads' THEN 'Cliques'
       ELSE 'Resultados'
     END AS result_label,
     CASE
-      WHEN mwa.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN NULLIF(mwa.leads, 0)
-      WHEN mwa.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN NULLIF(GREATEST(mwa.conversations_started_derived, mwa.conversations), 0)
-      WHEN mwa.objective IN ('LINK_CLICKS', 'OUTCOME_TRAFFIC', 'TRAFFIC') THEN NULLIF(mwa.clicks, 0)
-      WHEN mwa.objective IN ('OUTCOME_ENGAGEMENT', 'POST_ENGAGEMENT', 'ENGAGEMENT') THEN NULLIF(mwa.engagements, 0)
-      WHEN mwa.objective IN ('VIDEO_VIEWS') THEN NULLIF(mwa.video_views, 0)
-      WHEN mwa.objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') THEN NULLIF(mwa.purchases, 0)
-      WHEN mwa.platform_key = 'google_ads' THEN NULLIF(mwa.clicks, 0)
-      ELSE NULLIF(mwa.conversions, 0)
+      WHEN agg.objective IN ('OUTCOME_LEADS', 'LEAD_GENERATION') THEN NULLIF(agg.leads, 0)
+      WHEN agg.objective IN ('MESSAGES', 'OUTCOME_MESSAGES') THEN NULLIF(GREATEST(agg.conversations_started_derived, agg.conversations), 0)
+      WHEN agg.objective IN ('LINK_CLICKS', 'OUTCOME_TRAFFIC', 'TRAFFIC') THEN NULLIF(agg.clicks, 0)
+      WHEN agg.objective IN ('OUTCOME_ENGAGEMENT', 'POST_ENGAGEMENT', 'ENGAGEMENT') THEN NULLIF(agg.engagements, 0)
+      WHEN agg.objective IN ('VIDEO_VIEWS') THEN NULLIF(agg.video_views, 0)
+      WHEN agg.objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') THEN NULLIF(agg.purchases, 0)
+      WHEN agg.platform_key = 'google_ads' THEN NULLIF(agg.clicks, 0)
+      ELSE NULLIF(agg.conversions, 0)
     END AS result_value
-  FROM metrics_with_actions mwa
+  FROM aggregated agg
 )
 SELECT
   metric_date,
@@ -147,5 +176,6 @@ SELECT
     WHEN objective IN ('SALES', 'CONVERSIONS', 'OUTCOME_SALES', 'PURCHASE') AND conversion_value > 0 AND spend > 0
       THEN conversion_value / spend
     ELSE NULL
-  END AS roas
+  END AS roas,
+  NULL::numeric AS instagram_follows
 FROM final;

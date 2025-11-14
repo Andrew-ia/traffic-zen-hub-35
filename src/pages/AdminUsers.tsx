@@ -27,7 +27,7 @@ export default function AdminUsers() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
 
-  const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
   const storageKey = useMemo(() => {
     return selectedUserId && WORKSPACE_ID
       ? `trafficpro.page_access_overrides:${WORKSPACE_ID}:${selectedUserId}`

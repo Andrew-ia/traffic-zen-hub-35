@@ -15,7 +15,7 @@ import {
   Zap
 } from "lucide-react";
 
-const WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID;
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 function toNumber(value: unknown): number {
   const numeric = Number(value ?? 0);
