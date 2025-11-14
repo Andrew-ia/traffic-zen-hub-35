@@ -514,9 +514,3 @@ export default function MetaAds() {
     </div>
   );
 }
-  const handleFunnelTypeChange = (type: FunnelType) => {
-    setFunnelType(type);
-  };
-
-  const effectiveObjectiveFilter =
-    objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;
