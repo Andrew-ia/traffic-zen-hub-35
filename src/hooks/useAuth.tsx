@@ -103,26 +103,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string) => {
     if (DISABLE_AUTH) {
+      console.log('🔧 Auth disabled, using default user');
       setUser(DEFAULT_USER);
       setToken('dev-token');
       navigate('/');
       return true;
     }
+    
     try {
+      console.log('🔑 Attempting login for:', username);
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      if (!res.ok) return false;
+      
+      console.log('📡 Login response status:', res.status);
+      
+      if (!res.ok) {
+        console.log('❌ Login failed - HTTP error:', res.status);
+        return false;
+      }
+      
       const data = await res.json();
-      if (!data?.success || !data?.token || !data?.user) return false;
+      console.log('📝 Login response data:', { 
+        success: data?.success, 
+        hasToken: !!data?.token, 
+        hasUser: !!data?.user,
+        userRole: data?.user?.role
+      });
+      
+      if (!data?.success || !data?.token || !data?.user) {
+        console.log('❌ Login failed - Invalid response data');
+        return false;
+      }
+      
+      console.log('💾 Storing token and user data');
       window.localStorage.setItem(STORAGE_KEY, data.token);
       setToken(data.token);
       setUser(data.user);
-      navigate('/');
+      
+      console.log('✅ Login successful, redirecting to dashboard');
+      navigate('/', { replace: true });
       return true;
-    } catch {
+    } catch (error) {
+      console.log('❌ Login failed - Network error:', error);
       return false;
     }
   };
@@ -154,7 +179,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasAccess = (path: string) => {
     if (DISABLE_AUTH) return true;
-    if (user?.id && WORKSPACE_ID) {
+    
+    // Admin sempre tem acesso
+    if (user?.role === 'adm') return true;
+    
+    // Se não há usuário, não tem acesso
+    if (!user?.id) return false;
+    
+    // Verificar overrides específicos
+    if (WORKSPACE_ID) {
       const key = `${OVERRIDES_PREFIX}:${WORKSPACE_ID}:${user.id}`;
       const raw = window.localStorage.getItem(key);
       let map: Record<string, boolean> = {};
@@ -163,12 +196,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         map = {};
       }
-      const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
-      for (const [prefix, allowed] of entries) {
-        if (path === prefix || path.startsWith(prefix + '/')) return !!allowed;
+      
+      // Se há overrides, usar apenas eles
+      if (Object.keys(map).length > 0) {
+        const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
+        for (const [prefix, allowed] of entries) {
+          if (path === prefix || path.startsWith(prefix + '/')) return !!allowed;
+        }
+        return false; // Se há overrides mas path não está incluído
       }
     }
-    if (user?.role === 'adm') return true;
+    
+    // Fallback: usuários básicos e simples têm acesso ao dashboard por padrão
+    if (path === '/' || path === '/dashboard') return true;
+    
+    // Para outros caminhos, verificar role
+    if (user.role === 'basico') {
+      // Básico tem acesso às principais funcionalidades
+      const allowedPaths = [
+        '/campaigns', '/meta-ads', '/instagram', '/reports', 
+        '/leads', '/integrations', '/tracking'
+      ];
+      return allowedPaths.some(allowed => 
+        path === allowed || path.startsWith(allowed + '/')
+      );
+    }
+    
+    if (user.role === 'simples') {
+      // Simples tem acesso limitado
+      const allowedPaths = ['/campaigns', '/reports'];
+      return allowedPaths.some(allowed => 
+        path === allowed || path.startsWith(allowed + '/')
+      );
+    }
+    
     return false;
   };
 
@@ -178,13 +239,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return; // Wait for auth to load
     if (location.pathname === '/login') return; // login is public
+    
     if (!user) {
-      navigate('/login');
+      console.log('🔄 No user found, redirecting to login');
+      navigate('/login', { replace: true });
       return;
     }
+    
+    // Check if current path is accessible
     if (!hasAccess(location.pathname)) {
+      console.log('🚫 No access to', location.pathname, 'for role:', user.role);
+      
+      // Try to get allowed routes from overrides first
       const allowed = getAllowedRoutes();
-      navigate(allowed[0] || '/login');
+      
+      if (allowed.length > 0) {
+        console.log('➡️ Redirecting to first allowed route:', allowed[0]);
+        navigate(allowed[0], { replace: true });
+      } else {
+        // Fallback to dashboard if no specific overrides
+        console.log('➡️ Redirecting to dashboard (fallback)');
+        navigate('/', { replace: true });
+      }
+    } else {
+      console.log('✅ Access granted to', location.pathname);
     }
   }, [location.pathname, user, navigate, hasAccess, getAllowedRoutes, isLoading]);
 
