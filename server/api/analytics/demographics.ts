@@ -13,7 +13,7 @@ function getWorkspaceId(): string {
       'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
     );
   }
-  return wid;
+  return wid.trim();
 }
 
 export async function getDemographics(req: Request, res: Response) {

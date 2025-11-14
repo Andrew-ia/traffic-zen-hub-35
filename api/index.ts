@@ -231,6 +231,9 @@ app.get('/debug/workspace', (req, res) => {
   
   res.json({
     workspace_id: workspaceId,
+    workspace_id_trimmed: workspaceId?.trim(),
+    workspace_id_length: workspaceId?.length,
+    workspace_id_trimmed_length: workspaceId?.trim().length,
     env_vars: {
       META_WORKSPACE_ID: !!process.env.META_WORKSPACE_ID,
       WORKSPACE_ID: !!process.env.WORKSPACE_ID,
