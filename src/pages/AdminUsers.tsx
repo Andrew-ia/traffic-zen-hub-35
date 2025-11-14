@@ -7,14 +7,19 @@ import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreVertical, Trash2, Edit3, Settings } from 'lucide-react';
 import { mainNavigation } from '@/data/navigation';
 import { resolveApiBase } from '@/lib/apiBase';
+import { useToast } from '@/hooks/use-toast';
 
 const API_BASE = resolveApiBase();
 
 export default function AdminUsers() {
   const { data: members, refetch } = useWorkspaceMembers();
   const { token, user } = useAuth();
+  const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +31,13 @@ export default function AdminUsers() {
   const [permModalOpen, setPermModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+
+  // Estados para remoção e edição de usuário
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false);
+  const [userToRemove, setUserToRemove] = useState<any>(null);
+  const [userToEdit, setUserToEdit] = useState<any>(null);
+  const [newRole, setNewRole] = useState<'adm' | 'basico' | 'simples'>('basico');
 
 const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
   const storageKey = useMemo(() => {
@@ -94,6 +106,96 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
     }
   };
 
+  // Função para confirmar remoção de usuário
+  const handleRemoveUser = (member: any) => {
+    setUserToRemove(member);
+    setRemoveDialogOpen(true);
+  };
+
+  // Função para executar remoção de usuário
+  const confirmRemoveUser = async () => {
+    if (!userToRemove) return;
+    
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/users/${userToRemove.userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (res.ok) {
+        toast({
+          title: "Usuário removido",
+          description: `${userToRemove.name || userToRemove.email} foi removido do workspace.`,
+        });
+        refetch();
+      } else {
+        toast({
+          title: "Erro ao remover usuário",
+          description: "Não foi possível remover o usuário. Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erro de conexão",
+        description: "Falha na conexão com o servidor.",
+        variant: "destructive",
+      });
+    } finally {
+      setRemoveDialogOpen(false);
+      setUserToRemove(null);
+    }
+  };
+
+  // Função para editar nível de acesso
+  const handleEditRole = (member: any) => {
+    setUserToEdit(member);
+    setNewRole(member.role);
+    setEditRoleDialogOpen(true);
+  };
+
+  // Função para confirmar edição de nível de acesso
+  const confirmEditRole = async () => {
+    if (!userToEdit) return;
+    
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/users/${userToEdit.userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+      
+      if (res.ok) {
+        toast({
+          title: "Nível de acesso atualizado",
+          description: `${userToEdit.name || userToEdit.email} agora tem nível: ${newRole}.`,
+        });
+        refetch();
+      } else {
+        toast({
+          title: "Erro ao atualizar nível",
+          description: "Não foi possível atualizar o nível de acesso. Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erro de conexão",
+        description: "Falha na conexão com o servidor.",
+        variant: "destructive",
+      });
+    } finally {
+      setEditRoleDialogOpen(false);
+      setUserToEdit(null);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {user?.role === 'adm' ? (
@@ -155,17 +257,54 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
         <CardContent>
           <div className="space-y-2">
             {(members || []).map((m) => (
-              <div key={m.userId} className="flex items-center justify-between border rounded p-2">
-                <div>
-                  <div className="font-medium">{m.name || m.email || m.userId}</div>
-                  <div className="text-xs text-muted-foreground">{m.email}</div>
+              <div key={m.userId} className="flex items-center justify-between border rounded p-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-sm font-medium">
+                      {(m.name || m.email || '?').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-medium">{m.name || m.email || m.userId}</div>
+                    <div className="text-xs text-muted-foreground">{m.email}</div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm text-muted-foreground">{m.role}</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm px-2 py-1 bg-secondary/50 rounded-md font-medium">
+                      {m.role}
+                    </span>
+                  </div>
                   {user?.role === 'adm' && (
-                    <Button variant="outline" size="sm" onClick={() => openPermModal(m.userId)}>
-                      Permissões
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" onClick={() => openPermModal(m.userId)}>
+                        <Settings className="h-4 w-4 mr-1" />
+                        Permissões
+                      </Button>
+                      {/* Não permitir ações no próprio usuário */}
+                      {m.userId !== user.id && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEditRole(m)}>
+                              <Edit3 className="h-4 w-4 mr-2" />
+                              Editar nível de acesso
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleRemoveUser(m)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Remover usuário
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -203,6 +342,75 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPermModalOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação para remoção de usuário */}
+      <AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover usuário</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover <strong>{userToRemove?.name || userToRemove?.email}</strong> do workspace?
+              <br />
+              <span className="text-destructive text-sm mt-2 block">
+                Esta ação não pode ser desfeita. O usuário perderá acesso a todos os recursos do workspace.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemoveUser}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Remover usuário
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog para editar nível de acesso */}
+      <Dialog open={editRoleDialogOpen} onOpenChange={setEditRoleDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar nível de acesso</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Altere o nível de acesso de <strong>{userToEdit?.name || userToEdit?.email}</strong>
+            </p>
+            <div>
+              <label className="block text-sm font-medium mb-2">Novo nível de acesso</label>
+              <Select value={newRole} onValueChange={(v) => setNewRole(v as any)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um nível" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="adm">Administrador</SelectItem>
+                  <SelectItem value="basico">Básico</SelectItem>
+                  <SelectItem value="simples">Simples</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="bg-muted/30 p-3 rounded-md">
+              <p className="text-xs text-muted-foreground">
+                <strong>Administrador:</strong> Acesso completo a todas as funcionalidades<br />
+                <strong>Básico:</strong> Acesso às principais funcionalidades<br />
+                <strong>Simples:</strong> Acesso limitado a visualização
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRoleDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmEditRole} disabled={newRole === userToEdit?.role}>
+              <Edit3 className="h-4 w-4 mr-2" />
+              Atualizar nível
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
