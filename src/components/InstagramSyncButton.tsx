@@ -23,8 +23,19 @@ export default function InstagramSyncButton({
   const [syncing, setSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [currentStage, setCurrentStage] = useState(0);
   const { toast } = useToast();
   const pollRef = useRef<number | null>(null);
+
+  // Define Instagram-specific sync stages
+  const syncStages = [
+    "Conectando com Instagram API",
+    "Autenticando conta business",
+    "Buscando posts e stories",
+    "Coletando métricas de engajamento",
+    "Processando insights de audiência",
+    "Finalizando sincronização"
+  ];
 
   useEffect(() => {
     return () => {
@@ -39,6 +50,13 @@ export default function InstagramSyncButton({
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
+  };
+
+  const resetSyncState = () => {
+    setSyncing(false);
+    setStatusMessage(null);
+    setProgress(null);
+    setCurrentStage(0);
   };
 
   const handleSync = async () => {
@@ -56,8 +74,9 @@ export default function InstagramSyncButton({
 
     try {
       setSyncing(true);
+      setCurrentStage(0);
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
-      setProgress(null);
+      setProgress(0);
 
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 20000);
@@ -81,13 +100,55 @@ export default function InstagramSyncButton({
         });
       } catch (e) {
         window.clearTimeout(timeoutId);
-        setSyncing(false);
-        setStatusMessage(null);
+        setCurrentStage(1);
+        setStatusMessage('API principal indisponível. Tentando rota alternativa...');
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+        if (supabaseUrl && anonKey) {
+          try {
+            setCurrentStage(2);
+            setStatusMessage('Usando Edge Function para sincronização...');
+            setProgress(15);
+            const ef = await fetch(`${supabaseUrl}/functions/v1/instagram-sync`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${anonKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ days, sync_type: 'all' }),
+            });
+            const efPayload = await ef.json().catch(() => ({}));
+            if (!ef.ok || efPayload?.success === false) {
+              throw new Error(efPayload?.error || 'Falha na Edge Function');
+            }
+            toast({
+              title: 'Sincronização iniciada (Edge Function)',
+              description: `Instagram em atualização nos últimos ${days} dias.`,
+            });
+            setProgress(100);
+            setCurrentStage(syncStages.length - 1);
+            setTimeout(() => {
+              resetSyncState();
+            }, 1500);
+            return;
+          } catch (efError) {
+            toast({
+              title: 'API indisponível',
+              description: 'Falha ao usar Edge Function também. Verifique VITE_API_URL/VITE_SUPABASE_*',
+              variant: 'destructive',
+            });
+            resetSyncState();
+            return;
+          }
+        }
+
         toast({
           title: 'API indisponível',
           description: 'Configure VITE_API_URL no ambiente de produção apontando para sua API.',
           variant: 'destructive',
         });
+        resetSyncState();
         return;
       } finally {
         window.clearTimeout(timeoutId);
@@ -110,7 +171,9 @@ export default function InstagramSyncButton({
         description: `Buscando dados do Instagram dos últimos ${days} dias.`,
       });
 
-      setStatusMessage("Sincronizando métricas do Instagram...");
+      setCurrentStage(1);
+      setStatusMessage("Conectando com Instagram API...");
+      setProgress(10);
 
       let attempts = 0;
       const maxAttempts = 120;
@@ -119,7 +182,7 @@ export default function InstagramSyncButton({
         attempts += 1;
         if (attempts > maxAttempts) {
           clearPolling();
-          setSyncing(false);
+          resetSyncState();
           toast({
             title: "Tempo excedido",
             description: "A sincronização está demorando. Verifique novamente em alguns minutos.",
@@ -138,12 +201,35 @@ export default function InstagramSyncButton({
 
           const status = statusPayload?.data?.status;
           const pct = statusPayload?.data?.progress;
+          
+          // Update progress and stage based on percentage
           if (typeof pct === "number") {
-            setProgress(Math.max(0, Math.min(100, Math.round(pct))));
+            const progressValue = Math.max(0, Math.min(100, Math.round(pct)));
+            setProgress(progressValue);
+            
+            // Update stage based on progress for Instagram-specific flow
+            const stageIndex = Math.floor((progressValue / 100) * (syncStages.length - 1));
+            setCurrentStage(Math.min(stageIndex, syncStages.length - 1));
+            
+            // Set appropriate message based on stage for Instagram
+            if (progressValue < 15) {
+              setStatusMessage("Conectando com Instagram API...");
+            } else if (progressValue < 30) {
+              setStatusMessage("Autenticando conta business...");
+            } else if (progressValue < 60) {
+              setStatusMessage("Buscando posts e stories...");
+            } else if (progressValue < 80) {
+              setStatusMessage("Coletando métricas de engajamento...");
+            } else if (progressValue < 95) {
+              setStatusMessage("Processando insights de audiência...");
+            } else {
+              setStatusMessage("Finalizando sincronização...");
+            }
           }
 
           if (status === "completed") {
             clearPolling();
+            setCurrentStage(syncStages.length - 1);
             setStatusMessage("Sincronização concluída. Atualizando dashboards...");
             setProgress(100);
             toast({
@@ -151,22 +237,16 @@ export default function InstagramSyncButton({
               description: "Os dados do Instagram foram atualizados com sucesso.",
             });
             setTimeout(() => {
-              setSyncing(false);
-              setStatusMessage(null);
-              setProgress(null);
+              resetSyncState();
             }, 1200);
           } else if (status === "failed") {
             clearPolling();
-            setSyncing(false);
-            setStatusMessage(null);
-            setProgress(null);
+            resetSyncState();
             toast({
               title: "Erro na sincronização",
               description: statusPayload?.data?.error_message || "Falha ao sincronizar dados.",
               variant: "destructive",
             });
-          } else {
-            setStatusMessage("Sincronização em andamento...");
           }
         } catch (error) {
           console.error("Erro ao verificar status da sincronização do Instagram:", error);
@@ -174,9 +254,7 @@ export default function InstagramSyncButton({
       }, 2000);
     } catch (error) {
       clearPolling();
-      setSyncing(false);
-      setStatusMessage(null);
-      setProgress(null);
+      resetSyncState();
       toast({
         title: "Erro na sincronização",
         description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.",
@@ -192,6 +270,8 @@ export default function InstagramSyncButton({
           title="Sincronizando Instagram"
           subtitle={statusMessage ?? `Buscando últimos ${days} dias`}
           progress={progress}
+          stages={syncStages}
+          currentStage={currentStage}
         />
       )}
       <Button
