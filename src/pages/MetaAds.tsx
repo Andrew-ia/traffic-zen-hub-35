@@ -83,6 +83,11 @@ export default function MetaAds() {
   const effectiveObjectiveFilter =
     objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;
 
+  // Handle funnel type change
+  const handleFunnelTypeChange = (type: FunnelType) => {
+    setFunnelType(type);
+  };
+
   const { data, isLoading, error } = useCampaigns({
     status: statusFilter,
     search: debouncedSearch,
