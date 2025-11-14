@@ -78,6 +78,8 @@ export default function MetaAds() {
     pageSize: PAGE_SIZE,
     platform: "meta",
     objective: objectiveFilter !== "all" ? objectiveFilter : undefined,
+    dateRange: Number(dateRange),
+    accountId: accountFilter,
   });
 
   // Buscar métricas agregadas
@@ -118,8 +120,27 @@ export default function MetaAds() {
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
 
+  const funnelMetrics = {
+    impressions: metrics?.impressions ?? 0,
+    clicks: metrics?.clicks ?? 0,
+    linkClicks: metrics?.linkClicks ?? metrics?.clicks ?? 0,
+    landingPageViews: metrics?.landingPageViews ?? 0,
+    conversationsStarted: metrics?.conversationsStarted ?? metrics?.totalResults ?? 0,
+    engagements: metrics?.engagements ?? metrics?.totalResults ?? 0,
+    saves: metrics?.saves ?? 0,
+    shares: metrics?.shares ?? 0,
+    buttonClicks: metrics?.buttonClicks ?? metrics?.linkClicks ?? metrics?.clicks ?? 0,
+    addToCart: metrics?.addToCart ?? 0,
+    checkouts: metrics?.checkouts ?? 0,
+    purchases: metrics?.purchases ?? metrics?.totalResults ?? 0,
+  };
+
   // Calcular KPIs a partir de métricas ou campanhas
-  const totalSpend = metrics?.totalSpend ?? campaigns.reduce((sum, c) => sum + (c.spend ?? 0), 0);
+  const totalSpend = (
+    objectiveFilter === "all" && metricsByObjective && metricsByObjective.length > 0
+      ? metricsByObjective.reduce((sum, o) => sum + (o.totalSpend ?? 0), 0)
+      : metrics?.totalSpend ?? campaigns.reduce((sum, c) => sum + (c.spend ?? 0), 0)
+  );
   const totalResults = metrics?.totalResults ?? campaigns.reduce((sum, c) => sum + (c.resultValue ?? 0), 0);
   const avgRoas = metrics?.avgRoas ?? 0;
   const avgCostPerResult = metrics?.avgCostPerResult ?? 0;
@@ -328,7 +349,9 @@ export default function MetaAds() {
             Desempenho por Objetivo
           </h2>
           <ObjectiveKPIGrid>
-            {metricsByObjective.map((objective) => (
+            {metricsByObjective
+              .filter((objective) => objective.objective !== 'UNKNOWN' && objective.resultLabel !== 'Resultados' && objective.campaignCount > 0)
+              .map((objective) => (
               <ObjectiveKPICard
                 key={objective.objective}
                 data={objective}
@@ -443,20 +466,7 @@ export default function MetaAds() {
             <FunnelCard
               title="Funil"
               funnelType={funnelType}
-              metrics={{
-                // Dados que vêm diretamente da API filtrados por objetivo
-                impressions: metrics?.impressions ?? 0,
-                clicks: metrics?.clicks ?? 0,
-                reach: metrics?.reach ?? 0,
-                // O totalResults já vem filtrado pelo objetivo da campanha
-                // Quando filtra por OUTCOME_LEADS, totalResults = quantidade de leads
-                // Quando filtra por OUTCOME_SALES, totalResults = quantidade de vendas, etc.
-                leads: metrics?.totalResults ?? 0,
-                sales: metrics?.totalResults ?? 0,
-                engagements: metrics?.totalResults ?? 0,
-                messages: metrics?.totalResults ?? 0,
-                visits: metrics?.linkClicks ?? metrics?.clicks ?? 0,
-              }}
+              metrics={funnelMetrics}
               onTypeChange={setFunnelType}
               loading={metricsLoading}
             />
