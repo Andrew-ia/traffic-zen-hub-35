@@ -137,12 +137,30 @@ export default function MetaAds() {
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
 
+  // Construir métricas do funil baseado no tipo de funil e objetivo selecionado
+  const getConversationMetricByObjective = () => {
+    // Se o objetivo filtrado for de leads/mensagens, usar totalResults para conversationsStarted
+    const leadsObjectives = ['OUTCOME_LEADS', 'LEAD_GENERATION'];
+    const messagesObjectives = ['OUTCOME_MESSAGES', 'MESSAGES'];
+    
+    if (leadsObjectives.includes(effectiveObjectiveFilter) || funnelType === 'leads') {
+      return metrics?.totalResults ?? metrics?.conversationsStarted ?? 0;
+    }
+    
+    if (messagesObjectives.includes(effectiveObjectiveFilter) || funnelType === 'messages') {
+      return metrics?.totalResults ?? metrics?.conversationsStarted ?? 0;
+    }
+    
+    return metrics?.conversationsStarted ?? 0;
+  };
+
   const funnelMetrics = {
     impressions: metrics?.impressions ?? 0,
     clicks: metrics?.clicks ?? 0,
     linkClicks: metrics?.linkClicks ?? metrics?.clicks ?? 0,
     landingPageViews: metrics?.landingPageViews ?? 0,
-    conversationsStarted: metrics?.conversationsStarted ?? metrics?.totalResults ?? 0,
+    conversationsStarted: getConversationMetricByObjective(),
+    leads: metrics?.totalResults ?? 0, // Para objetivo de leads
     engagements: metrics?.engagements ?? metrics?.totalResults ?? 0,
     saves: metrics?.saves ?? 0,
     shares: metrics?.shares ?? 0,
@@ -150,6 +168,8 @@ export default function MetaAds() {
     addToCart: metrics?.addToCart ?? 0,
     checkouts: metrics?.checkouts ?? 0,
     purchases: metrics?.purchases ?? metrics?.totalResults ?? 0,
+    sales: metrics?.totalResults ?? 0, // Para objetivo de vendas
+    messages: metrics?.totalResults ?? 0, // Para objetivo de mensagens
   };
 
   // Calcular KPIs a partir de métricas ou campanhas
