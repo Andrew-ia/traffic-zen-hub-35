@@ -222,6 +222,24 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Debug workspace check
+app.get('/debug/workspace', (req, res) => {
+  const workspaceId = process.env.META_WORKSPACE_ID ||
+    process.env.WORKSPACE_ID ||
+    process.env.SUPABASE_WORKSPACE_ID ||
+    process.env.VITE_WORKSPACE_ID;
+  
+  res.json({
+    workspace_id: workspaceId,
+    env_vars: {
+      META_WORKSPACE_ID: !!process.env.META_WORKSPACE_ID,
+      WORKSPACE_ID: !!process.env.WORKSPACE_ID,
+      SUPABASE_WORKSPACE_ID: !!process.env.SUPABASE_WORKSPACE_ID,
+      VITE_WORKSPACE_ID: !!process.env.VITE_WORKSPACE_ID,
+    }
+  });
+});
+
 // Database health check
 app.get('/db-health', async (req, res) => {
   try {
