@@ -23,15 +23,16 @@ export interface NavigationItem {
 
 export const mainNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
-  { name: "AI Chat", href: "/chat", icon: MessageSquare, keywords: ["chat", "ai", "assistente", "perguntas"] },
+  
   { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
-  { name: "Campanhas", href: "/campaigns", icon: Target, keywords: ["ads", "campanhas"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
+  
   { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
-  { name: "Fluxo de Caixa", href: "/cashflow", icon: Wallet, keywords: ["financeiro", "caixa", "fluxo"] },
+  
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
+  { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
-  { name: "GA4", href: "/ga4", icon: BarChart3, keywords: ["ga4", "gtm", "analytics"] },
+  
   { name: "Rastreamento Digital", href: "/tracking", icon: Sparkles, keywords: ["tags", "gtm", "rastreamento"] },
   { name: "Integrações", href: "/integrations", icon: Plug, keywords: ["config", "conexões"] },
   { name: "Usuários", href: "/admin/users", icon: Plug, keywords: ["admin", "usuários", "acesso"] },

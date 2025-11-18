@@ -256,6 +256,9 @@ export interface PMReminder {
   email: string | null;
   phone: string | null;
   telegram_chat_id: string | null;
+  assignee_id?: string | null;
+  assignee_name?: string;
+  assignee_email?: string;
   position: number;
   created_by: string | null;
   created_at: string;
@@ -273,6 +276,7 @@ export interface CreatePMReminderDTO {
   email?: string;
   phone?: string;
   telegram_chat_id?: string;
+  assignee_id?: string;
   position?: number;
   estimated_hours?: number;
   actual_hours?: number;

@@ -100,77 +100,75 @@ export function OptimizationInsights() {
         p_limit: 5
       });
 
-      if (error) {
-        // Fallback query se RPC não existir
-        const { data: fallbackData } = await supabase
-          .from('performance_metrics')
-          .select(`
-            ad_set_id,
-            ad_sets!inner(id, name, campaign_id, campaigns!inner(name)),
-            spend,
-            impressions,
-            clicks,
-            conversions,
-            conversion_value,
-            extra_metrics
-          `)
-          .eq('workspace_id', WORKSPACE_ID)
-          .gte('metric_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-          .limit(100);
-
-        // Process manually
-        const grouped = new Map<string, any>();
-        fallbackData?.forEach((row: any) => {
-          const key = row.ad_set_id;
-          const extraRaw = row.extra_metrics;
-          const extra =
-            typeof extraRaw === 'string'
-              ? (() => {
-                  try {
-                    return JSON.parse(extraRaw);
-                  } catch {
-                    return {};
-                  }
-                })()
-              : extraRaw ?? {};
-          const derivedMetrics = extra?.derived_metrics ?? {};
-
-          if (!grouped.has(key)) {
-            grouped.set(key, {
-              id: key,
-              name: row.ad_sets?.name || 'Unknown',
-              campaign_name: row.ad_sets?.campaigns?.name || 'Unknown',
-              total_spend: 0,
-              total_clicks: 0,
-              total_impressions: 0,
-              total_conversions: 0,
-              total_conversion_value: 0,
-              primary_conversion_action: derivedMetrics?.primary_conversion_action ?? null,
-            });
-          }
-
-          const item = grouped.get(key);
-          item.total_spend += Number(row.spend || 0);
-          item.total_clicks += Number(row.clicks || 0);
-          item.total_impressions += Number(row.impressions || 0);
-          item.total_conversions += Number(row.conversions || 0);
-          item.total_conversion_value += Number(row.conversion_value || 0);
-
-          if (!item.primary_conversion_action && derivedMetrics?.primary_conversion_action) {
-            item.primary_conversion_action = derivedMetrics.primary_conversion_action;
-          }
-        });
-
-        return Array.from(grouped.values())
-          .map((item) => normalizeTopPerformerEntry(item))
-          .filter((item) => item.avg_ctr > 1.5 && item.avg_cpc < 3.0)
-          .sort((a, b) => b.avg_ctr - a.avg_ctr)
-          .slice(0, 5);
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        return (data ?? []).map((entry: any) => normalizeTopPerformerEntry(entry));
       }
 
-      return (data ?? []).map((entry: any) => normalizeTopPerformerEntry(entry));
+      const { data: fallbackData } = await supabase
+        .from('performance_metrics')
+        .select(`
+          ad_set_id,
+          ad_sets!inner(id, name, campaign_id, campaigns!inner(name)),
+          spend,
+          impressions,
+          clicks,
+          conversions,
+          conversion_value,
+          extra_metrics
+        `)
+        .eq('workspace_id', WORKSPACE_ID)
+        .gte('metric_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+        .limit(200);
+
+      const grouped = new Map<string, any>();
+      fallbackData?.forEach((row: any) => {
+        const key = row.ad_set_id;
+        const extraRaw = row.extra_metrics;
+        const extra =
+          typeof extraRaw === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(extraRaw);
+                } catch {
+                  return {};
+                }
+              })()
+            : extraRaw ?? {};
+        const derivedMetrics = extra?.derived_metrics ?? {};
+
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            id: key,
+            name: row.ad_sets?.name || 'Unknown',
+            campaign_name: row.ad_sets?.campaigns?.name || 'Unknown',
+            total_spend: 0,
+            total_clicks: 0,
+            total_impressions: 0,
+            total_conversions: 0,
+            total_conversion_value: 0,
+            primary_conversion_action: derivedMetrics?.primary_conversion_action ?? null,
+          });
+        }
+
+        const item = grouped.get(key);
+        item.total_spend += Number(row.spend || 0);
+        item.total_clicks += Number(row.clicks || 0);
+        item.total_impressions += Number(row.impressions || 0);
+        item.total_conversions += Number(row.conversions || 0);
+        item.total_conversion_value += Number(row.conversion_value || 0);
+
+        if (!item.primary_conversion_action && derivedMetrics?.primary_conversion_action) {
+          item.primary_conversion_action = derivedMetrics.primary_conversion_action;
+        }
+      });
+
+      return Array.from(grouped.values())
+        .map((item) => normalizeTopPerformerEntry(item))
+        .filter((item) => item.avg_ctr > 1.5 && item.avg_cpc < 3.0)
+        .sort((a, b) => b.avg_ctr - a.avg_ctr)
+        .slice(0, 5);
     },
-    staleTime: 5 * 60 * 1000 // 5 minutes
+    staleTime: 5 * 60 * 1000
   });
 
   const { data: platformPerf = [], isLoading: loadingPlatform } = useQuery({

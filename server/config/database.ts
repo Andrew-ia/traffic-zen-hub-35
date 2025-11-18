@@ -45,9 +45,11 @@ export function createDatabasePool(): Pool {
   return new Pool({
     connectionString: getDatabaseUrl(),
     ssl: { rejectUnauthorized: false },
-    max: 20, // Maximum number of clients in the pool
+    max: 10, // Maximum number of clients in the pool (reduced)
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 5000, // Increased timeout
+    acquireTimeoutMillis: 10000, // Time to wait for connection from pool
+    allowExitOnIdle: true, // Allow process to exit when no active connections
   });
 }
 

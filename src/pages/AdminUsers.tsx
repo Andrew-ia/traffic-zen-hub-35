@@ -13,6 +13,7 @@ import { MoreVertical, Trash2, Edit3, Settings } from 'lucide-react';
 import { mainNavigation } from '@/data/navigation';
 import { resolveApiBase } from '@/lib/apiBase';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabaseClient';
 
 const API_BASE = resolveApiBase();
 
@@ -117,31 +118,26 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
     if (!userToRemove) return;
     
     try {
-      const res = await fetch(`${API_BASE}/api/auth/users/${userToRemove.userId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const { error } = await supabase
+        .from('workspace_members')
+        .delete()
+        .eq('workspace_id', WORKSPACE_ID)
+        .eq('user_id', userToRemove.userId);
       
-      if (res.ok) {
-        toast({
-          title: "Usuário removido",
-          description: `${userToRemove.name || userToRemove.email} foi removido do workspace.`,
-        });
-        refetch();
-      } else {
-        toast({
-          title: "Erro ao remover usuário",
-          description: "Não foi possível remover o usuário. Tente novamente.",
-          variant: "destructive",
-        });
+      if (error) {
+        throw error;
       }
-    } catch (error) {
+      
       toast({
-        title: "Erro de conexão",
-        description: "Falha na conexão com o servidor.",
+        title: "Usuário removido",
+        description: `${userToRemove.name || userToRemove.email} foi removido do workspace.`,
+      });
+      refetch();
+    } catch (error) {
+      console.error('Erro ao remover usuário:', error);
+      toast({
+        title: "Erro ao remover usuário",
+        description: error instanceof Error ? error.message : "Não foi possível remover o usuário.",
         variant: "destructive",
       });
     } finally {
@@ -162,32 +158,26 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
     if (!userToEdit) return;
     
     try {
-      const res = await fetch(`${API_BASE}/api/auth/users/${userToEdit.userId}/role`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ role: newRole }),
-      });
+      const { error } = await supabase
+        .from('workspace_members')
+        .update({ role: newRole })
+        .eq('workspace_id', WORKSPACE_ID)
+        .eq('user_id', userToEdit.userId);
       
-      if (res.ok) {
-        toast({
-          title: "Nível de acesso atualizado",
-          description: `${userToEdit.name || userToEdit.email} agora tem nível: ${newRole}.`,
-        });
-        refetch();
-      } else {
-        toast({
-          title: "Erro ao atualizar nível",
-          description: "Não foi possível atualizar o nível de acesso. Tente novamente.",
-          variant: "destructive",
-        });
+      if (error) {
+        throw error;
       }
-    } catch (error) {
+      
       toast({
-        title: "Erro de conexão",
-        description: "Falha na conexão com o servidor.",
+        title: "Nível de acesso atualizado",
+        description: `${userToEdit.name || userToEdit.email} agora tem nível: ${newRole}.`,
+      });
+      refetch();
+    } catch (error) {
+      console.error('Erro ao atualizar nível:', error);
+      toast({
+        title: "Erro ao atualizar nível",
+        description: error instanceof Error ? error.message : "Não foi possível atualizar o nível de acesso.",
         variant: "destructive",
       });
     } finally {

@@ -3,6 +3,7 @@ import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 
 const PAGE_SIZE = 12;
@@ -46,6 +47,60 @@ export default function Campaigns() {
   const googleCampaigns = googleData?.campaigns ?? [];
   const googleTotal = googleData?.total ?? googleCampaigns.length;
 
+  function exportCampaignsCsv() {
+    try {
+      const sections: Array<{ title: string; rows: any[] }> = [
+        { title: "Meta Ads", rows: metaCampaigns },
+        { title: "Google Ads", rows: googleCampaigns },
+      ];
+
+      const escape = (v: unknown) => {
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}` : s;
+      };
+
+      const lines: string[] = [];
+      lines.push("Relatório de Campanhas");
+      lines.push(`Status: ${tab}`);
+      lines.push(`Busca: ${debouncedSearch || "(vazio)"}`);
+      lines.push("");
+
+      for (const section of sections) {
+        lines.push(section.title);
+        lines.push("Nome,Conta,Plataforma,Objetivo,Status,Resultado,Qtd,Investimento,Custo/Resultado,ROAS");
+        for (const c of section.rows) {
+          lines.push([
+            c.name,
+            c.platformAccount ?? "",
+            c.platformKey ?? "",
+            c.objective ?? "",
+            c.status,
+            c.resultLabel ?? "Resultados",
+            c.resultValue ?? 0,
+            c.spend ?? 0,
+            c.costPerResult ?? 0,
+            c.roas ?? "",
+          ].map(escape).join(","));
+        }
+        lines.push("");
+      }
+
+      const csv = lines.join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `campanhas_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Falha ao exportar CSV de campanhas", e);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -60,6 +115,9 @@ export default function Campaigns() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+          <Button onClick={exportCampaignsCsv} disabled={(metaCampaigns.length + googleCampaigns.length) === 0}>
+            Exportar CSV
+          </Button>
         </div>
       </div>
 

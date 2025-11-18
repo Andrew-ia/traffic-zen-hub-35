@@ -234,6 +234,16 @@ export default function MetaSyncButton({
               title: "Sincronização concluída",
               description: "Os dados do Meta foram atualizados com sucesso.",
             });
+            try {
+              const names: string[] = statusPayload?.data?.result?.summary?.campaignNames ?? [];
+              if (Array.isArray(names) && names.length > 0) {
+                const preview = names.slice(0, 10).join(" • ");
+                toast({
+                  title: `Campanhas sincronizadas (${names.length})`,
+                  description: preview,
+                });
+              }
+            } catch {}
             setTimeout(() => {
               resetSyncState();
             }, 1200);

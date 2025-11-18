@@ -38,18 +38,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // Single vendor chunk with all React-related dependencies
-          'vendor': [
-            'react',
-            'react-dom',
-            'react-router-dom',
-          ],
-        },
-      },
-    },
+    sourcemap: true,
     chunkSizeWarningLimit: 1600,
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

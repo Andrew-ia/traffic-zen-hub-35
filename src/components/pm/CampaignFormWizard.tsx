@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 
-interface Creative {
+export interface Creative {
   id: string;
   primaryText: string;
   headline: string;
@@ -16,13 +16,18 @@ interface Creative {
   creativeUrl: string;
 }
 
-interface AdSet {
+export interface AdSet {
   id: string;
   name: string;
   creatives: Creative[];
+  schedule?: {
+    start?: string;
+    end?: string;
+  };
+  placementNotes?: string;
 }
 
-interface CampaignData {
+export interface CampaignData {
   // Step 1: Campaign Info
   campaignName: string;
   objective: string;
@@ -47,6 +52,9 @@ interface CampaignData {
 interface CampaignFormWizardProps {
   onSubmit: (data: CampaignData) => void;
   isLoading?: boolean;
+  initialData?: Partial<CampaignData>;
+  submitLabel?: string;
+  onCancel?: () => void;
 }
 
 const STEPS = [
@@ -57,34 +65,85 @@ const STEPS = [
   { id: 5, title: 'Revisão', description: 'Confira tudo' },
 ];
 
-export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardProps) {
+const DEFAULT_CREATIVE: Creative = {
+  id: '1',
+  primaryText: '',
+  headline: '',
+  description: '',
+  cta: 'Comprar Agora',
+  creativeUrl: '',
+};
+
+const DEFAULT_ADSET: AdSet = {
+  id: '1',
+  name: '',
+  creatives: [{ ...DEFAULT_CREATIVE }],
+};
+
+const DEFAULT_CAMPAIGN: CampaignData = {
+  campaignName: '',
+  objective: '',
+  ageMin: '',
+  ageMax: '',
+  interests: '',
+  budget: '',
+  startDate: '',
+  endDate: '',
+  adSets: [{ ...DEFAULT_ADSET }],
+};
+
+function normalizeCampaignData(initial?: Partial<CampaignData>): CampaignData {
+  if (!initial) {
+    return JSON.parse(JSON.stringify(DEFAULT_CAMPAIGN));
+  }
+
+  const adSets =
+    initial.adSets && initial.adSets.length
+      ? initial.adSets.map((adSet, idx) => ({
+          id: adSet.id || (idx + 1).toString(),
+          name: adSet.name || '',
+          schedule: adSet.schedule || {},
+          placementNotes: adSet.placementNotes,
+          creatives:
+            adSet.creatives && adSet.creatives.length
+              ? adSet.creatives.map((creative, cIdx) => ({
+                  id: creative.id || (cIdx + 1).toString(),
+                  primaryText: creative.primaryText || '',
+                  headline: creative.headline || '',
+                  description: creative.description || '',
+                  cta: creative.cta || 'Comprar Agora',
+                  creativeUrl: creative.creativeUrl || '',
+                }))
+              : [{ ...DEFAULT_CREATIVE }],
+        }))
+      : [{ ...DEFAULT_ADSET }];
+
+  return {
+    campaignName: initial.campaignName || '',
+    objective: initial.objective || '',
+    ageMin: initial.ageMin || '',
+    ageMax: initial.ageMax || '',
+    interests: initial.interests || '',
+    budget: initial.budget || '',
+    startDate: initial.startDate || '',
+    endDate: initial.endDate || '',
+    adSets,
+  };
+}
+
+export function CampaignFormWizard({
+  onSubmit,
+  isLoading,
+  initialData,
+  submitLabel,
+  onCancel,
+}: CampaignFormWizardProps) {
   const [step, setStep] = useState(1);
-  const [data, setData] = useState<CampaignData>({
-    campaignName: '',
-    objective: '',
-    ageMin: '',
-    ageMax: '',
-    interests: '',
-    budget: '',
-    startDate: '',
-    endDate: '',
-    adSets: [
-      {
-        id: '1',
-        name: '',
-        creatives: [
-          {
-            id: '1',
-            primaryText: '',
-            headline: '',
-            description: '',
-            cta: 'Comprar Agora',
-            creativeUrl: '',
-          },
-        ],
-      },
-    ],
-  });
+  const [data, setData] = useState<CampaignData>(() => normalizeCampaignData(initialData));
+
+  useEffect(() => {
+    setData(normalizeCampaignData(initialData));
+  }, [initialData]);
 
   const handleChange = (field: keyof Omit<CampaignData, 'adSets'>, value: string) => {
     setData(prev => ({ ...prev, [field]: value }));
@@ -210,10 +269,6 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
       default:
         return false;
     }
-  };
-
-  const handleSubmit = () => {
-    onSubmit(data);
   };
 
   return (
@@ -576,23 +631,30 @@ export function CampaignFormWizard({ onSubmit, isLoading }: CampaignFormWizardPr
           Anterior
         </Button>
 
-        {step < 5 ? (
-          <Button
-            onClick={() => setStep(step + 1)}
-            disabled={!canProceed()}
-          >
-            Próximo
-            <ChevronRight className="w-4 h-4 ml-2" />
-          </Button>
-        ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={isLoading}
-            className="bg-green-600 hover:bg-green-700"
-          >
-            {isLoading ? 'Salvando...' : 'Salvar Campanha'}
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {onCancel && (
+            <Button variant="ghost" onClick={onCancel}>
+              Cancelar
+            </Button>
+          )}
+          {step < 5 ? (
+            <Button
+              onClick={() => setStep(step + 1)}
+              disabled={!canProceed()}
+            >
+              Próximo
+              <ChevronRight className="w-4 h-4 ml-2" />
+            </Button>
+          ) : (
+            <Button
+              onClick={() => onSubmit(data)}
+              disabled={isLoading}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isLoading ? 'Salvando...' : submitLabel || 'Salvar Campanha'}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

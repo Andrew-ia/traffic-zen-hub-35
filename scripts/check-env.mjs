@@ -116,7 +116,9 @@ if (!SUPABASE_DATABASE_URL) {
     // Basic parse; catches obvious format issues
     new url.URL(SUPABASE_DATABASE_URL.replace(/^postgresql:\/\//, 'http://'));
     ok('SUPABASE_DATABASE_URL format OK');
-    if (SUPABASE_DATABASE_URL.includes(':@') || SUPABASE_DATABASE_URL.match(/[^%]@db\./)) {
+    // Check if password contains unescaped @ character
+    const passwordMatch = SUPABASE_DATABASE_URL.match(/postgresql:\/\/[^:]+:([^@]+)@/);
+    if (passwordMatch && passwordMatch[1].includes('@') && !passwordMatch[1].includes('%40')) {
       warn('SUPABASE_DATABASE_URL pode conter @ não escapado na senha. Se a senha tiver @, encode como %40.');
     }
   } catch {

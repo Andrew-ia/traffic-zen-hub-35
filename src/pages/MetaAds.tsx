@@ -54,7 +54,7 @@ export default function MetaAds() {
   };
 
   const [funnelType, setFunnelType] = useState<FunnelType>(
-    objectiveFilter !== "all" ? getFunnelTypeFromObjective(objectiveFilter) : "traffic"
+    objectiveFilter !== "all" ? getFunnelTypeFromObjective(objectiveFilter) : "leads"
   );
 
   // Carregar contas da integração (dashboard) para alinhar com filtro de contas
@@ -83,10 +83,6 @@ export default function MetaAds() {
   const effectiveObjectiveFilter =
     objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;
 
-  // Handle funnel type change
-  const handleFunnelTypeChange = (type: FunnelType) => {
-    setFunnelType(type);
-  };
 
   const { data, isLoading, error } = useCampaigns({
     status: statusFilter,
@@ -94,7 +90,7 @@ export default function MetaAds() {
     page,
     pageSize: PAGE_SIZE,
     platform: "meta",
-    objective: effectiveObjectiveFilter,
+    objective: objectiveFilter,
     dateRange: Number(dateRange),
     accountId: accountFilter,
   });
@@ -105,7 +101,7 @@ export default function MetaAds() {
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
-    objective: effectiveObjectiveFilter,
+    objective: objectiveFilter === "all" ? "all" : effectiveObjectiveFilter,
   });
 
   // Buscar dados de série temporal
@@ -115,7 +111,7 @@ export default function MetaAds() {
     accountId: accountFilter,
     metric: chartMetric,
     status: statusFilter,
-    objective: effectiveObjectiveFilter,
+    objective: objectiveFilter === "all" ? "all" : effectiveObjectiveFilter,
   });
 
   // Buscar dados demográficos
@@ -123,7 +119,7 @@ export default function MetaAds() {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
-    objective: effectiveObjectiveFilter,
+    objective: objectiveFilter === "all" ? "all" : effectiveObjectiveFilter,
   });
 
   // Buscar métricas por objetivo (só quando filtro = "all")
@@ -139,7 +135,24 @@ export default function MetaAds() {
 
   // Construir métricas específicas do funil baseado no objetivo selecionado
   const getMetricByObjective = (metricType: string) => {
-    // Mapear totalResults para a métrica correta baseada no objetivo
+    // Se está no modo "all", usar dados agregados ou de acordo com o funil selecionado
+    if (objectiveFilter === "all") {
+      // Usar métricas diretas quando disponíveis para visão geral
+      switch (metricType) {
+        case 'conversationsStarted':
+          return metrics?.conversationsStarted ?? 0;
+        case 'purchases':
+          return metrics?.purchases ?? 0;
+        case 'landingPageViews':
+          return metrics?.landingPageViews ?? 0;
+        case 'engagements':
+          return metrics?.engagements ?? 0;
+        default:
+          return 0;
+      }
+    }
+    
+    // Para filtros específicos, mapear totalResults para a métrica correta
     switch (funnelType) {
       case 'leads':
         return metricType === 'conversationsStarted' ? metrics?.totalResults ?? 0 : 0;
@@ -220,7 +233,7 @@ export default function MetaAds() {
           />
         </div>
         <div className="flex items-center">
-          <MetaSyncButton size="sm" />
+          <MetaSyncButton size="sm" days={Number(dateRange)} />
         </div>
       </div>
 
@@ -505,8 +518,17 @@ export default function MetaAds() {
               title="Funil"
               funnelType={funnelType}
               metrics={funnelMetrics}
-              onTypeChange={handleFunnelTypeChange}
               loading={metricsLoading}
+              subtitle={objectiveFilter !== "all" ? `Baseado em: ${(() => {
+                const opt = [
+                  { value: "OUTCOME_LEADS", label: "Leads" },
+                  { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                  { value: "MESSAGES", label: "Conversas" },
+                  { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                  { value: "OUTCOME_SALES", label: "Vendas" },
+                ].find(o => o.value === objectiveFilter);
+                return opt?.label || objectiveFilter;
+              })()}` : undefined}
             />
 
             {/* Demografia - Faixa Etária */}

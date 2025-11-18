@@ -14,13 +14,11 @@ import VirtualTryOn from "./pages/VirtualTryOnV2";
 import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
 import Integrations from "./pages/Integrations";
-import GA4 from "./pages/GA4";
+import InternalChat from "./pages/InternalChat";
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import Instagram from "./pages/Instagram";
-import AIChat from "./pages/AIChat";
 import NotFound from "./pages/NotFound";
-import Cashflow from "./pages/Cashflow";
 import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
@@ -71,12 +69,13 @@ const App = () => (
               <Route path="/login" element={<Login />} />
 
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              <Route path="/chat" element={<RequireAuth><AIChat /></RequireAuth>} />
+              
               <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
               <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
               <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
               <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
               <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
+              
               <Route path="/instagram" element={<RequireAuth><Instagram /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
@@ -84,10 +83,10 @@ const App = () => (
               <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
               <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
               <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
-              <Route path="/ga4" element={<RequireAuth><GA4 /></RequireAuth>} />
-              <Route path="/gtm" element={<RequireAuth><GA4 /></RequireAuth>} />
+              <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
+              
               <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
-              <Route path="/cashflow" element={<RequireAuth><Cashflow /></RequireAuth>} />
+              
               <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

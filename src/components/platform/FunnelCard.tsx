@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingDown, ShoppingCart, MessageCircle, UserPlus, MousePointer } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export interface FunnelStep {
   label: string;
@@ -76,16 +75,16 @@ interface FunnelCardProps {
   title?: string;
   funnelType?: FunnelType;
   metrics?: any;
-  onTypeChange?: (type: FunnelType) => void;
   loading?: boolean;
+  subtitle?: string;
 }
 
 export function FunnelCard({
   title = "Funil de Conversão",
   funnelType = "traffic",
   metrics,
-  onTypeChange,
-  loading = false
+  loading = false,
+  subtitle
 }: FunnelCardProps) {
   const typeConfig = FUNNEL_TYPES[funnelType];
   const steps = typeConfig.steps(metrics);
@@ -113,30 +112,15 @@ export function FunnelCard({
     <Card className="overflow-hidden">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${typeConfig.color}`} />
-            {title}
-          </CardTitle>
-          {onTypeChange && (
-            <Select value={funnelType} onValueChange={onTypeChange}>
-              <SelectTrigger className="h-7 w-[140px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(FUNNEL_TYPES).map(([key, config]) => {
-                  const TypeIcon = config.icon;
-                  return (
-                    <SelectItem key={key} value={key} className="text-xs">
-                      <div className="flex items-center gap-2">
-                        <TypeIcon className={`h-3 w-3 ${config.color}`} />
-                        {config.label}
-                      </div>
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex-1">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Icon className={`h-4 w-4 ${typeConfig.color}`} />
+              {title}
+            </CardTitle>
+            {subtitle && (
+              <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 pb-4">
