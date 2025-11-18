@@ -195,9 +195,12 @@ export async function createUser(req: Request, res: Response) {
 // Route-level middlewares for admin-only
 export const adminOnly = [authMiddleware, requireAdmin];
 
-// Get page permissions for a target user (admin-only)
+// Get page permissions for a target user (users can access their own, admins can access any)
 export async function getPagePermissions(req: Request, res: Response) {
   try {
+    const payload = (req as any).user as TokenPayload | undefined;
+    if (!payload) return res.status(401).json({ success: false, error: 'invalid_token' });
+    
     const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
     
     const pool = getPool();
@@ -206,6 +209,11 @@ export async function getPagePermissions(req: Request, res: Response) {
     const targetUserId = req.params.userId;
     if (!targetUserId) return res.status(400).json({ success: false, error: 'missing_user' });
     if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
+
+    // Users can only access their own permissions, unless they're admin
+    if (payload.role !== 'adm' && payload.sub !== targetUserId) {
+      return res.status(403).json({ success: false, error: 'forbidden' });
+    }
 
     const { rows } = await pool.query(
       `SELECT path_prefix AS prefix, allowed
