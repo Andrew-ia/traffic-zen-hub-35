@@ -158,6 +158,18 @@ app.post('/ga4/realtime', ga4Realtime);
 app.post('/ga4/report', ga4Report);
 app.post('/ga4/google-ads', ga4GoogleAds);
 
+// Debug endpoint to check GA4 credentials
+app.get('/ga4/debug', (req: VercelRequest, res: VercelResponse) => {
+  res.json({
+    hasEmail: !!process.env.GA4_SERVICE_ACCOUNT_EMAIL,
+    hasKey: !!process.env.GA4_SERVICE_ACCOUNT_KEY,
+    hasCredPath: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    emailPrefix: process.env.GA4_SERVICE_ACCOUNT_EMAIL ? process.env.GA4_SERVICE_ACCOUNT_EMAIL.substring(0, 10) : 'none',
+    keyPrefix: process.env.GA4_SERVICE_ACCOUNT_KEY ? process.env.GA4_SERVICE_ACCOUNT_KEY.substring(0, 20) : 'none',
+    propertyId: process.env.GA4_PROPERTY_ID || 'none'
+  });
+});
+
 // Finance: Cashflow import endpoint
 app.post('/finance/cashflow/import', importCashflowXlsx);
 
