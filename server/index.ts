@@ -21,6 +21,7 @@ import {
 import { directInstagramSync } from './api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
+import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
@@ -179,8 +180,9 @@ app.post('/api/integrations/direct-sync', directInstagramSync); // Direct sync f
 app.post('/api/integrations/meta/sync-optimized', optimizedMetaSync);
 app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
-// Optimized Instagram sync endpoints
+// Instagram sync endpoints
 app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);
+app.post('/api/integrations/instagram/sync-simple', simpleInstagramSync);
 app.get('/api/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
 
 // Legacy sync status endpoints

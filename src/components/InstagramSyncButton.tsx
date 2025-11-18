@@ -190,6 +190,46 @@ export default function InstagramSyncButton({
     }, 2000);
   };
 
+  const runSimpleSync = async (workspaceId: string) => {
+    updateProgressStage(10, "Iniciando sync simples síncrono...");
+    const controller = new AbortController();
+    // Timeout para sync simples: 120s (2 minutos)
+    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    let response: Response;
+
+    try {
+      response = await fetch(`${API_BASE}/api/integrations/instagram/sync-simple`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId,
+          days,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
+      if (/aborted/i.test(msg)) {
+        throw new Error("Timeout na sincronização simples. Tentando método alternativo...");
+      }
+      throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload?.success === false) {
+      throw new Error(payload?.error || "Falha na sincronização simples do Instagram.");
+    }
+
+    updateProgressStage(95, "Finalizando sincronização...");
+    finalizeSuccess(`Sincronização concluída! ${payload?.data?.recordsStored || 0} registros salvos de ${payload?.data?.recordsProcessed || 0} processados.`);
+  };
+
   const runOptimizedSync = async (workspaceId: string) => {
     updateProgressStage(10, "Iniciando sync otimizado com batching...");
     const controller = new AbortController();
@@ -363,12 +403,17 @@ export default function InstagramSyncButton({
       setSyncing(true);
       updateProgressStage(5, `Preparando sincronização (${days} dias)...`);
 
-      // Try optimized sync first, fallback to direct sync (skip job-based for Vercel)
+      // Try simple sync first (new implementation), then optimized, then direct
       try {
-        await runOptimizedSync(workspaceId);
-      } catch (optimizedError) {
-        console.warn("Sync otimizado falhou, usando fallback direto:", optimizedError);
-        await runDirectSync(workspaceId);
+        await runSimpleSync(workspaceId);
+      } catch (simpleError) {
+        console.warn("Sync simples falhou, tentando otimizado:", simpleError);
+        try {
+          await runOptimizedSync(workspaceId);
+        } catch (optimizedError) {
+          console.warn("Sync otimizado falhou, usando fallback direto:", optimizedError);
+          await runDirectSync(workspaceId);
+        }
       }
     } catch (error) {
       resetSyncState();
