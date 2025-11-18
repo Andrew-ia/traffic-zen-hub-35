@@ -32,6 +32,7 @@ import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.
 import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.js';
 import { getDemographics } from './api/analytics/demographics.js';
+import { syncGoogleAdsData } from './api/google-ads/sync.js';
  
 import {
   getCampaignLibrary,
@@ -66,7 +67,7 @@ import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
 import { importCashflowXlsx } from './api/finance/cashflow.js';
 import { getEngagementRate } from './api/instagram/engagement.js';
-import { login, me, createUser, authMiddleware, adminOnly } from './api/auth.js';
+import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
 import {
   getFolders,
   getFolderById,
@@ -165,6 +166,8 @@ app.get('/health', (req, res) => {
 app.post('/api/auth/login', login);
 app.get('/api/auth/me', authMiddleware, me);
 app.post('/api/auth/users', ...adminOnly, createUser);
+app.get('/api/auth/page-permissions/:userId', authMiddleware, getPagePermissions);
+app.post('/api/auth/page-permissions/:userId', ...adminOnly, setPagePermissions);
 
 // Credentials endpoints
 app.post('/api/integrations/credentials', saveCredentials);
@@ -237,6 +240,9 @@ app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 app.post('/api/ga4/realtime', ga4Realtime);
 app.post('/api/ga4/report', ga4Report);
 app.post('/api/ga4/google-ads', ga4GoogleAds);
+
+// Google Ads API endpoints (direct sync)
+app.post('/api/google-ads/sync', syncGoogleAdsData);
  
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
@@ -397,8 +403,7 @@ async function start() {
       // Worker local apenas para desenvolvimento - não funciona no Vercel (serverless)
       if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
         try {
-          const id = startSimpleWorker();
-          // @ts-ignore
+          const id: any = startSimpleWorker();
           workerIntervalId = id || null;
           console.log(`🔧 Worker local ativado: polling de jobs em background`);
           console.log(`   → Ambiente: desenvolvimento local`);

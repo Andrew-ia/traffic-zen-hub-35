@@ -119,7 +119,7 @@ app.use((req, _res, next) => {
 app.post('/auth/login', login);
 app.get('/auth/me', authMiddleware, me);
 app.post('/auth/users', ...adminOnly, createUser);
-app.get('/auth/page-permissions/:userId', ...adminOnly, getPagePermissions);
+app.get('/auth/page-permissions/:userId', authMiddleware, getPagePermissions);
 app.post('/auth/page-permissions/:userId', ...adminOnly, setPagePermissions);
 
 // Credentials endpoints
