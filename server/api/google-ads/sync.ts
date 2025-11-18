@@ -18,27 +18,27 @@ async function getGoogleAdsCredentials(workspaceId: string): Promise<GoogleAdsCr
   
   console.log('Getting Google Ads credentials for workspace:', workspaceId);
   
-  // Try to get from database first
-  const row = await pool.query(
-    `SELECT encrypted_credentials, encryption_iv FROM integration_credentials 
-     WHERE workspace_id = $1 AND platform_key = 'google_ads' LIMIT 1`,
-    [workspaceId]
-  );
+  // Skip database for now and use environment variables only
+  // const row = await pool.query(
+  //   `SELECT encrypted_credentials, encryption_iv FROM integration_credentials 
+  //    WHERE workspace_id = $1 AND platform_key = 'google_ads' LIMIT 1`,
+  //   [workspaceId]
+  // );
   
-  console.log('Database query returned:', row.rows.length, 'rows');
+  // console.log('Database query returned:', row.rows.length, 'rows');
   
-  if (row.rows.length > 0) {
-    const { decryptCredentials } = await import('../../services/encryption.js');
-    const creds = decryptCredentials(row.rows[0].encrypted_credentials, row.rows[0].encryption_iv);
-    console.log('Using credentials from database:', {
-      hasRefreshToken: !!creds.refreshToken,
-      hasCustomerId: !!creds.customerId,
-      hasDeveloperToken: !!creds.developerToken,
-      hasClientId: !!creds.clientId,
-      hasClientSecret: !!creds.clientSecret
-    });
-    return creds as GoogleAdsCredentials;
-  }
+  // if (row.rows.length > 0) {
+  //   const { decryptCredentials } = await import('../../services/encryption.js');
+  //   const creds = decryptCredentials(row.rows[0].encrypted_credentials, row.rows[0].encryption_iv);
+  //   console.log('Using credentials from database:', {
+  //     hasRefreshToken: !!creds.refreshToken,
+  //     hasCustomerId: !!creds.customerId,
+  //     hasDeveloperToken: !!creds.developerToken,
+  //     hasClientId: !!creds.clientId,
+  //     hasClientSecret: !!creds.clientSecret
+  //   });
+  //   return creds as GoogleAdsCredentials;
+  // }
   
   console.log('No credentials in database, falling back to environment variables');
   
