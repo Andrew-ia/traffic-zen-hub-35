@@ -191,11 +191,16 @@ export default function InstagramSyncButton({
   };
 
   const runSimpleSync = async (workspaceId: string) => {
-    updateProgressStage(10, "Iniciando sync simples síncrono...");
+    updateProgressStage(10, "Conectando com Instagram API...");
     const controller = new AbortController();
-    // Timeout para sync simples: 120s (2 minutos)
-    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    // Timeout para sync simples aumentado: 300s (5 minutos)
+    const timeoutId = window.setTimeout(() => controller.abort(), 300000);
     let response: Response;
+    
+    // Update progress periodically to show activity
+    const progressInterval = setInterval(() => {
+      updateProgressStage(Math.min(90, currentStage * 15 + 10), "Processando dados do Instagram...");
+    }, 15000);
 
     try {
       response = await fetch(`${API_BASE}/api/integrations/instagram/sync-simple`, {
@@ -213,10 +218,11 @@ export default function InstagramSyncButton({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
       if (/aborted/i.test(msg)) {
-        throw new Error("Timeout na sincronização simples. Tentando método alternativo...");
+        throw new Error("Sync simples levou mais que 5 min. Tentando método otimizado...");
       }
       throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
     } finally {
+      clearInterval(progressInterval);
       window.clearTimeout(timeoutId);
     }
 
@@ -231,10 +237,10 @@ export default function InstagramSyncButton({
   };
 
   const runOptimizedSync = async (workspaceId: string) => {
-    updateProgressStage(10, "Iniciando sync otimizado com batching...");
+    updateProgressStage(15, "Tentando sync otimizado com tracking...");
     const controller = new AbortController();
-    // Timeout reduzido pois agora retorna rapidamente com syncId: 30s
-    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+    // Timeout para inicialização: 45s
+    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
     let response: Response;
 
     try {
@@ -254,9 +260,9 @@ export default function InstagramSyncButton({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
       if (/aborted/i.test(msg)) {
-        throw new Error("Timeout ao iniciar sincronização otimizada. Tentando método alternativo...");
+        throw new Error("Sync otimizado demorou para inicializar. Usando método direto...");
       }
-      throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
+      throw new Error("Sync otimizado indisponível. Usando método direto...");
     } finally {
       window.clearTimeout(timeoutId);
     }
@@ -279,11 +285,16 @@ export default function InstagramSyncButton({
   };
 
   const runDirectSync = async (workspaceId: string) => {
-    updateProgressStage(15, "Executando sync direto (fallback)...");
+    updateProgressStage(20, "Usando método direto comprovado...");
     const controller = new AbortController();
     // O fallback direto mantém timeout menor: 120s
     const timeoutId = window.setTimeout(() => controller.abort(), 120000);
     let response: Response;
+    
+    // Progress simulation for direct sync
+    const directProgressInterval = setInterval(() => {
+      updateProgressStage(Math.min(85, currentStage * 10 + 20), "Processando dados via método direto...");
+    }, 10000);
 
     try {
       response = await fetch(`${API_BASE}/api/integrations/direct-sync`, {
@@ -305,6 +316,7 @@ export default function InstagramSyncButton({
       }
       throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
     } finally {
+      clearInterval(directProgressInterval);
       window.clearTimeout(timeoutId);
     }
 
