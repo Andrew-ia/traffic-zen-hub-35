@@ -9,6 +9,7 @@ import { startSync, getSyncStatus, getWorkspaceSyncJobs } from '../server/api/in
 import { directInstagramSync } from '../server/api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from '../server/api/integrations/optimizedMetaSync.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from '../server/api/integrations/optimizedInstagramSync.js';
+import { simpleInstagramSync } from '../server/api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from '../server/api/integrations/billing.js';
 import { ga4Realtime, ga4Report, ga4GoogleAds } from '../server/api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from '../server/api/analytics/metrics.js';
@@ -130,8 +131,9 @@ app.post('/integrations/direct-sync', directInstagramSync);
 app.post('/integrations/meta/sync-optimized', optimizedMetaSync);
 app.get('/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
-// Optimized Instagram sync endpoints
+// Instagram sync endpoints
 app.post('/integrations/instagram/sync-optimized', optimizedInstagramSync);
+app.post('/integrations/instagram/sync-simple', simpleInstagramSync);
 app.get('/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
 
 // Legacy sync status endpoints
