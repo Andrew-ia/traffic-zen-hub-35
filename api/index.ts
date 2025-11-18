@@ -15,6 +15,7 @@ import { syncGoogleAdsData } from '../server/api/google-ads/sync.js';
 import { googleAdsAuth, googleAdsCallback, googleAdsTest } from '../server/api/integrations/googleAdsAuth.js';
 import { handleGoogleAdsCallback } from '../server/api/integrations/google-ads/callback.js';
 import { initiateGoogleAdsAuth } from '../server/api/integrations/google-ads/auth.js';
+import { debugGoogleAdsAuth } from '../server/api/integrations/google-ads/debug.js';
 import { checkGoogleAdsCredentials } from '../server/api/google-ads/check-credentials.js';
 import { ga4Realtime, ga4Report, ga4GoogleAds } from '../server/api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from '../server/api/analytics/metrics.js';
@@ -172,6 +173,7 @@ app.post('/google-ads/sync', syncGoogleAdsData);
 app.get('/integrations/google-ads/auth', initiateGoogleAdsAuth);
 app.get('/integrations/google-ads/callback', handleGoogleAdsCallback);
 app.get('/integrations/google-ads/test', googleAdsTest);
+app.get('/integrations/google-ads/debug', debugGoogleAdsAuth);
 app.get('/google-ads/check-credentials', checkGoogleAdsCredentials);
 
 
