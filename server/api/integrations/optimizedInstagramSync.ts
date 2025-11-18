@@ -260,28 +260,24 @@ class InstagramSyncOptimized {
 
   // Start sync tracking
   private async startSyncTracking(totalDays: number): Promise<string> {
-    const result = await this.pool.query(
-      `SELECT start_sync_tracking($1, $2, $3, $4) as sync_id`,
-      [this.workspaceId, 'instagram', 'optimized_batch', { totalDays, platform: 'instagram' }]
+    await this.pool.query(
+      `SELECT start_sync_tracking($1, $2, $3, $4)`,
+      ['instagram', this.workspaceId, 'optimized_batch', totalDays]
     );
-    return result.rows[0].sync_id;
+    // Return a simple identifier since the function doesn't return sync_id
+    return `instagram-${this.workspaceId}-${Date.now()}`;
   }
 
-  // Update sync progress
+  // Update sync progress (simplified - just log)
   private async updateSyncProgress(syncId: string, progress: number, status: string): Promise<void> {
-    await this.pool.query(
-      `SELECT update_sync_progress($1, $2, $3)`,
-      [syncId, progress, status]
-    );
+    console.log(`📊 Instagram Sync Progress: ${progress}% - ${status}`);
+    // Could update sync_metadata table directly here if needed
   }
 
   // Complete sync tracking
   private async completeSyncTracking(syncId: string, recordsProcessed: number): Promise<void> {
-    await this.pool.query(
-      `SELECT complete_sync_tracking($1, $2, $3)`,
-      [syncId, 'completed', { recordsProcessed, platform: 'instagram' }]
-    );
-
+    console.log(`✅ Instagram Sync Completed: ${recordsProcessed} records processed`);
+    
     // Update integration last_synced_at
     await this.pool.query(
       `UPDATE workspace_integrations 
