@@ -22,8 +22,8 @@ function readCredentialsFromFile(filePath: string): { client_email: string; priv
 
 function getServiceAccountCredentials(): { clientEmail: string; privateKey: string } {
   // Prefer explicit env vars to avoid filesystem dependency in serverless
-  const clientEmail = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = process.env.GA4_SERVICE_ACCOUNT_KEY;
+  const clientEmail = process.env.GA4_SERVICE_ACCOUNT_EMAIL?.trim();
+  const privateKey = process.env.GA4_SERVICE_ACCOUNT_KEY?.trim();
   if (clientEmail && privateKey) {
     return { clientEmail, privateKey: normalizePrivateKey(privateKey) };
   }
@@ -93,7 +93,7 @@ function formatGa4Response(raw: any) {
 
 export async function ga4Realtime(req: Request, res: Response) {
   try {
-    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID) as string | undefined;
+    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID)?.trim() as string | undefined;
     if (!propertyId) {
       return res.status(400).json({ success: false, error: 'propertyId é obrigatório (env GA4_PROPERTY_ID ou body.propertyId)' });
     }
@@ -123,7 +123,7 @@ export async function ga4Realtime(req: Request, res: Response) {
 
 export async function ga4Report(req: Request, res: Response) {
   try {
-    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID) as string | undefined;
+    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID)?.trim() as string | undefined;
     const days = Number(req.body?.days ?? 7);
     if (!propertyId) {
       return res.status(400).json({ success: false, error: 'propertyId é obrigatório (env GA4_PROPERTY_ID ou body.propertyId)' });
@@ -159,7 +159,7 @@ export async function ga4Report(req: Request, res: Response) {
 
 export async function ga4GoogleAds(req: Request, res: Response) {
   try {
-    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID) as string | undefined;
+    const propertyId = (req.body?.propertyId || process.env.GA4_PROPERTY_ID)?.trim() as string | undefined;
     const days = Number(req.body?.days ?? 30);
     if (!propertyId) {
       return res.status(400).json({ success: false, error: 'propertyId é obrigatório (env GA4_PROPERTY_ID ou body.propertyId)' });
