@@ -57,7 +57,9 @@ export default function MessageInput({ roomId, me }: { roomId: string; me: strin
     setText(e.target.value)
     try {
       chanRef.current?.send({ type: 'broadcast', event: 'typing', payload: { user: me } })
-    } catch {}
+    } catch {
+      void 0;
+    }
   }
 
   return (

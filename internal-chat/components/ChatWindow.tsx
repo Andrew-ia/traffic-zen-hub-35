@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { getMessages, subscribeToMessages } from "../lib/chat"
 import MessageBubble from "./MessageBubble"
 
@@ -10,7 +10,7 @@ export default function ChatWindow({ roomId, roomName, me }: { roomId: string; r
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const subRef = useRef<any>(null)
 
-  async function loadInitial() {
+  const loadInitial = useCallback(async () => {
     setLoading(true)
     const list = await getMessages(roomId, 30)
     console.log('[ChatWindow] Initial messages loaded:', list.length)
@@ -18,7 +18,7 @@ export default function ChatWindow({ roomId, roomName, me }: { roomId: string; r
     setBefore(list.length ? list[0].created_at : undefined)
     setLoading(false)
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
-  }
+  }, [roomId])
 
   async function loadMore() {
     const older = await getMessages(roomId, 30, before)
@@ -38,7 +38,7 @@ export default function ChatWindow({ roomId, roomName, me }: { roomId: string; r
     console.log('[ChatWindow] Subscribed to room channel:', roomId)
     subRef.current = ch
     return () => { ch.unsubscribe() }
-  }, [roomId])
+  }, [roomId, loadInitial])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">

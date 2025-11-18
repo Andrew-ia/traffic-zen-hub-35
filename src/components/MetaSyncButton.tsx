@@ -243,7 +243,9 @@ export default function MetaSyncButton({
                   description: preview,
                 });
               }
-            } catch {}
+            } catch {
+              void 0;
+            }
             setTimeout(() => {
               resetSyncState();
             }, 1200);

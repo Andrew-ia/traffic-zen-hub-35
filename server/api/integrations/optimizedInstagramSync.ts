@@ -323,7 +323,7 @@ class InstagramSyncOptimized {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - totalDays);
 
-    let allMetrics: InstagramMetric[] = [];
+    const allMetrics: InstagramMetric[] = [];
     let processedDays = 0;
 
     // Process in batches to avoid timeouts

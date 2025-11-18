@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useAuth } from '@/hooks/useAuth';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -21,6 +22,8 @@ export default function AdminUsers() {
   const { data: members, refetch } = useWorkspaceMembers();
   const { token, user } = useAuth();
   const { toast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -31,14 +34,13 @@ export default function AdminUsers() {
   // Estado para modal de permissões por usuário
   const [permModalOpen, setPermModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+const [pendingOverrides, setPendingOverrides] = useState<Record<string, boolean>>({});
 
   // Estados para remoção e edição de usuário
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
-  const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false);
   const [userToRemove, setUserToRemove] = useState<any>(null);
-  const [userToEdit, setUserToEdit] = useState<any>(null);
-  const [newRole, setNewRole] = useState<'adm' | 'basico' | 'simples'>('basico');
+  
 
 const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
   const storageKey = useMemo(() => {
@@ -47,33 +49,70 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
       : null;
   }, [selectedUserId, WORKSPACE_ID]);
 
-  const openPermModal = (userId: string) => {
+  const openPermModal = async (userId: string) => {
     setSelectedUserId(userId);
-    // Carregar overrides do localStorage
-    const key = WORKSPACE_ID ? `trafficpro.page_access_overrides:${WORKSPACE_ID}:${userId}` : null;
-    if (key) {
-      try {
-        const raw = window.localStorage.getItem(key);
-        setOverrides(raw ? (JSON.parse(raw) as Record<string, boolean>) : {});
-      } catch {
+    // Fetch overrides from backend
+    if (!token) return;
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/page-permissions/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data?.success && Array.isArray(data?.data)) {
+        const map: Record<string, boolean> = {};
+        data.data.forEach((p: any) => {
+          if (p?.prefix) map[p.prefix] = !!p.allowed;
+        });
+        setOverrides(map);
+        setPendingOverrides(map);
+      } else {
         setOverrides({});
+        setPendingOverrides({});
       }
-    } else {
+    } catch (err) {
+      console.warn('Falha ao carregar permissões:', err);
       setOverrides({});
+      setPendingOverrides({});
     }
     setPermModalOpen(true);
   };
 
   const saveOverrides = (next: Record<string, boolean>) => {
     setOverrides(next);
-    if (storageKey) {
-      window.localStorage.setItem(storageKey, JSON.stringify(next));
-    }
   };
 
   const togglePage = (href: string, on: boolean) => {
-    const next = { ...overrides, [href]: on };
-    saveOverrides(next);
+    const next = { ...pendingOverrides, [href]: on };
+    setPendingOverrides(next);
+  };
+
+  const handleSaveOverrides = async () => {
+    if (!selectedUserId || !token) return;
+    const next = { ...pendingOverrides };
+    try {
+      const payload = Object.entries(next).map(([prefix, allowed]) => ({ prefix, allowed }));
+      const resp = await fetch(`${API_BASE}/api/auth/page-permissions/${selectedUserId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ permissions: payload }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      saveOverrides(next);
+      toast({ title: 'Permissões atualizadas', description: 'As permissões foram salvas.' });
+      if (selectedUserId && user && selectedUserId === user.id) {
+        const entries = Object.entries(next).sort((a, b) => b[0].length - a[0].length);
+        for (const [prefix, allowed] of entries) {
+          if (!allowed && (location.pathname === prefix || location.pathname.startsWith(prefix + '/'))) {
+            navigate('/', { replace: true });
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao salvar permissões', err);
+      toast({ title: 'Erro ao salvar', description: 'Não foi possível salvar as permissões.', variant: 'destructive' });
+    }
+    setPermModalOpen(false);
   };
 
   const onCreate = async (e: React.FormEvent) => {
@@ -147,44 +186,7 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
   };
 
   // Função para editar nível de acesso
-  const handleEditRole = (member: any) => {
-    setUserToEdit(member);
-    setNewRole(member.role);
-    setEditRoleDialogOpen(true);
-  };
-
-  // Função para confirmar edição de nível de acesso
-  const confirmEditRole = async () => {
-    if (!userToEdit) return;
-    
-    try {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: newRole })
-        .eq('workspace_id', WORKSPACE_ID)
-        .eq('user_id', userToEdit.userId);
-      
-      if (error) {
-        throw error;
-      }
-      
-      toast({
-        title: "Nível de acesso atualizado",
-        description: `${userToEdit.name || userToEdit.email} agora tem nível: ${newRole}.`,
-      });
-      refetch();
-    } catch (error) {
-      console.error('Erro ao atualizar nível:', error);
-      toast({
-        title: "Erro ao atualizar nível",
-        description: error instanceof Error ? error.message : "Não foi possível atualizar o nível de acesso.",
-        variant: "destructive",
-      });
-    } finally {
-      setEditRoleDialogOpen(false);
-      setUserToEdit(null);
-    }
-  };
+  
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -207,19 +209,7 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
                 <label className="block text-sm mb-1">Senha</label>
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </div>
-              <div>
-                <label className="block text-sm mb-1">Nível de Acesso</label>
-                <Select value={role} onValueChange={(v) => setRole(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione um nível" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="adm">Adm</SelectItem>
-                    <SelectItem value="basico">Básico</SelectItem>
-                    <SelectItem value="simples">Simples</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              
               {message && <p className="text-sm text-muted-foreground">{message}</p>}
               <Button type="submit" disabled={loading}>
                 {loading ? 'Criando...' : 'Criar Usuário'}
@@ -260,11 +250,6 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm px-2 py-1 bg-secondary/50 rounded-md font-medium">
-                      {m.role}
-                    </span>
-                  </div>
                   {user?.role === 'adm' && (
                     <div className="flex items-center gap-1">
                       <Button variant="outline" size="sm" onClick={() => openPermModal(m.userId)}>
@@ -280,10 +265,6 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditRole(m)}>
-                              <Edit3 className="h-4 w-4 mr-2" />
-                              Editar nível de acesso
-                            </DropdownMenuItem>
                             <DropdownMenuItem 
                               onClick={() => handleRemoveUser(m)}
                               className="text-destructive focus:text-destructive"
@@ -309,6 +290,9 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Permissões de Páginas</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Alterações são salvas no servidor para este usuário.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -323,7 +307,7 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
                   </div>
                   <Switch
                     id={`perm-${item.href}`}
-                    checked={!!overrides[item.href]}
+                    checked={!!pendingOverrides[item.href]}
                     onCheckedChange={(c) => togglePage(item.href, !!c)}
                   />
                 </div>
@@ -332,6 +316,7 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPermModalOpen(false)}>Fechar</Button>
+            <Button onClick={handleSaveOverrides}>Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -362,48 +347,7 @@ const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dialog para editar nível de acesso */}
-      <Dialog open={editRoleDialogOpen} onOpenChange={setEditRoleDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar nível de acesso</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Altere o nível de acesso de <strong>{userToEdit?.name || userToEdit?.email}</strong>
-            </p>
-            <div>
-              <label className="block text-sm font-medium mb-2">Novo nível de acesso</label>
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as any)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um nível" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="adm">Administrador</SelectItem>
-                  <SelectItem value="basico">Básico</SelectItem>
-                  <SelectItem value="simples">Simples</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="bg-muted/30 p-3 rounded-md">
-              <p className="text-xs text-muted-foreground">
-                <strong>Administrador:</strong> Acesso completo a todas as funcionalidades<br />
-                <strong>Básico:</strong> Acesso às principais funcionalidades<br />
-                <strong>Simples:</strong> Acesso limitado a visualização
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditRoleDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={confirmEditRole} disabled={newRole === userToEdit?.role}>
-              <Edit3 className="h-4 w-4 mr-2" />
-              Atualizar nível
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
     </div>
   );
 }

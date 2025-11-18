@@ -351,26 +351,24 @@ function MetaCredentialsDialog() {
   const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
 
   useEffect(() => {
+    let base = defaultCredentials();
     try {
       const stored = localStorage.getItem(META_CREDENTIALS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as MetaCredentials;
-        const defaults = defaultCredentials();
-        const merged: MetaCredentials = {
-          appId: parsed.appId || defaults.appId,
-          appSecret: parsed.appSecret || defaults.appSecret,
-          accessToken: parsed.accessToken || defaults.accessToken,
-          adAccountId: parsed.adAccountId || defaults.adAccountId,
-          workspaceId: parsed.workspaceId || defaults.workspaceId,
+        base = {
+          appId: parsed.appId || base.appId,
+          appSecret: parsed.appSecret || base.appSecret,
+          accessToken: parsed.accessToken || base.accessToken,
+          adAccountId: parsed.adAccountId || base.adAccountId,
+          workspaceId: parsed.workspaceId || base.workspaceId,
         };
-        setCredentials(merged);
-      } else {
-        setCredentials(defaultCredentials());
       }
+      setCredentials(base);
     } catch (error) {
       console.warn("Failed to load stored Meta credentials", error);
+      setCredentials(base);
     }
-    // Fetch server-side credentials (masked)
     (async () => {
       try {
         const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/meta`, { credentials: "include" });
@@ -378,11 +376,11 @@ function MetaCredentialsDialog() {
           const json = await resp.json();
           const serverCred = json?.data?.credentials || {};
           const merged: MetaCredentials = {
-            appId: serverCred.appId || credentials.appId,
-            appSecret: serverCred.appSecret || credentials.appSecret,
-            accessToken: serverCred.accessToken || credentials.accessToken,
-            adAccountId: serverCred.adAccountId || credentials.adAccountId,
-            workspaceId: credentials.workspaceId || WORKSPACE_ID,
+            appId: serverCred.appId || base.appId,
+            appSecret: serverCred.appSecret || base.appSecret,
+            accessToken: serverCred.accessToken || base.accessToken,
+            adAccountId: serverCred.adAccountId || base.adAccountId,
+            workspaceId: base.workspaceId || WORKSPACE_ID,
           };
           setCredentials(merged);
           setServerStatus("Credenciais do servidor carregadas");
@@ -393,7 +391,7 @@ function MetaCredentialsDialog() {
         setServerStatus("");
       }
     })();
-  }, [open]);
+  }, [open, WORKSPACE_ID]);
 
   const envSnippet = useMemo(
     () =>
@@ -586,14 +584,16 @@ function InstagramCredentialsDialog() {
           const token = json?.data?.credentials?.accessToken || "";
           if (token) setServerTokenMasked(maskToken(String(token)));
         }
-      } catch {}
+      } catch {
+        void 0;
+      }
     })();
-  }, [open]);
+  }, [open, WORKSPACE_ID]);
 
   const envSnippet = useMemo(
     () =>
       `IG_USER_ID=${credentials.igUserId}\nIG_ACCESS_TOKEN=${credentials.accessToken || serverTokenMasked}\nIG_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_IG_USER_ID=${credentials.igUserId}`,
-    [credentials],
+    [credentials, serverTokenMasked],
   );
 
   const handleChange = (field: keyof InstagramCredentials) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {

@@ -48,7 +48,9 @@ async function main() {
         [row.id, workspaceId, counts.like_count, counts.comments_count]
       )
       updated++
-    } catch {}
+    } catch {
+      void 0;
+    }
     await new Promise(r => setTimeout(r, 250))
   }
 

@@ -13,6 +13,8 @@ import {
   Wallet,
   Kanban,
   ChartLine,
+  Video,
+  Folder,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -29,6 +31,8 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
   
   { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
+  { name: "Videos", href: "/videos", icon: Video, keywords: ["videos", "criativos", "mídia"] },
+  { name: "Criativos Drive", href: "/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
   { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },

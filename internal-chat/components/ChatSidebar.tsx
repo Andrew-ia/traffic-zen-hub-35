@@ -26,7 +26,9 @@ export default function ChatSidebar({ userId, currentRoomId, onSelect }: { userI
             setActiveMember(filtered[0].id)
             onSelect(rid)
           }
-        } catch {}
+        } catch {
+          void 0;
+        }
       }
       setLoading(false)
     })()
@@ -36,7 +38,7 @@ export default function ChatSidebar({ userId, currentRoomId, onSelect }: { userI
       mounted = false
       channel.unsubscribe()
     }
-  }, [userId])
+  }, [userId, currentRoomId, onSelect])
 
   // Salas desativadas para foco em conversas 1:1
 
