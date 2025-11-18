@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { resolveApiBase } from "@/lib/apiBase";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { MetricCard } from "@/components/platform/MetricCard";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const API_BASE = resolveApiBase();
 
@@ -326,15 +327,18 @@ export default function GoogleAnalytics() {
                 <CardTitle>Tráfego ao Longo do Tempo</CardTitle>
               </CardHeader>
               <CardContent>
-                <PerformanceChart
-                  data={timeSeries}
-                  xAxisKey="date"
-                  lines={[
-                    { key: "sessions", name: "Sessões", color: "#3b82f6" },
-                    { key: "users", name: "Usuários", color: "#10b981" },
-                    { key: "pageviews", name: "Visualizações", color: "#f59e0b" }
-                  ]}
-                />
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={timeSeries}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="sessions" stroke="#3b82f6" name="Sessões" />
+                    <Line type="monotone" dataKey="users" stroke="#10b981" name="Usuários" />
+                    <Line type="monotone" dataKey="pageviews" stroke="#f59e0b" name="Visualizações" />
+                  </LineChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
 
@@ -444,14 +448,17 @@ export default function GoogleAnalytics() {
               <CardTitle>Performance Google Ads</CardTitle>
             </CardHeader>
             <CardContent>
-              <PerformanceChart
-                data={timeSeries}
-                xAxisKey="date"
-                lines={[
-                  { key: "googleAdsClicks", name: "Cliques", color: "#3b82f6" },
-                  { key: "googleAdsCost", name: "Custo", color: "#ef4444" }
-                ]}
-              />
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={timeSeries}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="googleAdsClicks" stroke="#3b82f6" name="Cliques" />
+                  <Line type="monotone" dataKey="googleAdsCost" stroke="#ef4444" name="Custo" />
+                </LineChart>
+              </ResponsiveContainer>
             </CardContent>
           </Card>
         </TabsContent>
@@ -567,13 +574,16 @@ export default function GoogleAnalytics() {
               <CardTitle>Conversões ao Longo do Tempo</CardTitle>
             </CardHeader>
             <CardContent>
-              <PerformanceChart
-                data={timeSeries}
-                xAxisKey="date"
-                lines={[
-                  { key: "conversions", name: "Conversões", color: "#10b981" }
-                ]}
-              />
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={timeSeries}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="conversions" stroke="#10b981" name="Conversões" />
+                </LineChart>
+              </ResponsiveContainer>
             </CardContent>
           </Card>
         </TabsContent>

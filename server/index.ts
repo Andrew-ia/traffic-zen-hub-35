@@ -29,7 +29,7 @@ import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-lo
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
-import { ga4Realtime, ga4Report } from './api/analytics/ga4.js';
+import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.js';
 import { getDemographics } from './api/analytics/demographics.js';
  
@@ -236,6 +236,7 @@ app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 // GA4 Analytics endpoints (read-only via service account)
 app.post('/api/ga4/realtime', ga4Realtime);
 app.post('/api/ga4/report', ga4Report);
+app.post('/api/ga4/google-ads', ga4GoogleAds);
  
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
