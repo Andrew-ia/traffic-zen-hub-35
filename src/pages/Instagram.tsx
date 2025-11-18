@@ -18,6 +18,7 @@ import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as Vid
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { resolveApiBase } from "@/lib/apiBase";
+import Videos from "./Videos";
 
 const WORKSPACE_ID =
   (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() ||
@@ -98,6 +99,16 @@ export default function Instagram() {
   const [dateRange, setDateRange] = useState("30");
   const [mediaFilter, setMediaFilter] = useState<string>("all");
   const API_BASE = resolveApiBase();
+
+  // Helper function to proxy Instagram images to avoid 403 errors
+  const getProxiedImageUrl = (originalUrl?: string) => {
+    if (!originalUrl) return undefined;
+    // Check if it's an Instagram CDN URL that needs proxying
+    if (originalUrl.includes('scontent.cdninstagram.com') || originalUrl.includes('instagram.com')) {
+      return `${API_BASE}/api/creatives/download-proxy?url=${encodeURIComponent(originalUrl)}`;
+    }
+    return originalUrl;
+  };
 
   const isVideoType = (t?: string) => {
     if (!t) return false;
@@ -565,9 +576,14 @@ export default function Instagram() {
       const wid = (import.meta.env.VITE_WORKSPACE_ID as string | undefined) || "";
       if (!wid) return null;
       const url = `${API_BASE}/api/instagram/engagement?workspaceId=${encodeURIComponent(wid)}&days=${encodeURIComponent(dateRange)}&denominator=views`;
-      const r = await fetch(url);
-      if (!r.ok) return null;
-      const j = await r.json().catch(() => null);
+      let j: any = null;
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        j = await r.json().catch(() => null);
+      } catch {
+        return null;
+      }
       const avg = Number(j?.data?.averageEngagementRate || 0);
       const denom = String(j?.data?.denominator || "views");
       const posts = Array.isArray(j?.data?.posts) ? j.data.posts : [];
@@ -908,7 +924,7 @@ export default function Instagram() {
               <CardContent>
                 <div className="flex items-center gap-4">
                   {profile.profile_picture_url ? (
-                    <img src={profile.profile_picture_url} className="w-16 h-16 rounded-full object-cover" />
+                    <img src={getProxiedImageUrl(profile.profile_picture_url)} className="w-16 h-16 rounded-full object-cover" />
                   ) : (
                     <div className="w-16 h-16 rounded-full bg-muted" />
                   )}
@@ -937,6 +953,15 @@ export default function Instagram() {
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Vídeos do Workspace</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Videos />
+            </CardContent>
+          </Card>
 
           {showAccountInsightsCard && (
             <Card>
@@ -1045,9 +1070,9 @@ export default function Instagram() {
                       <div key={m.id} className="rounded-lg border overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 120 }}>
                           {isVideoType(m.media_type) ? (
-                            <video src={m.media_url || undefined} className="max-w-full max-h-full object-contain" muted playsInline />
+                            <video src={getProxiedImageUrl(m.media_url)} className="max-w-full max-h-full object-contain" muted playsInline preload="none" poster={getProxiedImageUrl(m.thumbnail_url)} referrerPolicy="no-referrer" controls />
                           ) : (
-                            <img src={m.media_url || m.thumbnail_url || undefined} className="max-w-full max-h-full object-cover" />
+                            <img src={getProxiedImageUrl(m.media_url || m.thumbnail_url)} className="max-w-full max-h-full object-cover" />
                           )}
                         </div>
                         <div className="p-2 text-xs">
@@ -1183,14 +1208,14 @@ export default function Instagram() {
                         <div className="mb-3 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center" style={{ height: '120px' }}>
                           {isVideoType(recommendations.topPost.mediaType) ? (
                             <video
-                              src={recommendations.topPost.mediaUrl}
+                              src={getProxiedImageUrl(recommendations.topPost.mediaUrl)}
                               className="max-w-full max-h-full object-contain"
                               muted
                               playsInline
                             />
                           ) : (
                             <img
-                              src={recommendations.topPost.mediaUrl}
+                              src={getProxiedImageUrl(recommendations.topPost.mediaUrl)}
                               alt="Post preview"
                               className="max-w-full max-h-full object-contain"
                             />
@@ -1410,9 +1435,9 @@ export default function Instagram() {
                       <div key={m.id} className="border rounded-lg overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 180 }}>
                           {isVideoType(m.media_type) ? (
-                            <video src={m.media_url || undefined} className="max-w-full max-h-full object-contain" muted playsInline />
+                            <video src={getProxiedImageUrl(m.media_url)} className="max-w-full max-h-full object-contain" muted playsInline />
                           ) : (
-                            <img src={m.media_url || m.thumbnail_url || undefined} className="max-w-full max-h-full object-cover" />
+                            <img src={getProxiedImageUrl(m.media_url || m.thumbnail_url)} className="max-w-full max-h-full object-cover" />
                           )}
                         </div>
                         <div className="p-3 space-y-2">
