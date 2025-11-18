@@ -7,6 +7,7 @@ import { getPool, getDatabaseUrl } from '../config/database.js';
  * Simple HMAC-based token utilities (no external deps)
  */
 const AUTH_SECRET = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || 'dev-secret-change-me';
+let pagePermsTableEnsured = false;
 
 interface TokenPayload {
   sub: string;
@@ -61,7 +62,6 @@ function mapWorkspaceRoleToAppRole(workspaceRole?: string | null): 'adm' | 'basi
   }
 }
 
-const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
 export async function login(req: Request, res: Response) {
   const client = new Client({ connectionString: getDatabaseUrl() });
@@ -73,6 +73,8 @@ export async function login(req: Request, res: Response) {
     if (!identifier || !password) {
       return res.status(400).json({ success: false, error: 'missing_credentials' });
     }
+
+    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
 
     await client.connect();
 
@@ -132,6 +134,21 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function ensurePagePermissionsTable(pool: ReturnType<typeof getPool>) {
+  if (pagePermsTableEnsured) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workspace_page_permissions (
+      workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      target_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      path_prefix TEXT NOT NULL,
+      allowed BOOLEAN NOT NULL DEFAULT true,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (workspace_id, target_user_id, path_prefix)
+    );
+  `);
+  pagePermsTableEnsured = true;
+}
+
 export async function createUser(req: Request, res: Response) {
   try {
     const { email, fullName, password, role } = req.body || {};
@@ -140,6 +157,8 @@ export async function createUser(req: Request, res: Response) {
     }
     const appRole: 'adm' | 'basico' | 'simples' = role;
     const workspaceRole = appRole === 'adm' ? 'admin' : appRole === 'basico' ? 'manager' : 'viewer';
+
+    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
 
     const pool = getPool();
     // Hash password using pgcrypto
@@ -175,3 +194,72 @@ export async function createUser(req: Request, res: Response) {
 
 // Route-level middlewares for admin-only
 export const adminOnly = [authMiddleware, requireAdmin];
+
+// Get page permissions for a target user (admin-only)
+export async function getPagePermissions(req: Request, res: Response) {
+  try {
+    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    
+    const pool = getPool();
+    await ensurePagePermissionsTable(pool);
+
+    const targetUserId = req.params.userId;
+    if (!targetUserId) return res.status(400).json({ success: false, error: 'missing_user' });
+    if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
+
+    const { rows } = await pool.query(
+      `SELECT path_prefix AS prefix, allowed
+         FROM workspace_page_permissions
+        WHERE workspace_id = $1 AND target_user_id = $2`,
+      [WORKSPACE_ID, targetUserId]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('getPagePermissions error', err);
+    res.status(500).json({ success: false, error: 'server_error' });
+  }
+}
+
+// Upsert page permissions for a target user (admin-only)
+export async function setPagePermissions(req: Request, res: Response) {
+  try {
+    const { permissions } = req.body || {};
+    const targetUserId = req.params.userId;
+
+    if (!targetUserId || !Array.isArray(permissions)) {
+      return res.status(400).json({ success: false, error: 'invalid_payload' });
+    }
+    
+    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    
+    if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
+
+    const pool = getPool();
+    await ensurePagePermissionsTable(pool);
+
+    await pool.query('BEGIN');
+    await pool.query(
+      `DELETE FROM workspace_page_permissions
+        WHERE workspace_id = $1 AND target_user_id = $2`,
+      [WORKSPACE_ID, targetUserId]
+    );
+
+    for (const perm of permissions) {
+      if (!perm || typeof perm.prefix !== 'string') continue;
+      const allowed = !!perm.allowed;
+      await pool.query(
+        `INSERT INTO workspace_page_permissions (workspace_id, target_user_id, path_prefix, allowed)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, target_user_id, path_prefix)
+         DO UPDATE SET allowed = EXCLUDED.allowed, updated_at = now()`,
+        [WORKSPACE_ID, targetUserId, perm.prefix, allowed]
+      );
+    }
+    await pool.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('setPagePermissions error', err);
+    try { await getPool().query('ROLLBACK'); } catch { void 0; }
+    res.status(500).json({ success: false, error: 'server_error' });
+  }
+}
