@@ -16,6 +16,8 @@ const cleanEnv = (value?: string) => (value || '').replace(/\\n/g, '').trim();
 async function getGoogleAdsCredentials(workspaceId: string): Promise<GoogleAdsCredentials> {
   const pool = getPool();
   
+  console.log('Getting Google Ads credentials for workspace:', workspaceId);
+  
   // Try to get from database first
   const row = await pool.query(
     `SELECT encrypted_credentials, encryption_iv FROM integration_credentials 
@@ -23,11 +25,22 @@ async function getGoogleAdsCredentials(workspaceId: string): Promise<GoogleAdsCr
     [workspaceId]
   );
   
+  console.log('Database query returned:', row.rows.length, 'rows');
+  
   if (row.rows.length > 0) {
     const { decryptCredentials } = await import('../../services/encryption.js');
     const creds = decryptCredentials(row.rows[0].encrypted_credentials, row.rows[0].encryption_iv);
+    console.log('Using credentials from database:', {
+      hasRefreshToken: !!creds.refreshToken,
+      hasCustomerId: !!creds.customerId,
+      hasDeveloperToken: !!creds.developerToken,
+      hasClientId: !!creds.clientId,
+      hasClientSecret: !!creds.clientSecret
+    });
     return creds as GoogleAdsCredentials;
   }
+  
+  console.log('No credentials in database, falling back to environment variables');
   
   // Fallback to environment variables - trim all values to remove newlines
   const customerId = cleanEnv(process.env.GOOGLE_ADS_CUSTOMER_ID).replace(/-/g, '');
@@ -35,6 +48,15 @@ async function getGoogleAdsCredentials(workspaceId: string): Promise<GoogleAdsCr
   const clientId = cleanEnv(process.env.GOOGLE_CLIENT_ID);
   const clientSecret = cleanEnv(process.env.GOOGLE_CLIENT_SECRET);
   const loginCustomerId = cleanEnv(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID).replace(/-/g, '') || undefined;
+  
+  console.log('Environment variables:', {
+    hasCustomerId: !!customerId,
+    hasDeveloperToken: !!developerToken,
+    hasClientId: !!clientId,
+    hasClientSecret: !!clientSecret,
+    hasLoginCustomerId: !!loginCustomerId,
+    hasRefreshToken: !!cleanEnv(process.env.GOOGLE_ADS_REFRESH_TOKEN)
+  });
   
   if (!customerId || !developerToken || !clientId || !clientSecret) {
     throw new Error('Missing Google Ads credentials');
