@@ -42,11 +42,12 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
 
     console.log('Processing Google Ads OAuth callback with code:', typeof code === 'string' ? code.substring(0, 20) + '...' : code);
 
-    // Create OAuth2 client
+    // Create OAuth2 client - force HTTPS in production
+    const protocol = req.get('host')?.includes('vercel.app') ? 'https' : req.protocol;
     const oauth2Client = new google.auth.OAuth2(
       CLIENT_ID,
       CLIENT_SECRET,
-      `${req.protocol}://${req.get('host')}/api/integrations/google-ads/callback`
+      `${protocol}://${req.get('host')}/api/integrations/google-ads/callback`
     );
 
     // Exchange authorization code for tokens
