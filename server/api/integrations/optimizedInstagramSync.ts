@@ -231,13 +231,13 @@ class InstagramSyncOptimized {
         await this.pool.query(
           `INSERT INTO performance_metrics (
             workspace_id, platform_account_id, granularity, metric_date,
-            impressions, clicks, spend, conversions, extra_metrics
-          ) VALUES ($1, $2, 'day', $3, $4, $5, $6, $7, $8)
+            impressions, clicks, spend, conversions, extra_metrics, synced_at
+          ) VALUES ($1, $2, 'day', $3, $4, $5, $6, $7, $8, now())
           ON CONFLICT (workspace_id, platform_account_id, metric_date, granularity)
           DO UPDATE SET
             clicks = CASE WHEN $5 IS NOT NULL THEN $5 ELSE performance_metrics.clicks END,
             extra_metrics = performance_metrics.extra_metrics || $8,
-            updated_at = now()`,
+            synced_at = now()`,
           [
             this.workspaceId,
             platformAccountId,

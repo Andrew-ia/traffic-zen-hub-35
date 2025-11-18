@@ -193,14 +193,14 @@ export default function InstagramSyncButton({
   const runSimpleSync = async (workspaceId: string) => {
     updateProgressStage(10, "Conectando com Instagram API...");
     const controller = new AbortController();
-    // Timeout para sync simples aumentado: 300s (5 minutos)
-    const timeoutId = window.setTimeout(() => controller.abort(), 300000);
+    // Timeout para sync simples: 90s (1.5 minutos) - mais realista para 7 dias
+    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
     let response: Response;
     
-    // Update progress periodically to show activity
+    // Update progress more frequently for shorter syncs
     const progressInterval = setInterval(() => {
-      updateProgressStage(Math.min(90, currentStage * 15 + 10), "Processando dados do Instagram...");
-    }, 15000);
+      updateProgressStage(Math.min(85, currentStage * 8 + 15), "Processando dados do Instagram...");
+    }, 8000);
 
     try {
       response = await fetch(`${API_BASE}/api/integrations/instagram/sync-simple`, {
@@ -218,7 +218,7 @@ export default function InstagramSyncButton({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
       if (/aborted/i.test(msg)) {
-        throw new Error("Sync simples levou mais que 5 min. Tentando método otimizado...");
+        throw new Error("Sync simples demorou mais que 90s. Tentando método otimizado...");
       }
       throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
     } finally {
@@ -287,14 +287,14 @@ export default function InstagramSyncButton({
   const runDirectSync = async (workspaceId: string) => {
     updateProgressStage(20, "Usando método direto comprovado...");
     const controller = new AbortController();
-    // O fallback direto mantém timeout menor: 120s
-    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    // O fallback direto: 90s 
+    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
     let response: Response;
     
     // Progress simulation for direct sync
     const directProgressInterval = setInterval(() => {
-      updateProgressStage(Math.min(85, currentStage * 10 + 20), "Processando dados via método direto...");
-    }, 10000);
+      updateProgressStage(Math.min(85, currentStage * 8 + 25), "Processando dados via método direto...");
+    }, 6000);
 
     try {
       response = await fetch(`${API_BASE}/api/integrations/direct-sync`, {
