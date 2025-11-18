@@ -71,6 +71,8 @@ export function CreateItemModal({
   const [taskDescription, setTaskDescription] = useState('');
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('pendente');
   const [taskPriority, setTaskPriority] = useState<TaskPriority>('media');
+  const [taskAssigneeId, setTaskAssigneeId] = useState<string>('__none__');
+  const [taskDueDate, setTaskDueDate] = useState<string>('');
 
   // Document fields
   const [docName, setDocName] = useState('');
@@ -85,6 +87,11 @@ export function CreateItemModal({
   const [reminderEmail, setReminderEmail] = useState('');
   const [reminderPhone, setReminderPhone] = useState('');
   const [reminderTelegram, setReminderTelegram] = useState('');
+  const [reminderAssigneeId, setReminderAssigneeId] = useState<string>('__none__');
+
+  // Campaign assignee/prazo
+  const [campaignAssigneeId, setCampaignAssigneeId] = useState<string>('__none__');
+  const [campaignDueDate, setCampaignDueDate] = useState<string>('');
 
   // Estado para template selecionado
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
@@ -799,12 +806,17 @@ export function CreateItemModal({
         description: taskDescription,
         status: taskStatus,
         priority: taskPriority,
+        metadata: taskAssigneeId && taskAssigneeId !== '__none__' ? { __assignee_prefill: taskAssigneeId } : undefined,
+        assignee_id: taskAssigneeId !== '__none__' ? taskAssigneeId : undefined as any,
+        due_date: taskDueDate || undefined as any,
       });
       // Reset task fields
       setTaskName('');
       setTaskDescription('');
       setTaskStatus('pendente');
       setTaskPriority('media');
+      setTaskAssigneeId('__none__');
+      setTaskDueDate('');
     } else if (activeTab === 'document' && onCreateDocument) {
       if (!docName.trim()) return;
       onCreateDocument({
@@ -826,6 +838,7 @@ export function CreateItemModal({
         email: reminderEmail || undefined,
         phone: reminderPhone || undefined,
         telegram_chat_id: reminderTelegram || undefined,
+        assignee_id: reminderAssigneeId || undefined,
       });
       // Reset reminder fields
       setReminderName('');
@@ -835,6 +848,7 @@ export function CreateItemModal({
       setReminderEmail('');
       setReminderPhone('');
       setReminderTelegram('');
+      setReminderAssigneeId('__none__');
     } else if (activeTab === 'templates') {
       // Monta os dados de tarefa a partir do template
       const nomeCampanha = templateValues['nome_da_campanha'] || 'Nova Campanha';
@@ -939,7 +953,7 @@ export function CreateItemModal({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="task-status">Status</Label>
                 <Select value={taskStatus} onValueChange={(v) => setTaskStatus(v as TaskStatus)}>
@@ -991,13 +1005,31 @@ export function CreateItemModal({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <Label>Responsável</Label>
+                <Select value={taskAssigneeId} onValueChange={(v) => setTaskAssigneeId(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={isMembersLoading ? 'Carregando...' : 'Selecione'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sem responsável</SelectItem>
+                    {members.map(m => (
+                      <SelectItem key={m.userId} value={m.userId}>
+                        {m.name || m.email || m.userId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Prazo</Label>
+                <Input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Button variant="ghost" size="sm" disabled>
-                📅 Data de vencimento
-              </Button>
-              <Button variant="ghost" size="sm" disabled>
-                👤 Responsável
-              </Button>
+              <Badge variant="secondary">Preencha responsável e prazo acima</Badge>
             </div>
           </TabsContent>
 
@@ -1033,6 +1065,23 @@ export function CreateItemModal({
                 value={reminderDueDate}
                 onChange={(e) => setReminderDueDate(e.target.value)}
               />
+            </div>
+
+            <div>
+              <Label>Responsável</Label>
+              <Select value={reminderAssigneeId} onValueChange={(v) => setReminderAssigneeId(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder={isMembersLoading ? 'Carregando...' : 'Selecione um responsável'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sem responsável</SelectItem>
+                  {members.map(m => (
+                    <SelectItem key={m.userId} value={m.userId}>
+                      {m.name || m.email || m.userId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -1099,6 +1148,28 @@ export function CreateItemModal({
 
           {/* CAMPAIGN TAB */}
           <TabsContent value="campaign" className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <Label>Responsável</Label>
+                <Select value={campaignAssigneeId} onValueChange={(v) => setCampaignAssigneeId(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={isMembersLoading ? 'Carregando...' : 'Selecione'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sem responsável</SelectItem>
+                    {members.map(m => (
+                      <SelectItem key={m.userId} value={m.userId}>
+                        {m.name || m.email || m.userId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Prazo</Label>
+                <Input type="date" value={campaignDueDate} onChange={(e) => setCampaignDueDate(e.target.value)} />
+              </div>
+            </div>
             <CampaignFormWizard
               onSubmit={(data) => {
                 onCreateTask({
@@ -1109,6 +1180,8 @@ export function CreateItemModal({
                   metadata: {
                     campaign_data: data,
                   },
+                  assignee_id: campaignAssigneeId !== '__none__' ? campaignAssigneeId : undefined as any,
+                  due_date: campaignDueDate || undefined as any,
                 });
                 handleOpenChange(false);
               }}

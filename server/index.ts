@@ -5,6 +5,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startSimpleWorker } from './workers/simpleSyncWorker.js';
+import { runInstagramSync } from '../supabase/functions/_shared/instagramSync.js';
+import { decryptCredentials } from './services/encryption.js';
 import { getPool } from './config/database.js';
 import {
   saveCredentials,
@@ -16,6 +18,9 @@ import {
   getSyncStatus,
   getWorkspaceSyncJobs,
 } from './api/integrations/simpleSync.js';
+import { directInstagramSync } from './api/integrations/directSync.js';
+import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
+import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
@@ -23,9 +28,10 @@ import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-lo
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
-import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
+import { ga4Realtime, ga4Report } from './api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.js';
 import { getDemographics } from './api/analytics/demographics.js';
+ 
 import {
   getCampaignLibrary,
   getCampaignById,
@@ -58,6 +64,7 @@ import {
 import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
 import { importCashflowXlsx } from './api/finance/cashflow.js';
+import { getEngagementRate } from './api/instagram/engagement.js';
 import { login, me, createUser, authMiddleware, adminOnly } from './api/auth.js';
 import {
   getFolders,
@@ -166,9 +173,51 @@ app.delete('/api/integrations/credentials/:workspaceId/:platformKey', deleteCred
 // Sync endpoints
 app.post('/api/integrations/sync', startSync);
 app.post('/api/integrations/simple-sync', startSync); // Alias for Instagram compatibility
+app.post('/api/integrations/direct-sync', directInstagramSync); // Direct sync for serverless
+
+// Optimized sync endpoints (new)
+app.post('/api/integrations/meta/sync-optimized', optimizedMetaSync);
+app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
+
+// Optimized Instagram sync endpoints
+app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);
+app.get('/api/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
+
+// Legacy sync status endpoints
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
 app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
 app.post('/api/integrations/billing/sync', syncMetaBilling);
+ 
+
+// Immediate Instagram media+user sync (bypasses queue)
+app.post('/api/integrations/instagram/run-direct', async (req, res) => {
+  try {
+    const { workspaceId, days = 7 } = req.body || {};
+    const normalizedWorkspaceId = String(workspaceId || process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    if (!normalizedWorkspaceId) return res.status(400).json({ success: false, error: 'Missing workspaceId' });
+
+    const pool = getPool();
+    const credRow = await pool.query(
+      `SELECT encrypted_credentials, encryption_iv FROM integration_credentials WHERE workspace_id = $1 AND platform_key = 'instagram' LIMIT 1`,
+      [normalizedWorkspaceId]
+    );
+    if (credRow.rows.length === 0) return res.status(404).json({ success: false, error: 'Instagram credentials not found' });
+    const creds = decryptCredentials(credRow.rows[0].encrypted_credentials, credRow.rows[0].encryption_iv);
+    const igUserId = creds.igUserId || creds.ig_user_id;
+    const accessToken = creds.accessToken || creds.access_token;
+    if (!igUserId || !accessToken) return res.status(400).json({ success: false, error: 'Invalid Instagram credentials' });
+
+    const ctx = {
+      db: { query: (text: string, params?: any[]) => pool.query(text, params) },
+      reportProgress: () => {},
+    };
+    const result = await runInstagramSync({ igUserId, accessToken, workspaceId: normalizedWorkspaceId, days }, ctx as any);
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return res.status(/403/.test(String(msg)) ? 403 : 500).json({ success: false, error: msg });
+  }
+});
 
 // AI endpoints
 app.post('/api/ai/generate-creative', generateCreative);
@@ -185,7 +234,7 @@ app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 // GA4 Analytics endpoints (read-only via service account)
 app.post('/api/ga4/realtime', ga4Realtime);
 app.post('/api/ga4/report', ga4Report);
-app.post('/api/ga4/google-ads', ga4GoogleAds);
+ 
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
   res.json({ success: true, message: 'GA4 test endpoint' });
@@ -193,6 +242,9 @@ app.post('/api/ga4/test', (req, res) => {
 
 // Finance: Cashflow import endpoint
 app.post('/api/finance/cashflow/import', importCashflowXlsx);
+
+// Instagram engagement rate
+app.get('/api/instagram/engagement', getEngagementRate);
 
 // Platform metrics endpoints used by dashboards
 app.get('/api/metrics/aggregate', getAggregateMetrics);
@@ -338,7 +390,24 @@ async function start() {
       console.log('🚀 TrafficPro API Server');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Server running on: http://localhost:${PORT}`);
-      console.log(`🔧 Worker desativado: sincronização apenas sob demanda`);
+      
+      // Worker local apenas para desenvolvimento - não funciona no Vercel (serverless)
+      if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+        try {
+          const id = startSimpleWorker();
+          // @ts-ignore
+          workerIntervalId = id || null;
+          console.log(`🔧 Worker local ativado: polling de jobs em background`);
+          console.log(`   → Ambiente: desenvolvimento local`);
+        } catch (error) {
+          console.log(`🔧 Worker indisponível: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
+          console.log(`   → Sincronização funcionará apenas sob demanda via API`);
+        }
+      } else {
+        console.log(`🔧 Worker local desabilitado: ambiente serverless detectado`);
+        console.log(`   → Plataforma: ${process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : 'AWS Lambda'}`);
+        console.log(`   → Sincronização via API endpoints diretos`);
+      }
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');

@@ -41,6 +41,7 @@ export function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
           <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
             {(mainNavigation.filter((item) => {
               if (!user) return false;
+              if (item.href === "/campaigns") return false;
               return hasAccess(item.href);
             })).map((item) => (
               <NavLink

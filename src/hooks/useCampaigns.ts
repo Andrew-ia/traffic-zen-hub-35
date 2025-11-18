@@ -123,10 +123,8 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         const accountIds = (platformAccounts || []).map(acc => acc.id);
         if (accountIds.length > 0) {
           query = query.in("platform_account_id", accountIds);
-        } else {
-          // Se não há contas da plataforma, retornar vazio
-          return { campaigns: [], total: 0 };
-        }
+        } // Caso não existam contas da plataforma, não aplicar filtro por platform_account_id;
+          // continuaremos a filtrar pelo platformKey após o mapeamento
       }
 
       query = query.order("status", { ascending: true }).order("updated_at", { ascending: false });

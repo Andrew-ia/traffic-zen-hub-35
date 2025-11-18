@@ -29,7 +29,17 @@ export function Header({ onMenuClick }: HeaderProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const { open, openHelp } = useCommandMenu();
   const { isMobile, isTablet } = useResponsive();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const displayName = useMemo(() => {
+    return user?.name || user?.email || "Usuário";
+  }, [user?.name, user?.email]);
+  const initials = useMemo(() => {
+    const src = user?.name || user?.email || "";
+    const parts = src.replace(/[^a-zA-Z0-9@._-\s]/g, "").split(/[\s@._-]+/).filter(Boolean);
+    const a = (parts[0] || "").charAt(0);
+    const b = (parts[1] || "").charAt(0);
+    return (a + b).toUpperCase() || "U";
+  }, [user?.name, user?.email]);
   const isMac = useMemo(() => {
     if (typeof window === "undefined") return false;
     return /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
@@ -112,15 +122,24 @@ export function Header({ onMenuClick }: HeaderProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <User className="h-5 w-5" />
+              <Button variant="ghost" size="sm" className="px-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold">
+                    {initials}
+                  </div>
+                  <span className="hidden md:inline text-xs font-medium truncate max-w-[120px]">{displayName}</span>
+                </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-popover">
-              <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                <div className="space-y-0.5">
+                  <div className="text-sm font-semibold">Minha Conta</div>
+                  <div className="text-xs text-muted-foreground truncate">{displayName}</div>
+                </div>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Perfil</DropdownMenuItem>
-              <DropdownMenuItem>Configurações</DropdownMenuItem>
+              
               {isMobile && (
                 <>
                   <DropdownMenuSeparator />

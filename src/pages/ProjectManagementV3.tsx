@@ -15,6 +15,8 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import EmojiPicker from '@/components/pm/EmojiPicker';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,6 +70,7 @@ const priorityColors: Record<TaskPriority, string> = {
 
 export default function ProjectManagementV3() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: hierarchyData, isLoading, error: hierarchyError } = usePMHierarchy(WORKSPACE_ID);
   // Only load documents when hierarchy is loaded and successful
   const { data: documentsData } = usePMDocuments(WORKSPACE_ID, undefined, {
@@ -279,14 +282,14 @@ export default function ProjectManagementV3() {
       return;
     }
 
-    try {
-      const created = await createList.mutateAsync({
-        workspace_id: WORKSPACE_ID,
-        folder_id: selectedFolderId,
-        name: newListName,
-        icon: newListIcon,
-        color: newListColor,
-      });
+      try {
+        const created = await createList.mutateAsync({
+          workspace_id: WORKSPACE_ID,
+          folder_id: selectedFolderId,
+          name: newListName,
+          icon: newListIcon,
+          color: newListColor,
+        });
       toast({
         title: 'Lista criada!',
         description: `A lista "${newListName}" foi criada com sucesso.`,
@@ -303,6 +306,8 @@ export default function ProjectManagementV3() {
             description: 'Criada automaticamente ao criar a lista',
             status: 'pendente',
             priority: 'media',
+            assignee_id: user?.id || null,
+            created_by: user?.id || null,
           });
           toast({
             title: 'Tarefa inicial criada',
@@ -332,6 +337,8 @@ export default function ProjectManagementV3() {
     priority: TaskPriority;
     attachments?: File[];
     metadata?: Record<string, any>;
+    assignee_id?: string;
+    due_date?: string;
   }) => {
     console.log('Creating task with:', {
       selectedFolderId,
@@ -358,6 +365,9 @@ export default function ProjectManagementV3() {
         status: data.status,
         priority: data.priority,
         metadata: data.metadata || {},
+        assignee_id: (data.assignee_id ?? user?.id) || null,
+        due_date: data.due_date || null,
+        created_by: user?.id || null,
       });
 
       const createdTaskId = result?.data?.id ?? result?.id;
@@ -512,6 +522,7 @@ export default function ProjectManagementV3() {
     email?: string;
     phone?: string;
     telegram_chat_id?: string;
+    assignee_id?: string;
   }) => {
     if (!selectedFolderId || !selectedListId) {
       toast({ title: 'Selecione uma lista', variant: 'destructive' });
@@ -529,6 +540,7 @@ export default function ProjectManagementV3() {
         email: data.email,
         phone: data.phone,
         telegram_chat_id: data.telegram_chat_id,
+        assignee_id: data.assignee_id,
       });
       toast({
         title: 'Lembrete criado!',
@@ -1270,7 +1282,10 @@ export default function ProjectManagementV3() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Ícone</Label>
-                <Input value={editFolderIcon} onChange={(e) => setEditFolderIcon(e.target.value)} placeholder="📁" />
+                <div className="flex items-center gap-2">
+                  <EmojiPicker value={editFolderIcon || '📁'} onSelect={(emoji) => setEditFolderIcon(emoji)} triggerLabel="Escolher emoji" display="button" />
+                  <Input value={editFolderIcon} onChange={(e) => setEditFolderIcon(e.target.value)} placeholder="📁" />
+                </div>
               </div>
               <div>
                 <Label>Cor</Label>
@@ -1309,7 +1324,10 @@ export default function ProjectManagementV3() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Ícone</Label>
-                <Input value={newListIcon} onChange={(e) => setNewListIcon(e.target.value)} placeholder="📋" />
+                <div className="flex items-center gap-2">
+                  <EmojiPicker value={newListIcon || '📋'} onSelect={(emoji) => setNewListIcon(emoji)} triggerLabel="Escolher emoji" display="button" />
+                  <Input value={newListIcon} onChange={(e) => setNewListIcon(e.target.value)} placeholder="📋" />
+                </div>
               </div>
               <div>
                 <Label>Cor</Label>

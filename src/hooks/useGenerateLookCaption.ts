@@ -1,4 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { resolveApiBase } from '@/lib/apiBase';
+
+const API_BASE = resolveApiBase();
 
 interface GenerateCaptionParams {
   folderId?: string;
@@ -23,7 +26,7 @@ export function useGenerateLookCaption() {
 
   return useMutation({
     mutationFn: async (params: GenerateCaptionParams): Promise<GenerateCaptionResponse> => {
-      const response = await fetch('http://localhost:3001/api/ai/generate-look-caption', {
+      const response = await fetch(`${API_BASE}/api/ai/generate-look-caption`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -56,16 +59,13 @@ export function useUpdateCreativeCaption() {
 
   return useMutation({
     mutationFn: async ({ creativeId, caption, workspaceId }: UpdateCaptionParams) => {
-      const response = await fetch(
-        `http://localhost:3001/api/ai/caption/${creativeId}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ caption, workspaceId }),
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/ai/caption/${creativeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ caption, workspaceId }),
+      });
 
       if (!response.ok) {
         const error = await response.json();

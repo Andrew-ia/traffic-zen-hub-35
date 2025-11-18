@@ -1,4 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -222,6 +224,15 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
 
 export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   const { data, isLoading, error } = useObjectivePerformanceSummary(days);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    engagement: false,
+    traffic: false,
+    leads: false,
+    sales: false,
+    recognition: false,
+    app: false,
+  });
+  const toggle = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
   if (isLoading) {
     return (
@@ -308,13 +319,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasEngagement) {
     sections.push(
       <Card key="engagement">
-        <CardHeader>
-          <CardTitle>📊 Engajamento</CardTitle>
-          <CardDescription>Conversas e interações geradas pelas campanhas de engajamento.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>📊 Engajamento</CardTitle>
+            <CardDescription>Conversas e interações geradas pelas campanhas de engajamento.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.engagement}
+            onClick={() => toggle("engagement")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.engagement ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.engagement && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Engajamentos com o post", value: data.engagement.postEngagements, hideIfZero: true },
                 {
@@ -351,11 +372,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                 { label: "Salvamentos", value: data.engagement.saves, hideIfZero: true },
                 { label: "Visualizações de vídeo", value: data.engagement.videoViews, hideIfZero: true },
               ]}
-            />
-            <TrendLineChart data={data.engagement.trend} label="Engajamentos" />
-            <PlatformBarChart data={engagementPlatforms} />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.engagement.trend} label="Engajamentos" />
+              <PlatformBarChart data={engagementPlatforms} />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }
@@ -363,13 +385,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasTraffic) {
     sections.push(
       <Card key="traffic">
-        <CardHeader>
-          <CardTitle>🚀 Tráfego</CardTitle>
-          <CardDescription>Métricas de campanhas voltadas para tráfego e cliques.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>🚀 Tráfego</CardTitle>
+            <CardDescription>Métricas de campanhas voltadas para tráfego e cliques.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.traffic}
+            onClick={() => toggle("traffic")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.traffic ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.traffic && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Cliques no link", value: data.traffic.linkClicks },
                 {
@@ -397,11 +429,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                 { label: "CTR médio", value: data.traffic.ctr, format: "percent", hideIfZero: true },
                 { label: "CPC médio", value: data.traffic.cpc, format: "currency", hideIfZero: true },
               ]}
-            />
-            <TrendLineChart data={data.traffic.trend} label="Cliques" color="hsl(var(--chart-2))" />
-            <PlatformBarChart data={trafficPlatforms} color="hsl(var(--chart-4))" />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.traffic.trend} label="Cliques" color="hsl(var(--chart-2))" />
+              <PlatformBarChart data={trafficPlatforms} color="hsl(var(--chart-4))" />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }
@@ -409,13 +442,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasLeads) {
     sections.push(
       <Card key="leads">
-        <CardHeader>
-          <CardTitle>🎯 Leads</CardTitle>
-          <CardDescription>Conversões e CPL das campanhas de geração de leads.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>🎯 Leads</CardTitle>
+            <CardDescription>Conversões e CPL das campanhas de geração de leads.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.leads}
+            onClick={() => toggle("leads")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.leads ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.leads && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Conversas via WhatsApp", value: data.leads.whatsappConversations },
                 {
@@ -427,11 +470,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                 { label: "Formulários concluídos", value: data.leads.formLeads },
                 { label: "Custo por lead (CPL)", value: data.leads.cpl, format: "currency" },
               ]}
-            />
-            <TrendLineChart data={data.leads.trend} label="Leads" color="hsl(var(--chart-3))" />
-            <PlatformBarChart data={leadsPlatforms} color="hsl(var(--chart-5))" />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.leads.trend} label="Leads" color="hsl(var(--chart-3))" />
+              <PlatformBarChart data={leadsPlatforms} color="hsl(var(--chart-5))" />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }
@@ -439,13 +483,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasSales) {
     sections.push(
       <Card key="sales">
-        <CardHeader>
-          <CardTitle>📈 Vendas</CardTitle>
-          <CardDescription>Resultados das campanhas com objetivo de conversão e vendas.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>📈 Vendas</CardTitle>
+            <CardDescription>Resultados das campanhas com objetivo de conversão e vendas.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.sales}
+            onClick={() => toggle("sales")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.sales ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.sales && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Compras", value: data.sales.purchases },
                 { label: "Valor total", value: data.sales.value, format: "currency" },
@@ -457,11 +511,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                   hideIfZero: true,
                 },
               ]}
-            />
-            <TrendLineChart data={data.sales.trend} label="Compras" color="hsl(var(--chart-4))" />
-            <PlatformBarChart data={salesPlatforms} color="hsl(var(--chart-6))" />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.sales.trend} label="Compras" color="hsl(var(--chart-4))" />
+              <PlatformBarChart data={salesPlatforms} color="hsl(var(--chart-6))" />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }
@@ -469,13 +524,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasRecognition) {
     sections.push(
       <Card key="recognition">
-        <CardHeader>
-          <CardTitle>📣 Reconhecimento</CardTitle>
-          <CardDescription>Campanhas focadas em alcance e reconhecimento de marca.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>📣 Reconhecimento</CardTitle>
+            <CardDescription>Campanhas focadas em alcance e reconhecimento de marca.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.recognition}
+            onClick={() => toggle("recognition")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.recognition ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.recognition && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Alcance", value: data.recognition.reach },
                 { label: "Frequência média", value: data.recognition.frequency, format: "number" },
@@ -487,11 +552,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                   hideIfZero: true,
                 },
               ]}
-            />
-            <TrendLineChart data={data.recognition.trend} label="Alcance" color="hsl(var(--chart-5))" />
-            <PlatformBarChart data={recognitionPlatforms} color="hsl(var(--chart-1))" />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.recognition.trend} label="Alcance" color="hsl(var(--chart-5))" />
+              <PlatformBarChart data={recognitionPlatforms} color="hsl(var(--chart-1))" />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }
@@ -499,13 +565,23 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   if (hasApp) {
     sections.push(
       <Card key="app">
-        <CardHeader>
-          <CardTitle>📱 Promoção de App</CardTitle>
-          <CardDescription>Indicadores das campanhas de instalação e engajamento de aplicativos.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>📱 Promoção de App</CardTitle>
+            <CardDescription>Indicadores das campanhas de instalação e engajamento de aplicativos.</CardDescription>
+          </div>
+          <button
+            aria-expanded={expanded.app}
+            onClick={() => toggle("app")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
+          >
+            {expanded.app ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MetricsList
+        {expanded.app && (
+          <CardContent>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MetricsList
               entries={[
                 { label: "Instalações", value: data.app.installs },
                 { label: "Custo por instalação (CPI)", value: data.app.cpi, format: "currency" },
@@ -517,11 +593,12 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                   hideIfZero: true,
                 },
               ]}
-            />
-            <TrendLineChart data={data.app.trend} label="Instalações" color="hsl(var(--chart-6))" />
-            <PlatformBarChart data={appPlatforms} color="hsl(var(--chart-3))" />
-          </div>
-        </CardContent>
+              />
+              <TrendLineChart data={data.app.trend} label="Instalações" color="hsl(var(--chart-6))" />
+              <PlatformBarChart data={appPlatforms} color="hsl(var(--chart-3))" />
+            </div>
+          </CardContent>
+        )}
       </Card>,
     );
   }

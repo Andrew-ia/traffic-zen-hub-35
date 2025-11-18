@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
+import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -65,6 +67,7 @@ export default function Reports() {
     isLoading,
     error,
   } = useReportsData(days);
+  const { data: performance, isLoading: isLoadingPerf } = usePerformanceMetrics(days);
 
   function exportReportsCsv() {
     try {
@@ -93,10 +96,10 @@ export default function Reports() {
 
       lines.push("");
 
-      // Channel Comparison
-      lines.push("Comparação por Canal");
+      // Channel Comparison (Meta apenas)
+      lines.push("Comparação por Canal (Meta)");
       lines.push("Canal,Investimento,Impressões,Cliques,Resultados,Conexões,CTR (%),CPC,Custo/Resultado");
-      for (const c of channelComparison) {
+      for (const c of channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey))) {
         lines.push([
           c.label,
           c.spend,
@@ -270,6 +273,8 @@ export default function Reports() {
         </div>
       </div>
 
+      <PerformanceChart data={performance?.points ?? []} isLoading={isLoadingPerf} />
+
       <div className="grid gap-6 md:grid-cols-3">
         <Card>
           <CardHeader>
@@ -376,7 +381,7 @@ export default function Reports() {
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-40 w-full" />
-            ) : channelComparison.length === 0 ? (
+            ) : channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey)).length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum dado consolidado para o período.</p>
             ) : (
               <Table>
@@ -393,7 +398,7 @@ export default function Reports() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {channelComparison.map((item) => (
+                  {channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey)).map((item) => (
                     <TableRow key={item.channelKey}>
                       <TableCell className="font-medium">{item.label}</TableCell>
                       <TableCell className="text-right">{formatCurrency(item.spend)}</TableCell>

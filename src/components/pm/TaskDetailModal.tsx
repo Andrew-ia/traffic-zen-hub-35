@@ -24,6 +24,8 @@ import { toast } from '@/hooks/use-toast';
 import type { PMTaskFull, TaskStatus, TaskPriority } from '@/types/project-management';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { CampaignFormWizard, type CampaignData } from './CampaignFormWizard';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 
 interface TaskDetailModalProps {
   task: PMTaskFull | null;
@@ -52,17 +54,19 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('pendente');
   const [priority, setPriority] = useState<TaskPriority>('media');
+  const [assigneeId, setAssigneeId] = useState<string | undefined>(undefined);
+  const [dueDate, setDueDate] = useState<string | undefined>(undefined);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isEditingCampaign, setIsEditingCampaign] = useState(false);
+  const [campaignDetails, setCampaignDetails] = useState<CampaignData | null>(null);
 
   const { data: taskAttachments = [] } = usePMTaskAttachments(task?.id || undefined);
+  const { data: members = [] } = useWorkspaceMembers();
   const updateTask = useUpdatePMTask();
   const deleteTask = useDeletePMTask();
   const uploadAttachment = useUploadPMTaskAttachment();
   const deleteAttachment = useDeletePMTaskAttachment();
-
-  // Extract campaign data if available
-  const campaignData = task?.metadata?.campaign_data as any;
 
   useEffect(() => {
     if (task) {
@@ -71,6 +75,10 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
       setStatus(task.status);
       setPriority(task.priority || 'media');
       setAttachmentFile(null);
+      setCampaignDetails((task.metadata?.campaign_data as CampaignData) || null);
+      setIsEditingCampaign(false);
+      setAssigneeId(task.assignee_id || undefined);
+      setDueDate(task.due_date ? new Date(task.due_date).toISOString().slice(0, 10) : undefined);
     }
   }, [task]);
 
@@ -86,6 +94,8 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
           description,
           status,
           priority,
+          assignee_id: assigneeId,
+          due_date: dueDate,
         },
       });
       toast({ title: 'Tarefa atualizada com sucesso' });
@@ -144,6 +154,36 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
     } catch (error) {
       toast({ title: 'Erro ao remover arquivo', variant: 'destructive' });
     }
+  };
+
+  const handleCampaignUpdate = async (data: CampaignData) => {
+    if (!task) return;
+    try {
+      await updateTask.mutateAsync({
+        workspaceId,
+        taskId: task.id,
+        data: {
+          metadata: {
+            ...(task.metadata || {}),
+            campaign_data: data,
+          },
+        },
+      });
+      setCampaignDetails(data);
+      setIsEditingCampaign(false);
+      toast({ title: 'Campanha atualizada com sucesso!' });
+    } catch (error) {
+      toast({ title: 'Erro ao atualizar campanha', variant: 'destructive' });
+    }
+  };
+
+  const campaignData = campaignDetails;
+  const formatCurrency = (value?: string | number) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return value || '-';
+    }
+    return parsed.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
   const statusOption = statusOptions.find(s => s.value === status);
@@ -234,144 +274,182 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                   </Select>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="assignee">Responsável</Label>
+                  <Select value={assigneeId ?? '__none__'} onValueChange={(v) => setAssigneeId(v === '__none__' ? undefined : v)}>
+                    <SelectTrigger id="assignee" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sem responsável</SelectItem>
+                      {members.map(m => (
+                        <SelectItem key={m.userId} value={m.userId}>
+                          {m.name || m.email || m.userId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="due_date">Prazo</Label>
+                  <Input id="due_date" type="date" value={dueDate || ''} onChange={(e) => setDueDate(e.target.value || undefined)} className="mt-1" />
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Campaign Data */}
           {campaignData && Object.keys(campaignData).length > 0 && (
             <div className="space-y-4 border-t pt-4">
-              <h3 className="font-semibold text-sm uppercase text-muted-foreground flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Campanha Meta Ads
-              </h3>
-              <div className="space-y-4">
-                {/* Campaign Info */}
-                <div className="grid grid-cols-2 gap-6">
-                  {(campaignData.campaignName || campaignData.objective) && (
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold text-muted-foreground uppercase">Informações</div>
-                      {campaignData.campaignName && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Nome:</span>
-                          <p className="font-medium text-sm">{campaignData.campaignName}</p>
-                        </div>
-                      )}
-                      {campaignData.objective && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Objetivo:</span>
-                          <p className="font-medium text-sm capitalize">{campaignData.objective}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold text-sm uppercase text-muted-foreground flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Campanha Meta Ads
+                </h3>
+                <Button
+                  size="sm"
+                  variant={isEditingCampaign ? 'secondary' : 'outline'}
+                  onClick={() => setIsEditingCampaign(!isEditingCampaign)}
+                >
+                  {isEditingCampaign ? 'Fechar edição' : 'Editar campanha'}
+                </Button>
+              </div>
 
-                  {/* Audience */}
-                  {(campaignData.ageMin || campaignData.ageMax || campaignData.interests) && (
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold text-muted-foreground uppercase">Público-Alvo</div>
-                      {(campaignData.ageMin || campaignData.ageMax) && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Faixa Etária:</span>
-                          <p className="font-medium text-sm">{campaignData.ageMin} - {campaignData.ageMax} anos</p>
-                        </div>
-                      )}
-                      {campaignData.interests && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Interesses:</span>
-                          <p className="font-medium text-sm">{campaignData.interests}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+              {isEditingCampaign ? (
+                <div className="border rounded-lg p-3 bg-background">
+                  <CampaignFormWizard
+                    initialData={campaignData}
+                    onSubmit={handleCampaignUpdate}
+                    onCancel={() => setIsEditingCampaign(false)}
+                    isLoading={updateTask.isPending}
+                    submitLabel={updateTask.isPending ? 'Salvando...' : 'Atualizar Campanha'}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-6">
+                    {(campaignData.campaignName || campaignData.objective) && (
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Informações</div>
+                        {campaignData.campaignName && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Nome:</span>
+                            <p className="font-medium text-sm">{campaignData.campaignName}</p>
+                          </div>
+                        )}
+                        {campaignData.objective && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Objetivo:</span>
+                            <p className="font-medium text-sm capitalize">{campaignData.objective}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Budget & Dates */}
-                  {(campaignData.budget || campaignData.startDate || campaignData.endDate) && (
+                    {(campaignData.ageMin || campaignData.ageMax || campaignData.interests) && (
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Público-Alvo</div>
+                        {(campaignData.ageMin || campaignData.ageMax) && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Faixa Etária:</span>
+                            <p className="font-medium text-sm">{campaignData.ageMin} - {campaignData.ageMax} anos</p>
+                          </div>
+                        )}
+                        {campaignData.interests && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Interesses:</span>
+                            <p className="font-medium text-sm">{campaignData.interests}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {(campaignData.budget || campaignData.startDate || campaignData.endDate) && (
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase">Orçamento & Datas</div>
+                        {campaignData.budget && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Orçamento:</span>
+                            <p className="font-medium text-sm text-green-600">{formatCurrency(campaignData.budget)}</p>
+                          </div>
+                        )}
+                        {campaignData.startDate && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Início:</span>
+                            <p className="font-medium text-sm">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</p>
+                          </div>
+                        )}
+                        {campaignData.endDate && (
+                          <div>
+                            <span className="text-xs text-muted-foreground">Término:</span>
+                            <p className="font-medium text-sm">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {campaignData.adSets && campaignData.adSets.length > 0 && (
                     <div className="space-y-3">
-                      <div className="text-xs font-semibold text-muted-foreground uppercase">Orçamento & Datas</div>
-                      {campaignData.budget && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Orçamento:</span>
-                          <p className="font-medium text-sm text-green-600">R$ {Number(campaignData.budget).toFixed(2)}</p>
-                        </div>
-                      )}
-                      {campaignData.startDate && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Início:</span>
-                          <p className="font-medium text-sm">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</p>
-                        </div>
-                      )}
-                      {campaignData.endDate && (
-                        <div>
-                          <span className="text-xs text-muted-foreground">Término:</span>
-                          <p className="font-medium text-sm">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</p>
-                        </div>
-                      )}
+                      <div className="text-xs font-semibold text-muted-foreground uppercase">Conjuntos de Anúncios ({campaignData.adSets.length})</div>
+                      <div className="space-y-3">
+                        {campaignData.adSets.map((adSet: any, adSetIdx: number) => (
+                          <div key={adSet.id} className="border rounded-lg p-3 bg-muted/30 space-y-3">
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground">Conjunto #{adSetIdx + 1}</p>
+                              <p className="font-medium text-sm">{adSet.name}</p>
+                            </div>
+
+                            {adSet.creatives && adSet.creatives.length > 0 && (
+                              <div className="space-y-2 border-t pt-3">
+                                <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos ({adSet.creatives.length})</div>
+                                <div className="space-y-2">
+                                  {adSet.creatives.map((creative: any, creativeIdx: number) => (
+                                    <div key={creative.id} className="bg-white dark:bg-slate-950 p-2 rounded border text-sm space-y-1">
+                                      <p className="text-xs font-semibold text-muted-foreground">Criativo #{creativeIdx + 1}</p>
+                                      {creative.headline && (
+                                        <div>
+                                          <span className="text-xs text-muted-foreground">Título:</span>
+                                          <p className="font-medium">{creative.headline}</p>
+                                        </div>
+                                      )}
+                                      {creative.primaryText && (
+                                        <div>
+                                          <span className="text-xs text-muted-foreground">Texto Principal:</span>
+                                          <p className="text-xs">{creative.primaryText}</p>
+                                        </div>
+                                      )}
+                                      {creative.description && (
+                                        <div>
+                                          <span className="text-xs text-muted-foreground">Descrição:</span>
+                                          <p className="text-xs">{creative.description}</p>
+                                        </div>
+                                      )}
+                                      {creative.cta && (
+                                        <div>
+                                          <span className="text-xs text-muted-foreground">CTA:</span>
+                                          <Badge variant="secondary" className="ml-1 text-xs">{creative.cta}</Badge>
+                                        </div>
+                                      )}
+                                      {creative.creativeUrl && (
+                                        <div>
+                                          <span className="text-xs text-muted-foreground">URL:</span>
+                                          <p className="text-xs text-blue-600 break-all font-mono">{creative.creativeUrl}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
-
-                {/* Ad Sets & Creatives */}
-                {campaignData.adSets && campaignData.adSets.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase">Conjuntos de Anúncios ({campaignData.adSets.length})</div>
-                    <div className="space-y-3">
-                      {campaignData.adSets.map((adSet: any, adSetIdx: number) => (
-                        <div key={adSet.id} className="border rounded-lg p-3 bg-muted/30 space-y-3">
-                          {/* Ad Set Header */}
-                          <div>
-                            <p className="text-xs font-semibold text-muted-foreground">Conjunto #{adSetIdx + 1}</p>
-                            <p className="font-medium text-sm">{adSet.name}</p>
-                          </div>
-
-                          {/* Creatives */}
-                          {adSet.creatives && adSet.creatives.length > 0 && (
-                            <div className="space-y-2 border-t pt-3">
-                              <div className="text-xs font-semibold text-muted-foreground uppercase">Criativos ({adSet.creatives.length})</div>
-                              <div className="space-y-2">
-                                {adSet.creatives.map((creative: any, creativeIdx: number) => (
-                                  <div key={creative.id} className="bg-white dark:bg-slate-950 p-2 rounded border text-sm space-y-1">
-                                    <p className="text-xs font-semibold text-muted-foreground">Criativo #{creativeIdx + 1}</p>
-                                    {creative.headline && (
-                                      <div>
-                                        <span className="text-xs text-muted-foreground">Título:</span>
-                                        <p className="font-medium">{creative.headline}</p>
-                                      </div>
-                                    )}
-                                    {creative.primaryText && (
-                                      <div>
-                                        <span className="text-xs text-muted-foreground">Texto Principal:</span>
-                                        <p className="text-xs">{creative.primaryText}</p>
-                                      </div>
-                                    )}
-                                    {creative.description && (
-                                      <div>
-                                        <span className="text-xs text-muted-foreground">Descrição:</span>
-                                        <p className="text-xs">{creative.description}</p>
-                                      </div>
-                                    )}
-                                    {creative.cta && (
-                                      <div>
-                                        <span className="text-xs text-muted-foreground">CTA:</span>
-                                        <Badge variant="secondary" className="ml-1 text-xs">{creative.cta}</Badge>
-                                      </div>
-                                    )}
-                                    {creative.creativeUrl && (
-                                      <div>
-                                        <span className="text-xs text-muted-foreground">URL:</span>
-                                        <p className="text-xs text-blue-600 break-all font-mono">{creative.creativeUrl}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           )}
 

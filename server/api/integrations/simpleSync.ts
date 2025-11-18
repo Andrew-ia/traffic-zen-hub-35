@@ -55,10 +55,10 @@ export async function startSync(req: Request, res: Response) {
     }
 
     // Validate supported platforms
-    if (!['meta', 'instagram'].includes(platformKey)) {
+    if (!['meta', 'instagram', 'google_ads'].includes(platformKey)) {
       return res.status(400).json({
         success: false,
-        error: 'Unsupported platform. Supported platforms: meta, instagram',
+        error: 'Unsupported platform. Supported platforms: meta, instagram, google_ads',
       } as ApiResponse);
     }
 
@@ -86,45 +86,115 @@ export async function startSync(req: Request, res: Response) {
     );
 
     if (credResult.rows.length === 0) {
-      try {
-        let secrets, accessToken, adAccountId;
-        
-        if (platformKey === 'instagram') {
-          secrets = await pool.query(
-            `
-              SELECT name, value
-              FROM get_secrets(ARRAY['ig_access_token','ig_user_id'])
-            `
-          );
-          
-          const accessTokenRow = secrets.rows.find((r: any) => r.name === 'ig_access_token');
-          const userIdRow = secrets.rows.find((r: any) => r.name === 'ig_user_id');
-          
-          accessToken = accessTokenRow?.value;
-          adAccountId = userIdRow?.value; // Using ig_user_id as account identifier
-        } else {
-          secrets = await pool.query(
-            `
-              SELECT name, value
-              FROM get_secrets(ARRAY['meta_access_token','meta_ad_account_id'])
-            `
-          );
-          
-          const accessTokenRow = secrets.rows.find((r: any) => r.name === 'meta_access_token');
-          const adAccountIdRow = secrets.rows.find((r: any) => r.name === 'meta_ad_account_id');
-          
-          accessToken = accessTokenRow?.value;
-          adAccountId = adAccountIdRow?.value;
-        }
+      if (platformKey === 'google_ads') {
+        const googleSecrets = await pool.query(
+          `
+            SELECT name, value
+            FROM get_secrets(ARRAY[
+              'google_ads_refresh_token',
+              'google_ads_customer_id',
+              'google_ads_developer_token',
+              'google_client_id',
+              'google_client_secret',
+              'google_ads_login_customer_id'
+            ])
+          `
+        );
+        const refreshTokenRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_refresh_token');
+        const customerIdRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_customer_id');
+        const developerTokenRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_developer_token');
+        const clientIdRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_id');
+        const clientSecretRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_secret');
 
-        if (!accessToken || !adAccountId) {
+        let refreshToken = refreshTokenRow?.value || process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
+        let customerId = (customerIdRow?.value || process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, '');
+        let developerToken = developerTokenRow?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+        let clientId = clientIdRow?.value || process.env.GOOGLE_CLIENT_ID || '';
+        let clientSecret = clientSecretRow?.value || process.env.GOOGLE_CLIENT_SECRET || '';
+        let loginCustomerId = googleSecrets.rows.find((r: any) => r.name === 'google_ads_login_customer_id')?.value
+          || (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, '') || undefined;
+
+        if (!refreshToken || !customerId || !developerToken || !clientId || !clientSecret) {
           return res.status(404).json({
             success: false,
-            error: `Credentials not found for workspace ${normalizedWorkspaceId} and platform ${platformKey}. Configure integration_credentials or Vault secrets.`,
+            error: `Google Ads credentials not found (Vault/env) for workspace ${normalizedWorkspaceId}. Configure google_* secrets.`,
           } as ApiResponse);
         }
 
-        const enc = encryptCredentials({ accessToken, adAccountId });
+        const encGoogle = encryptCredentials({
+          platform: 'google_ads',
+          refreshToken,
+          customerId,
+          developerToken,
+          clientId,
+          clientSecret,
+          loginCustomerId,
+        });
+        await pool.query(
+          `
+            INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (workspace_id, platform_key)
+            DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()
+          `,
+          [normalizedWorkspaceId, platformKey, encGoogle.encrypted_credentials, encGoogle.encryption_iv]
+        );
+        console.log(`🔑 Google Ads credentials stored for workspace ${normalizedWorkspaceId}`);
+      } else {
+        let resolvedAccessToken: string | undefined;
+        let resolvedAccountId: string | undefined;
+
+        try {
+          if (platformKey === 'instagram') {
+            const secrets = await pool.query(
+              `
+                SELECT name, value
+                FROM get_secrets(ARRAY['ig_access_token','ig_user_id'])
+              `
+            );
+            const accessTokenRow = secrets.rows.find((r: any) => r.name === 'ig_access_token');
+            const userIdRow = secrets.rows.find((r: any) => r.name === 'ig_user_id');
+            resolvedAccessToken = accessTokenRow?.value;
+            resolvedAccountId = userIdRow?.value; // Using ig_user_id as account identifier
+          } else if (platformKey === 'meta') {
+            const secrets = await pool.query(
+              `
+                SELECT name, value
+                FROM get_secrets(ARRAY['meta_access_token','meta_ad_account_id'])
+              `
+            );
+            const accessTokenRow = secrets.rows.find((r: any) => r.name === 'meta_access_token');
+            const adAccountIdRow = secrets.rows.find((r: any) => r.name === 'meta_ad_account_id');
+            resolvedAccessToken = accessTokenRow?.value;
+            resolvedAccountId = adAccountIdRow?.value;
+          }
+        } catch (vaultErr) {
+          console.warn('Vault secret fetch failed, trying environment variables:', vaultErr);
+        }
+
+        if (platformKey === 'instagram') {
+          const envToken = String(process.env.IG_ACCESS_TOKEN || process.env.VITE_IG_ACCESS_TOKEN || '').trim();
+          const envUserId = String(process.env.IG_USER_ID || process.env.VITE_IG_USER_ID || '').trim();
+          resolvedAccessToken = resolvedAccessToken ?? (envToken || undefined);
+          resolvedAccountId = resolvedAccountId ?? (envUserId || undefined);
+        } else if (platformKey === 'meta') {
+          const envToken = String(process.env.META_ACCESS_TOKEN || '').trim();
+          const envAdAccount = String(process.env.META_AD_ACCOUNT_ID || '').trim();
+          resolvedAccessToken = resolvedAccessToken ?? (envToken || undefined);
+          resolvedAccountId = resolvedAccountId ?? (envAdAccount || undefined);
+        }
+
+        if (!resolvedAccessToken || !resolvedAccountId) {
+          return res.status(404).json({
+            success: false,
+            error: 'Missing Instagram credentials. Set IG_ACCESS_TOKEN and IG_USER_ID or configure Vault secrets.',
+          } as ApiResponse);
+        }
+
+        const enc =
+          platformKey === 'instagram'
+            ? encryptCredentials({ accessToken: resolvedAccessToken, igUserId: resolvedAccountId })
+            : encryptCredentials({ accessToken: resolvedAccessToken, adAccountId: resolvedAccountId });
         await pool.query(
           `
             INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
@@ -134,13 +204,7 @@ export async function startSync(req: Request, res: Response) {
           `,
           [normalizedWorkspaceId, platformKey, enc.encrypted_credentials, enc.encryption_iv]
         );
-        console.log(`🔑 Integration credentials created from Vault for workspace ${normalizedWorkspaceId}`);
-      } catch (vaultErr) {
-        console.error('Vault secret fetch failed:', vaultErr);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to resolve credentials from Vault',
-        } as ApiResponse);
+        console.log(`🔑 Integration credentials created for workspace ${normalizedWorkspaceId}`);
       }
     }
 
@@ -191,6 +255,34 @@ export async function startSync(req: Request, res: Response) {
           credResult.rows[0].encryption_iv
         );
 
+        if (platformKey === 'instagram') {
+          const upgradedIgUserId =
+            credentials.igUserId ??
+            credentials.ig_user_id ??
+            credentials.adAccountId ??
+            credentials.ad_account_id;
+
+          if (!upgradedIgUserId) {
+            throw new Error('Missing Instagram credentials (igUserId)');
+          }
+
+          if (!credentials.igUserId) {
+            credentials.igUserId = upgradedIgUserId;
+            const enc = encryptCredentials({
+              accessToken: credentials.accessToken,
+              igUserId: upgradedIgUserId,
+            });
+            await pool.query(
+              `
+                UPDATE integration_credentials
+                SET encrypted_credentials = $3, encryption_iv = $4, updated_at = now()
+                WHERE workspace_id = $1 AND platform_key = $2
+              `,
+              [normalizedWorkspaceId, platformKey, enc.encrypted_credentials, enc.encryption_iv]
+            );
+          }
+        }
+
         // Mark as processing
         await pool.query(
           `UPDATE sync_jobs SET status = 'processing', started_at = now(), progress = 0 WHERE id = $1`,
@@ -227,13 +319,90 @@ export async function startSync(req: Request, res: Response) {
           [jobId, error instanceof Error ? error.message : 'Unknown error']
         );
 
-        res.status(500).json({
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        const is403 = /Instagram API error 403|insufficient permissions|Permissão ausente|403/.test(String(msg));
+        const statusCode = is403 ? 403 : 500;
+        res.status(statusCode).json({
           success: false,
-          error: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          error: `Sync failed: ${msg}`,
         } as ApiResponse);
       }
     } else {
-      // Local development - use background worker
+      // Local development
+      if (platformKey === 'google_ads') {
+        try {
+          const credRow = await pool.query(
+            `SELECT encrypted_credentials, encryption_iv FROM integration_credentials WHERE workspace_id = $1 AND platform_key = 'google_ads' LIMIT 1`,
+            [normalizedWorkspaceId]
+          );
+          let credentials: any;
+          if (credRow.rows.length > 0) {
+            const { decryptCredentials } = await import('../../services/encryption.js');
+            credentials = decryptCredentials(credRow.rows[0].encrypted_credentials, credRow.rows[0].encryption_iv);
+          } else {
+            const googleSecrets = await pool.query(
+              `
+                SELECT name, value
+                FROM get_secrets(ARRAY[
+                  'google_ads_refresh_token',
+                  'google_ads_customer_id',
+                  'google_ads_developer_token',
+                  'google_client_id',
+                  'google_client_secret'
+                ])
+              `
+            );
+            const refreshTokenRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_refresh_token');
+            const customerIdRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_customer_id');
+            const developerTokenRow = googleSecrets.rows.find((r: any) => r.name === 'google_ads_developer_token');
+            const clientIdRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_id');
+            const clientSecretRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_secret');
+            credentials = {
+              google_ads_refresh_token: refreshTokenRow?.value || process.env.GOOGLE_ADS_REFRESH_TOKEN || '',
+              google_ads_customer_id: (customerIdRow?.value || process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, ''),
+              google_ads_developer_token: developerTokenRow?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '',
+              google_client_id: clientIdRow?.value || process.env.GOOGLE_CLIENT_ID || '',
+              google_client_secret: clientSecretRow?.value || process.env.GOOGLE_CLIENT_SECRET || '',
+            };
+          }
+
+          await pool.query(
+            `UPDATE sync_jobs SET status = 'processing', started_at = now(), progress = 0 WHERE id = $1`,
+            [jobId]
+          );
+
+          const { processJobDirectly } = await import('../../workers/simpleSyncWorker.js');
+          const result = await processJobDirectly({
+            jobId,
+            workspaceId: normalizedWorkspaceId,
+            platformKey,
+            parameters: { days, type: normalizedType },
+            credentials,
+          });
+
+          return res.json({
+            success: true,
+            data: {
+              jobId,
+              status: 'completed',
+              progress: 100,
+              message: 'Sync completed successfully',
+              result,
+            } as SyncJobResponse,
+          } as ApiResponse<SyncJobResponse>);
+        } catch (err) {
+          await pool.query(
+            `UPDATE sync_jobs SET status = 'failed', error_message = $2, completed_at = now() WHERE id = $1`,
+            [jobId, err instanceof Error ? err.message : 'Unknown error']
+          );
+          return res.status(500).json({
+            success: false,
+            error: err instanceof Error ? err.message : 'Failed to process Google Ads sync',
+          } as ApiResponse);
+        }
+      }
+
+      // Fallback: queue and run one worker iteration
       res.json({
         success: true,
         data: {
@@ -250,9 +419,12 @@ export async function startSync(req: Request, res: Response) {
     }
   } catch (error) {
     console.error('Error starting sync:', error);
-    res.status(500).json({
+    const msg = error instanceof Error ? error.message : 'Failed to start sync';
+    const is403 = /Instagram API error 403|insufficient permissions|Permissão ausente|403/.test(String(msg));
+    const statusCode = is403 ? 403 : 500;
+    res.status(statusCode).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to start sync',
+      error: msg,
     } as ApiResponse);
   }
 }

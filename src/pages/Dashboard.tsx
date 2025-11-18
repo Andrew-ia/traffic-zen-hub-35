@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
 import { ObjectivePerformanceSection } from "@/components/dashboard/ObjectivePerformance";
 import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -35,8 +34,6 @@ export default function Dashboard() {
         </Select>
       </div>
 
-      <PerformanceChart data={performance?.points ?? []} isLoading={isLoadingMetrics} />
-      
       <ObjectivePerformanceSection days={periodDays} />
     </div>
   );

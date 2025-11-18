@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { resolveApiBase } from '@/lib/apiBase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,9 @@ export default function VirtualTryOn() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [folderName, setFolderName] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const API_BASE = resolveApiBase();
+  const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
   const { data: looksData, isLoading: isLoadingLooks, refetch: refetchLooks } = useTryOnLooks();
   const deleteLookMutation = useDeleteTryOnLook();
@@ -156,7 +160,7 @@ export default function VirtualTryOn() {
       // Auto-save generated images to database WITH captions
       if (result.images.length > 0) {
         try {
-          const response = await fetch('http://localhost:3001/api/creatives/save-tryon', {
+          const response = await fetch(`${API_BASE}/api/creatives/save-tryon`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -164,7 +168,7 @@ export default function VirtualTryOn() {
             body: JSON.stringify({
               images: result.images,
               captions: result.captions,
-              workspaceId: '00000000-0000-0000-0000-000000000010', // Default workspace
+              workspaceId: WORKSPACE_ID,
               modelName: modelFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
               clothingName: clothingFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
               folderName: folderName.trim() || null,
@@ -195,7 +199,7 @@ export default function VirtualTryOn() {
       setProgress({ current: 0, total: 0 });
       abortControllerRef.current = null;
     }
-  }, [modelFile, clothingFile, imageCount, aspectRatio, folderName, refetchLooks]);
+  }, [modelFile, clothingFile, imageCount, aspectRatio, folderName, refetchLooks, API_BASE, WORKSPACE_ID]);
 
   const handleCancel = useCallback(() => {
     if (abortControllerRef.current) {

@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import { login, me, createUser, authMiddleware, adminOnly } from '../server/api/auth.js';
 import { saveCredentials, getCredentials, deleteCredentials } from '../server/api/integrations/credentials.js';
 import { startSync, getSyncStatus, getWorkspaceSyncJobs } from '../server/api/integrations/simpleSync.js';
+import { directInstagramSync } from '../server/api/integrations/directSync.js';
+import { optimizedMetaSync, getMetaSyncStatus } from '../server/api/integrations/optimizedMetaSync.js';
+import { optimizedInstagramSync, getInstagramSyncStatus } from '../server/api/integrations/optimizedInstagramSync.js';
 import { syncMetaBilling } from '../server/api/integrations/billing.js';
 import { ga4Realtime, ga4Report, ga4GoogleAds } from '../server/api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from '../server/api/analytics/metrics.js';
@@ -19,6 +22,7 @@ import { importCashflowXlsx } from '../server/api/finance/cashflow.js';
 import { downloadProxy } from '../server/api/creatives/download-proxy.js';
 import { saveTryOnCreatives } from '../server/api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from '../server/api/creatives/get-tryon-looks.js';
+import { getEngagementRate } from '../server/api/instagram/engagement.js';
 import {
   getFolders,
   getFolderById,
@@ -120,6 +124,17 @@ app.delete('/integrations/credentials/:workspaceId/:platformKey', deleteCredenti
 // Sync endpoints
 app.post('/integrations/sync', startSync);
 app.post('/integrations/simple-sync', startSync);
+app.post('/integrations/direct-sync', directInstagramSync);
+
+// Optimized sync endpoints (new)
+app.post('/integrations/meta/sync-optimized', optimizedMetaSync);
+app.get('/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
+
+// Optimized Instagram sync endpoints
+app.post('/integrations/instagram/sync-optimized', optimizedInstagramSync);
+app.get('/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
+
+// Legacy sync status endpoints
 app.get('/integrations/sync/:jobId', getSyncStatus);
 app.get('/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
 app.post('/integrations/billing/sync', syncMetaBilling);
@@ -143,6 +158,9 @@ app.post('/ga4/google-ads', ga4GoogleAds);
 
 // Finance: Cashflow import endpoint
 app.post('/finance/cashflow/import', importCashflowXlsx);
+
+// Instagram engagement endpoint
+app.get('/instagram/engagement', getEngagementRate);
 
 // Platform metrics endpoints
 app.get('/metrics/aggregate', getAggregateMetrics);

@@ -4,6 +4,7 @@ import type { SyncJobData } from '../types/index.js';
 import { runMetaSync } from '../../supabase/functions/_shared/metaSync.js';
 import { runInstagramSync } from '../../supabase/functions/_shared/instagramSync.js';
 import type { SyncContext } from '../../supabase/functions/_shared/db.js';
+ 
 
 /**
  * Simple sync worker without Redis/BullMQ
@@ -35,6 +36,8 @@ function resolveInstagramCredentials(credentials: any) {
 
   return { igUserId, accessToken };
 }
+
+ 
 
 async function executeInstagramSync(jobData: SyncJobData): Promise<any> {
   const pool = getPool();
@@ -82,6 +85,8 @@ async function executeMetaSync(jobData: SyncJobData): Promise<any> {
     ctx,
   );
 }
+
+ 
 
 /**
  * Update job status in database
@@ -162,6 +167,8 @@ async function processJob(job: any, jobData: SyncJobData) {
       resultSummary = await executeInstagramSync(jobData);
     } else if (jobData.platformKey === 'meta') {
       resultSummary = await executeMetaSync(jobData);
+    } else if (jobData.platformKey === 'google_ads') {
+      throw new Error('Google Ads integration removed');
     } else {
       throw new Error(`Unsupported platform: ${jobData.platformKey}`);
     }
@@ -212,6 +219,9 @@ async function processJob(job: any, jobData: SyncJobData) {
 /**
  * Poll for queued jobs and process them
  */
+let consecutiveErrors = 0;
+const maxConsecutiveErrors = 5;
+
 async function pollForJobs() {
   if (isProcessing) {
     return; // Already processing a job
@@ -289,8 +299,36 @@ async function pollForJobs() {
 
     // Process the job
     await processJob(job, jobData);
+    
+    // Reset error counter on success
+    consecutiveErrors = 0;
+    
   } catch (error) {
-    console.error('Error polling for jobs:', error);
+    consecutiveErrors++;
+    
+    const isConnectionError = 
+      error instanceof Error && 
+      (error.message.includes('ENOTFOUND') || 
+       error.message.includes('ECONNREFUSED') || 
+       error.message.includes('timeout'));
+    
+    if (isConnectionError && consecutiveErrors <= maxConsecutiveErrors) {
+      // Log connection errors only occasionally to avoid spam
+      if (consecutiveErrors === 1 || consecutiveErrors % 3 === 0) {
+        console.warn(`⚠️  Connection issue (${consecutiveErrors}/${maxConsecutiveErrors}):`, error.message);
+      }
+    } else {
+      console.error('Error polling for jobs:', error);
+    }
+    
+    // If too many consecutive errors, pause polling for a bit
+    if (consecutiveErrors >= maxConsecutiveErrors) {
+      console.warn(`🔴 Too many consecutive errors (${consecutiveErrors}). Pausing worker for 30 seconds...`);
+      setTimeout(() => {
+        consecutiveErrors = 0;
+        console.log('🟢 Worker resuming after pause');
+      }, 30000);
+    }
   } finally {
     isProcessing = false;
   }
@@ -301,10 +339,10 @@ async function pollForJobs() {
  */
 export function startSimpleWorker() {
   console.log('🔧 Simple sync worker started (PostgreSQL polling)');
-  console.log('   Polling every 2 seconds for new jobs...\n');
+  console.log('   Polling every 5 seconds for new jobs...\n');
 
-  // Poll every 2 seconds
-  const intervalId = setInterval(pollForJobs, 2000);
+  // Poll every 5 seconds (less aggressive)
+  const intervalId = setInterval(pollForJobs, 5000);
 
   // Graceful shutdown
   process.on('SIGTERM', () => {
@@ -350,6 +388,8 @@ export async function processJobDirectly(jobData: SyncJobData): Promise<any> {
       resultSummary = await executeInstagramSync(jobData);
     } else if (jobData.platformKey === 'meta') {
       resultSummary = await executeMetaSync(jobData);
+    } else if (jobData.platformKey === 'google_ads') {
+      throw new Error('Google Ads integration removed');
     } else {
       throw new Error(`Unsupported platform: ${jobData.platformKey}`);
     }

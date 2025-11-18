@@ -41,8 +41,8 @@ async function upsertSecret(name, value) {
   }
 
   const { error } = await supabase.rpc('insert_secret', {
-    name,
-    secret: value,
+    secret_name: name,
+    secret_value: value,
   });
 
   if (error) {

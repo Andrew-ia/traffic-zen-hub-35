@@ -27,9 +27,12 @@ import {
   EyeOff,
   RefreshCw,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Integrations() {
   const { data: overview, isLoading } = useIntegrationOverview();
+  const [metaDays, setMetaDays] = useState<number>(7);
+  const [instagramDays, setInstagramDays] = useState<number>(7);
 
   const metaIntegration = useMemo(
     () => overview?.integrations.find((integration) => integration.platform_key === "meta") ?? null,
@@ -180,12 +183,40 @@ export default function Integrations() {
                 <div className="flex items-center gap-4">
                   {platform.id === 1 ? (
                     <div className="flex items-center gap-2">
-                      <MetaSyncButton size="sm" />
+                      <div className="w-40">
+                        <Select value={String(metaDays)} onValueChange={(v) => setMetaDays(Number(v))}>
+                          <SelectTrigger className="h-8">
+                            <SelectValue placeholder="Últimos 7 dias" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="7">Últimos 7 dias</SelectItem>
+                            <SelectItem value="14">Últimos 14 dias</SelectItem>
+                            <SelectItem value="30">Últimos 30 dias</SelectItem>
+                            <SelectItem value="60">Últimos 60 dias</SelectItem>
+                            <SelectItem value="90">Últimos 90 dias</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <MetaSyncButton size="sm" days={metaDays} />
                       <MetaCredentialsDialog />
                     </div>
                   ) : platform.id === 2 ? (
                     <div className="flex items-center gap-2">
-                      <InstagramSyncButton size="sm" />
+                      <div className="w-40">
+                        <Select value={String(instagramDays)} onValueChange={(v) => setInstagramDays(Number(v))}>
+                          <SelectTrigger className="h-8">
+                            <SelectValue placeholder="Últimos 7 dias" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="7">Últimos 7 dias</SelectItem>
+                            <SelectItem value="14">Últimos 14 dias</SelectItem>
+                            <SelectItem value="30">Últimos 30 dias</SelectItem>
+                            <SelectItem value="60">Últimos 60 dias</SelectItem>
+                            <SelectItem value="90">Últimos 90 dias</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <InstagramSyncButton size="sm" days={instagramDays} />
                       <InstagramCredentialsDialog />
                     </div>
                   ) : platform.connected ? (
@@ -316,6 +347,8 @@ function MetaCredentialsDialog() {
   const [credentials, setCredentials] = useState<MetaCredentials>(defaultCredentials);
   const [saved, setSaved] = useState(false);
   const [showAppSecret, setShowAppSecret] = useState(false);
+  const [serverStatus, setServerStatus] = useState<string>("");
+  const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
 
   useEffect(() => {
     try {
@@ -337,6 +370,29 @@ function MetaCredentialsDialog() {
     } catch (error) {
       console.warn("Failed to load stored Meta credentials", error);
     }
+    // Fetch server-side credentials (masked)
+    (async () => {
+      try {
+        const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/meta`, { credentials: "include" });
+        if (resp.ok) {
+          const json = await resp.json();
+          const serverCred = json?.data?.credentials || {};
+          const merged: MetaCredentials = {
+            appId: serverCred.appId || credentials.appId,
+            appSecret: serverCred.appSecret || credentials.appSecret,
+            accessToken: serverCred.accessToken || credentials.accessToken,
+            adAccountId: serverCred.adAccountId || credentials.adAccountId,
+            workspaceId: credentials.workspaceId || WORKSPACE_ID,
+          };
+          setCredentials(merged);
+          setServerStatus("Credenciais do servidor carregadas");
+        } else if (resp.status === 404) {
+          setServerStatus("Sem credenciais salvas no servidor");
+        }
+      } catch {
+        setServerStatus("");
+      }
+    })();
   }, [open]);
 
   const envSnippet = useMemo(
@@ -359,6 +415,28 @@ function MetaCredentialsDialog() {
     localStorage.setItem(META_CREDENTIALS_KEY, JSON.stringify(credentials));
     setSaved(true);
     setOpen(false);
+  };
+
+  const handleSaveServer = async () => {
+    const payload = {
+      workspaceId: WORKSPACE_ID,
+      platformKey: "meta",
+      credentials: {
+        appId: credentials.appId,
+        appSecret: credentials.appSecret,
+        accessToken: credentials.accessToken,
+        adAccountId: credentials.adAccountId,
+      },
+    };
+    const resp = await fetch(`/api/integrations/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (resp.ok) {
+      setServerStatus("Credenciais salvas no servidor");
+      setSaved(true);
+    }
   };
 
   const handleReset = () => {
@@ -435,23 +513,27 @@ function MetaCredentialsDialog() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Snippet para .env.local</Label>
-            <Textarea readOnly value={envSnippet} rows={6} />
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopy}>
-                <Copy className="mr-2 h-4 w-4" /> Copiar snippet
-              </Button>
-              {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
-            </div>
+        <div className="space-y-2">
+          <Label>Snippet para .env.local</Label>
+          <Textarea readOnly value={envSnippet} rows={6} />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopy}>
+              <Copy className="mr-2 h-4 w-4" /> Copiar snippet
+            </Button>
+            {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
+            {serverStatus && <span className="text-xs text-muted-foreground">{serverStatus}</span>}
           </div>
+        </div>
         </div>
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
           <Button variant="ghost" onClick={handleReset} className="justify-start">
             Limpar credenciais
           </Button>
-          <Button onClick={handleSave}>Salvar no navegador</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleSaveServer}>Salvar no servidor</Button>
+            <Button onClick={handleSave}>Salvar no navegador</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -468,6 +550,14 @@ function InstagramCredentialsDialog() {
   const [open, setOpen] = useState(false);
   const [credentials, setCredentials] = useState<InstagramCredentials>(defaultInstagramCredentials);
   const [saved, setSaved] = useState(false);
+  const [serverTokenMasked, setServerTokenMasked] = useState<string>("");
+  const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
+
+  const maskToken = (t: string) => {
+    const s = (t || "").trim();
+    if (s.length < 12) return s ? `${s.slice(0, 4)}••••${s.slice(-2)}` : "";
+    return `${s.slice(0, 6)}••••••••${s.slice(-4)}`;
+  };
 
   useEffect(() => {
     try {
@@ -487,11 +577,22 @@ function InstagramCredentialsDialog() {
     } catch (error) {
       console.warn("Failed to load stored Instagram credentials", error);
     }
+    // Fetch server-side credentials (masked)
+    (async () => {
+      try {
+        const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/instagram`, { credentials: "include" });
+        if (resp.ok) {
+          const json = await resp.json();
+          const token = json?.data?.credentials?.accessToken || "";
+          if (token) setServerTokenMasked(maskToken(String(token)));
+        }
+      } catch {}
+    })();
   }, [open]);
 
   const envSnippet = useMemo(
     () =>
-      `IG_USER_ID=${credentials.igUserId}\nIG_ACCESS_TOKEN=${credentials.accessToken}\nIG_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_IG_USER_ID=${credentials.igUserId}`,
+      `IG_USER_ID=${credentials.igUserId}\nIG_ACCESS_TOKEN=${credentials.accessToken || serverTokenMasked}\nIG_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_IG_USER_ID=${credentials.igUserId}`,
     [credentials],
   );
 
@@ -594,7 +695,7 @@ function InstagramCredentialsDialog() {
               placeholder="Access token de longa duração do Meta"
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Use o mesmo Access Token configurado no Meta Ads
+              Use o mesmo Access Token configurado no Meta Ads. No servidor, o token está {serverTokenMasked ? `configurado (${serverTokenMasked})` : "configurado"}.
             </p>
           </div>
 

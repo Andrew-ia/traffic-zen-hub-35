@@ -8,6 +8,7 @@ interface EmojiPickerProps {
   value?: string;
   onSelect: (emoji: string) => void;
   triggerLabel?: string;
+  display?: 'icon' | 'button';
 }
 
 // Curated set of common emojis for folders
@@ -44,7 +45,7 @@ const EMOJIS: { emoji: string; keywords: string[] }[] = [
   { emoji: '🗃️', keywords: ['arquivo', 'file'] },
 ];
 
-export function EmojiPicker({ value, onSelect, triggerLabel }: EmojiPickerProps) {
+export function EmojiPicker({ value, onSelect, triggerLabel, display = 'icon' }: EmojiPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -59,9 +60,16 @@ export function EmojiPicker({ value, onSelect, triggerLabel }: EmojiPickerProps)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" aria-label={triggerLabel || 'Escolher emoji'}>
-          <span className="text-lg leading-none">{value || '📁'}</span>
-        </Button>
+        {display === 'icon' ? (
+          <Button variant="outline" size="icon" aria-label={triggerLabel || 'Escolher emoji'}>
+            <span className="text-lg leading-none">{value || '📁'}</span>
+          </Button>
+        ) : (
+          <Button variant="outline" aria-label={triggerLabel || 'Escolher emoji'}>
+            <span className="mr-2 text-lg leading-none">{value || '📁'}</span>
+            {triggerLabel || 'Escolher emoji'}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent className="w-72" align="start">
         <div className="space-y-2">

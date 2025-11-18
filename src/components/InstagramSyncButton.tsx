@@ -53,10 +53,231 @@ export default function InstagramSyncButton({
   };
 
   const resetSyncState = () => {
+    clearPolling();
     setSyncing(false);
     setStatusMessage(null);
     setProgress(null);
     setCurrentStage(0);
+  };
+
+  const updateProgressStage = (value: number, customMessage?: string) => {
+    const progressValue = Math.max(0, Math.min(100, Math.round(value)));
+    setProgress(progressValue);
+    const stageIndex = Math.min(
+      syncStages.length - 1,
+      Math.floor((progressValue / 100) * (syncStages.length - 1))
+    );
+    setCurrentStage(stageIndex);
+    setStatusMessage(customMessage ?? syncStages[stageIndex]);
+  };
+
+  const finalizeSuccess = (message?: string) => {
+    clearPolling();
+    updateProgressStage(100, message ?? "Sincronização concluída!");
+    toast({
+      title: "Sincronização concluída",
+      description: message ?? "Os dados do Instagram foram atualizados com sucesso.",
+    });
+    setTimeout(() => {
+      resetSyncState();
+    }, 1200);
+  };
+
+  const pollJobStatus = (jobId: string) => {
+    let attempts = 0;
+    const maxAttempts = 120; // 4 minutos
+
+    pollRef.current = window.setInterval(async () => {
+      attempts += 1;
+      if (attempts > maxAttempts) {
+        clearPolling();
+        resetSyncState();
+        toast({
+          title: "Tempo excedido",
+          description: "A sincronização está demorando. Verifique novamente em alguns minutos.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        const statusResponse = await fetch(`${API_BASE}/api/integrations/sync/${jobId}`);
+        const statusPayload = await statusResponse.json().catch(() => ({}));
+
+        if (!statusResponse.ok) {
+          throw new Error(statusPayload?.error || "Não foi possível verificar o status.");
+        }
+
+        const statusData = statusPayload?.data;
+        if (typeof statusData?.progress === "number") {
+          updateProgressStage(statusData.progress);
+        }
+
+        if (statusData?.status === "completed") {
+          finalizeSuccess("Sincronização concluída. Atualizando dashboards...");
+        } else if (statusData?.status === "failed") {
+          clearPolling();
+          resetSyncState();
+          toast({
+            title: "Erro na sincronização",
+            description:
+              statusData?.error || statusPayload?.error || "Falha ao sincronizar dados do Instagram.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Erro ao verificar status da sincronização:", error);
+      }
+    }, 2000);
+  };
+
+  const runOptimizedSync = async (workspaceId: string) => {
+    updateProgressStage(15, "Iniciando sincronização otimizada...");
+    const controller = new AbortController();
+    // Sync otimizado pode levar mais tempo para volumes grandes: 300s (5 minutos)
+    const timeoutId = window.setTimeout(() => controller.abort(), 300000);
+    let response: Response;
+
+    try {
+      response = await fetch(`${API_BASE}/api/integrations/instagram/sync-optimized`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId,
+          totalDays: days,
+          batchDays: Math.min(days, 7), // Batches de até 7 dias
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
+      if (/aborted/i.test(msg)) {
+        throw new Error("Tempo excedido na sincronização. Para períodos longos (>30 dias), tente em batches menores.");
+      }
+      throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload?.success === false) {
+      throw new Error(payload?.error || "Falha na sincronização otimizada do Instagram.");
+    }
+
+    updateProgressStage(95, "Finalizando sincronização...");
+    finalizeSuccess(payload?.message || `Sincronização concluída! ${payload?.data?.recordsProcessed || 0} registros processados.`);
+  };
+
+  const runDirectSync = async (workspaceId: string) => {
+    updateProgressStage(15, "Executando sync direto (fallback)...");
+    const controller = new AbortController();
+    // O fallback direto mantém timeout menor: 120s
+    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    let response: Response;
+
+    try {
+      response = await fetch(`${API_BASE}/api/integrations/direct-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId,
+          days,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
+      if (/aborted/i.test(msg)) {
+        throw new Error("Tempo excedido na sincronização direta. Tente novamente ou aguarde alguns minutos.");
+      }
+      throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload?.success === false) {
+      throw new Error(payload?.error || "Falha na sincronização direta do Instagram.");
+    }
+
+    updateProgressStage(95, "Finalizando sincronização...");
+    finalizeSuccess(payload?.message || `Os dados do Instagram foram atualizados com sucesso.`);
+  };
+
+  const startJobSync = async (workspaceId: string) => {
+    const controller = new AbortController();
+    // Timeout padrão para a API principal (job-based): 20s
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+    let response: Response;
+
+    try {
+      response = await fetch(`${API_BASE}/api/integrations/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId,
+          platformKey: "instagram",
+          days,
+          type: "all",
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      console.warn("API principal indisponível. Usando fallback direto.", error);
+      await runDirectSync(workspaceId);
+      return;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        await runDirectSync(workspaceId);
+        return;
+      }
+      throw new Error(payload?.error || "Falha ao iniciar sincronização");
+    }
+
+    if (payload?.success === false) {
+      throw new Error(payload?.error || "Falha ao iniciar sincronização");
+    }
+
+    const jobData = payload?.data;
+    const jobId = jobData?.jobId;
+
+    toast({
+      title: "Sincronização iniciada",
+      description: `Buscando dados dos últimos ${days} dias.`,
+    });
+
+    updateProgressStage(
+      typeof jobData?.progress === "number" ? jobData.progress : 10,
+      "Conectando com Instagram API..."
+    );
+
+    if (jobData?.status === "completed" && jobId) {
+      finalizeSuccess("Sincronização concluída. Atualizando dashboards...");
+      return;
+    }
+
+    if (!jobId) {
+      throw new Error("Resposta da API não retornou jobId");
+    }
+
+    pollJobStatus(jobId);
   };
 
   const handleSync = async () => {
@@ -74,186 +295,21 @@ export default function InstagramSyncButton({
 
     try {
       setSyncing(true);
-      setCurrentStage(0);
-      setStatusMessage(`Preparando sincronização (${days} dias)...`);
-      setProgress(0);
+      updateProgressStage(5, `Preparando sincronização (${days} dias)...`);
 
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
-      let response: Response | null = null;
+      // Try optimized sync first, fallback to job-based, then direct
       try {
-        const health = await fetch(`${API_BASE}/health`, { headers: { Accept: 'application/json' } });
-        if (!health.ok) throw new Error('API indisponível');
-        response = await fetch(`${API_BASE}/api/integrations/simple-sync`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            workspaceId,
-            platformKey: "instagram",
-            days,
-            type: "all",
-          }),
-          signal: controller.signal,
-        });
-      } catch (e) {
-        window.clearTimeout(timeoutId);
-        setCurrentStage(1);
-        setStatusMessage('API principal indisponível. Tentando rota alternativa...');
-
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-        if (supabaseUrl && anonKey) {
-          try {
-            setCurrentStage(2);
-            setStatusMessage('Usando Edge Function para sincronização...');
-            setProgress(15);
-            const ef = await fetch(`${supabaseUrl}/functions/v1/instagram-sync`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${anonKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ days, sync_type: 'all' }),
-            });
-            const efPayload = await ef.json().catch(() => ({}));
-            if (!ef.ok || efPayload?.success === false) {
-              throw new Error(efPayload?.error || 'Falha na Edge Function');
-            }
-            toast({
-              title: 'Sincronização iniciada (Edge Function)',
-              description: `Instagram em atualização nos últimos ${days} dias.`,
-            });
-            setProgress(100);
-            setCurrentStage(syncStages.length - 1);
-            setTimeout(() => {
-              resetSyncState();
-            }, 1500);
-            return;
-          } catch (efError) {
-            toast({
-              title: 'API indisponível',
-              description: 'Falha ao usar Edge Function também. Verifique VITE_API_URL/VITE_SUPABASE_*',
-              variant: 'destructive',
-            });
-            resetSyncState();
-            return;
-          }
-        }
-
-        toast({
-          title: 'API indisponível',
-          description: 'Configure VITE_API_URL no ambiente de produção apontando para sua API.',
-          variant: 'destructive',
-        });
-        resetSyncState();
-        return;
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-      
-
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Falha ao iniciar sincronização");
-      }
-
-      const jobId = payload?.data?.jobId;
-      if (!jobId) {
-        throw new Error("Resposta da API não retornou jobId");
-      }
-
-      toast({
-        title: "Sincronização iniciada",
-        description: `Buscando dados do Instagram dos últimos ${days} dias.`,
-      });
-
-      setCurrentStage(1);
-      setStatusMessage("Conectando com Instagram API...");
-      setProgress(10);
-
-      let attempts = 0;
-      const maxAttempts = 120;
-
-      pollRef.current = window.setInterval(async () => {
-        attempts += 1;
-        if (attempts > maxAttempts) {
-          clearPolling();
-          resetSyncState();
-          toast({
-            title: "Tempo excedido",
-            description: "A sincronização está demorando. Verifique novamente em alguns minutos.",
-            variant: "destructive",
-          });
-          return;
-        }
-
+        await runOptimizedSync(workspaceId);
+      } catch (optimizedError) {
+        console.warn("Sync otimizado falhou, tentando job-based:", optimizedError);
         try {
-          const statusResponse = await fetch(`${API_BASE}/api/integrations/sync/${jobId}`);
-          const statusPayload = await statusResponse.json().catch(() => ({}));
-
-          if (!statusResponse.ok) {
-            throw new Error(statusPayload?.error || "Não foi possível verificar o status.");
-          }
-
-          const status = statusPayload?.data?.status;
-          const pct = statusPayload?.data?.progress;
-          
-          // Update progress and stage based on percentage
-          if (typeof pct === "number") {
-            const progressValue = Math.max(0, Math.min(100, Math.round(pct)));
-            setProgress(progressValue);
-            
-            // Update stage based on progress for Instagram-specific flow
-            const stageIndex = Math.floor((progressValue / 100) * (syncStages.length - 1));
-            setCurrentStage(Math.min(stageIndex, syncStages.length - 1));
-            
-            // Set appropriate message based on stage for Instagram
-            if (progressValue < 15) {
-              setStatusMessage("Conectando com Instagram API...");
-            } else if (progressValue < 30) {
-              setStatusMessage("Autenticando conta business...");
-            } else if (progressValue < 60) {
-              setStatusMessage("Buscando posts e stories...");
-            } else if (progressValue < 80) {
-              setStatusMessage("Coletando métricas de engajamento...");
-            } else if (progressValue < 95) {
-              setStatusMessage("Processando insights de audiência...");
-            } else {
-              setStatusMessage("Finalizando sincronização...");
-            }
-          }
-
-          if (status === "completed") {
-            clearPolling();
-            setCurrentStage(syncStages.length - 1);
-            setStatusMessage("Sincronização concluída. Atualizando dashboards...");
-            setProgress(100);
-            toast({
-              title: "Sincronização concluída",
-              description: "Os dados do Instagram foram atualizados com sucesso.",
-            });
-            setTimeout(() => {
-              resetSyncState();
-            }, 1200);
-          } else if (status === "failed") {
-            clearPolling();
-            resetSyncState();
-            toast({
-              title: "Erro na sincronização",
-              description: statusPayload?.data?.error_message || "Falha ao sincronizar dados.",
-              variant: "destructive",
-            });
-          }
-        } catch (error) {
-          console.error("Erro ao verificar status da sincronização do Instagram:", error);
+          await startJobSync(workspaceId);
+        } catch (jobError) {
+          console.warn("Job-based sync falhou, usando fallback direto:", jobError);
+          await runDirectSync(workspaceId);
         }
-      }, 2000);
+      }
     } catch (error) {
-      clearPolling();
       resetSyncState();
       toast({
         title: "Erro na sincronização",

@@ -18,6 +18,7 @@ export async function createReminder(req: Request, res: Response) {
       phone,
       telegram_chat_id,
       position,
+      assignee_id,
     } = req.body;
 
     console.log('🔔 Creating reminder with body:', { folder_id, name, due_date, notify_via, email, phone });
@@ -72,9 +73,9 @@ export async function createReminder(req: Request, res: Response) {
         workspace_id, folder_id, list_id,
         name, description, due_date,
         notify_via, email, phone, telegram_chat_id,
-        position
+        position, assignee_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
 
@@ -90,6 +91,7 @@ export async function createReminder(req: Request, res: Response) {
       phone || null,
       telegram_chat_id || null,
       finalPosition,
+      assignee_id || null,
     ]);
 
     return res.status(201).json({
@@ -126,10 +128,13 @@ export async function getReminders(req: Request, res: Response) {
                  f.name as folder_name,
                  f.icon as folder_icon,
                  l.name as list_name,
-                 l.icon as list_icon
+                 l.icon as list_icon,
+                 u.full_name as assignee_name,
+                 u.email as assignee_email
           FROM pm_reminders r
           JOIN pm_folders f ON r.folder_id = f.id
           JOIN pm_lists l ON r.list_id = l.id
+          LEFT JOIN users u ON r.assignee_id = u.id
           WHERE r.workspace_id = $1 AND r.list_id = $2 AND r.status = $3
           ORDER BY r.due_date ASC, r.position ASC
         `;
@@ -140,10 +145,13 @@ export async function getReminders(req: Request, res: Response) {
                  f.name as folder_name,
                  f.icon as folder_icon,
                  l.name as list_name,
-                 l.icon as list_icon
+                 l.icon as list_icon,
+                 u.full_name as assignee_name,
+                 u.email as assignee_email
           FROM pm_reminders r
           JOIN pm_folders f ON r.folder_id = f.id
           JOIN pm_lists l ON r.list_id = l.id
+          LEFT JOIN users u ON r.assignee_id = u.id
           WHERE r.workspace_id = $1 AND r.list_id = $2
           ORDER BY r.due_date ASC, r.position ASC
         `;
@@ -156,10 +164,13 @@ export async function getReminders(req: Request, res: Response) {
                  f.name as folder_name,
                  f.icon as folder_icon,
                  l.name as list_name,
-                 l.icon as list_icon
+                 l.icon as list_icon,
+                 u.full_name as assignee_name,
+                 u.email as assignee_email
           FROM pm_reminders r
           JOIN pm_folders f ON r.folder_id = f.id
           JOIN pm_lists l ON r.list_id = l.id
+          LEFT JOIN users u ON r.assignee_id = u.id
           WHERE r.workspace_id = $1 AND r.status = $2
           ORDER BY r.due_date ASC, r.position ASC
         `;
@@ -170,10 +181,13 @@ export async function getReminders(req: Request, res: Response) {
                  f.name as folder_name,
                  f.icon as folder_icon,
                  l.name as list_name,
-                 l.icon as list_icon
+                 l.icon as list_icon,
+                 u.full_name as assignee_name,
+                 u.email as assignee_email
           FROM pm_reminders r
           JOIN pm_folders f ON r.folder_id = f.id
           JOIN pm_lists l ON r.list_id = l.id
+          LEFT JOIN users u ON r.assignee_id = u.id
           WHERE r.workspace_id = $1
           ORDER BY r.due_date ASC, r.position ASC
         `;

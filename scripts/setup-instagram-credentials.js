@@ -36,7 +36,10 @@ const { Client } = pg;
 const IG_USER_ID = process.env.IG_USER_ID || process.env.VITE_IG_USER_ID;
 const IG_ACCESS_TOKEN = process.env.IG_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN;
 const IG_WORKSPACE_ID = process.env.IG_WORKSPACE_ID || process.env.META_WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
-const SUPABASE_DATABASE_URL = process.env.SUPABASE_DATABASE_URL;
+const SUPABASE_DATABASE_URL =
+  process.env.SUPABASE_POOLER_URL ||
+  process.env.SUPABASE_DATABASE_URL ||
+  process.env.DATABASE_URL;
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
 function assertEnv(value, name) {
@@ -48,7 +51,11 @@ function assertEnv(value, name) {
 
 async function setupInstagramCredentials() {
   const client = new Client({
-    connectionString: assertEnv(SUPABASE_DATABASE_URL, 'SUPABASE_DATABASE_URL'),
+    connectionString: assertEnv(
+      SUPABASE_DATABASE_URL,
+      'SUPABASE_POOLER_URL or SUPABASE_DATABASE_URL or DATABASE_URL'
+    ),
+    ssl: { rejectUnauthorized: false },
   });
 
   try {

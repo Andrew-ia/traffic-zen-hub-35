@@ -9,6 +9,20 @@ export interface MetaCredentials {
   adAccountId: string;
 }
 
+export interface InstagramCredentials {
+  igUserId: string;
+  accessToken: string;
+}
+
+export interface GoogleAdsCredentials {
+  refreshToken: string;
+  customerId: string;
+  developerToken: string;
+  clientId: string;
+  clientSecret: string;
+  loginCustomerId?: string;
+}
+
 export interface SyncJobParameters {
   days: number;
   type: 'all' | 'campaigns' | 'metrics';
@@ -19,7 +33,7 @@ export interface SyncJobData {
   workspaceId: string;
   platformKey: string;
   parameters: SyncJobParameters;
-  credentials: MetaCredentials;
+  credentials: MetaCredentials | InstagramCredentials | GoogleAdsCredentials | Record<string, any>;
 }
 
 export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';

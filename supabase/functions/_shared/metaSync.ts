@@ -17,6 +17,7 @@ export interface MetaSyncSummary {
   adsSynced: number;
   creativesSynced: number;
   metricsSynced: number;
+  campaignNames?: string[];
   startedAt: string;
   completedAt: string;
 }
@@ -831,6 +832,7 @@ export async function runMetaSync(
     adsSynced: 0,
     creativesSynced: 0,
     metricsSynced: 0,
+    campaignNames: [],
     startedAt: startedAt.toISOString(),
     completedAt: startedAt.toISOString(),
   };
@@ -855,6 +857,7 @@ export async function runMetaSync(
     logger.info(`📥 Buscando campanhas atualizadas nos últimos ${options.days} dias...`);
     const campaigns = await fetchRecentCampaigns(options.accessToken, options.adAccountId, options.days);
     summary.campaignsSynced = campaigns.length;
+    summary.campaignNames = campaigns.map((c: any) => String(c.name || c.id)).slice(0, 50);
     logger.info(`✅ ${campaigns.length} campanhas encontradas`);
 
     if (campaigns.length > 0) {

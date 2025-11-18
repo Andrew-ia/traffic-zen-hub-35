@@ -9,7 +9,11 @@ const { Client } = pg;
 
 async function checkData() {
   const client = new Client({
-    connectionString: process.env.SUPABASE_DATABASE_URL,
+    connectionString:
+      process.env.SUPABASE_POOLER_URL ||
+      process.env.SUPABASE_DATABASE_URL ||
+      process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
   });
 
   try {

@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { resolveApiBase } from '@/lib/apiBase';
 
-const WORKSPACE_ID = '00000000-0000-0000-0000-000000000010';
+const API_BASE = resolveApiBase();
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
+
+if (!WORKSPACE_ID) {
+  throw new Error('Missing VITE_WORKSPACE_ID environment variable.');
+}
 
 export interface TryOnImage {
   id: string;
@@ -32,9 +38,7 @@ export function useTryOnLooks() {
   return useQuery<TryOnLooksResponse>({
     queryKey: ['tryon-looks', WORKSPACE_ID],
     queryFn: async () => {
-      const response = await fetch(
-        `http://localhost:3001/api/creatives/tryon-looks?workspaceId=${WORKSPACE_ID}`
-      );
+      const response = await fetch(`${API_BASE}/api/creatives/tryon-looks?workspaceId=${WORKSPACE_ID}`);
       if (!response.ok) {
         throw new Error('Failed to fetch try-on looks');
       }
@@ -48,18 +52,15 @@ export function useDeleteTryOnLook() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(
-        `http://localhost:3001/api/creatives/tryon-looks/${id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            workspaceId: WORKSPACE_ID,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/creatives/tryon-looks/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workspaceId: WORKSPACE_ID,
+        }),
+      });
 
       if (!response.ok) {
         throw new Error('Failed to delete look');

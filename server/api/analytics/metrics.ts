@@ -163,7 +163,9 @@ export async function getAggregateMetrics(req: Request, res: Response) {
               'post_interaction_gross',
               'post_reaction',
               'comment',
-              'like'
+              'like',
+              'omni_engagement',
+              'post'
             )
           ) as engagements,
           sum((act->>'value')::numeric) filter (where act->>'action_type' in ('onsite_conversion.post_save', 'post_save')) as saves,

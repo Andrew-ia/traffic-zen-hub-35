@@ -17,8 +17,11 @@ import {
 import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as VideoIcon, Target } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
+import { resolveApiBase } from "@/lib/apiBase";
 
-const WORKSPACE_ID = "00000000-0000-0000-0000-000000000010";
+const WORKSPACE_ID =
+  (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() ||
+  "00000000-0000-0000-0000-000000000010";
 
 interface InstagramMetrics {
   reach: number;
@@ -51,6 +54,7 @@ interface MediaPost {
   metrics: {
     likes: number;
     reach: number;
+    impressions?: number;
     saved: number;
     shares: number;
     comments: number;
@@ -59,8 +63,47 @@ interface MediaPost {
   };
 }
 
+interface ProfileSnapshot {
+  username?: string;
+  biography?: string;
+  profile_picture_url?: string;
+  followers_count?: number;
+  follows_count?: number;
+  media_count?: number;
+  captured_at?: string;
+}
+
+interface MediaItem {
+  id: string;
+  media_id: string;
+  caption?: string;
+  media_type?: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+  posted_at?: string;
+  like_count?: number;
+  comments_count?: number;
+}
+
+interface MediaComment {
+  id: string;
+  comment_id: string;
+  username?: string;
+  text?: string;
+  commented_at?: string;
+}
+
 export default function Instagram() {
-  const [dateRange, setDateRange] = useState("7");
+  const [dateRange, setDateRange] = useState("30");
+  const [mediaFilter, setMediaFilter] = useState<string>("all");
+  const API_BASE = resolveApiBase();
+
+  const isVideoType = (t?: string) => {
+    if (!t) return false;
+    const v = String(t).toUpperCase();
+    return v === "VIDEO" || v === "REELS" || v.includes("VIDEO");
+  };
 
   // Fetch aggregated Instagram metrics
   const { data: metrics, isLoading: metricsLoading } = useQuery({
@@ -144,6 +187,121 @@ export default function Instagram() {
     },
   });
 
+  const { data: profile, isLoading: profileLoading } = useQuery({
+    queryKey: ["instagram-profile"],
+    queryFn: async (): Promise<ProfileSnapshot | null> => {
+      const { data } = await supabase
+        .from("instagram_profile_snapshots")
+        .select("username, biography, profile_picture_url, followers_count, follows_count, media_count, captured_at")
+        .eq("workspace_id", WORKSPACE_ID)
+        .order("captured_at", { ascending: false })
+        .limit(1);
+      if (!data || data.length === 0) return null;
+      return data[0] as ProfileSnapshot;
+    },
+  });
+
+  const { data: mediaList, isLoading: mediaLoading } = useQuery({
+    queryKey: ["instagram-media", dateRange],
+    queryFn: async (): Promise<MediaItem[]> => {
+      const days = parseInt(dateRange);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const { data } = await supabase
+        .from("instagram_media")
+        .select("id, media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, like_count, comments_count")
+        .eq("workspace_id", WORKSPACE_ID)
+        .gte("posted_at", startDateStr)
+        .order("posted_at", { ascending: false })
+        .limit(50);
+      return (data || []) as MediaItem[];
+    },
+  });
+
+  const { data: mediaInsightsMap } = useQuery({
+    queryKey: ["instagram-media-insights", dateRange],
+    queryFn: async (): Promise<Record<string, MediaPost["metrics"]>> => {
+      const days = parseInt(dateRange);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const { data } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("granularity", "day")
+        .gte("metric_date", startDateStr);
+      const map: Record<string, MediaPost["metrics"]> = {};
+      (data || []).forEach((row: any) => {
+        const mi = row?.extra_metrics?.media_insights || null;
+        if (!mi) return;
+        Object.entries(mi).forEach(([mid, payload]: [string, any]) => {
+          const m = payload?.metrics || {};
+          const cur = map[mid] || {
+            likes: 0,
+            reach: 0,
+            impressions: 0,
+            saved: 0,
+            shares: 0,
+            comments: 0,
+            total_interactions: 0,
+            views: 0,
+          };
+          cur.likes += Number(m.likes || 0);
+          cur.comments += Number(m.comments || 0);
+          cur.shares += Number(m.shares || 0);
+          cur.saved += Number(m.saved || 0);
+          cur.total_interactions += Number(m.total_interactions || 0);
+          cur.reach += Number(m.reach || 0);
+          cur.impressions += Number(m.impressions || 0);
+          cur.views = Number(cur.views || 0) + Number(m.video_views || m.views || 0);
+          map[mid] = cur;
+        });
+      });
+      return map;
+    },
+  });
+
+  const { data: mediaFallbackMap } = useQuery({
+    queryKey: ["instagram-media-fallback", dateRange, (mediaList || []).length],
+    enabled: !!mediaList && mediaList.length > 0,
+    queryFn: async (): Promise<Record<string, { shares: number; saved: number; reach: number }>> => {
+      const ids = (mediaList || []).map((m) => m.media_id);
+      if (!ids || ids.length === 0) return {};
+      const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const { data, error } = await supabase
+        .from("instagram_media_insights_daily")
+        .select("media_id, shares, saved, reach, metric_date")
+        .eq("workspace_id", WORKSPACE_ID)
+        .in("media_id", ids)
+        .gte("metric_date", oneYearAgo);
+      if (error || !data) return {};
+      const map: Record<string, { shares: number; saved: number; reach: number }> = {};
+      (data || []).forEach((row: any) => {
+        const cur = map[row.media_id] || { shares: 0, saved: 0, reach: 0 };
+        cur.shares += Number(row.shares || 0);
+        cur.saved += Number(row.saved || 0);
+        cur.reach += Number(row.reach || 0);
+        map[row.media_id] = cur;
+      });
+      return map;
+    },
+  });
+
+  const fetchComments = async (mediaId: string): Promise<MediaComment[]> => {
+    const { data } = await supabase
+      .from("instagram_media_comments")
+      .select("id, comment_id, username, text, commented_at")
+      .eq("workspace_id", WORKSPACE_ID)
+      .eq("media_id", mediaId)
+      .order("commented_at", { ascending: false })
+      .limit(20);
+    return (data || []) as MediaComment[];
+  };
+
   // Fetch daily trends
   const { data: dailyTrends, isLoading: trendsLoading } = useQuery({
     queryKey: ["instagram-daily-trends", dateRange],
@@ -175,40 +333,80 @@ export default function Instagram() {
 
       if (!metricsData) return [];
 
-      return metricsData
-        .map((row) => {
-          const extra = row.extra_metrics || {};
-          const reach = extra.reach || 0;
-          const totalInteractions = extra.total_interactions || 0;
+      const metricsByDate = new Map<string, DailyMetric>();
 
-          // Calculate engagement from media insights if available
-          let engagement = 0;
-          if (reach > 0 && totalInteractions > 0) {
-            engagement = (totalInteractions / reach) * 100;
-          } else if (extra.media_insights) {
-            // Calculate from individual posts
-            let postReach = 0;
-            let postInteractions = 0;
-            Object.values(extra.media_insights).forEach((media: any) => {
-              postReach += media.metrics?.reach || 0;
-              postInteractions += media.metrics?.total_interactions || 0;
-            });
-            if (postReach > 0) {
-              engagement = (postInteractions / postReach) * 100;
-            }
+      metricsData.forEach((row) => {
+        const extra = row.extra_metrics || {};
+        const reach = extra.reach || 0;
+        const totalInteractionsBase = extra.total_interactions || 0;
+        const interactionsFallback =
+          (extra.likes || 0) +
+          (extra.comments || 0) +
+          (extra.shares || 0) +
+          (extra.saves || 0) +
+          (extra.replies || 0);
+        const interactionsAlt = extra.accounts_engaged || 0;
+        const totalInteractions =
+          totalInteractionsBase > 0
+            ? totalInteractionsBase
+            : interactionsFallback > 0
+            ? interactionsFallback
+            : interactionsAlt;
+
+        // Calculate engagement using (likes + comments) / views from media insights
+        let engagement = 0;
+        if (extra.media_insights) {
+          let sumLikesComments = 0;
+          let sumViews = 0;
+          Object.values(extra.media_insights).forEach((media: any) => {
+            const mm = media.metrics || {};
+            sumLikesComments += Number((mm.likes || 0) + (mm.comments || 0));
+            sumViews += Number(mm.video_views || mm.plays || mm.views || 0);
+          });
+          if (sumViews > 0) {
+            engagement = (sumLikesComments / sumViews) * 100;
           }
+        }
 
-          return {
-            date: new Date(row.metric_date).toLocaleDateString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-            }),
-            reach: reach,
-            followerCount: extra.follower_count || 0,
-            engagement: Math.round(engagement * 100) / 100,
-          };
-        })
-        .filter((item) => item.reach > 0 || item.engagement > 0); // Only show days with data
+        metricsByDate.set(row.metric_date, {
+          date: new Date(row.metric_date).toLocaleDateString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+          }),
+          reach,
+          followerCount: extra.follower_count || 0,
+          engagement: Math.round(engagement * 100) / 100,
+        });
+      });
+
+      const dailySeries: DailyMetric[] = [];
+      const rangeEnd = new Date();
+
+      for (
+        let current = new Date(startDate);
+        current <= rangeEnd;
+        current.setDate(current.getDate() + 1)
+      ) {
+        const isoDate = current.toISOString().split("T")[0];
+        const formattedDate = current.toLocaleDateString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+        });
+        const existingMetrics = metricsByDate.get(isoDate);
+
+        dailySeries.push(
+          existingMetrics
+            ? { ...existingMetrics, date: formattedDate }
+            : {
+                date: formattedDate,
+                reach: 0,
+                followerCount: 0,
+                engagement: 0,
+              }
+        );
+      }
+
+      return dailySeries;
     },
   });
 
@@ -242,21 +440,43 @@ export default function Instagram() {
 
       if (!metricsData) return [];
 
+      // Load media meta to enrich posts (type, url, permalink, counts)
+      const { data: mediaRows } = await supabase
+        .from("instagram_media")
+        .select("media_id, media_type, media_url, thumbnail_url, permalink, posted_at, like_count, comments_count")
+        .eq("workspace_id", WORKSPACE_ID)
+        .gte("posted_at", startDateStr);
+      const mediaMap: Record<string, any> = {};
+      (mediaRows || []).forEach((m: any) => {
+        mediaMap[m.media_id] = m;
+      });
+
       const posts: MediaPost[] = [];
       metricsData.forEach((row) => {
         const mediaInsights = row.extra_metrics?.media_insights;
-        if (mediaInsights) {
-          Object.entries(mediaInsights).forEach(([mediaId, data]: [string, any]) => {
-            posts.push({
-              id: mediaId,
-              mediaType: data.media_type,
-              timestamp: data.timestamp,
-              permalink: data.permalink,
-              mediaUrl: data.media_url,
-              metrics: data.metrics,
-            });
+        if (!mediaInsights) return;
+        Object.entries(mediaInsights).forEach(([mediaId, payload]: [string, any]) => {
+          const m = payload?.metrics || {};
+          const meta = mediaMap[mediaId] || {};
+          const ts = payload?.timestamp || meta.posted_at || null;
+          posts.push({
+            id: mediaId,
+            mediaType: payload?.media_type || meta.media_type || "",
+            timestamp: ts || "",
+            permalink: payload?.permalink || meta.permalink || undefined,
+            mediaUrl: payload?.media_url || meta.media_url || meta.thumbnail_url || undefined,
+            metrics: {
+              likes: Number(m.likes || meta.like_count || 0),
+              comments: Number(m.comments || meta.comments_count || 0),
+              shares: Number(m.shares || 0),
+              saved: Number(m.saved || 0),
+              total_interactions: Number(m.total_interactions || 0),
+              reach: Number(m.reach || 0),
+              impressions: Number(m.impressions || 0),
+              views: Number(m.video_views || m.plays || 0),
+            },
           });
-        }
+        });
       });
 
       return posts.sort(
@@ -267,6 +487,7 @@ export default function Instagram() {
   });
 
   const isLoading = metricsLoading || trendsLoading || postsLoading;
+  const extendedLoading = isLoading || profileLoading || mediaLoading;
 
   // Calculate content recommendations
   const getContentRecommendations = () => {
@@ -298,14 +519,18 @@ export default function Instagram() {
     // Calculate engagement rates for better recommendation
     const avgImageEngagement = imageCount > 0
       ? imagePosts.reduce((sum, p) => {
-          const rate = p.metrics.reach > 0 ? (p.metrics.total_interactions / p.metrics.reach) * 100 : 0;
+          const denom = p.metrics.views || 0;
+          const num = (p.metrics.likes || 0) + (p.metrics.comments || 0);
+          const rate = denom > 0 ? (num / denom) * 100 : 0;
           return sum + rate;
         }, 0) / imageCount
       : 0;
 
     const avgVideoEngagement = videoCount > 0
       ? videoPosts.reduce((sum, p) => {
-          const rate = p.metrics.reach > 0 ? (p.metrics.total_interactions / p.metrics.reach) * 100 : 0;
+          const denom = p.metrics.views || 0;
+          const num = (p.metrics.likes || 0) + (p.metrics.comments || 0);
+          const rate = denom > 0 ? (num / denom) * 100 : 0;
           return sum + rate;
         }, 0) / videoCount
       : 0;
@@ -329,11 +554,206 @@ export default function Instagram() {
 
   const recommendations = getContentRecommendations();
 
-  // Calculate average engagement rate
-  const avgEngagement =
-    metrics && metrics.reach > 0
-      ? ((metrics.totalInteractions / metrics.reach) * 100).toFixed(2)
-      : "0";
+  // Calculate average engagement rate using (likes + comments) / views
+  const totalViews = Object.values(mediaInsightsMap || {}).reduce((sum, m: any) => sum + Number((m as any).views || 0), 0);
+  const totalLikesComments = Object.values(mediaInsightsMap || {}).reduce((sum, m: any) => sum + Number(((m as any).likes || 0) + ((m as any).comments || 0)), 0);
+  const avgEngagement = totalViews > 0 ? ((totalLikesComments / totalViews) * 100).toFixed(2) : "0";
+
+  const { data: engagementApi } = useQuery({
+    queryKey: ["instagram-engagement-api", dateRange, "views"],
+    queryFn: async (): Promise<{ averageEngagementRate: number; denominator: string; posts: Array<{ id: string; date: string; type?: string; likes: number; comments: number; reach?: number; views?: number; engagementRate: number; permalink?: string; caption?: string }>; } | null> => {
+      const wid = (import.meta.env.VITE_WORKSPACE_ID as string | undefined) || "";
+      if (!wid) return null;
+      const url = `${API_BASE}/api/instagram/engagement?workspaceId=${encodeURIComponent(wid)}&days=${encodeURIComponent(dateRange)}&denominator=views`;
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      const j = await r.json().catch(() => null);
+      const avg = Number(j?.data?.averageEngagementRate || 0);
+      const denom = String(j?.data?.denominator || "views");
+      const posts = Array.isArray(j?.data?.posts) ? j.data.posts : [];
+      return { averageEngagementRate: avg, denominator: denom, posts };
+    },
+  });
+
+  const hasReachData =
+    (metrics?.reach || 0) > 0 ||
+    (dailyTrends || []).some((d) => (d.reach || 0) > 0) ||
+    (topPosts || []).some((p) => (p.metrics.reach || p.metrics.impressions || p.metrics.views || 0) > 0);
+
+  const hasEngagementData =
+    (dailyTrends || []).some((d) => (d.engagement || 0) > 0) ||
+    (topPosts || []).some((p) => {
+      const denom = p.metrics.views || 0;
+      const num = (p.metrics.likes || 0) + (p.metrics.comments || 0);
+      return denom > 0 && num > 0;
+    });
+
+  const showRecommendations = Boolean(recommendations) && hasEngagementData;
+  const showReachChart = (dailyTrends || []).some((d) => (d.reach || 0) > 0);
+  const showEngChart = false;
+  const allDenomsZero = true;
+  const showEngagementColumn = false;
+
+  let showAccountInsightsCard = false;
+  let showInteractionSummary = false;
+
+  const exportTopPostsCSV = () => {
+    if (!topPosts || topPosts.length === 0) return;
+    const rows = [
+      ["media_id","type","date","reach","impressions","views","likes","comments","shares","saved","interactions","engagement_pct"],
+      ...topPosts.slice(0, 50).map((post) => {
+        const d = post.timestamp ? new Date(post.timestamp) : null;
+        const dd = d && !isNaN(d.getTime()) ? d.toISOString().split("T")[0] : "";
+        const denom = (post.metrics.views || 0);
+        const num = (post.metrics.likes || 0) + (post.metrics.comments || 0);
+        const eng = denom > 0 ? ((num / denom) * 100).toFixed(2) : "0.00";
+        return [
+          post.id,
+          post.mediaType,
+          dd,
+          String(post.metrics.reach || 0),
+          String(post.metrics.impressions || 0),
+          String(post.metrics.views || 0),
+          String(post.metrics.likes || 0),
+          String(post.metrics.comments || 0),
+          String(post.metrics.shares || 0),
+          String(post.metrics.saved || 0),
+          String(post.metrics.total_interactions || 0),
+          String(eng),
+        ];
+      }),
+    ];
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `instagram-top-posts-${dateRange}d.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const { data: accountInsights } = useQuery({
+    queryKey: ["instagram-account-insights", dateRange],
+    queryFn: async (): Promise<any> => {
+      const days = parseInt(dateRange);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const { data: platformAccounts } = await supabase
+        .from("platform_accounts")
+        .select("id")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_key", "instagram")
+        .limit(1);
+      if (!platformAccounts || platformAccounts.length === 0) return null;
+      const platformAccountId = platformAccounts[0].id;
+      const { data: pm } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_account_id", platformAccountId)
+        .gte("metric_date", startDateStr)
+        .eq("granularity", "day");
+      const agg = {
+        impressions: 0,
+        reach: 0,
+        interactions: 0,
+        profile_views: 0,
+        website_clicks: 0,
+        profile_links_taps: 0,
+        views: 0,
+        followers_count: 0,
+        breakdown_followers: { followers: 0, non_followers: 0 },
+        breakdown_content_type: { stories: 0, reels: 0, posts: 0, live: 0, videos: 0 },
+        online_followers: [] as number[],
+      };
+      (pm || []).forEach((row: any) => {
+        const e = row.extra_metrics || {};
+        agg.impressions += Number(e.impressions || 0);
+        agg.reach += Number(e.reach || 0);
+        agg.interactions += Number(e.total_interactions || 0);
+        agg.profile_views += Number(e.profile_views || 0);
+        agg.website_clicks += Number(e.website_clicks || 0);
+        agg.profile_links_taps += Number(e.profile_links_taps || 0);
+        agg.views += Number(e.views || 0);
+        // Fallback: aggregate per-media insights when top-level is missing
+        const mi = e.media_insights || null;
+        if (mi && typeof mi === 'object') {
+          Object.values(mi).forEach((payload: any) => {
+            const m = payload?.metrics || {};
+            agg.impressions += Number(m.impressions || 0);
+            agg.reach += Number(m.reach || 0);
+            agg.interactions += Number(m.total_interactions || 0);
+            agg.profile_views += Number(m.profile_views || 0);
+            agg.website_clicks += Number(m.website_clicks || 0);
+            agg.profile_links_taps += Number(m.profile_links_taps || 0);
+            agg.views += Number(m.video_views || m.views || m.plays || 0);
+          });
+        }
+        agg.followers_count = Math.max(agg.followers_count, Number(e.follower_count || 0));
+        const b = e.breakdown || null;
+        const tv = e.total_value || null;
+        const vb = e.value_breakdown || null;
+        const bx: any = b || tv || vb || {};
+        const ft = bx.follow_type || bx.followers || null;
+        if (ft) {
+          agg.breakdown_followers.followers += Number(ft.followers || ft.followers_count || 0);
+          agg.breakdown_followers.non_followers += Number(ft.non_followers || ft.non_followers_count || 0);
+        }
+        const ct = bx.content_type || null;
+        if (ct) {
+          agg.breakdown_content_type.stories += Number(ct.stories || 0);
+          agg.breakdown_content_type.reels += Number(ct.reels || 0);
+          agg.breakdown_content_type.posts += Number(ct.posts || 0);
+          agg.breakdown_content_type.live += Number(ct.live || 0);
+          agg.breakdown_content_type.videos += Number(ct.videos || 0);
+        }
+        const of = e.online_followers || null;
+        if (Array.isArray(of) && agg.online_followers.length === 0) agg.online_followers = of.map((x: any) => Number(x || 0));
+      });
+
+      // Fallback: aggregate media-level daily insights when account-level aggregates are missing in period
+      try {
+        const { data: mediaDaily } = await supabase
+          .from("instagram_media_insights_daily")
+          .select("reach, impressions, video_views, total_interactions, shares, saved")
+          .eq("workspace_id", WORKSPACE_ID)
+          .gte("metric_date", startDateStr);
+        (mediaDaily || []).forEach((row: any) => {
+          agg.impressions += Number(row.impressions || 0);
+          agg.reach += Number(row.reach || 0);
+          agg.interactions += Number(row.total_interactions || 0);
+          agg.views += Number(row.video_views || 0);
+          // shares/saved não são exibidos neste card, mas podem ser úteis no futuro
+        });
+      } catch (err) {
+        console.warn('Instagram media daily fallback failed');
+      }
+      return agg;
+    },
+  });
+
+  if (accountInsights) {
+    showAccountInsightsCard = (
+      (accountInsights.impressions || 0) > 0 ||
+      (accountInsights.reach || 0) > 0 ||
+      (accountInsights.breakdown_followers.followers || 0) > 0 ||
+      (accountInsights.breakdown_followers.non_followers || 0) > 0 ||
+      (accountInsights.breakdown_content_type.stories || 0) > 0 ||
+      (accountInsights.breakdown_content_type.reels || 0) > 0 ||
+      (accountInsights.breakdown_content_type.posts || 0) > 0 ||
+      (accountInsights.breakdown_content_type.videos || 0) > 0
+    );
+
+    showInteractionSummary = (
+      (accountInsights.interactions || 0) > 0 ||
+      (accountInsights.profile_views || 0) > 0 ||
+      ((accountInsights.profile_links_taps || accountInsights.website_clicks || 0) > 0)
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -358,11 +778,22 @@ export default function Instagram() {
             <option value="60">Últimos 60 dias</option>
             <option value="90">Últimos 90 dias</option>
           </select>
-          <InstagramSyncButton size="sm" />
+          <select
+            value={mediaFilter}
+            onChange={(e) => setMediaFilter(e.target.value)}
+            className="px-4 py-2 border rounded-md bg-background"
+          >
+            <option value="all">Todos os tipos</option>
+            <option value="image">Imagens</option>
+            <option value="video">Vídeos</option>
+            <option value="reels">Reels</option>
+            <option value="carousel">Carrossel</option>
+          </select>
+          <InstagramSyncButton size="sm" days={parseInt(dateRange)} />
         </div>
       </div>
 
-      {isLoading ? (
+      {extendedLoading ? (
         <div className="space-y-6">
           {/* Key Metrics Skeleton */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -408,6 +839,8 @@ export default function Instagram() {
               </div>
             </CardContent>
           </Card>
+
+            
 
           {/* Charts Skeleton */}
           <div className="grid md:grid-cols-2 gap-4">
@@ -467,6 +900,166 @@ export default function Instagram() {
         </Card>
       ) : (
         <>
+          {profile && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Perfil</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  {profile.profile_picture_url ? (
+                    <img src={profile.profile_picture_url} className="w-16 h-16 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-muted" />
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Usuário</div>
+                      <div className="text-base font-semibold">{profile.username || "-"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Seguidores</div>
+                      <div className="text-base font-semibold">{new Intl.NumberFormat("pt-BR").format(profile.followers_count || 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Seguindo</div>
+                      <div className="text-base font-semibold">{new Intl.NumberFormat("pt-BR").format(profile.follows_count || 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Posts</div>
+                      <div className="text-base font-semibold">{new Intl.NumberFormat("pt-BR").format(profile.media_count || 0)}</div>
+                    </div>
+                  </div>
+                </div>
+                {profile.biography && (
+                  <div className="mt-3 text-sm text-muted-foreground">{profile.biography}</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {showAccountInsightsCard && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Insights sobre a Conta</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Visualizações</div>
+                    <div className="text-2xl font-bold">{new Intl.NumberFormat("pt-BR").format(Math.max(accountInsights.impressions || 0, accountInsights.views || 0, accountInsights.reach || 0))}</div>
+                    <div className="text-xs text-muted-foreground">Impressões: {new Intl.NumberFormat("pt-BR").format(accountInsights.impressions || 0)}</div>
+                    <div className="text-xs text-muted-foreground">Visualizações: {new Intl.NumberFormat("pt-BR").format(accountInsights.views || 0)}</div>
+                    {(accountInsights.reach || 0) > 0 && (
+                      <div className="text-xs text-muted-foreground">Contas alcançadas: {new Intl.NumberFormat("pt-BR").format(accountInsights.reach)}</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Seguidores vs Não seguidores</div>
+                    {(accountInsights.breakdown_followers.followers > 0 || accountInsights.breakdown_followers.non_followers > 0) && (
+                      <div className="flex gap-4 text-sm">
+                        <div>Seguidores: <strong>{((accountInsights.breakdown_followers.followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
+                        <div>Não seguidores: <strong>{((accountInsights.breakdown_followers.non_followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Por tipo de conteúdo</div>
+                    {(accountInsights.breakdown_content_type.stories > 0 || accountInsights.breakdown_content_type.reels > 0 || accountInsights.breakdown_content_type.posts > 0 || accountInsights.breakdown_content_type.videos > 0) && (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>Stories: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.stories)}</strong></div>
+                        <div>Reels: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.reels)}</strong></div>
+                        <div>Posts: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.posts)}</strong></div>
+                        <div>Vídeos: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.videos)}</strong></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {showInteractionSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Resumo de Interações</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Interações</div>
+                    <div className="text-lg font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.interactions)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Visitas ao perfil</div>
+                    <div className="text-lg font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.profile_views)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Cliques em links</div>
+                    <div className="text-lg font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.profile_links_taps || accountInsights.website_clicks)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {accountInsights?.online_followers && accountInsights.online_followers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Horários mais ativos</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-8 gap-2">
+                  {accountInsights.online_followers.map((v: number, i: number) => (
+                    <div key={i} className="text-center">
+                      <div className="h-16 w-6 mx-auto bg-muted relative">
+                        <div className="absolute bottom-0 left-0 right-0 bg-primary" style={{ height: `${Math.min(100, Math.round((v / Math.max(...accountInsights.online_followers)) * 100))}%` }} />
+                      </div>
+                      <div className="text-[10px] mt-1">{i}h</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          
+
+          {mediaList && mediaList.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Conteúdo principal por interações</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-5 gap-3">
+                  {Array.from(mediaList)
+                    .filter((m) => mediaFilter === "all" || (mediaFilter === "image" && m.media_type === "IMAGE") || (mediaFilter === "video" && m.media_type === "VIDEO") || (mediaFilter === "reels" && (m.media_type === "REELS" || m.media_type === "VIDEO")) || (mediaFilter === "carousel" && m.media_type === "CAROUSEL_ALBUM"))
+                    .map((m) => {
+                      const mi = mediaInsightsMap?.[m.media_id];
+                      const inter = mi?.total_interactions || 0;
+                      return { m, inter };
+                    })
+                    .sort((a, b) => (b.inter - a.inter))
+                    .slice(0, 5)
+                    .map(({ m, inter }) => (
+                      <div key={m.id} className="rounded-lg border overflow-hidden">
+                        <div className="bg-muted flex items-center justify-center" style={{ height: 120 }}>
+                          {isVideoType(m.media_type) ? (
+                            <video src={m.media_url || undefined} className="max-w-full max-h-full object-contain" muted playsInline />
+                          ) : (
+                            <img src={m.media_url || m.thumbnail_url || undefined} className="max-w-full max-h-full object-cover" />
+                          )}
+                        </div>
+                        <div className="p-2 text-xs">
+                          <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(inter)} interações</div>
+                          <div className="text-muted-foreground">{m.posted_at ? new Date(m.posted_at).toLocaleDateString("pt-BR") : "-"}</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {/* Key Metrics Summary */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
@@ -488,14 +1081,14 @@ export default function Instagram() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Taxa de Engajamento
+                  Contas Engajadas
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{avgEngagement}%</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Interações / Alcance
-                </p>
+                <div className="text-2xl font-bold">
+                  {new Intl.NumberFormat("pt-BR").format(metrics.accountsEngaged)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Usuários que interagiram</p>
               </CardContent>
             </Card>
 
@@ -538,7 +1131,7 @@ export default function Instagram() {
           </div>
 
           {/* Recommendations Section */}
-          {recommendations && (
+          {showRecommendations && (
             <Card className="border-blue-200 bg-blue-50/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -561,17 +1154,21 @@ export default function Instagram() {
                         <VideoIcon className="w-4 h-4" />
                         Vídeos/Reels: {new Intl.NumberFormat("pt-BR").format(recommendations.videoPerf)} interações médias
                         ({recommendations.videoCount} {recommendations.videoCount === 1 ? 'post' : 'posts'})
-                        <span className="text-xs text-green-600 font-medium ml-1">
-                          {recommendations.videoEngagement}% engajamento
-                        </span>
+                        {(Number(recommendations.videoEngagement) > 0) && (
+                          <span className="text-xs text-green-600 font-medium ml-1">
+                            {recommendations.videoEngagement}% engajamento
+                          </span>
+                        )}
                       </li>
                       <li className="flex items-center gap-2">
                         <ImageIcon className="w-4 h-4" />
                         Imagens: {new Intl.NumberFormat("pt-BR").format(recommendations.imagePerf)} interações médias
                         ({recommendations.imageCount} {recommendations.imageCount === 1 ? 'post' : 'posts'})
-                        <span className="text-xs text-green-600 font-medium ml-1">
-                          {recommendations.imageEngagement}% engajamento
-                        </span>
+                        {(Number(recommendations.imageEngagement) > 0) && (
+                          <span className="text-xs text-green-600 font-medium ml-1">
+                            {recommendations.imageEngagement}% engajamento
+                          </span>
+                        )}
                       </li>
                     </ul>
                   </div>
@@ -584,7 +1181,7 @@ export default function Instagram() {
                     <div className="bg-white rounded-lg p-3 border">
                       {recommendations.topPost.mediaUrl && (
                         <div className="mb-3 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center" style={{ height: '120px' }}>
-                          {recommendations.topPost.mediaType.includes("VIDEO") ? (
+                          {isVideoType(recommendations.topPost.mediaType) ? (
                             <video
                               src={recommendations.topPost.mediaUrl}
                               className="max-w-full max-h-full object-contain"
@@ -601,7 +1198,7 @@ export default function Instagram() {
                         </div>
                       )}
                       <div className="flex items-center gap-2 mb-2">
-                        {recommendations.topPost.mediaType.includes("VIDEO") ? (
+                        {isVideoType(recommendations.topPost.mediaType) ? (
                           <VideoIcon className="w-5 h-5 text-purple-600" />
                         ) : (
                           <ImageIcon className="w-5 h-5 text-blue-600" />
@@ -611,10 +1208,12 @@ export default function Instagram() {
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-muted-foreground">Alcance:</span>{" "}
-                          <strong>{new Intl.NumberFormat("pt-BR").format(recommendations.topPost.metrics.reach)}</strong>
-                        </div>
+                        {(recommendations.topPost.metrics.views || 0) > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Visualizações:</span>{" "}
+                            <strong>{new Intl.NumberFormat("pt-BR").format(recommendations.topPost.metrics.views || 0)}</strong>
+                          </div>
+                        )}
                         <div>
                           <span className="text-muted-foreground">Interações:</span>{" "}
                           <strong>{new Intl.NumberFormat("pt-BR").format(recommendations.topPost.metrics.total_interactions)}</strong>
@@ -652,8 +1251,9 @@ export default function Instagram() {
           )}
 
           {/* Trends Charts */}
-          {dailyTrends && dailyTrends.length > 0 && (
+          {(showReachChart || showEngChart) && (
             <div className="grid md:grid-cols-2 gap-4">
+              {showReachChart && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Alcance Diário</CardTitle>
@@ -677,7 +1277,8 @@ export default function Instagram() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
-
+              )}
+              {showEngChart && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Taxa de Engajamento (%)</CardTitle>
@@ -695,6 +1296,7 @@ export default function Instagram() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
+              )}
             </div>
           )}
 
@@ -702,7 +1304,10 @@ export default function Instagram() {
           {topPosts && topPosts.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Posts com Melhor Performance</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Posts com Melhor Performance</CardTitle>
+                  <button className="text-sm px-2 py-1 border rounded-md hover:bg-muted" onClick={exportTopPostsCSV}>Exportar CSV</button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -716,20 +1321,23 @@ export default function Instagram() {
                         <th className="text-right py-2 px-2">Curtidas</th>
                         <th className="text-right py-2 px-2">Comentários</th>
                         <th className="text-right py-2 px-2">Compartilh.</th>
-                        <th className="text-right py-2 px-2">Engajamento</th>
+                        {showEngagementColumn && (
+                          <th className="text-right py-2 px-2">Engajamento</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {topPosts.slice(0, 10).map((post) => {
-                        const engagementRate = post.metrics.reach > 0
-                          ? ((post.metrics.total_interactions / post.metrics.reach) * 100).toFixed(1)
+                        const reachDisplay = (post.metrics.views || 0);
+                        const engagementRate = reachDisplay > 0
+                          ? ((((post.metrics.likes || 0) + (post.metrics.comments || 0)) / reachDisplay) * 100).toFixed(1)
                           : "0.0";
 
                         return (
                           <tr key={post.id} className="border-b hover:bg-muted/50">
                             <td className="py-3 px-2">
                               <div className="flex items-center gap-2">
-                                {post.mediaType.includes("VIDEO") || post.mediaType === "REELS" ? (
+                                {isVideoType(post.mediaType) ? (
                                   <VideoIcon className="w-4 h-4 text-purple-600" />
                                 ) : (
                                   <ImageIcon className="w-4 h-4 text-blue-600" />
@@ -740,13 +1348,17 @@ export default function Instagram() {
                               </div>
                             </td>
                             <td className="py-3 px-2 text-sm">
-                              {new Date(post.timestamp).toLocaleDateString("pt-BR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                              })}
+                              {(() => {
+                                const d = post.timestamp ? new Date(post.timestamp) : null;
+                                return d && !isNaN(d.getTime())
+                                  ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+                                  : "-";
+                              })()}
                             </td>
                             <td className="py-3 px-2 text-sm text-right">
-                              {new Intl.NumberFormat("pt-BR").format(post.metrics.reach)}
+                              {new Intl.NumberFormat("pt-BR").format(
+                                (post.metrics.reach || 0) || (mediaFallbackMap?.[post.id]?.reach || 0) || (post.metrics.impressions || 0) || (post.metrics.views || 0)
+                              )}
                             </td>
                             <td className="py-3 px-2 text-sm text-right font-semibold">
                               {new Intl.NumberFormat("pt-BR").format(post.metrics.total_interactions)}
@@ -758,16 +1370,108 @@ export default function Instagram() {
                               {new Intl.NumberFormat("pt-BR").format(post.metrics.comments)}
                             </td>
                             <td className="py-3 px-2 text-sm text-right">
-                              {new Intl.NumberFormat("pt-BR").format(post.metrics.shares || 0)}
+                              {new Intl.NumberFormat("pt-BR").format((post.metrics.shares || 0) || (mediaFallbackMap?.[post.id]?.shares || 0))}
                             </td>
-                            <td className="py-3 px-2 text-sm text-right font-medium text-green-600">
-                              {engagementRate}%
-                            </td>
+                            {showEngagementColumn && (
+                              <td className="py-3 px-2 text-sm text-right font-medium text-green-600">
+                                {engagementRate}%
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          
+
+          {mediaList && mediaList.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Galeria de Mídias</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {mediaList.map((m) => {
+                    const metrics = mediaInsightsMap?.[m.media_id] || {
+                      likes: 0,
+                      comments: 0,
+                      shares: 0,
+                      saved: 0,
+                      total_interactions: 0,
+                      reach: 0,
+                      views: 0,
+                    };
+                    return (
+                      <div key={m.id} className="border rounded-lg overflow-hidden">
+                        <div className="bg-muted flex items-center justify-center" style={{ height: 180 }}>
+                          {isVideoType(m.media_type) ? (
+                            <video src={m.media_url || undefined} className="max-w-full max-h-full object-contain" muted playsInline />
+                          ) : (
+                            <img src={m.media_url || m.thumbnail_url || undefined} className="max-w-full max-h-full object-cover" />
+                          )}
+                        </div>
+                        <div className="p-3 space-y-2">
+                          <div className="text-sm font-semibold line-clamp-2">{m.caption || ""}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Publicado em {m.posted_at ? new Date(m.posted_at).toLocaleDateString("pt-BR") : "-"}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            {((metrics.views || 0) > 0) && (
+                              <div>
+                                <span className="text-muted-foreground">Visualizações:</span> <strong>{new Intl.NumberFormat("pt-BR").format(metrics.views || 0)}</strong>
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-muted-foreground">Interações:</span> <strong>{new Intl.NumberFormat("pt-BR").format(metrics.total_interactions || 0)}</strong>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Curtidas:</span> <strong>{new Intl.NumberFormat("pt-BR").format(metrics.likes || m.like_count || 0)}</strong>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Comentários:</span> <strong>{new Intl.NumberFormat("pt-BR").format(metrics.comments || m.comments_count || 0)}</strong>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Compartilh.:</span> <strong>{new Intl.NumberFormat("pt-BR").format((metrics.shares || 0) || (mediaFallbackMap?.[m.media_id]?.shares || 0))}</strong>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Salvos:</span> <strong>{new Intl.NumberFormat("pt-BR").format((metrics.saved || 0) || (mediaFallbackMap?.[m.media_id]?.saved || 0))}</strong>
+                            </div>
+                            {((metrics.views || 0) > 0) && (
+                              <div>
+                                <span className="text-muted-foreground">Engajamento (%):</span> <strong>{(() => { const denom = metrics.views || 0; const num = (metrics.likes || 0) + (metrics.comments || 0); return ((num / denom) * 100).toFixed(1); })()}</strong>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {m.permalink && (
+                              <a href={m.permalink} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-800">Abrir no Instagram</a>
+                            )}
+                            <button
+                              className="text-xs px-2 py-1 border rounded-md hover:bg-muted"
+                              onClick={async () => {
+                                const comments = await fetchComments(m.media_id);
+                                alert(
+                                  comments.length
+                                    ? comments
+                                        .slice(0, 10)
+                                        .map((c) => `${c.username || ""}: ${c.text || ""}`)
+                                        .join("\n")
+                                    : "Sem comentários recentes"
+                                );
+                              }}
+                            >
+                              Ver comentários
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
