@@ -46,14 +46,32 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
     const isVercel = req.get('host')?.includes('vercel.app');
     const host = isVercel ? 'traffic-zen-hub-35.vercel.app' : req.get('host');
     const protocol = isVercel ? 'https' : req.protocol;
+    const redirectUri = `${protocol}://${host}/api/integrations/google-ads/callback`;
+    
+    console.log('OAuth configuration:', {
+      clientId: CLIENT_ID?.substring(0, 20) + '...',
+      hasClientSecret: !!CLIENT_SECRET,
+      redirectUri: redirectUri,
+      host: req.get('host'),
+      protocol: req.protocol,
+      finalProtocol: protocol,
+      finalHost: host
+    });
+    
     const oauth2Client = new google.auth.OAuth2(
       CLIENT_ID,
       CLIENT_SECRET,
-      `${protocol}://${host}/api/integrations/google-ads/callback`
+      redirectUri
     );
 
     // Exchange authorization code for tokens
+    console.log('Attempting to exchange authorization code for tokens...');
     const { tokens } = await oauth2Client.getToken(code as string);
+    console.log('Token exchange successful, tokens received:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      tokenType: tokens.token_type
+    });
 
     if (!tokens.refresh_token) {
       console.error('No refresh token received');
@@ -144,13 +162,25 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
 
   } catch (error: any) {
     console.error('Error in Google Ads callback:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      stack: error.stack?.split('\n')[0]
+    });
+    
     res.status(500).send(`
       <html>
         <body>
           <h1>❌ Internal Server Error</h1>
           <p>An error occurred while processing the authentication:</p>
           <p><code>${error.message}</code></p>
+          ${error.code ? `<p>Error Code: <code>${error.code}</code></p>` : ''}
+          ${error.status ? `<p>Status: <code>${error.status}</code></p>` : ''}
           <p>Please try again or contact support.</p>
+          <br>
+          <p><small>Debug info logged to server for troubleshooting.</small></p>
         </body>
       </html>
     `);
