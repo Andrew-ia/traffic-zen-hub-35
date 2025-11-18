@@ -74,7 +74,7 @@ export async function login(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'missing_credentials' });
     }
 
-    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
 
     await client.connect();
 
@@ -158,7 +158,7 @@ export async function createUser(req: Request, res: Response) {
     const appRole: 'adm' | 'basico' | 'simples' = role;
     const workspaceRole = appRole === 'adm' ? 'admin' : appRole === 'basico' ? 'manager' : 'viewer';
 
-    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
 
     const pool = getPool();
     // Hash password using pgcrypto
@@ -198,7 +198,7 @@ export const adminOnly = [authMiddleware, requireAdmin];
 // Get page permissions for a target user (admin-only)
 export async function getPagePermissions(req: Request, res: Response) {
   try {
-    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
     
     const pool = getPool();
     await ensurePagePermissionsTable(pool);
@@ -230,7 +230,7 @@ export async function setPagePermissions(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'invalid_payload' });
     }
     
-    const WORKSPACE_ID = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
     
     if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
 
