@@ -181,7 +181,7 @@ app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
 // Optimized Instagram sync endpoints
 app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);
-app.get('/api/integrations/instagram/sync-status/:syncId', getInstagramSyncStatus);
+app.get('/api/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
 
 // Legacy sync status endpoints
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
