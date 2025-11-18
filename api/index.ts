@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { login, me, createUser, authMiddleware, adminOnly } from '../server/api/auth.js';
+import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from '../server/api/auth.js';
 import { saveCredentials, getCredentials, deleteCredentials } from '../server/api/integrations/credentials.js';
 import { startSync, getSyncStatus, getWorkspaceSyncJobs } from '../server/api/integrations/simpleSync.js';
 import { directInstagramSync } from '../server/api/integrations/directSync.js';
@@ -11,6 +11,9 @@ import { optimizedMetaSync, getMetaSyncStatus } from '../server/api/integrations
 import { optimizedInstagramSync, getInstagramSyncStatus } from '../server/api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from '../server/api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from '../server/api/integrations/billing.js';
+import { syncGoogleAdsData } from '../server/api/google-ads/sync.js';
+import { googleAdsAuth, googleAdsCallback, googleAdsTest } from '../server/api/integrations/googleAdsAuth.js';
+import { checkGoogleAdsCredentials } from '../server/api/google-ads/check-credentials.js';
 import { ga4Realtime, ga4Report, ga4GoogleAds } from '../server/api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from '../server/api/analytics/metrics.js';
 import { getDemographics } from '../server/api/analytics/demographics.js';
@@ -116,6 +119,8 @@ app.use((req, _res, next) => {
 app.post('/auth/login', login);
 app.get('/auth/me', authMiddleware, me);
 app.post('/auth/users', ...adminOnly, createUser);
+app.get('/auth/page-permissions/:userId', ...adminOnly, getPagePermissions);
+app.post('/auth/page-permissions/:userId', ...adminOnly, setPagePermissions);
 
 // Credentials endpoints
 app.post('/integrations/credentials', saveCredentials);
@@ -158,17 +163,15 @@ app.post('/ga4/realtime', ga4Realtime);
 app.post('/ga4/report', ga4Report);
 app.post('/ga4/google-ads', ga4GoogleAds);
 
-// Debug endpoint to check GA4 credentials
-app.get('/ga4/debug', (req: VercelRequest, res: VercelResponse) => {
-  res.json({
-    hasEmail: !!process.env.GA4_SERVICE_ACCOUNT_EMAIL,
-    hasKey: !!process.env.GA4_SERVICE_ACCOUNT_KEY,
-    hasCredPath: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    emailPrefix: process.env.GA4_SERVICE_ACCOUNT_EMAIL ? process.env.GA4_SERVICE_ACCOUNT_EMAIL.substring(0, 10) : 'none',
-    keyPrefix: process.env.GA4_SERVICE_ACCOUNT_KEY ? process.env.GA4_SERVICE_ACCOUNT_KEY.substring(0, 20) : 'none',
-    propertyId: process.env.GA4_PROPERTY_ID || 'none'
-  });
-});
+// Google Ads API endpoints
+app.post('/google-ads/sync', syncGoogleAdsData);
+
+// Google Ads OAuth endpoints
+app.get('/integrations/google-ads/auth', googleAdsAuth);
+app.get('/integrations/google-ads/callback', googleAdsCallback);
+app.get('/integrations/google-ads/test', googleAdsTest);
+app.get('/google-ads/check-credentials', checkGoogleAdsCredentials);
+
 
 // Finance: Cashflow import endpoint
 app.post('/finance/cashflow/import', importCashflowXlsx);
