@@ -18,6 +18,7 @@ import InternalChat from "./pages/InternalChat";
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import Instagram from "./pages/Instagram";
+import GoogleAnalytics from "./pages/GoogleAnalytics";
 import NotFound from "./pages/NotFound";
 import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
@@ -77,6 +78,7 @@ const App = () => (
               <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
               
               <Route path="/instagram" element={<RequireAuth><Instagram /></RequireAuth>} />
+              <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
               <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />

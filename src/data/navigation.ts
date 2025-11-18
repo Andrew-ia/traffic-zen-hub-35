@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Wallet,
   Kanban,
+  ChartLine,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -28,6 +29,7 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
   
   { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
+  { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
