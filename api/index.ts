@@ -132,7 +132,7 @@ app.get('/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
 // Optimized Instagram sync endpoints
 app.post('/integrations/instagram/sync-optimized', optimizedInstagramSync);
-app.get('/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
+app.get('/integrations/instagram/sync-status/:syncId', getInstagramSyncStatus);
 
 // Legacy sync status endpoints
 app.get('/integrations/sync/:jobId', getSyncStatus);
