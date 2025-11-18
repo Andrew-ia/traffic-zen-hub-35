@@ -261,8 +261,12 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to sync Google Ads data',
-      errorDetails: error.toString(),
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      errorDetails: {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        stack: error.stack?.split('\n')[0]
+      }
     });
   }
 }
