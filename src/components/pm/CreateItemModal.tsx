@@ -135,7 +135,7 @@ export function CreateItemModal({
     sections: TemplateSection[];
   }
 
-  const META_CAMPAIGN_TEMPLATE: TaskTemplate = {
+  const META_CAMPAIGN_TEMPLATE = useMemo<TaskTemplate>(() => ({
     template_name: 'Campanha Meta Ads',
     category: 'Mídia Paga',
     sections: [
@@ -201,9 +201,9 @@ export function CreateItemModal({
         ],
       },
     ],
-  };
+  }), []);
 
-  const GOOGLE_SEARCH_TEMPLATE: TaskTemplate = {
+  const GOOGLE_SEARCH_TEMPLATE = useMemo<TaskTemplate>(() => ({
     template_name: 'Campanha Google Ads (Pesquisa)',
     category: 'Mídia Paga',
     sections: [
@@ -280,9 +280,9 @@ export function CreateItemModal({
         ],
       },
     ],
-  };
+  }), []);
 
-  const INSTAGRAM_BOOST_TEMPLATE: TaskTemplate = {
+  const INSTAGRAM_BOOST_TEMPLATE = useMemo<TaskTemplate>(() => ({
     template_name: 'Impulsionamento Instagram',
     category: 'Social Ads',
     sections: [
@@ -324,13 +324,13 @@ export function CreateItemModal({
         ],
       },
     ],
-  };
+  }), []);
 
-  const TEMPLATES: TaskTemplate[] = [
+  const TEMPLATES = useMemo<TaskTemplate[]>(() => [
     META_CAMPAIGN_TEMPLATE,
     GOOGLE_SEARCH_TEMPLATE,
     INSTAGRAM_BOOST_TEMPLATE,
-  ];
+  ], [META_CAMPAIGN_TEMPLATE, GOOGLE_SEARCH_TEMPLATE, INSTAGRAM_BOOST_TEMPLATE]);
 
   const [templateValues, setTemplateValues] = useState<Record<string, any>>({});
   const [adsetCount, setAdsetCount] = useState(1);
@@ -444,7 +444,7 @@ export function CreateItemModal({
         setTemplateValues(initialValues);
       }
     }
-  }, [activeTab, selectedTemplateIndex]);
+  }, [activeTab, selectedTemplateIndex, templateValues, TEMPLATES]);
 
   const keyOf = (label: string) => label.replace(/\s+/g, '_').toLowerCase();
 

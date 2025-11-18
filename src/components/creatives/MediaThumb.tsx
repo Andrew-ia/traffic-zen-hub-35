@@ -72,8 +72,9 @@ export function MediaThumb({ thumbnailUrl, url, type = "image", alt, className, 
               poster={thumbnailUrl ?? undefined}
               muted
               playsInline
-              preload="metadata"
+              preload="none"
               controls
+              referrerPolicy="no-referrer"
             />
             {url && (
               <a

@@ -11,7 +11,7 @@ const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
  */
 export async function directInstagramSync(req: Request, res: Response) {
   try {
-    const { workspaceId, days = 7, mode = 'single', totalDays = days, batchDays = 5, accessTokenOverride, igUserIdOverride } = req.body as any;
+    const { workspaceId, days = 7, mode = 'single', totalDays = days, batchDays = 5 } = req.body as any;
     const envWorkspaceId = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
     const normalizedWorkspaceId = String(workspaceId || envWorkspaceId || '').trim();
 
@@ -92,13 +92,7 @@ export async function directInstagramSync(req: Request, res: Response) {
 
     const { encrypted_credentials, encryption_iv } = credResult.rows[0];
     const credentials = decryptCredentials(encrypted_credentials, encryption_iv);
-    let { igUserId, accessToken } = credentials as any;
-    if (typeof igUserIdOverride === 'string' && igUserIdOverride.trim()) {
-      igUserId = igUserIdOverride.trim();
-    }
-    if (typeof accessTokenOverride === 'string' && accessTokenOverride.trim()) {
-      accessToken = accessTokenOverride.trim();
-    }
+    const { igUserId, accessToken } = credentials;
 
     if (!igUserId || !accessToken) {
       return res.status(400).json({
@@ -174,7 +168,7 @@ export async function directInstagramSync(req: Request, res: Response) {
     // Calculate date range with optional step mode (chunked sync)
     const endDate = new Date();
     const dateFormat = (date: Date) => date.toISOString().split('T')[0];
-    let startDate = new Date();
+    const startDate = new Date();
     startDate.setDate(endDate.getDate() - Number(totalDays));
 
     let stepStart = new Date(startDate);

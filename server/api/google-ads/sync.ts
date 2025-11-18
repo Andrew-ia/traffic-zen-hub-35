@@ -230,6 +230,7 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
     
   } catch (error: any) {
     console.error('Google Ads sync error:', error);
+    console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
     
     if (error.message?.includes('DEVELOPER_TOKEN_NOT_ON_ALLOWLIST')) {
@@ -256,9 +257,11 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
       });
     }
     
+    // Return the actual error message for debugging
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to sync Google Ads data',
+      errorDetails: error.toString(),
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }

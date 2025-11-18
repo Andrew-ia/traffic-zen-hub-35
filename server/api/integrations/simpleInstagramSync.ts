@@ -102,7 +102,6 @@ export async function simpleInstagramSync(req: Request, res: Response) {
       [normalizedWorkspaceId, igUserId]
     );
 
-    let platformAccountId;
     if (platformAccountResult.rows.length === 0) {
       platformAccountResult = await pool.query(
         `INSERT INTO platform_accounts (
@@ -112,7 +111,7 @@ export async function simpleInstagramSync(req: Request, res: Response) {
         [normalizedWorkspaceId, integrationId, igUserId]
       );
     }
-    platformAccountId = platformAccountResult.rows[0].id;
+    const platformAccountId = platformAccountResult.rows[0].id;
 
     // Validate permissions
     console.log(`🔍 Validating permissions...`);
@@ -156,7 +155,7 @@ export async function simpleInstagramSync(req: Request, res: Response) {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days);
 
-    let allMetrics = [];
+    const allMetrics: any[] = [];
     let processedDays = 0;
 
     // Fetch data day by day

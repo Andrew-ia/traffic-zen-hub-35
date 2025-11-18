@@ -44,6 +44,9 @@ export interface CreativeOverview {
 export interface UseCreativeLibraryOptions {
   days?: number;
   platformKey?: string;
+  onlyType?: 'video' | 'image';
+  includeAssociations?: boolean;
+  limit?: number;
 }
 
 interface CreativeAssetRow {
@@ -90,7 +93,7 @@ function parseNumber(value: string | number | null | undefined): number {
 export function useCreativeLibrary(
   options: UseCreativeLibraryOptions = {},
 ): UseQueryResult<CreativeOverview[]> {
-  const { days = 30, platformKey } = options;
+  const { days = 30, platformKey, onlyType, includeAssociations = true, limit = 200 } = options;
 
   return useQuery({
     queryKey: ["creatives", { days, platformKey }],
@@ -103,10 +106,7 @@ export function useCreativeLibrary(
       const fromDate = start.toISOString().slice(0, 10);
       const toDate = end.toISOString().slice(0, 10);
 
-      const creativeQuery = supabase
-        .from("creative_assets")
-        .select(
-          `
+      const baseSelect = `
             id,
             name,
             type,
@@ -118,7 +118,9 @@ export function useCreativeLibrary(
             duration_seconds,
             file_size_bytes,
             created_at,
-            metadata,
+            metadata
+          `;
+      const assocSelect = `,
             ads:ads (
               id,
               status,
@@ -127,10 +129,18 @@ export function useCreativeLibrary(
                 id,
                 campaign_id
               )
-            )
-          `,
-        )
-        .eq("workspace_id", WORKSPACE_ID);
+            )`;
+
+      const creativeQuery = supabase
+        .from("creative_assets")
+        .select(includeAssociations ? baseSelect + assocSelect : baseSelect)
+        .eq("workspace_id", WORKSPACE_ID)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (onlyType) {
+        creativeQuery.eq("type", onlyType);
+      }
 
       const performanceQuery = supabase
         .from("v_creative_performance")

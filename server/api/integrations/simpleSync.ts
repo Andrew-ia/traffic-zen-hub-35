@@ -106,12 +106,12 @@ export async function startSync(req: Request, res: Response) {
         const clientIdRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_id');
         const clientSecretRow = googleSecrets.rows.find((r: any) => r.name === 'google_client_secret');
 
-        let refreshToken = refreshTokenRow?.value || process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
-        let customerId = (customerIdRow?.value || process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, '');
-        let developerToken = developerTokenRow?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
-        let clientId = clientIdRow?.value || process.env.GOOGLE_CLIENT_ID || '';
-        let clientSecret = clientSecretRow?.value || process.env.GOOGLE_CLIENT_SECRET || '';
-        let loginCustomerId = googleSecrets.rows.find((r: any) => r.name === 'google_ads_login_customer_id')?.value
+        const refreshToken = refreshTokenRow?.value || process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
+        const customerId = (customerIdRow?.value || process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, '');
+        const developerToken = developerTokenRow?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+        const clientId = clientIdRow?.value || process.env.GOOGLE_CLIENT_ID || '';
+        const clientSecret = clientSecretRow?.value || process.env.GOOGLE_CLIENT_SECRET || '';
+        const loginCustomerId = googleSecrets.rows.find((r: any) => r.name === 'google_ads_login_customer_id')?.value
           || (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, '') || undefined;
 
         if (!refreshToken || !customerId || !developerToken || !clientId || !clientSecret) {

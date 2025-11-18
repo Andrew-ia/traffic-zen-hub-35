@@ -5,7 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, FolderOpen, Clipboard } from 'lucide-react';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export interface Creative {
   id: string;
@@ -140,6 +141,12 @@ export function CampaignFormWizard({
 }: CampaignFormWizardProps) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<CampaignData>(() => normalizeCampaignData(initialData));
+  const [driveSelectorOpen, setDriveSelectorOpen] = useState(false);
+  const [driveSelectorTarget, setDriveSelectorTarget] = useState<{ adSetId: string; creativeId: string } | null>(null);
+  const [driveSelectedUrl, setDriveSelectedUrl] = useState('');
+
+  const DRIVE_FOLDER_ID = '1CW4zimagBD1syVRfbhSuH1NC5drzVZPt';
+  const DRIVE_EMBED_URL = `https://drive.google.com/embeddedfolderview?id=${DRIVE_FOLDER_ID}#grid`;
 
   useEffect(() => {
     setData(normalizeCampaignData(initialData));
@@ -172,6 +179,30 @@ export function CampaignFormWizard({
           : ads
       ),
     }));
+  };
+
+  const openDriveSelector = (adSetId: string, creativeId: string) => {
+    setDriveSelectorTarget({ adSetId, creativeId });
+    setDriveSelectedUrl('');
+    setDriveSelectorOpen(true);
+  };
+
+  const applyDriveSelectedUrl = () => {
+    if (driveSelectorTarget && driveSelectedUrl.trim()) {
+      updateCreative(driveSelectorTarget.adSetId, driveSelectorTarget.creativeId, 'creativeUrl', driveSelectedUrl.trim());
+      setDriveSelectorOpen(false);
+      setDriveSelectorTarget(null);
+      setDriveSelectedUrl('');
+    }
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) setDriveSelectedUrl(text);
+    } catch {
+      void 0;
+    }
   };
 
   const addAdSet = () => {
@@ -532,14 +563,26 @@ export function CampaignFormWizard({
                             <Label htmlFor={`url-${adSet.id}-${creative.id}`} className="text-xs">
                               URL do Criativo
                             </Label>
-                            <Input
-                              id={`url-${adSet.id}-${creative.id}`}
-                              type="url"
-                              placeholder="https://exemplo.com/img.jpg"
-                              value={creative.creativeUrl}
-                              onChange={(e) => updateCreative(adSet.id, creative.id, 'creativeUrl', e.target.value)}
-                              className="mt-1 h-8 text-sm"
-                            />
+                            <div className="mt-1 flex items-center gap-2">
+                              <Input
+                                id={`url-${adSet.id}-${creative.id}`}
+                                type="url"
+                                placeholder="https://exemplo.com/img.jpg"
+                                value={creative.creativeUrl}
+                                onChange={(e) => updateCreative(adSet.id, creative.id, 'creativeUrl', e.target.value)}
+                                className="h-8 text-sm flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openDriveSelector(adSet.id, creative.id)}
+                                className="h-8"
+                              >
+                                <FolderOpen className="h-4 w-4 mr-1" />
+                                Selecionar no Drive
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -656,6 +699,38 @@ export function CampaignFormWizard({
           )}
         </div>
       </div>
+
+      <Dialog open={driveSelectorOpen} onOpenChange={setDriveSelectorOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Selecionar Criativo do Drive</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border overflow-hidden">
+              <iframe src={DRIVE_EMBED_URL} className="w-full h-[520px]" allow="fullscreen" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+              <Input
+                type="url"
+                placeholder="Cole aqui a URL do arquivo do Drive"
+                value={driveSelectedUrl}
+                onChange={(e) => setDriveSelectedUrl(e.target.value)}
+                className="h-9"
+              />
+              <Button type="button" variant="secondary" size="sm" onClick={pasteFromClipboard} className="h-9">
+                <Clipboard className="h-4 w-4 mr-1" />
+                Colar do Clipboard
+              </Button>
+              <Button type="button" size="sm" onClick={applyDriveSelectedUrl} className="h-9">
+                Usar URL
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDriveSelectorOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
