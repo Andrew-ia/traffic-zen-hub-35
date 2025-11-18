@@ -258,25 +258,46 @@ class InstagramSyncOptimized {
     console.log(`✅ Stored ${recordsProcessed} Instagram metric records`);
   }
 
-  // Start sync tracking
-  private async startSyncTracking(totalDays: number): Promise<string> {
+  // Start sync tracking with real progress table
+  async startSyncTracking(totalDays: number): Promise<string> {
+    const syncId = `instagram-${this.workspaceId}-${Date.now()}`;
+    
+    // Create or update progress record
     await this.pool.query(
-      `SELECT start_sync_tracking($1, $2, $3, $4)`,
-      ['instagram', this.workspaceId, 'optimized_batch', totalDays]
+      `INSERT INTO sync_metadata (id, workspace_id, platform, sync_type, progress, status, metadata, started_at)
+       VALUES ($1, $2, 'instagram', 'optimized_batch', 0, 'running', $3, now())
+       ON CONFLICT (id) DO UPDATE SET
+         progress = 0, status = 'running', started_at = now(), metadata = $3`,
+      [syncId, this.workspaceId, JSON.stringify({ totalDays, platform: 'instagram' })]
     );
-    // Return a simple identifier since the function doesn't return sync_id
-    return `instagram-${this.workspaceId}-${Date.now()}`;
+    
+    return syncId;
   }
 
-  // Update sync progress (simplified - just log)
-  private async updateSyncProgress(syncId: string, progress: number, status: string): Promise<void> {
+  // Update sync progress in database
+  async updateSyncProgress(syncId: string, progress: number, status: string): Promise<void> {
     console.log(`📊 Instagram Sync Progress: ${progress}% - ${status}`);
-    // Could update sync_metadata table directly here if needed
+    
+    await this.pool.query(
+      `UPDATE sync_metadata 
+       SET progress = $2, status = $3, updated_at = now()
+       WHERE id = $1`,
+      [syncId, progress, status]
+    );
   }
 
   // Complete sync tracking
   private async completeSyncTracking(syncId: string, recordsProcessed: number): Promise<void> {
     console.log(`✅ Instagram Sync Completed: ${recordsProcessed} records processed`);
+    
+    // Update sync metadata
+    await this.pool.query(
+      `UPDATE sync_metadata 
+       SET progress = 100, status = 'completed', completed_at = now(), 
+           metadata = metadata || $2
+       WHERE id = $1`,
+      [syncId, JSON.stringify({ recordsProcessed })]
+    );
     
     // Update integration last_synced_at
     await this.pool.query(
@@ -415,19 +436,32 @@ export async function optimizedInstagramSync(req: Request, res: Response) {
       });
     }
 
-    // Initialize and run sync
+    // Initialize sync and start in background
     const instagramSync = new InstagramSyncOptimized(accessToken, igUserId, normalizedWorkspaceId);
-    const result = await instagramSync.sync(totalDays, batchDays);
+    
+    // Start sync tracking first
+    const syncId = await instagramSync.startSyncTracking(totalDays);
+    
+    // Run sync in background
+    instagramSync.sync(totalDays, batchDays).catch(async (error) => {
+      console.error('❌ Background Instagram sync failed:', error);
+      await instagramSync.updateSyncProgress(syncId, 0, 'failed');
+      await instagramSync.pool.query(
+        `UPDATE sync_metadata SET error_message = $2 WHERE id = $1`,
+        [syncId, error.message]
+      );
+    });
 
+    // Return immediately with sync ID
     res.json({
       success: true,
-      message: `Instagram sync completed successfully. Processed ${totalDays} days of data.`,
+      message: `Instagram sync started successfully. Use syncId to track progress.`,
       data: {
         accountId: igUserId,
         totalDays,
         batchDays,
-        recordsProcessed: result.recordsProcessed,
-        syncId: result.syncId
+        syncId: syncId,
+        status: 'running'
       }
     });
 
@@ -441,46 +475,49 @@ export async function optimizedInstagramSync(req: Request, res: Response) {
 }
 
 /**
- * Get Instagram sync status
- * GET /api/integrations/instagram/sync-status/:workspaceId
+ * Get Instagram sync status by syncId
+ * GET /api/integrations/instagram/sync-status/:syncId
  */
 export async function getInstagramSyncStatus(req: Request, res: Response) {
   try {
-    const { workspaceId } = req.params;
+    const { syncId } = req.params;
     const pool = getPool();
 
     const result = await pool.query(
       `SELECT id, sync_type, progress, status, metadata, 
-              started_at, completed_at, error_message
+              started_at, completed_at, error_message, updated_at
        FROM sync_metadata 
-       WHERE workspace_id = $1 AND platform = 'instagram'
-       ORDER BY started_at DESC 
-       LIMIT 1`,
-      [workspaceId]
+       WHERE id = $1`,
+      [syncId]
     );
 
     if (result.rows.length === 0) {
       return res.json({
         success: true,
         data: {
-          status: 'no_sync',
-          message: 'No sync found for this workspace'
+          status: 'not_found',
+          message: 'Sync not found'
         }
       });
     }
 
     const syncData = result.rows[0];
+    const isStuck = syncData.status === 'running' && 
+                   new Date().getTime() - new Date(syncData.updated_at).getTime() > 300000; // 5 min
+
     res.json({
       success: true,
       data: {
         syncId: syncData.id,
         syncType: syncData.sync_type,
         progress: syncData.progress,
-        status: syncData.status,
+        status: isStuck ? 'timeout' : syncData.status,
         metadata: syncData.metadata,
         startedAt: syncData.started_at,
         completedAt: syncData.completed_at,
-        errorMessage: syncData.error_message
+        errorMessage: syncData.error_message,
+        lastUpdate: syncData.updated_at,
+        isStuck: isStuck
       }
     });
 

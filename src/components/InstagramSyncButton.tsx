@@ -83,6 +83,65 @@ export default function InstagramSyncButton({
     }, 1200);
   };
 
+  const pollOptimizedSyncStatus = (syncId: string) => {
+    let attempts = 0;
+    const maxAttempts = 300; // 10 minutos (2 seg * 300 = 600 seg = 10 min)
+
+    pollRef.current = window.setInterval(async () => {
+      attempts += 1;
+      if (attempts > maxAttempts) {
+        clearPolling();
+        resetSyncState();
+        toast({
+          title: "Tempo excedido",
+          description: "A sincronização está demorando mais que o esperado. Verifique novamente em alguns minutos.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        const statusResponse = await fetch(`${API_BASE}/api/integrations/instagram/sync-status/${syncId}`);
+        const statusPayload = await statusResponse.json().catch(() => ({}));
+
+        if (!statusResponse.ok) {
+          throw new Error(statusPayload?.error || "Não foi possível verificar o status.");
+        }
+
+        const statusData = statusPayload?.data;
+        
+        // Update progress if we have it
+        if (typeof statusData?.progress === "number") {
+          updateProgressStage(statusData.progress, `Progresso: ${statusData.progress}% - ${statusData.status}`);
+        }
+
+        // Check status
+        if (statusData?.status === "completed") {
+          const recordsProcessed = statusData?.metadata?.recordsProcessed || 0;
+          finalizeSuccess(`Sincronização concluída! ${recordsProcessed} registros processados.`);
+        } else if (statusData?.status === "failed" || statusData?.status === "timeout") {
+          clearPolling();
+          resetSyncState();
+          toast({
+            title: "Erro na sincronização",
+            description: statusData?.errorMessage || "Falha ao sincronizar dados do Instagram.",
+            variant: "destructive",
+          });
+        } else if (statusData?.isStuck) {
+          clearPolling();
+          resetSyncState();
+          toast({
+            title: "Sincronização travada",
+            description: "A sincronização parece ter travado. Tente novamente.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Erro ao verificar status da sincronização otimizada:", error);
+      }
+    }, 2000);
+  };
+
   const pollJobStatus = (jobId: string) => {
     let attempts = 0;
     const maxAttempts = 120; // 4 minutos
@@ -134,8 +193,8 @@ export default function InstagramSyncButton({
   const runOptimizedSync = async (workspaceId: string) => {
     updateProgressStage(10, "Iniciando sync otimizado com batching...");
     const controller = new AbortController();
-    // Sync otimizado pode levar mais tempo para volumes grandes: 300s (5 minutos)
-    const timeoutId = window.setTimeout(() => controller.abort(), 300000);
+    // Timeout reduzido pois agora retorna rapidamente com syncId: 30s
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
     let response: Response;
 
     try {
@@ -155,7 +214,7 @@ export default function InstagramSyncButton({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "Erro desconhecido");
       if (/aborted/i.test(msg)) {
-        throw new Error("Tempo excedido na sincronização. Para períodos longos (>30 dias), tente em batches menores.");
+        throw new Error("Timeout ao iniciar sincronização otimizada. Tentando método alternativo...");
       }
       throw new Error("Não foi possível conectar com a API. Verifique se o servidor está rodando.");
     } finally {
@@ -168,8 +227,15 @@ export default function InstagramSyncButton({
       throw new Error(payload?.error || "Falha na sincronização otimizada do Instagram.");
     }
 
-    updateProgressStage(95, "Finalizando sincronização...");
-    finalizeSuccess(payload?.message || `Sincronização concluída! ${payload?.data?.recordsProcessed || 0} registros processados.`);
+    // Start polling for progress if we got a syncId
+    const syncId = payload?.data?.syncId;
+    if (syncId) {
+      updateProgressStage(20, "Sincronização iniciada. Monitorando progresso...");
+      pollOptimizedSyncStatus(syncId);
+    } else {
+      updateProgressStage(95, "Finalizando sincronização...");
+      finalizeSuccess(payload?.message || `Sincronização concluída! ${payload?.data?.recordsProcessed || 0} registros processados.`);
+    }
   };
 
   const runDirectSync = async (workspaceId: string) => {
