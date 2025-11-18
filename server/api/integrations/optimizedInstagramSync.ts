@@ -262,13 +262,13 @@ class InstagramSyncOptimized {
   async startSyncTracking(totalDays: number): Promise<string> {
     const syncId = `instagram-${this.workspaceId}-${Date.now()}`;
     
-    // Create or update progress record
+    // Create or update progress record using correct table structure
     await this.pool.query(
-      `INSERT INTO sync_metadata (id, workspace_id, platform, sync_type, progress, status, metadata, started_at)
-       VALUES ($1, $2, 'instagram', 'optimized_batch', 0, 'running', $3, now())
-       ON CONFLICT (id) DO UPDATE SET
-         progress = 0, status = 'running', started_at = now(), metadata = $3`,
-      [syncId, this.workspaceId, JSON.stringify({ totalDays, platform: 'instagram' })]
+      `INSERT INTO sync_metadata (platform_key, workspace_id, sync_type, progress, sync_status, total_items, sync_duration_ms, created_at, updated_at)
+       VALUES ($1, $2, 'optimized_batch', 0, 'running', $3, null, now(), now())
+       ON CONFLICT (platform_key, workspace_id) DO UPDATE SET
+         progress = 0, sync_status = 'running', total_items = $3, updated_at = now()`,
+      ['instagram', this.workspaceId, totalDays]
     );
     
     return syncId;
@@ -280,9 +280,9 @@ class InstagramSyncOptimized {
     
     await this.pool.query(
       `UPDATE sync_metadata 
-       SET progress = $2, status = $3, updated_at = now()
-       WHERE id = $1`,
-      [syncId, progress, status]
+       SET progress = $1, sync_status = $2, updated_at = now()
+       WHERE platform_key = 'instagram' AND workspace_id = $3`,
+      [progress, status, this.workspaceId]
     );
   }
 
@@ -293,10 +293,9 @@ class InstagramSyncOptimized {
     // Update sync metadata
     await this.pool.query(
       `UPDATE sync_metadata 
-       SET progress = 100, status = 'completed', completed_at = now(), 
-           metadata = metadata || $2
-       WHERE id = $1`,
-      [syncId, JSON.stringify({ recordsProcessed })]
+       SET progress = 100, sync_status = 'completed', processed_items = $1, last_sync_at = now(), updated_at = now()
+       WHERE platform_key = 'instagram' AND workspace_id = $2`,
+      [recordsProcessed, this.workspaceId]
     );
     
     // Update integration last_synced_at
@@ -475,20 +474,20 @@ export async function optimizedInstagramSync(req: Request, res: Response) {
 }
 
 /**
- * Get Instagram sync status by syncId
- * GET /api/integrations/instagram/sync-status/:syncId
+ * Get Instagram sync status by workspaceId
+ * GET /api/integrations/instagram/sync-status/:workspaceId
  */
 export async function getInstagramSyncStatus(req: Request, res: Response) {
   try {
-    const { syncId } = req.params;
+    const { workspaceId } = req.params;
     const pool = getPool();
 
     const result = await pool.query(
-      `SELECT id, sync_type, progress, status, metadata, 
-              started_at, completed_at, error_message, updated_at
+      `SELECT platform_key, workspace_id, sync_type, progress, sync_status, 
+              total_items, processed_items, last_sync_at, error_message, updated_at, created_at
        FROM sync_metadata 
-       WHERE id = $1`,
-      [syncId]
+       WHERE platform_key = 'instagram' AND workspace_id = $1`,
+      [workspaceId]
     );
 
     if (result.rows.length === 0) {
@@ -496,25 +495,26 @@ export async function getInstagramSyncStatus(req: Request, res: Response) {
         success: true,
         data: {
           status: 'not_found',
-          message: 'Sync not found'
+          message: 'No Instagram sync found for this workspace'
         }
       });
     }
 
     const syncData = result.rows[0];
-    const isStuck = syncData.status === 'running' && 
+    const isStuck = syncData.sync_status === 'running' && 
                    new Date().getTime() - new Date(syncData.updated_at).getTime() > 300000; // 5 min
 
     res.json({
       success: true,
       data: {
-        syncId: syncData.id,
+        syncId: `instagram-${workspaceId}`,
         syncType: syncData.sync_type,
         progress: syncData.progress,
-        status: isStuck ? 'timeout' : syncData.status,
-        metadata: syncData.metadata,
-        startedAt: syncData.started_at,
-        completedAt: syncData.completed_at,
+        status: isStuck ? 'timeout' : syncData.sync_status,
+        totalItems: syncData.total_items,
+        processedItems: syncData.processed_items,
+        startedAt: syncData.created_at,
+        completedAt: syncData.last_sync_at,
         errorMessage: syncData.error_message,
         lastUpdate: syncData.updated_at,
         isStuck: isStuck

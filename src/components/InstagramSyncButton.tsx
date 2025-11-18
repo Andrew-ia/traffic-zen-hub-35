@@ -83,7 +83,7 @@ export default function InstagramSyncButton({
     }, 1200);
   };
 
-  const pollOptimizedSyncStatus = (syncId: string) => {
+  const pollOptimizedSyncStatus = (workspaceId: string) => {
     let attempts = 0;
     const maxAttempts = 300; // 10 minutos (2 seg * 300 = 600 seg = 10 min)
 
@@ -101,7 +101,7 @@ export default function InstagramSyncButton({
       }
 
       try {
-        const statusResponse = await fetch(`${API_BASE}/api/integrations/instagram/sync-status/${syncId}`);
+        const statusResponse = await fetch(`${API_BASE}/api/integrations/instagram/sync-status/${workspaceId}`);
         const statusPayload = await statusResponse.json().catch(() => ({}));
 
         if (!statusResponse.ok) {
@@ -117,7 +117,7 @@ export default function InstagramSyncButton({
 
         // Check status
         if (statusData?.status === "completed") {
-          const recordsProcessed = statusData?.metadata?.recordsProcessed || 0;
+          const recordsProcessed = statusData?.processedItems || 0;
           finalizeSuccess(`Sincronização concluída! ${recordsProcessed} registros processados.`);
         } else if (statusData?.status === "failed" || statusData?.status === "timeout") {
           clearPolling();
@@ -227,11 +227,11 @@ export default function InstagramSyncButton({
       throw new Error(payload?.error || "Falha na sincronização otimizada do Instagram.");
     }
 
-    // Start polling for progress if we got a syncId
+    // Start polling for progress using workspaceId
     const syncId = payload?.data?.syncId;
     if (syncId) {
       updateProgressStage(20, "Sincronização iniciada. Monitorando progresso...");
-      pollOptimizedSyncStatus(syncId);
+      pollOptimizedSyncStatus(workspaceId);
     } else {
       updateProgressStage(95, "Finalizando sincronização...");
       finalizeSuccess(payload?.message || `Sincronização concluída! ${payload?.data?.recordsProcessed || 0} registros processados.`);
