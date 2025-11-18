@@ -158,7 +158,7 @@ const processGA4Metrics = (rows: any[]) => {
 };
 
 const processGoogleAdsData = (apiResponse: any) => {
-  // If API call failed or needs auth, return zeros
+  // If API call failed or needs auth, return zeros with auth info
   if (!apiResponse?.success || !apiResponse?.data?.summary) {
     return {
       clicks: 0,
@@ -233,6 +233,7 @@ export default function GoogleAnalytics() {
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState("7");
   const [activeTab, setActiveTab] = useState("overview");
+  const [googleAdsStatus, setGoogleAdsStatus] = useState<{needsAuth: boolean, error: string | null}>({needsAuth: false, error: null});
   const { toast } = useToast();
 
   const fetchGA4Data = useCallback(async (days: string) => {
@@ -246,17 +247,32 @@ export default function GoogleAnalytics() {
       });
 
       // Fetch real Google Ads data via Google Ads API (with error handling)
-      let googleAdsData = { success: false, data: null };
+      let googleAdsData = { success: false, data: null, needsAuth: false, error: null };
       try {
         const googleAdsResponse = await fetch(`${API_BASE}/api/google-ads/sync`, {
           method: "POST", 
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ days: parseInt(days) })
+          body: JSON.stringify({ 
+            workspaceId: "00000000-0000-0000-0000-000000000010",
+            days: parseInt(days) 
+          })
         });
         googleAdsData = await googleAdsResponse.json();
+        
+        // Show specific error message for invalid_client
+        if (googleAdsData.error === 'invalid_client') {
+          console.warn('Google Ads OAuth credentials need to be reconfigured');
+          googleAdsData.needsAuth = true;
+          googleAdsData.error = 'Google Ads authentication needs to be reconfigured';
+          setGoogleAdsStatus({needsAuth: true, error: 'Google Ads authentication needs to be reconfigured'});
+        } else if (!googleAdsData.success) {
+          setGoogleAdsStatus({needsAuth: false, error: googleAdsData.error});
+        } else {
+          setGoogleAdsStatus({needsAuth: false, error: null});
+        }
       } catch (googleAdsError) {
         console.warn('Google Ads API failed, continuing without ads data:', googleAdsError);
-        googleAdsData = { success: false, data: null };
+        googleAdsData = { success: false, data: null, needsAuth: false, error: null };
       }
 
       const metricsData = await metricsResponse.json();
@@ -465,6 +481,28 @@ export default function GoogleAnalytics() {
         </TabsContent>
 
         <TabsContent value="googleads" className="space-y-6">
+          {/* Google Ads Authentication Warning */}
+          {googleAdsStatus.needsAuth && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3 text-orange-800">
+                  <Target className="w-5 h-5" />
+                  <div>
+                    <h3 className="font-semibold">Google Ads Precisa de Configuração</h3>
+                    <p className="text-sm text-orange-700 mt-1">
+                      As credenciais do Google Ads precisam ser reconfiguradas. Entre em contato com o administrador para configurar a integração.
+                    </p>
+                    {googleAdsStatus.error && (
+                      <p className="text-xs text-orange-600 mt-1 font-mono">
+                        Erro: {googleAdsStatus.error}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Google Ads Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
