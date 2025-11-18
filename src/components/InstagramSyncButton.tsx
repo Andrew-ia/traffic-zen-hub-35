@@ -29,11 +29,11 @@ export default function InstagramSyncButton({
 
   // Define Instagram-specific sync stages
   const syncStages = [
-    "Conectando com Instagram API",
-    "Autenticando conta business",
-    "Buscando posts e stories",
+    "Iniciando sincronização otimizada",
+    "Validando permissões Instagram API",
+    "Processando dados em batches",
     "Coletando métricas de engajamento",
-    "Processando insights de audiência",
+    "Armazenando dados no banco",
     "Finalizando sincronização"
   ];
 
@@ -132,7 +132,7 @@ export default function InstagramSyncButton({
   };
 
   const runOptimizedSync = async (workspaceId: string) => {
-    updateProgressStage(15, "Iniciando sincronização otimizada...");
+    updateProgressStage(10, "Iniciando sync otimizado com batching...");
     const controller = new AbortController();
     // Sync otimizado pode levar mais tempo para volumes grandes: 300s (5 minutos)
     const timeoutId = window.setTimeout(() => controller.abort(), 300000);
@@ -297,17 +297,12 @@ export default function InstagramSyncButton({
       setSyncing(true);
       updateProgressStage(5, `Preparando sincronização (${days} dias)...`);
 
-      // Try optimized sync first, fallback to job-based, then direct
+      // Try optimized sync first, fallback to direct sync (skip job-based for Vercel)
       try {
         await runOptimizedSync(workspaceId);
       } catch (optimizedError) {
-        console.warn("Sync otimizado falhou, tentando job-based:", optimizedError);
-        try {
-          await startJobSync(workspaceId);
-        } catch (jobError) {
-          console.warn("Job-based sync falhou, usando fallback direto:", jobError);
-          await runDirectSync(workspaceId);
-        }
+        console.warn("Sync otimizado falhou, usando fallback direto:", optimizedError);
+        await runDirectSync(workspaceId);
       }
     } catch (error) {
       resetSyncState();
