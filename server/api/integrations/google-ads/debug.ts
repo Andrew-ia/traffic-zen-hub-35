@@ -4,8 +4,10 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 export async function debugGoogleAdsAuth(req: Request, res: Response) {
-  const protocol = req.get('host')?.includes('vercel.app') ? 'https' : req.protocol;
-  const redirectUri = `${protocol}://${req.get('host')}/api/integrations/google-ads/callback`;
+  const isVercel = req.get('host')?.includes('vercel.app');
+  const host = isVercel ? 'traffic-zen-hub-35.vercel.app' : req.get('host');
+  const protocol = isVercel ? 'https' : req.protocol;
+  const redirectUri = `${protocol}://${host}/api/integrations/google-ads/callback`;
   
   res.json({
     clientId: CLIENT_ID,

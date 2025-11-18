@@ -16,9 +16,11 @@ export async function initiateGoogleAdsAuth(req: Request, res: Response) {
       });
     }
 
-    // Create OAuth2 client with the correct redirect URI - force HTTPS in production
-    const protocol = req.get('host')?.includes('vercel.app') ? 'https' : req.protocol;
-    const redirectUri = `${protocol}://${req.get('host')}/api/integrations/google-ads/callback`;
+    // Create OAuth2 client with the correct redirect URI - use main domain
+    const isVercel = req.get('host')?.includes('vercel.app');
+    const host = isVercel ? 'traffic-zen-hub-35.vercel.app' : req.get('host');
+    const protocol = isVercel ? 'https' : req.protocol;
+    const redirectUri = `${protocol}://${host}/api/integrations/google-ads/callback`;
     
     const oauth2Client = new google.auth.OAuth2(
       CLIENT_ID,
