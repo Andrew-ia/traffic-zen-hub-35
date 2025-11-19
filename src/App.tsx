@@ -19,7 +19,6 @@ import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import Instagram from "./pages/Instagram";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
-import Videos from "./pages/Videos";
 import DriveCreatives from "./pages/DriveCreatives";
 import NotFound from "./pages/NotFound";
 import ProjectManagement from "./pages/ProjectManagementV3";
@@ -82,7 +81,6 @@ const App = () => (
               <Route path="/instagram" element={<RequireAuth><Instagram /></RequireAuth>} />
               <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-              <Route path="/videos" element={<RequireAuth><Videos /></RequireAuth>} />
               <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
               <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
               <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />

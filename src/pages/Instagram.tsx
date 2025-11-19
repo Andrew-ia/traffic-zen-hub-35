@@ -18,7 +18,6 @@ import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as Vid
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { resolveApiBase } from "@/lib/apiBase";
-import Videos from "./Videos";
 
 const WORKSPACE_ID =
   (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() ||
@@ -954,14 +953,6 @@ export default function Instagram() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Vídeos do Workspace</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Videos />
-            </CardContent>
-          </Card>
 
           {showAccountInsightsCard && (
             <Card>
