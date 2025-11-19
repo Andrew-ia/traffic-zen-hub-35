@@ -76,127 +76,35 @@ export default function GoogleAds() {
       setStatusMessage(`Preparando sincronização (${days} dias)...`);
       setProgress(0);
 
-      let response: Response | null = null;
-      try {
-        const health = await fetch(`${API_BASE}/health`, { headers: { Accept: "application/json" } });
-        if (!health.ok) throw new Error("API indisponível");
+      const response = await fetch(`${API_BASE}/api/google-ads/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ workspaceId, days }),
+      });
 
-        response = await fetch(`${API_BASE}/api/integrations/sync`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ workspaceId, platformKey: "google_ads", days, type: "all" }),
-        });
-      } catch (primaryError) {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-        if (supabaseUrl && anonKey) {
-          try {
-            setCurrentStage(2);
-            setStatusMessage("Usando Edge Function para sincronização...");
-            setProgress(15);
-            const ef = await fetch(`${supabaseUrl}/functions/v1/google-ads-sync`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ days, sync_type: "all" }),
-            });
-            const efPayload = await ef.json().catch(() => ({}));
-            if (!ef.ok || efPayload?.success === false) {
-              throw new Error(efPayload?.error || "Falha na Edge Function");
-            }
-            toast({ title: "Sincronização iniciada (Edge Function)", description: `Campanhas em atualização nos últimos ${days} dias.` });
-            setProgress(100);
-            setCurrentStage(syncStages.length - 1);
-            setTimeout(() => {
-              setSyncing(false);
-              setStatusMessage(null);
-              setProgress(null);
-              setCurrentStage(0);
-            }, 1500);
-            return;
-          } catch {
-            toast({ title: "API indisponível", description: "Falha ao usar Edge Function também. Verifique VITE_API_URL/VITE_SUPABASE_*", variant: "destructive" });
-            setSyncing(false);
-            return;
-          }
-        }
-        toast({ title: "API indisponível", description: "Configure VITE_API_URL ou execute o backend para sincronizar Google Ads.", variant: "destructive" });
-        setSyncing(false);
-        return;
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) {
+        const msg = payload?.error || `Falha ao sincronizar: ${response.statusText}`;
+        throw new Error(msg);
       }
 
-      const payload = await response!.json().catch(() => ({}));
-      if (!response!.ok) {
-        const unsupported = String(payload?.error || "").toLowerCase().includes("unsupported platform");
-        if (unsupported) {
-          toast({ title: "Plataforma não suportada na API", description: "Use o comando do servidor: npm run sync:google", variant: "destructive" });
-          setSyncing(false);
-          return;
-        }
-        throw new Error(payload?.error || "Falha ao iniciar sincronização");
-      }
-
-      const jobId = payload?.data?.jobId;
       toast({ title: "Sincronização iniciada", description: `Buscando dados dos últimos ${days} dias.` });
       setCurrentStage(1);
       setStatusMessage("Conectando com Google Ads API...");
-      setProgress(10);
+      setProgress(30);
 
-      let attempts = 0;
-      const maxAttempts = 120;
-      const poll = window.setInterval(async () => {
-        attempts += 1;
-        try {
-          const statusResponse = await fetch(`${API_BASE}/api/integrations/sync/${jobId}`);
-          const statusPayload = await statusResponse.json().catch(() => ({}));
-          if (statusResponse.ok) {
-            const pct = statusPayload?.data?.progress;
-            if (typeof pct === "number") {
-              const pv = Math.max(0, Math.min(100, Math.round(pct)));
-              setProgress(pv);
-              const stageIndex = Math.floor((pv / 100) * (syncStages.length - 1));
-              setCurrentStage(Math.min(stageIndex, syncStages.length - 1));
-              if (pv < 20) setStatusMessage("Conectando com Google Ads API...");
-              else if (pv < 40) setStatusMessage("Buscando contas de anúncios...");
-              else if (pv < 60) setStatusMessage("Sincronizando campanhas...");
-              else if (pv < 80) setStatusMessage("Processando grupos e anúncios...");
-              else if (pv < 95) setStatusMessage("Coletando métricas de performance...");
-              else setStatusMessage("Finalizando sincronização...");
-            }
-            const status = statusPayload?.data?.status;
-            if (status === "completed") {
-              window.clearInterval(poll);
-              setCurrentStage(syncStages.length - 1);
-              setStatusMessage("Sincronização concluída. Atualizando dashboards...");
-              setProgress(100);
-              toast({ title: "Sincronização concluída", description: "Os dados do Google Ads foram atualizados com sucesso." });
-              setTimeout(() => {
-                setSyncing(false);
-                setStatusMessage(null);
-                setProgress(null);
-                setCurrentStage(0);
-              }, 1200);
-            } else if (status === "failed") {
-              window.clearInterval(poll);
-              setSyncing(false);
-              setStatusMessage(null);
-              setProgress(null);
-              setCurrentStage(0);
-              toast({ title: "Erro na sincronização", description: statusPayload?.data?.error_message || "Falha ao sincronizar dados.", variant: "destructive" });
-            }
-          }
-        } catch {
-          // ignore polling errors
-        }
-        if (attempts > maxAttempts) {
-          window.clearInterval(poll);
+      setTimeout(() => {
+        setProgress(100);
+        setCurrentStage(syncStages.length - 1);
+        setStatusMessage("Sincronização concluída");
+        setTimeout(() => {
           setSyncing(false);
           setStatusMessage(null);
           setProgress(null);
           setCurrentStage(0);
-          toast({ title: "Tempo excedido", description: "A sincronização está demorando. Verifique novamente em alguns minutos.", variant: "destructive" });
-        }
-      }, 2000);
-    } catch (error) {
+        }, 800);
+      }, 1200);
+        } catch (error) {
       setSyncing(false);
       toast({ title: "Erro na sincronização", description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.", variant: "destructive" });
     }
