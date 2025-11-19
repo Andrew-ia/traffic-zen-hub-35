@@ -284,6 +284,8 @@ export default function GoogleAnalytics() {
         });
         googleAdsData = await googleAdsResponse.json();
 
+        console.log('Google Ads Response:', googleAdsData);
+
         // Show specific error message for invalid_client
         if (googleAdsData.error === 'invalid_client') {
           console.warn('Google Ads OAuth credentials need to be reconfigured');
@@ -291,13 +293,16 @@ export default function GoogleAnalytics() {
           googleAdsData.error = 'Google Ads authentication needs to be reconfigured';
           setGoogleAdsStatus({ needsAuth: true, error: 'Google Ads authentication needs to be reconfigured' });
         } else if (!googleAdsData.success) {
-          setGoogleAdsStatus({ needsAuth: false, error: googleAdsData.error });
+          const errorMsg = googleAdsData.error || (googleAdsData as any).errorDetails?.message || 'Unknown error';
+          console.error('Google Ads sync failed:', errorMsg, (googleAdsData as any).errorDetails);
+          setGoogleAdsStatus({ needsAuth: false, error: errorMsg });
         } else {
           setGoogleAdsStatus({ needsAuth: false, error: null });
         }
       } catch (googleAdsError) {
-        console.warn('Google Ads API failed, continuing without ads data:', googleAdsError);
-        googleAdsData = { success: false, data: null, needsAuth: false, error: null };
+        console.error('Google Ads API request failed:', googleAdsError);
+        googleAdsData = { success: false, data: null, needsAuth: false, error: String(googleAdsError) };
+        setGoogleAdsStatus({ needsAuth: false, error: String(googleAdsError) });
       }
 
       const metricsData = await metricsResponse.json();
