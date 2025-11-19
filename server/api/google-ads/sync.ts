@@ -260,7 +260,7 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
     if (values.length > 0) {
       const insertQuery = `
         INSERT INTO ads_spend_google 
-        (workspace_id, campaign_id_google, campaign_name, campaign_status, metric_date, impressions, clicks, cost_micros, conversions, conversions_value, platform_account_id)
+        (workspace_id, campaign_id_google, campaign_name, campaign_status, metric_date, impressions, clicks, cost_micros, conversions, conversions_value, customer_id)
         VALUES ${placeholders.join(', ')}
         ON CONFLICT (workspace_id, campaign_id_google, metric_date) 
         DO UPDATE SET 
@@ -271,7 +271,7 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
           cost_micros = EXCLUDED.cost_micros,
           conversions = EXCLUDED.conversions,
           conversions_value = EXCLUDED.conversions_value,
-          updated_at = NOW();
+          synced_at = NOW();
       `;
 
       await pool.query(insertQuery, values);
