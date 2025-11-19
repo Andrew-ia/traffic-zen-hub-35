@@ -13,16 +13,20 @@ const pool = new Pool({
 });
 
 function encryptCredentials(data) {
-    const algorithm = 'aes-256-cbc';
+    const algorithm = 'aes-256-gcm';
     const key = Buffer.from(ENCRYPTION_KEY, 'hex');
     const iv = crypto.randomBytes(16);
 
     const cipher = crypto.createCipheriv(algorithm, key, iv);
-    let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'base64');
-    encrypted += cipher.final('base64');
+    let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag();
+
+    // Combine encrypted data with authTag (separated by colon)
+    const encryptedWithTag = encrypted + ':' + authTag.toString('hex');
 
     return {
-        encrypted: encrypted,
+        encrypted: encryptedWithTag,
         iv: iv.toString('hex')
     };
 }
