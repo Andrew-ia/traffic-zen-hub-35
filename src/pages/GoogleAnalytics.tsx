@@ -405,6 +405,7 @@ export default function GoogleAnalytics() {
               <SelectItem value="90">Últimos 90 dias</SelectItem>
             </SelectContent>
           </Select>
+          <Button onClick={() => fetchGA4Data(dateRange)} size="sm">
             <RefreshCw className="w-4 h-4 mr-2" />
             Sincronizar Dados
           </Button>
