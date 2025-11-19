@@ -17,20 +17,20 @@ export default function InternalChat() {
 
   useEffect(() => {
     if (!roomId) return
-    ;(async () => {
-      try {
-        const { data } = await supabase.from('rooms').select('name').eq('id', roomId).single()
-        setRoomName(data?.name || 'Conversa')
-      } catch {
-        setRoomName('Conversa')
-      }
-    })()
+      ; (async () => {
+        try {
+          const { data } = await supabase.from('rooms').select('name').eq('id', roomId).single()
+          setRoomName(data?.name || 'Conversa')
+        } catch {
+          setRoomName('Conversa')
+        }
+      })()
   }, [roomId])
 
   if (!userId) return <div className="p-6 text-sm">Faça login para usar o chat.</div>
 
   return (
-    <div className="h-[calc(100vh-0px)] bg-gray-50 dark:bg-neutral-900 text-foreground grid grid-cols-[280px_1fr]">
+    <div className="h-[calc(100vh-5rem)] bg-gray-50 dark:bg-neutral-900 text-foreground grid grid-cols-[280px_1fr]">
       <ChatSidebar userId={userId} currentRoomId={roomId || undefined} onSelect={setRoomId} />
       <div className="flex flex-col">
         {roomId ? (

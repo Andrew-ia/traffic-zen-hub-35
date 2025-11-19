@@ -10,13 +10,14 @@ export default function MessageInput({ roomId, me }: { roomId: string; me: strin
   const chanRef = useRef<any>(null)
 
   useEffect(() => {
+    console.log('[MessageInput] Mounted for room:', roomId)
     const chan = typingChannel(roomId)
     chan.on('presence', { event: 'sync' }, () => {
       const state = chan.presenceState()
       const users = Object.keys(state || {})
       setTypingUsers(users.filter((u) => u !== me))
     })
-    chan.on('broadcast', { event: 'typing' }, (_payload) => {})
+    chan.on('broadcast', { event: 'typing' }, (_payload) => { })
     chan.subscribe((status: string) => {
       if (status === 'SUBSCRIBED') {
         chan.track({ user: me })
