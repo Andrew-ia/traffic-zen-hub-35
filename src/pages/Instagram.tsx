@@ -14,7 +14,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as VideoIcon, Target } from "lucide-react";
+import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as VideoIcon, Target, Instagram } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { resolveApiBase } from "@/lib/apiBase";
@@ -1007,15 +1007,9 @@ export default function Instagram() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4">
-                  {profile.profile_picture_url ? (
-                    <InstagramMedia 
-                      src={getInstagramMediaUrl(profile.profile_picture_url)} 
-                      className="w-16 h-16 rounded-full object-cover"
-                      alt="Foto do perfil"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-muted" />
-                  )}
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 border-2 border-purple-200 flex items-center justify-center">
+                    <Instagram className="w-6 h-6 text-purple-600" />
+                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
                     <div>
                       <div className="text-xs text-muted-foreground">Usuário</div>
@@ -1267,12 +1261,8 @@ export default function Instagram() {
                       <div key={m.id} className="rounded-lg border overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 120 }}>
                           <InstagramMedia
-                            src={getInstagramMediaUrl(m.media_url)}
                             type={isVideoType(m.media_type) ? "video" : "image"}
-                            className="max-w-full max-h-full object-contain"
-                            poster={getInstagramMediaUrl(m.thumbnail_url)}
-                            thumbnailSrc={getInstagramMediaUrl(m.thumbnail_url)}
-                            alt={`Post ${m.id}`}
+                            className="w-full h-full"
                           />
                         </div>
                         <div className="p-2 text-xs">
@@ -1404,16 +1394,12 @@ export default function Instagram() {
                       Melhor Post do Período
                     </h4>
                     <div className="bg-white rounded-lg p-3 border">
-                      {recommendations.topPost.mediaUrl && (
-                        <div className="mb-3 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center" style={{ height: '120px' }}>
-                          <InstagramMedia
-                            src={getInstagramMediaUrl(recommendations.topPost.mediaUrl)}
-                            type={isVideoType(recommendations.topPost.mediaType) ? "video" : "image"}
-                            className="max-w-full max-h-full object-contain"
-                            alt="Post preview"
-                          />
-                        </div>
-                      )}
+                      <div className="mb-3 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center" style={{ height: '120px' }}>
+                        <InstagramMedia
+                          type={isVideoType(recommendations.topPost.mediaType) ? "video" : "image"}
+                          className="w-full h-full"
+                        />
+                      </div>
                       <div className="flex items-center gap-2 mb-2">
                         {isVideoType(recommendations.topPost.mediaType) ? (
                           <VideoIcon className="w-5 h-5 text-purple-600" />
@@ -1627,11 +1613,8 @@ export default function Instagram() {
                       <div key={m.id} className="border rounded-lg overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 180 }}>
                           <InstagramMedia
-                            src={getInstagramMediaUrl(m.media_url)}
                             type={isVideoType(m.media_type) ? "video" : "image"}
-                            className="max-w-full max-h-full object-contain"
-                            thumbnailSrc={getInstagramMediaUrl(m.thumbnail_url)}
-                            alt={`Post ${m.id}`}
+                            className="w-full h-full"
                           />
                         </div>
                         <div className="p-3 space-y-2">
