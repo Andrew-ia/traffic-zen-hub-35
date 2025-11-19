@@ -43,7 +43,7 @@ export function AICreativeGenerator({
     { value: '1:1', label: '1:1 - Feed/Stories Quadrado', icon: '⬜' },
     { value: '9:16', label: '9:16 - Stories Vertical', icon: '📱' },
     { value: '16:9', label: '16:9 - Feed Horizontal', icon: '🖼️' },
-    { value: '4:5', label: '4:5 - Feed Instagram', icon: '📷' },
+    { value: '4:5', label: '4:5 - Feed Social', icon: '📷' },
   ];
 
   const toggleRatio = (ratio: string) => {

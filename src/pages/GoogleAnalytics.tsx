@@ -278,7 +278,7 @@ export default function GoogleAnalytics() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            workspaceId: "00000000-0000-0000-0000-000000000010",
+            workspaceId: import.meta.env.VITE_WORKSPACE_ID || "00000000-0000-0000-0000-000000000010",
             days: parseInt(days)
           })
         });

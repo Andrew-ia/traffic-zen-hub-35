@@ -283,7 +283,7 @@ export function CreateItemModal({
   }), []);
 
   const INSTAGRAM_BOOST_TEMPLATE = useMemo<TaskTemplate>(() => ({
-    template_name: 'Impulsionamento Instagram',
+    template_name: 'Impulsionamento Meta Ads',
     category: 'Social Ads',
     sections: [
       {
@@ -300,7 +300,7 @@ export function CreateItemModal({
             label: 'Identidade',
             type: 'group',
             fields: [
-              { label: 'Conta do Instagram', type: 'text', default: '@vermezzo_' },
+              { label: 'Conta de Mídia Social', type: 'text', default: '@vermezzo_' },
             ],
           },
           { label: 'Posicionamento', type: 'select', options: ['Feed', 'Stories', 'Reels'], default: 'Reels' },

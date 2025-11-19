@@ -192,8 +192,8 @@ export function OptimizationInsights() {
         const publishers = row.ad_sets?.targeting?.publisher_platforms || [];
         let platform = 'Outros';
 
-        if (publishers.includes('instagram') && !publishers.includes('facebook')) {
-          platform = 'Instagram';
+        if (publishers.includes('social_media') && !publishers.includes('facebook')) {
+          platform = 'Social Media';
         } else if (publishers.includes('facebook')) {
           platform = 'Facebook';
         } else if (publishers.includes('whatsapp')) {

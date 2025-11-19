@@ -53,7 +53,7 @@ function formatDateLabel(dateIso: string): string {
 
 const PLATFORM_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
-  instagram: "Instagram",
+  social_media: "Social Media",
   facebook: "Facebook",
   messenger: "Messenger",
   audience_network: "Audience Network",
@@ -62,7 +62,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 const PLATFORM_COLORS: Record<string, string> = {
   facebook: "hsl(221, 83%, 53%)", // Azul Facebook
-  instagram: "hsl(300, 100%, 50%)", // Rosa/Roxo Instagram
+  social_media: "hsl(300, 100%, 50%)", // Rosa/Roxo Social Media
   whatsapp: "hsl(142, 76%, 36%)", // Verde WhatsApp
   messenger: "hsl(214, 89%, 52%)", // Azul Messenger
   audience_network: "hsl(262, 83%, 58%)", // Roxo
@@ -125,7 +125,7 @@ function PlatformBarChart({
     // Direct mapping from platform labels to colors
     const colorMap: Record<string, string> = {
       "WhatsApp": "hsl(142, 76%, 36%)", // Verde WhatsApp
-      "Instagram": "hsl(300, 100%, 50%)", // Rosa/Roxo Instagram
+      "Social Media": "hsl(300, 100%, 50%)", // Rosa/Roxo Social Media
       "Facebook": "hsl(221, 83%, 53%)", // Azul Facebook
       "Messenger": "hsl(214, 89%, 52%)", // Azul Messenger
       "Audience Network": "hsl(262, 83%, 58%)", // Roxo

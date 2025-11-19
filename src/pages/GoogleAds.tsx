@@ -104,7 +104,7 @@ export default function GoogleAds() {
           setCurrentStage(0);
         }, 800);
       }, 1200);
-        } catch (error) {
+    } catch (error) {
       setSyncing(false);
       toast({ title: "Erro na sincronização", description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.", variant: "destructive" });
     }
@@ -115,13 +115,13 @@ export default function GoogleAds() {
     search: debouncedSearch,
     page,
     pageSize: PAGE_SIZE,
-    platform: "meta",
+    platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
   });
 
   const { data: metrics, isLoading: metricsLoading } = usePlatformMetrics({
-    platform: "meta",
+    platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
@@ -129,7 +129,7 @@ export default function GoogleAds() {
   });
 
   const { data: timeSeriesData } = useTimeSeries({
-    platform: "meta",
+    platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     metric: chartMetric,
@@ -138,14 +138,14 @@ export default function GoogleAds() {
   });
 
   const { data: demographics, isLoading: demographicsLoading } = useDemographics({
-    platform: "meta",
+    platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     objective: "all",
   });
 
   const { data: metricsByObjective } = useMetricsByObjective({
-    platform: "meta",
+    platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
