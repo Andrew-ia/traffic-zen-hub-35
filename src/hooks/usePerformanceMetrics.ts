@@ -44,14 +44,19 @@ if (!WORKSPACE_ID) {
   throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
 }
 
-export function usePerformanceMetrics(days: number = 30): UseQueryResult<PerformanceSummary> {
+export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0): UseQueryResult<PerformanceSummary> {
   return useQuery({
-    queryKey: ["meta", "performance-metrics", days],
+    queryKey: ["meta", "performance-metrics", days, offsetDays],
     queryFn: async () => {
       const since = new Date();
-      since.setDate(since.getDate() - days);
+      since.setDate(since.getDate() - days - offsetDays);
+      
+      const until = offsetDays > 0 ? new Date() : undefined;
+      if (until && offsetDays > 0) {
+        until.setDate(until.getDate() - offsetDays);
+      }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("performance_metrics")
         .select(
           "metric_date, impressions, clicks, conversions, spend, roas, conversion_value, extra_metrics, synced_at",
@@ -60,8 +65,13 @@ export function usePerformanceMetrics(days: number = 30): UseQueryResult<Perform
         .is("ad_set_id", null)
         .is("ad_id", null)
         .eq("workspace_id", WORKSPACE_ID)
-        .gte("metric_date", since.toISOString().slice(0, 10))
-        .order("metric_date", { ascending: true });
+        .gte("metric_date", since.toISOString().slice(0, 10));
+        
+      if (until) {
+        query = query.lt("metric_date", until.toISOString().slice(0, 10));
+      }
+      
+      const { data, error } = await query.order("metric_date", { ascending: true });
 
       if (error) {
         console.error("Failed to load performance metrics:", error.message);

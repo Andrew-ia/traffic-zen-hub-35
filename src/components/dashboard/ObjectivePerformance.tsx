@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { ObjectiveCardSkeleton, EmptyDashboardState, ErrorDashboardState } from "./DashboardSkeleton";
 import {
   Bar,
   BarChart,
@@ -236,33 +237,33 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Resumo por objetivo</CardTitle>
-          <CardDescription>Carregando dados de performance...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            Aguarde, carregando métricas.
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-bold">Resumo por objetivo</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Carregando dados de performance...
+          </p>
+        </div>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <ObjectiveCardSkeleton key={i} />
+        ))}
+      </div>
     );
   }
 
   if (error || !data) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Resumo por objetivo</CardTitle>
-          <CardDescription>Não foi possível carregar os dados agora.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-destructive">
-            {error?.message ?? "Tente novamente mais tarde ou verifique sua conexão."}
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-bold">Resumo por objetivo</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Síntese dos últimos {days} dias
           </p>
-        </CardContent>
-      </Card>
+        </div>
+        <ErrorDashboardState 
+          error={error?.message ?? "Não foi possível carregar os dados de performance"}
+        />
+      </div>
     );
   }
 
@@ -620,12 +621,10 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
       {hasAnySection ? (
         sections
       ) : (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Nenhuma campanha sincronizada com objetivos de Engajamento, Tráfego, Leads, Vendas, Reconhecimento ou App.
-            Assim que novos objetivos estiverem ativos, os blocos voltarão a aparecer aqui.
-          </CardContent>
-        </Card>
+        <EmptyDashboardState 
+          title="Nenhuma campanha encontrada"
+          description="Nenhuma campanha sincronizada com objetivos de Engajamento, Tráfego, Leads, Vendas, Reconhecimento ou App. Assim que novos objetivos estiverem ativos, os blocos voltarão a aparecer aqui."
+        />
       )}
     </div>
   );
