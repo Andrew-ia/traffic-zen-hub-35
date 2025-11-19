@@ -18,6 +18,7 @@ import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as Vid
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { resolveApiBase } from "@/lib/apiBase";
+import { InstagramMedia } from "@/components/InstagramMedia";
 
 const WORKSPACE_ID =
   (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() ||
@@ -99,13 +100,11 @@ export default function Instagram() {
   const [mediaFilter, setMediaFilter] = useState<string>("all");
   const API_BASE = resolveApiBase();
 
-  // Helper function to proxy Instagram images to avoid 403 errors
-  const getProxiedImageUrl = (originalUrl?: string) => {
+  // Helper function to handle Instagram media URLs
+  const getInstagramMediaUrl = (originalUrl?: string) => {
     if (!originalUrl) return undefined;
-    // Check if it's an Instagram CDN URL that needs proxying
-    if (originalUrl.includes('scontent.cdninstagram.com') || originalUrl.includes('instagram.com')) {
-      return `${API_BASE}/api/creatives/download-proxy?url=${encodeURIComponent(originalUrl)}`;
-    }
+    // Return original URL - let browser handle CORS
+    // If blocked, we'll show fallback UI
     return originalUrl;
   };
 
@@ -1009,7 +1008,11 @@ export default function Instagram() {
               <CardContent>
                 <div className="flex items-center gap-4">
                   {profile.profile_picture_url ? (
-                    <img src={getProxiedImageUrl(profile.profile_picture_url)} className="w-16 h-16 rounded-full object-cover" />
+                    <InstagramMedia 
+                      src={getInstagramMediaUrl(profile.profile_picture_url)} 
+                      className="w-16 h-16 rounded-full object-cover"
+                      alt="Foto do perfil"
+                    />
                   ) : (
                     <div className="w-16 h-16 rounded-full bg-muted" />
                   )}
@@ -1263,11 +1266,14 @@ export default function Instagram() {
                     .map(({ m, inter }) => (
                       <div key={m.id} className="rounded-lg border overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 120 }}>
-                          {isVideoType(m.media_type) ? (
-                            <video src={getProxiedImageUrl(m.media_url)} className="max-w-full max-h-full object-contain" muted playsInline preload="none" poster={getProxiedImageUrl(m.thumbnail_url)} referrerPolicy="no-referrer" controls />
-                          ) : (
-                            <img src={getProxiedImageUrl(m.media_url || m.thumbnail_url)} className="max-w-full max-h-full object-cover" />
-                          )}
+                          <InstagramMedia
+                            src={getInstagramMediaUrl(m.media_url)}
+                            type={isVideoType(m.media_type) ? "video" : "image"}
+                            className="max-w-full max-h-full object-contain"
+                            poster={getInstagramMediaUrl(m.thumbnail_url)}
+                            thumbnailSrc={getInstagramMediaUrl(m.thumbnail_url)}
+                            alt={`Post ${m.id}`}
+                          />
                         </div>
                         <div className="p-2 text-xs">
                           <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(inter)} interações</div>
@@ -1400,20 +1406,12 @@ export default function Instagram() {
                     <div className="bg-white rounded-lg p-3 border">
                       {recommendations.topPost.mediaUrl && (
                         <div className="mb-3 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center" style={{ height: '120px' }}>
-                          {isVideoType(recommendations.topPost.mediaType) ? (
-                            <video
-                              src={getProxiedImageUrl(recommendations.topPost.mediaUrl)}
-                              className="max-w-full max-h-full object-contain"
-                              muted
-                              playsInline
-                            />
-                          ) : (
-                            <img
-                              src={getProxiedImageUrl(recommendations.topPost.mediaUrl)}
-                              alt="Post preview"
-                              className="max-w-full max-h-full object-contain"
-                            />
-                          )}
+                          <InstagramMedia
+                            src={getInstagramMediaUrl(recommendations.topPost.mediaUrl)}
+                            type={isVideoType(recommendations.topPost.mediaType) ? "video" : "image"}
+                            className="max-w-full max-h-full object-contain"
+                            alt="Post preview"
+                          />
                         </div>
                       )}
                       <div className="flex items-center gap-2 mb-2">
@@ -1628,11 +1626,13 @@ export default function Instagram() {
                     return (
                       <div key={m.id} className="border rounded-lg overflow-hidden">
                         <div className="bg-muted flex items-center justify-center" style={{ height: 180 }}>
-                          {isVideoType(m.media_type) ? (
-                            <video src={getProxiedImageUrl(m.media_url)} className="max-w-full max-h-full object-contain" muted playsInline />
-                          ) : (
-                            <img src={getProxiedImageUrl(m.media_url || m.thumbnail_url)} className="max-w-full max-h-full object-cover" />
-                          )}
+                          <InstagramMedia
+                            src={getInstagramMediaUrl(m.media_url)}
+                            type={isVideoType(m.media_type) ? "video" : "image"}
+                            className="max-w-full max-h-full object-contain"
+                            thumbnailSrc={getInstagramMediaUrl(m.thumbnail_url)}
+                            alt={`Post ${m.id}`}
+                          />
                         </div>
                         <div className="p-3 space-y-2">
                           <div className="text-sm font-semibold line-clamp-2">{m.caption || ""}</div>
