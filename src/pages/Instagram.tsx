@@ -752,16 +752,8 @@ export default function Instagram() {
   });
 
   if (accountInsights) {
-    showAccountInsightsCard = (
-      (accountInsights.impressions || 0) > 0 ||
-      (accountInsights.reach || 0) > 0 ||
-      (accountInsights.breakdown_followers.followers || 0) > 0 ||
-      (accountInsights.breakdown_followers.non_followers || 0) > 0 ||
-      (accountInsights.breakdown_content_type.stories || 0) > 0 ||
-      (accountInsights.breakdown_content_type.reels || 0) > 0 ||
-      (accountInsights.breakdown_content_type.posts || 0) > 0 ||
-      (accountInsights.breakdown_content_type.videos || 0) > 0
-    );
+    // Sempre mostrar o card se temos dados do Instagram (mesmo que sejam zeros)
+    showAccountInsightsCard = Boolean(accountInsights);
 
     showInteractionSummary = (
       (accountInsights.interactions || 0) > 0 ||
@@ -958,37 +950,154 @@ export default function Instagram() {
             <Card>
               <CardHeader>
                 <CardTitle>Insights sobre a Conta</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Métricas de alcance e segmentação dos últimos {dateRange} dias
+                </p>
               </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Visualizações</div>
-                    <div className="text-2xl font-bold">{new Intl.NumberFormat("pt-BR").format(Math.max(accountInsights.impressions || 0, accountInsights.views || 0, accountInsights.reach || 0))}</div>
-                    <div className="text-xs text-muted-foreground">Impressões: {new Intl.NumberFormat("pt-BR").format(accountInsights.impressions || 0)}</div>
-                    <div className="text-xs text-muted-foreground">Visualizações: {new Intl.NumberFormat("pt-BR").format(accountInsights.views || 0)}</div>
-                    {(accountInsights.reach || 0) > 0 && (
-                      <div className="text-xs text-muted-foreground">Contas alcançadas: {new Intl.NumberFormat("pt-BR").format(accountInsights.reach)}</div>
-                    )}
+              <CardContent className="space-y-6">
+                {/* Métricas principais de alcance */}
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Impressões</div>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.impressions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Exibições totais</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Seguidores vs Não seguidores</div>
-                    {(accountInsights.breakdown_followers.followers > 0 || accountInsights.breakdown_followers.non_followers > 0) && (
-                      <div className="flex gap-4 text-sm">
-                        <div>Seguidores: <strong>{((accountInsights.breakdown_followers.followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
-                        <div>Não seguidores: <strong>{((accountInsights.breakdown_followers.non_followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
-                      </div>
-                    )}
+                  
+                  <div className="text-center p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Alcance</div>
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.reach || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Contas únicas</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Por tipo de conteúdo</div>
-                    {(accountInsights.breakdown_content_type.stories > 0 || accountInsights.breakdown_content_type.reels > 0 || accountInsights.breakdown_content_type.posts > 0 || accountInsights.breakdown_content_type.videos > 0) && (
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>Stories: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.stories)}</strong></div>
-                        <div>Reels: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.reels)}</strong></div>
-                        <div>Posts: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.posts)}</strong></div>
-                        <div>Vídeos: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.videos)}</strong></div>
-                      </div>
-                    )}
+                  
+                  <div className="text-center p-4 bg-purple-50 dark:bg-purple-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Visualizações</div>
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.views || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Vídeos/Stories</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-orange-50 dark:bg-orange-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Interações</div>
+                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.interactions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Total de engajamento</div>
+                  </div>
+                </div>
+
+                {/* Breakdown de audiência */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                      Seguidores vs Não Seguidores
+                    </h4>
+                    <div className="space-y-2">
+                      {(() => {
+                        const total = (accountInsights.breakdown_followers.followers || 0) + (accountInsights.breakdown_followers.non_followers || 0);
+                        const followersPerc = total > 0 ? ((accountInsights.breakdown_followers.followers || 0) / total) * 100 : 0;
+                        const nonFollowersPerc = total > 0 ? ((accountInsights.breakdown_followers.non_followers || 0) / total) * 100 : 0;
+                        
+                        return (
+                          <>
+                            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                <span className="text-sm">Seguidores</span>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_followers.followers || 0)}</div>
+                                <div className="text-xs text-muted-foreground">{followersPerc.toFixed(1)}%</div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                                <span className="text-sm">Não seguidores</span>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_followers.non_followers || 0)}</div>
+                                <div className="text-xs text-muted-foreground">{nonFollowersPerc.toFixed(1)}%</div>
+                              </div>
+                            </div>
+                            
+                            {total > 0 && (
+                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-2">
+                                <div 
+                                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${followersPerc}%` }}
+                                ></div>
+                              </div>
+                            )}
+                            
+                            {total === 0 && (
+                              <div className="text-center py-4 text-sm text-muted-foreground">
+                                Sem dados de segmentação de audiência
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                      Por Tipo de Conteúdo
+                    </h4>
+                    <div className="space-y-2">
+                      {[
+                        { label: "Stories", value: accountInsights.breakdown_content_type.stories || 0, color: "bg-pink-500" },
+                        { label: "Reels", value: accountInsights.breakdown_content_type.reels || 0, color: "bg-purple-500" },
+                        { label: "Posts", value: accountInsights.breakdown_content_type.posts || 0, color: "bg-blue-500" },
+                        { label: "Vídeos", value: accountInsights.breakdown_content_type.videos || 0, color: "bg-green-500" },
+                        { label: "Lives", value: accountInsights.breakdown_content_type.live || 0, color: "bg-red-500" }
+                      ].map(({ label, value, color }) => {
+                        const total = (accountInsights.breakdown_content_type.stories || 0) + 
+                                    (accountInsights.breakdown_content_type.reels || 0) + 
+                                    (accountInsights.breakdown_content_type.posts || 0) + 
+                                    (accountInsights.breakdown_content_type.videos || 0) + 
+                                    (accountInsights.breakdown_content_type.live || 0);
+                        const percentage = total > 0 ? (value / total) * 100 : 0;
+                        
+                        return (
+                          <div key={label} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-3 h-3 ${color} rounded-full`}></div>
+                              <span className="text-sm">{label}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-semibold text-sm">{new Intl.NumberFormat("pt-BR").format(value)}</div>
+                              {total > 0 && (
+                                <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}%</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      
+                      {(() => {
+                        const total = (accountInsights.breakdown_content_type.stories || 0) + 
+                                    (accountInsights.breakdown_content_type.reels || 0) + 
+                                    (accountInsights.breakdown_content_type.posts || 0) + 
+                                    (accountInsights.breakdown_content_type.videos || 0) + 
+                                    (accountInsights.breakdown_content_type.live || 0);
+                        
+                        if (total === 0) {
+                          return (
+                            <div className="text-center py-4 text-sm text-muted-foreground">
+                              Sem dados de breakdown por tipo de conteúdo
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   </div>
                 </div>
               </CardContent>
