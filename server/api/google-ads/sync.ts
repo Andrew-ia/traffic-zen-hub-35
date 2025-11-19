@@ -227,6 +227,59 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
     const roas = aggregatedData.totalCost > 0 ?
       aggregatedData.totalConversionsValue / aggregatedData.totalCost : 0;
 
+    // Save data to Supabase
+    const pool = getPool();
+
+    console.log('Saving data to Supabase...');
+
+    // Prepare batch insert for ads_spend_google
+    const values: any[] = [];
+    const placeholders: string[] = [];
+    let paramIndex = 1;
+
+    aggregatedData.campaigns.forEach((camp) => {
+      // Format: (workspace_id, campaign_id_google, campaign_name, campaign_status, metric_date, impressions, clicks, cost_micros, conversions, conversions_value, platform_account_id)
+      placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, $${paramIndex + 10})`);
+
+      values.push(
+        workspaceId,
+        camp.id,
+        camp.name,
+        camp.status,
+        camp.date,
+        camp.impressions,
+        camp.clicks,
+        Math.round(camp.cost * 1000000), // Convert back to micros for storage if needed, or store as is. The schema says cost_micros, so let's be safe. Wait, the query returned cost_micros. Let's use the original if possible, but we calculated cost. Let's recalculate micros.
+        camp.conversions,
+        camp.conversionsValue,
+        credentials.customerId // Using customerId as platform_account_id
+      );
+      paramIndex += 11;
+    });
+
+    if (values.length > 0) {
+      const insertQuery = `
+        INSERT INTO ads_spend_google 
+        (workspace_id, campaign_id_google, campaign_name, campaign_status, metric_date, impressions, clicks, cost_micros, conversions, conversions_value, platform_account_id)
+        VALUES ${placeholders.join(', ')}
+        ON CONFLICT (workspace_id, campaign_id_google, metric_date) 
+        DO UPDATE SET 
+          campaign_name = EXCLUDED.campaign_name,
+          campaign_status = EXCLUDED.campaign_status,
+          impressions = EXCLUDED.impressions,
+          clicks = EXCLUDED.clicks,
+          cost_micros = EXCLUDED.cost_micros,
+          conversions = EXCLUDED.conversions,
+          conversions_value = EXCLUDED.conversions_value,
+          updated_at = NOW();
+      `;
+
+      await pool.query(insertQuery, values);
+      console.log(`Saved ${aggregatedData.campaigns.length} records to ads_spend_google`);
+    } else {
+      console.log('No records to save to ads_spend_google');
+    }
+
     const responseData = {
       success: true,
       data: {
