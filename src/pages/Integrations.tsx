@@ -570,10 +570,18 @@ function GoogleAdsCredentialsDialog() {
   const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
 
   useEffect(() => {
+    console.log("[Google Ads] 🔄 Carregando credenciais...");
     let base = defaultGoogleAdsCredentials();
+    console.log("[Google Ads] 📦 Credenciais base (VITE_*):", {
+      hasClientId: !!base.clientId,
+      hasDeveloperToken: !!base.developerToken,
+      hasCustomerId: !!base.customerId,
+    });
+
     try {
       const stored = localStorage.getItem(GOOGLE_ADS_CREDENTIALS_KEY);
       if (stored) {
+        console.log("[Google Ads] 💾 Credenciais encontradas no localStorage");
         const parsed = JSON.parse(stored) as GoogleAdsCredentials;
         base = {
           clientId: parsed.clientId || base.clientId,
@@ -584,17 +592,29 @@ function GoogleAdsCredentialsDialog() {
           loginCustomerId: parsed.loginCustomerId || base.loginCustomerId,
           workspaceId: parsed.workspaceId || base.workspaceId,
         };
+      } else {
+        console.log("[Google Ads] 💾 Nenhuma credencial no localStorage");
       }
       setCredentials(base);
     } catch (error) {
-      console.warn("Failed to load stored Google Ads credentials", error);
+      console.warn("[Google Ads] ❌ Failed to load stored Google Ads credentials", error);
       setCredentials(base);
     }
+
     (async () => {
       try {
+        console.log(`[Google Ads] 🌐 Buscando credenciais do servidor: /api/integrations/credentials/${WORKSPACE_ID}/google_ads`);
+        const startTime = performance.now();
         const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/google_ads`, { credentials: "include" });
+        const endTime = performance.now();
+        console.log(`[Google Ads] ⏱️ Tempo de resposta da API: ${(endTime - startTime).toFixed(2)}ms`);
+
         if (resp.ok) {
           const json = await resp.json();
+          console.log("[Google Ads] ✅ Credenciais recebidas do servidor:", {
+            hasData: !!json?.data,
+            hasCredentials: !!json?.data?.credentials,
+          });
           const serverCred = json?.data?.credentials || {};
           const merged: GoogleAdsCredentials = {
             clientId: serverCred.clientId || base.clientId,
@@ -608,9 +628,13 @@ function GoogleAdsCredentialsDialog() {
           setCredentials(merged);
           setServerStatus("Credenciais do servidor carregadas");
         } else if (resp.status === 404) {
+          console.log("[Google Ads] 📭 Servidor retornou 404 - sem credenciais salvas");
           setServerStatus("Sem credenciais salvas no servidor");
+        } else {
+          console.log(`[Google Ads] ⚠️ Servidor retornou status: ${resp.status}`);
         }
-      } catch {
+      } catch (error) {
+        console.error("[Google Ads] ❌ Erro ao buscar credenciais do servidor:", error);
         setServerStatus("");
       }
     })();
