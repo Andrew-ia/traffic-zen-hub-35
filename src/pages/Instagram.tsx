@@ -650,6 +650,59 @@ export default function Instagram() {
     URL.revokeObjectURL(url);
   };
 
+  // Debug query para ver toda a estrutura de dados disponível
+  const { data: debugMetrics } = useQuery({
+    queryKey: ["instagram-debug-metrics", dateRange],
+    queryFn: async () => {
+      console.log("🔧 Debug query - checking raw data structure");
+      const days = parseInt(dateRange);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+
+      const { data: platformAccounts } = await supabase
+        .from("platform_accounts")
+        .select("id")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_key", "instagram")
+        .limit(1);
+
+      if (!platformAccounts || platformAccounts.length === 0) return null;
+
+      const platformAccountId = platformAccounts[0].id;
+
+      // Buscar dados sem filtro de data primeiro para ver se existe algum dado
+      const { data: allData } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics, granularity")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_account_id", platformAccountId)
+        .eq("granularity", "day")
+        .limit(5);
+
+      console.log("🗂️ All available data (last 5 rows):", allData);
+
+      // Buscar dados do período específico
+      const { data: periodData } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics, granularity")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_account_id", platformAccountId)
+        .eq("granularity", "day")
+        .gte("metric_date", startDateStr)
+        .limit(5);
+
+      console.log("📊 Period specific data (last 5 rows):", periodData);
+
+      if (periodData && periodData.length > 0) {
+        console.log("🔍 Sample extra_metrics keys:", Object.keys(periodData[0].extra_metrics || {}));
+        console.log("🔍 Full sample extra_metrics:", periodData[0].extra_metrics);
+      }
+
+      return { allData, periodData };
+    },
+  });
+
   const { data: accountInsights } = useQuery({
     queryKey: ["instagram-account-insights", dateRange],
     queryFn: async (): Promise<any> => {
