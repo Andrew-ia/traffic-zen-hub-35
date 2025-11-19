@@ -103,8 +103,8 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
       loginCustomerId: (LOGIN_CUSTOMER_ID || '').replace(/-/g, '') || undefined
     };
 
-    // Encrypt and save to database
-    const { encrypted, iv } = encryptCredentials(credentials);
+    // Save credentials to database
+    const { encrypted_credentials, encryption_iv } = encryptCredentials(credentials);
     
     const pool = getPool();
     
@@ -118,7 +118,7 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
     await pool.query(
       `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
        VALUES ($1, $2, $3, $4)`,
-      [WORKSPACE_ID, 'google_ads', encrypted, iv]
+      [WORKSPACE_ID, 'google_ads', encrypted_credentials, encryption_iv]
     );
 
     console.log('Google Ads credentials saved successfully');

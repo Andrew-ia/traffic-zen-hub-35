@@ -16,7 +16,7 @@ const GOOGLE_ADS_SCOPES = ['https://www.googleapis.com/auth/adwords'];
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const WORKSPACE_ID = process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+// ENCRYPTION_KEY no longer needed - using plaintext storage
 
 // Developer token and customer info
 const DEVELOPER_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
@@ -28,20 +28,11 @@ const pool = new Pool({
   connectionString: process.env.SUPABASE_DATABASE_URL
 });
 
-// Encryption functions
+// Plaintext credentials storage (no encryption)
 function encryptCredentials(data) {
-  const algorithm = 'aes-256-cbc';
-  const key = Buffer.from(ENCRYPTION_KEY, 'hex');
-  const iv = crypto.randomBytes(16);
-  
-  const cipher = crypto.createCipher(algorithm, key);
-  cipher.update(JSON.stringify(data), 'utf8');
-  
-  let encrypted = cipher.final('base64');
-  
   return {
-    encrypted: encrypted,
-    iv: iv.toString('hex')
+    encrypted: JSON.stringify(data),
+    iv: ''
   };
 }
 
@@ -49,13 +40,12 @@ console.log('🚀 Google Ads Authentication Setup');
 console.log('==================================');
 
 // Validate required environment variables
-if (!CLIENT_ID || !CLIENT_SECRET || !DEVELOPER_TOKEN || !CUSTOMER_ID || !ENCRYPTION_KEY) {
+if (!CLIENT_ID || !CLIENT_SECRET || !DEVELOPER_TOKEN || !CUSTOMER_ID) {
   console.error('❌ Missing required environment variables:');
   if (!CLIENT_ID) console.error('  - GOOGLE_CLIENT_ID');
   if (!CLIENT_SECRET) console.error('  - GOOGLE_CLIENT_SECRET');
   if (!DEVELOPER_TOKEN) console.error('  - GOOGLE_ADS_DEVELOPER_TOKEN');
   if (!CUSTOMER_ID) console.error('  - GOOGLE_ADS_CUSTOMER_ID');
-  if (!ENCRYPTION_KEY) console.error('  - ENCRYPTION_KEY');
   console.error('\nPlease set these in your .env.local file or Vercel environment variables.');
   process.exit(1);
 }
@@ -175,7 +165,7 @@ async function main() {
 
     console.log('\n💾 Saving credentials to database...');
 
-    // Encrypt and save to database
+    // Save credentials to database (plaintext)
     const { encrypted, iv } = encryptCredentials(credentials);
     
     // Delete existing credentials

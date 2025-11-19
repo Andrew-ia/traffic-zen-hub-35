@@ -75,8 +75,7 @@ add_env "IG_USER_ID" "$IG_USER_ID"
 add_env "IG_ACCESS_TOKEN" "$IG_ACCESS_TOKEN"
 add_env "VITE_IG_USER_ID" "$VITE_IG_USER_ID"
 
-# Encryption
-add_env "ENCRYPTION_KEY" "$ENCRYPTION_KEY"
+# Encryption removed - no longer needed
 
 # Auth Secret (generate if not exists)
 if [ -z "$AUTH_SECRET" ]; then

@@ -40,7 +40,7 @@ const SUPABASE_DATABASE_URL =
   process.env.SUPABASE_POOLER_URL ||
   process.env.SUPABASE_DATABASE_URL ||
   process.env.DATABASE_URL;
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+// ENCRYPTION_KEY no longer needed - using plaintext storage
 
 function assertEnv(value, name) {
   if (!value) {
@@ -65,7 +65,7 @@ async function setupInstagramCredentials() {
     const igUserId = assertEnv(IG_USER_ID, 'IG_USER_ID or VITE_IG_USER_ID');
     const accessToken = assertEnv(IG_ACCESS_TOKEN, 'IG_ACCESS_TOKEN or META_ACCESS_TOKEN');
     const workspaceId = assertEnv(IG_WORKSPACE_ID, 'IG_WORKSPACE_ID');
-    assertEnv(ENCRYPTION_KEY, 'ENCRYPTION_KEY');
+    // ENCRYPTION_KEY check removed - no longer needed
 
     console.log('📋 Configuration:');
     console.log(`   Workspace ID: ${workspaceId}`);

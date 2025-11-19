@@ -16,7 +16,6 @@ dotenv.config({ path: '.env.local' });
 
 const {
   SUPABASE_DATABASE_URL,
-  ENCRYPTION_KEY,
   META_APP_ID,
   META_APP_SECRET,
   META_ACCESS_TOKEN,
@@ -24,25 +23,16 @@ const {
   META_WORKSPACE_ID,
 } = process.env;
 
-// Encryption functions
+// Plaintext storage functions (no encryption)
 function encrypt(plaintext) {
-  const key = Buffer.from(ENCRYPTION_KEY, 'hex');
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-
   const plaintextString = typeof plaintext === 'string'
     ? plaintext
     : JSON.stringify(plaintext);
 
-  let encrypted = cipher.update(plaintextString, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-
-  const authTag = cipher.getAuthTag();
-
   return {
-    encrypted,
-    iv: iv.toString('hex'),
-    authTag: authTag.toString('hex'),
+    encrypted: plaintextString,
+    iv: '',
+    authTag: '',
   };
 }
 
@@ -54,7 +44,7 @@ async function main() {
   const missing = [];
 
   if (!SUPABASE_DATABASE_URL) missing.push('SUPABASE_DATABASE_URL');
-  if (!ENCRYPTION_KEY) missing.push('ENCRYPTION_KEY');
+  // ENCRYPTION_KEY no longer required
   if (!META_APP_ID) missing.push('META_APP_ID');
   if (!META_APP_SECRET) missing.push('META_APP_SECRET');
   if (!META_ACCESS_TOKEN) missing.push('META_ACCESS_TOKEN');
@@ -136,8 +126,8 @@ async function main() {
 
     console.log('💡 Next steps:');
     console.log('   - Remove META_APP_SECRET and META_ACCESS_TOKEN from .env.local');
-    console.log('   - Keep ENCRYPTION_KEY secure (needed to decrypt credentials)');
-    console.log('   - The sync button in the UI will now use these encrypted credentials\n');
+    console.log('   - Credentials are now stored as plaintext JSON (no encryption)');
+    console.log('   - The sync button in the UI will now use these stored credentials\n');
 
   } catch (error) {
     console.error('\n❌ Error saving credentials:');
