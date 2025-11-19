@@ -9,21 +9,50 @@ export async function downloadProxy(req: Request, res: Response) {
   try {
     const { url } = req.query;
 
+    console.log('📥 Download proxy request:', {
+      method: req.method,
+      url: url,
+      headers: Object.keys(req.headers),
+      query: req.query
+    });
+
     if (!url || typeof url !== 'string') {
+      console.error('❌ Invalid URL parameter:', url);
       return res.status(400).json({
         success: false,
         error: 'URL parameter is required',
       });
     }
 
+    // Validate that it's a valid URL
+    try {
+      new URL(url);
+    } catch (error) {
+      console.error('❌ Invalid URL format:', url);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid URL format',
+      });
+    }
+
     console.log(`📥 Proxying download for: ${url}`);
 
-    // Fetch the file from the external URL
-    const response = await fetch(url);
+    // Fetch the file from the external URL with additional headers
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'TrafficPro/1.0 (+https://trafficpro.dev)',
+        'Accept': '*/*',
+      },
+      timeout: 30000, // 30 seconds timeout
+    });
+
+    console.log(`📡 Response status: ${response.status} ${response.statusText}`);
+    console.log(`📡 Response headers:`, Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
-      console.error(`Failed to fetch file: ${response.status} ${response.statusText}`);
-      return res.status(response.status).json({
+      console.error(`❌ Failed to fetch file: ${response.status} ${response.statusText}`);
+      console.error(`❌ Response body:`, await response.text().catch(() => 'Cannot read body'));
+      return res.status(response.status === 403 ? 502 : response.status).json({
         success: false,
         error: `Failed to fetch file: ${response.statusText}`,
       });

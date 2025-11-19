@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +56,9 @@ export function CampaignCreativesModal({ open, onOpenChange, campaignId, campaig
           <DialogTitle>
             {campaignName ?? "Campanha"}
           </DialogTitle>
+          <DialogDescription>
+            Visualize todos os criativos desta campanha organizados por plataforma
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
