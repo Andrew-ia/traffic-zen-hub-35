@@ -214,8 +214,8 @@ const processGoogleAdsData = (apiResponse: any) => {
   };
 };
 
-const processGA4TimeSeries = (rows: any[]) => {
-  const dailyData = rows.reduce((acc: any, row) => {
+const processGA4TimeSeries = (rows: any[]): TimeSeriesData[] => {
+  const dailyData = rows.reduce((acc: Record<string, TimeSeriesData>, row) => {
     const date = row.date;
     if (!date) return acc;
 
@@ -249,7 +249,7 @@ const processGA4TimeSeries = (rows: any[]) => {
     return acc;
   }, {});
 
-  return Object.values(dailyData).sort((a: any, b: any) => a.date.localeCompare(b.date));
+  return (Object.values(dailyData) as TimeSeriesData[]).sort((a, b) => a.date.localeCompare(b.date));
 };
 
 export default function GoogleAnalytics() {
