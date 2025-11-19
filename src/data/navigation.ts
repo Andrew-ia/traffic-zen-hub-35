@@ -8,7 +8,6 @@ import {
   Sparkles,
   Facebook,
   Search,
-  Instagram,
   MessageSquare,
   Wallet,
   Kanban,
@@ -29,7 +28,6 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
   
-  { name: "Instagram", href: "/instagram", icon: Instagram, keywords: ["instagram", "insights", "ig"] },
   { name: "Criativos Drive", href: "/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
   { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   

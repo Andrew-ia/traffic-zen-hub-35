@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
 import MetaSyncButton from "@/components/MetaSyncButton";
-import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
