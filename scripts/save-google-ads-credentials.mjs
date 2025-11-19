@@ -3,31 +3,18 @@ dotenv.config({ path: '.env.local' });
 
 import pkg from 'pg';
 const { Pool } = pkg;
-import crypto from 'crypto';
 
 const WORKSPACE_ID = process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
 const pool = new Pool({
     connectionString: process.env.SUPABASE_DATABASE_URL
 });
 
-function encryptCredentials(data) {
-    const algorithm = 'aes-256-gcm';
-    const key = Buffer.from(ENCRYPTION_KEY, 'hex');
-    const iv = crypto.randomBytes(16);
-
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    const authTag = cipher.getAuthTag();
-
-    // Combine encrypted data with authTag (separated by colon)
-    const encryptedWithTag = encrypted + ':' + authTag.toString('hex');
-
+// No encryption - just store as JSON
+function storeCredentials(data) {
     return {
-        encrypted: encryptedWithTag,
-        iv: iv.toString('hex')
+        encrypted: JSON.stringify(data),
+        iv: '' // Empty IV for plaintext mode
     };
 }
 
@@ -57,7 +44,7 @@ async function saveGoogleAdsCredentials() {
             throw new Error('Missing required credentials in environment variables');
         }
 
-        const { encrypted, iv } = encryptCredentials(credentials);
+        const { encrypted, iv } = storeCredentials(credentials);
 
         // Delete existing credentials
         await pool.query(
