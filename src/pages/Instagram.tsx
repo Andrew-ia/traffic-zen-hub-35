@@ -653,25 +653,43 @@ export default function Instagram() {
   const { data: accountInsights } = useQuery({
     queryKey: ["instagram-account-insights", dateRange],
     queryFn: async (): Promise<any> => {
+      console.log("🔍 Account Insights Debug - Starting query");
       const days = parseInt(dateRange);
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       const startDateStr = startDate.toISOString().split("T")[0];
-      const { data: platformAccounts } = await supabase
+      console.log("📅 Date range:", { days, startDateStr, workspaceId: WORKSPACE_ID });
+      
+      const { data: platformAccounts, error: platformError } = await supabase
         .from("platform_accounts")
         .select("id")
         .eq("workspace_id", WORKSPACE_ID)
         .eq("platform_key", "instagram")
         .limit(1);
-      if (!platformAccounts || platformAccounts.length === 0) return null;
+      
+      console.log("🏢 Platform accounts:", { platformAccounts, platformError });
+      
+      if (!platformAccounts || platformAccounts.length === 0) {
+        console.warn("❌ No Instagram platform account found");
+        return null;
+      }
+      
       const platformAccountId = platformAccounts[0].id;
-      const { data: pm } = await supabase
+      console.log("📱 Platform account ID:", platformAccountId);
+      
+      const { data: pm, error: metricsError } = await supabase
         .from("performance_metrics")
         .select("metric_date, extra_metrics")
         .eq("workspace_id", WORKSPACE_ID)
         .eq("platform_account_id", platformAccountId)
         .gte("metric_date", startDateStr)
         .eq("granularity", "day");
+        
+      console.log("📊 Performance metrics query result:", { 
+        rowCount: pm?.length || 0, 
+        error: metricsError,
+        sampleRow: pm?.[0] 
+      });
       const agg = {
         impressions: 0,
         reach: 0,
@@ -685,8 +703,14 @@ export default function Instagram() {
         breakdown_content_type: { stories: 0, reels: 0, posts: 0, live: 0, videos: 0 },
         online_followers: [] as number[],
       };
-      (pm || []).forEach((row: any) => {
+      (pm || []).forEach((row: any, index: number) => {
         const e = row.extra_metrics || {};
+        
+        if (index === 0) {
+          console.log("🔬 First row extra_metrics structure:", e);
+          console.log("📈 Available keys in extra_metrics:", Object.keys(e));
+        }
+        
         agg.impressions += Number(e.impressions || 0);
         agg.reach += Number(e.reach || 0);
         agg.interactions += Number(e.total_interactions || 0);
@@ -713,10 +737,19 @@ export default function Instagram() {
         const tv = e.total_value || null;
         const vb = e.value_breakdown || null;
         const bx: any = b || tv || vb || {};
+        
+        if (index === 0) {
+          console.log("🧮 Breakdown structure:", { b, tv, vb, bx });
+        }
+        
         const ft = bx.follow_type || bx.followers || null;
         if (ft) {
           agg.breakdown_followers.followers += Number(ft.followers || ft.followers_count || 0);
           agg.breakdown_followers.non_followers += Number(ft.non_followers || ft.non_followers_count || 0);
+          
+          if (index === 0) {
+            console.log("👥 Followers breakdown:", ft);
+          }
         }
         const ct = bx.content_type || null;
         if (ct) {
@@ -725,6 +758,10 @@ export default function Instagram() {
           agg.breakdown_content_type.posts += Number(ct.posts || 0);
           agg.breakdown_content_type.live += Number(ct.live || 0);
           agg.breakdown_content_type.videos += Number(ct.videos || 0);
+          
+          if (index === 0) {
+            console.log("🎬 Content type breakdown:", ct);
+          }
         }
         const of = e.online_followers || null;
         if (Array.isArray(of) && agg.online_followers.length === 0) agg.online_followers = of.map((x: any) => Number(x || 0));
@@ -747,6 +784,10 @@ export default function Instagram() {
       } catch (err) {
         console.warn('Instagram media daily fallback failed');
       }
+      
+      console.log("📊 Final aggregated data:", agg);
+      console.log("✅ Account insights query completed");
+      
       return agg;
     },
   });
