@@ -97,9 +97,9 @@ export default function Reports() {
       lines.push("");
 
       // Channel Comparison (Meta apenas)
-      lines.push("Comparação por Canal (Meta)");
+      lines.push("Comparação por Canal (Meta & Google)");
       lines.push("Canal,Investimento,Impressões,Cliques,Resultados,Conexões,CTR (%),CPC,Custo/Resultado");
-      for (const c of channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey))) {
+      for (const c of channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey) || /google/i.test(x.channelKey))) {
         lines.push([
           c.label,
           c.spend,
@@ -398,18 +398,20 @@ export default function Reports() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {channelComparison.filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey)).map((item) => (
-                    <TableRow key={item.channelKey}>
-                      <TableCell className="font-medium">{item.label}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.spend)}</TableCell>
-                      <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.clicks)}</TableCell>
-                      <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.conversions)}</TableCell>
-                      <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.conversations)}</TableCell>
-                      <TableCell className="text-right">{formatPercent(item.ctr)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.cpc)}</TableCell>
-                      <TableCell className="text-right hidden xl:table-cell">{formatCurrency(item.cpa)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {channelComparison
+                    .filter((x) => /meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey) || /google/i.test(x.channelKey))
+                    .map((item) => (
+                      <TableRow key={item.channelKey}>
+                        <TableCell className="font-medium">{item.label}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.spend)}</TableCell>
+                        <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.clicks)}</TableCell>
+                        <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.conversions)}</TableCell>
+                        <TableCell className="text-right hidden xl:table-cell">{formatNumber(item.conversations)}</TableCell>
+                        <TableCell className="text-right">{formatPercent(item.ctr)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.cpc)}</TableCell>
+                        <TableCell className="text-right hidden xl:table-cell">{formatCurrency(item.cpa)}</TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             )}
@@ -469,23 +471,84 @@ export default function Reports() {
         <CardContent className="space-y-4">
           {isLoading ? (
             <Skeleton className="h-28 w-full" />
-          ) : dataQuality.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum alerta encontrado para o período.</p>
           ) : (
-            dataQuality.map((item) => (
-              <div key={item.issue} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant={getSeverityVariant(item.severity)} className="uppercase">
-                    {item.severity}
-                  </Badge>
-                  <p className="font-medium">{item.issue}</p>
+            <>
+              {/* Verificação de Google Ads */}
+              {channelComparison.some(x => /google/i.test(x.channelKey) && x.spend > 0) ? null : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="destructive" className="uppercase">
+                      HIGH
+                    </Badge>
+                    <p className="font-medium">Google Ads sem dados recentes</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Não foi identificado investimento no Google Ads para o período selecionado.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Recomendação:</span> Verifique se a sincronização está ativa ou se houve investimento no período.
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground">{item.impact}</p>
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">Recomendação:</span> {item.recommendation}
-                </p>
-              </div>
-            ))
+              )}
+
+              {/* Verificação de Meta Ads */}
+              {channelComparison.some(x => (/meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey)) && x.spend > 0) ? null : (
+                <div className="space-y-2 mt-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="destructive" className="uppercase">
+                      HIGH
+                    </Badge>
+                    <p className="font-medium">Meta Ads sem dados recentes</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Não foi identificado investimento no Meta Ads para o período selecionado.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Recomendação:</span> Verifique a conexão da conta ou se as campanhas estão ativas.
+                  </p>
+                </div>
+              )}
+
+              {/* Outros alertas de qualidade vindos do hook */}
+              {dataQuality.map((item) => (
+                <div key={item.issue} className="space-y-2 mt-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={getSeverityVariant(item.severity)} className="uppercase">
+                      {item.severity}
+                    </Badge>
+                    <p className="font-medium">{item.issue}</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{item.impact}</p>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Recomendação:</span> {item.recommendation}
+                  </p>
+                </div>
+              ))}
+
+              {/* Mensagem de sucesso se tudo estiver ok */}
+              {channelComparison.some(x => /google/i.test(x.channelKey) && x.spend > 0) &&
+                channelComparison.some(x => (/meta/i.test(x.channelKey) || /facebook/i.test(x.channelKey)) && x.spend > 0) &&
+                dataQuality.length === 0 && (
+                  <div className="flex items-center gap-2 text-green-600">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-5 w-5"
+                    >
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                    <p className="text-sm font-medium">Todos os dados parecem saudáveis para o período.</p>
+                  </div>
+                )}
+            </>
           )}
         </CardContent>
       </Card>
