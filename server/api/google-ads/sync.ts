@@ -103,9 +103,13 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
     console.log('Credentials loaded:', {
       customerId: credentials.customerId,
       hasRefreshToken: !!credentials.refreshToken,
+      refreshTokenLength: credentials.refreshToken?.length,
+      refreshTokenStart: credentials.refreshToken?.substring(0, 15) + '...',
       hasDeveloperToken: !!credentials.developerToken,
       hasClientId: !!credentials.clientId,
+      clientIdLength: credentials.clientId?.length,
       hasClientSecret: !!credentials.clientSecret,
+      clientSecretLength: credentials.clientSecret?.length,
       loginCustomerId: credentials.loginCustomerId
     });
 
