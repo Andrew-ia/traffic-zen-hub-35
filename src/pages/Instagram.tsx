@@ -18,7 +18,6 @@ import { ArrowUp, ArrowDown, TrendingUp, Clock, Image as ImageIcon, Video as Vid
 import { Skeleton } from "@/components/ui/skeleton";
 import InstagramSyncButton from "@/components/InstagramSyncButton";
 import { resolveApiBase } from "@/lib/apiBase";
-import Videos from "./Videos";
 
 const WORKSPACE_ID =
   (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() ||
@@ -651,28 +650,99 @@ export default function Instagram() {
     URL.revokeObjectURL(url);
   };
 
-  const { data: accountInsights } = useQuery({
-    queryKey: ["instagram-account-insights", dateRange],
-    queryFn: async (): Promise<any> => {
+  // Debug query para ver toda a estrutura de dados disponível
+  const { data: debugMetrics } = useQuery({
+    queryKey: ["instagram-debug-metrics", dateRange],
+    queryFn: async () => {
+      console.log("🔧 Debug query - checking raw data structure");
       const days = parseInt(dateRange);
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       const startDateStr = startDate.toISOString().split("T")[0];
+
       const { data: platformAccounts } = await supabase
         .from("platform_accounts")
         .select("id")
         .eq("workspace_id", WORKSPACE_ID)
         .eq("platform_key", "instagram")
         .limit(1);
+
       if (!platformAccounts || platformAccounts.length === 0) return null;
+
       const platformAccountId = platformAccounts[0].id;
-      const { data: pm } = await supabase
+
+      // Buscar dados sem filtro de data primeiro para ver se existe algum dado
+      const { data: allData } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics, granularity")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_account_id", platformAccountId)
+        .eq("granularity", "day")
+        .limit(5);
+
+      console.log("🗂️ All available data (last 5 rows):", allData);
+
+      // Buscar dados do período específico
+      const { data: periodData } = await supabase
+        .from("performance_metrics")
+        .select("metric_date, extra_metrics, granularity")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_account_id", platformAccountId)
+        .eq("granularity", "day")
+        .gte("metric_date", startDateStr)
+        .limit(5);
+
+      console.log("📊 Period specific data (last 5 rows):", periodData);
+
+      if (periodData && periodData.length > 0) {
+        console.log("🔍 Sample extra_metrics keys:", Object.keys(periodData[0].extra_metrics || {}));
+        console.log("🔍 Full sample extra_metrics:", periodData[0].extra_metrics);
+      }
+
+      return { allData, periodData };
+    },
+  });
+
+  const { data: accountInsights } = useQuery({
+    queryKey: ["instagram-account-insights", dateRange],
+    queryFn: async (): Promise<any> => {
+      console.log("🔍 Account Insights Debug - Starting query");
+      const days = parseInt(dateRange);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+      console.log("📅 Date range:", { days, startDateStr, workspaceId: WORKSPACE_ID });
+      
+      const { data: platformAccounts, error: platformError } = await supabase
+        .from("platform_accounts")
+        .select("id")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("platform_key", "instagram")
+        .limit(1);
+      
+      console.log("🏢 Platform accounts:", { platformAccounts, platformError });
+      
+      if (!platformAccounts || platformAccounts.length === 0) {
+        console.warn("❌ No Instagram platform account found");
+        return null;
+      }
+      
+      const platformAccountId = platformAccounts[0].id;
+      console.log("📱 Platform account ID:", platformAccountId);
+      
+      const { data: pm, error: metricsError } = await supabase
         .from("performance_metrics")
         .select("metric_date, extra_metrics")
         .eq("workspace_id", WORKSPACE_ID)
         .eq("platform_account_id", platformAccountId)
         .gte("metric_date", startDateStr)
         .eq("granularity", "day");
+        
+      console.log("📊 Performance metrics query result:", { 
+        rowCount: pm?.length || 0, 
+        error: metricsError,
+        sampleRow: pm?.[0] 
+      });
       const agg = {
         impressions: 0,
         reach: 0,
@@ -686,8 +756,14 @@ export default function Instagram() {
         breakdown_content_type: { stories: 0, reels: 0, posts: 0, live: 0, videos: 0 },
         online_followers: [] as number[],
       };
-      (pm || []).forEach((row: any) => {
+      (pm || []).forEach((row: any, index: number) => {
         const e = row.extra_metrics || {};
+        
+        if (index === 0) {
+          console.log("🔬 First row extra_metrics structure:", e);
+          console.log("📈 Available keys in extra_metrics:", Object.keys(e));
+        }
+        
         agg.impressions += Number(e.impressions || 0);
         agg.reach += Number(e.reach || 0);
         agg.interactions += Number(e.total_interactions || 0);
@@ -714,10 +790,19 @@ export default function Instagram() {
         const tv = e.total_value || null;
         const vb = e.value_breakdown || null;
         const bx: any = b || tv || vb || {};
+        
+        if (index === 0) {
+          console.log("🧮 Breakdown structure:", { b, tv, vb, bx });
+        }
+        
         const ft = bx.follow_type || bx.followers || null;
         if (ft) {
           agg.breakdown_followers.followers += Number(ft.followers || ft.followers_count || 0);
           agg.breakdown_followers.non_followers += Number(ft.non_followers || ft.non_followers_count || 0);
+          
+          if (index === 0) {
+            console.log("👥 Followers breakdown:", ft);
+          }
         }
         const ct = bx.content_type || null;
         if (ct) {
@@ -726,6 +811,10 @@ export default function Instagram() {
           agg.breakdown_content_type.posts += Number(ct.posts || 0);
           agg.breakdown_content_type.live += Number(ct.live || 0);
           agg.breakdown_content_type.videos += Number(ct.videos || 0);
+          
+          if (index === 0) {
+            console.log("🎬 Content type breakdown:", ct);
+          }
         }
         const of = e.online_followers || null;
         if (Array.isArray(of) && agg.online_followers.length === 0) agg.online_followers = of.map((x: any) => Number(x || 0));
@@ -748,21 +837,17 @@ export default function Instagram() {
       } catch (err) {
         console.warn('Instagram media daily fallback failed');
       }
+      
+      console.log("📊 Final aggregated data:", agg);
+      console.log("✅ Account insights query completed");
+      
       return agg;
     },
   });
 
   if (accountInsights) {
-    showAccountInsightsCard = (
-      (accountInsights.impressions || 0) > 0 ||
-      (accountInsights.reach || 0) > 0 ||
-      (accountInsights.breakdown_followers.followers || 0) > 0 ||
-      (accountInsights.breakdown_followers.non_followers || 0) > 0 ||
-      (accountInsights.breakdown_content_type.stories || 0) > 0 ||
-      (accountInsights.breakdown_content_type.reels || 0) > 0 ||
-      (accountInsights.breakdown_content_type.posts || 0) > 0 ||
-      (accountInsights.breakdown_content_type.videos || 0) > 0
-    );
+    // Sempre mostrar o card se temos dados do Instagram (mesmo que sejam zeros)
+    showAccountInsightsCard = Boolean(accountInsights);
 
     showInteractionSummary = (
       (accountInsights.interactions || 0) > 0 ||
@@ -954,50 +1039,159 @@ export default function Instagram() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Vídeos do Workspace</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Videos />
-            </CardContent>
-          </Card>
 
           {showAccountInsightsCard && (
             <Card>
               <CardHeader>
                 <CardTitle>Insights sobre a Conta</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Métricas de alcance e segmentação dos últimos {dateRange} dias
+                </p>
               </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Visualizações</div>
-                    <div className="text-2xl font-bold">{new Intl.NumberFormat("pt-BR").format(Math.max(accountInsights.impressions || 0, accountInsights.views || 0, accountInsights.reach || 0))}</div>
-                    <div className="text-xs text-muted-foreground">Impressões: {new Intl.NumberFormat("pt-BR").format(accountInsights.impressions || 0)}</div>
-                    <div className="text-xs text-muted-foreground">Visualizações: {new Intl.NumberFormat("pt-BR").format(accountInsights.views || 0)}</div>
-                    {(accountInsights.reach || 0) > 0 && (
-                      <div className="text-xs text-muted-foreground">Contas alcançadas: {new Intl.NumberFormat("pt-BR").format(accountInsights.reach)}</div>
-                    )}
+              <CardContent className="space-y-6">
+                {/* Métricas principais de alcance */}
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Impressões</div>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.impressions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Exibições totais</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Seguidores vs Não seguidores</div>
-                    {(accountInsights.breakdown_followers.followers > 0 || accountInsights.breakdown_followers.non_followers > 0) && (
-                      <div className="flex gap-4 text-sm">
-                        <div>Seguidores: <strong>{((accountInsights.breakdown_followers.followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
-                        <div>Não seguidores: <strong>{((accountInsights.breakdown_followers.non_followers / (accountInsights.breakdown_followers.followers + accountInsights.breakdown_followers.non_followers)) * 100).toFixed(1)}%</strong></div>
-                      </div>
-                    )}
+                  
+                  <div className="text-center p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Alcance</div>
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.reach || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Contas únicas</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Por tipo de conteúdo</div>
-                    {(accountInsights.breakdown_content_type.stories > 0 || accountInsights.breakdown_content_type.reels > 0 || accountInsights.breakdown_content_type.posts > 0 || accountInsights.breakdown_content_type.videos > 0) && (
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>Stories: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.stories)}</strong></div>
-                        <div>Reels: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.reels)}</strong></div>
-                        <div>Posts: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.posts)}</strong></div>
-                        <div>Vídeos: <strong>{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_content_type.videos)}</strong></div>
-                      </div>
-                    )}
+                  
+                  <div className="text-center p-4 bg-purple-50 dark:bg-purple-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Visualizações</div>
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.views || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Vídeos/Stories</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-orange-50 dark:bg-orange-950/30 rounded-lg border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Interações</div>
+                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                      {new Intl.NumberFormat("pt-BR").format(accountInsights.interactions || 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Total de engajamento</div>
+                  </div>
+                </div>
+
+                {/* Breakdown de audiência */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                      Seguidores vs Não Seguidores
+                    </h4>
+                    <div className="space-y-2">
+                      {(() => {
+                        const total = (accountInsights.breakdown_followers.followers || 0) + (accountInsights.breakdown_followers.non_followers || 0);
+                        const followersPerc = total > 0 ? ((accountInsights.breakdown_followers.followers || 0) / total) * 100 : 0;
+                        const nonFollowersPerc = total > 0 ? ((accountInsights.breakdown_followers.non_followers || 0) / total) * 100 : 0;
+                        
+                        return (
+                          <>
+                            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                <span className="text-sm">Seguidores</span>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_followers.followers || 0)}</div>
+                                <div className="text-xs text-muted-foreground">{followersPerc.toFixed(1)}%</div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                                <span className="text-sm">Não seguidores</span>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold">{new Intl.NumberFormat("pt-BR").format(accountInsights.breakdown_followers.non_followers || 0)}</div>
+                                <div className="text-xs text-muted-foreground">{nonFollowersPerc.toFixed(1)}%</div>
+                              </div>
+                            </div>
+                            
+                            {total > 0 && (
+                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-2">
+                                <div 
+                                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${followersPerc}%` }}
+                                ></div>
+                              </div>
+                            )}
+                            
+                            {total === 0 && (
+                              <div className="text-center py-4 text-sm text-muted-foreground">
+                                Sem dados de segmentação de audiência
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                      Por Tipo de Conteúdo
+                    </h4>
+                    <div className="space-y-2">
+                      {[
+                        { label: "Stories", value: accountInsights.breakdown_content_type.stories || 0, color: "bg-pink-500" },
+                        { label: "Reels", value: accountInsights.breakdown_content_type.reels || 0, color: "bg-purple-500" },
+                        { label: "Posts", value: accountInsights.breakdown_content_type.posts || 0, color: "bg-blue-500" },
+                        { label: "Vídeos", value: accountInsights.breakdown_content_type.videos || 0, color: "bg-green-500" },
+                        { label: "Lives", value: accountInsights.breakdown_content_type.live || 0, color: "bg-red-500" }
+                      ].map(({ label, value, color }) => {
+                        const total = (accountInsights.breakdown_content_type.stories || 0) + 
+                                    (accountInsights.breakdown_content_type.reels || 0) + 
+                                    (accountInsights.breakdown_content_type.posts || 0) + 
+                                    (accountInsights.breakdown_content_type.videos || 0) + 
+                                    (accountInsights.breakdown_content_type.live || 0);
+                        const percentage = total > 0 ? (value / total) * 100 : 0;
+                        
+                        return (
+                          <div key={label} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-3 h-3 ${color} rounded-full`}></div>
+                              <span className="text-sm">{label}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-semibold text-sm">{new Intl.NumberFormat("pt-BR").format(value)}</div>
+                              {total > 0 && (
+                                <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}%</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      
+                      {(() => {
+                        const total = (accountInsights.breakdown_content_type.stories || 0) + 
+                                    (accountInsights.breakdown_content_type.reels || 0) + 
+                                    (accountInsights.breakdown_content_type.posts || 0) + 
+                                    (accountInsights.breakdown_content_type.videos || 0) + 
+                                    (accountInsights.breakdown_content_type.live || 0);
+                        
+                        if (total === 0) {
+                          return (
+                            <div className="text-center py-4 text-sm text-muted-foreground">
+                              Sem dados de breakdown por tipo de conteúdo
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   </div>
                 </div>
               </CardContent>

@@ -5,12 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  TrendingUp, 
-  Users, 
-  MousePointer, 
-  ShoppingCart, 
-  Target, 
+import {
+  TrendingUp,
+  Users,
+  MousePointer,
+  ShoppingCart,
+  Target,
   DollarSign,
   BarChart3,
   PieChart,
@@ -34,7 +34,7 @@ interface GA4Metrics {
   pageviews: number;
   bounceRate: number;
   avgSessionDuration: number;
-  
+
   // Google Ads metrics (via GA4)
   googleAds: {
     clicks: number;
@@ -46,14 +46,14 @@ interface GA4Metrics {
     cpc: number;
     roas: number;
   };
-  
+
   // Top pages
   topPages: Array<{
     path: string;
     views: number;
     uniqueViews: number;
   }>;
-  
+
   // Traffic sources
   trafficSources: Array<{
     source: string;
@@ -61,14 +61,14 @@ interface GA4Metrics {
     sessions: number;
     users: number;
   }>;
-  
+
   // Device breakdown
   devices: Array<{
     category: string;
     sessions: number;
     percentage: number;
   }>;
-  
+
   // Conversions
   conversions: Array<{
     eventName: string;
@@ -93,7 +93,7 @@ const processGA4Metrics = (rows: any[]) => {
   const sessionStartEvents = rows.filter(row => row.eventName === 'session_start');
   const formSubmitEvents = rows.filter(row => row.eventName === 'form_submit');
   const userEngagementEvents = rows.filter(row => row.eventName === 'user_engagement');
-  
+
   const totalPageViews = pageViewEvents.reduce((sum, row) => sum + (row.screenPageViews || row.eventCount || 0), 0);
   const totalUsers = Math.max(...rows.map(row => row.totalUsers || 0), 0);
   const totalSessions = sessionStartEvents.reduce((sum, row) => sum + (row.eventCount || 0), 0);
@@ -119,23 +119,48 @@ const processGA4Metrics = (rows: any[]) => {
     medium: country === 'Brazil' ? 'organic' : 'referral',
     sessions: data.sessions,
     users: data.users
-  })).slice(0, 5);
+  })).sort((a, b) => b.sessions - a.sessions).slice(0, 5);
 
-  // Device estimation based on user patterns
-  const devices = [
-    { category: "mobile", sessions: Math.floor(totalSessions * 0.6), percentage: 60 },
-    { category: "desktop", sessions: Math.floor(totalSessions * 0.3), percentage: 30 },
-    { category: "tablet", sessions: Math.floor(totalSessions * 0.1), percentage: 10 }
-  ];
+  // Real Device breakdown
+  const deviceData = rows.reduce((acc: any, row) => {
+    const category = row.deviceCategory || 'desktop';
+    if (!acc[category]) {
+      acc[category] = 0;
+    }
+    if (row.eventName === 'session_start') {
+      acc[category] += row.eventCount || 0;
+    }
+    return acc;
+  }, {});
 
-  // Top pages estimation
-  const topPages = [
-    { path: "/", views: Math.floor(totalPageViews * 0.4), uniqueViews: Math.floor(totalUsers * 0.4) },
-    { path: "/produtos", views: Math.floor(totalPageViews * 0.25), uniqueViews: Math.floor(totalUsers * 0.25) },
-    { path: "/sobre", views: Math.floor(totalPageViews * 0.15), uniqueViews: Math.floor(totalUsers * 0.15) },
-    { path: "/contato", views: Math.floor(totalPageViews * 0.12), uniqueViews: Math.floor(totalUsers * 0.12) },
-    { path: "/blog", views: Math.floor(totalPageViews * 0.08), uniqueViews: Math.floor(totalUsers * 0.08) }
-  ];
+  const totalDeviceSessions = Object.values(deviceData).reduce((a: any, b: any) => a + b, 0) as number;
+  const devices = Object.entries(deviceData).map(([category, count]: [string, any]) => ({
+    category,
+    sessions: count,
+    percentage: totalDeviceSessions > 0 ? Math.round((count / totalDeviceSessions) * 100) : 0
+  })).sort((a, b) => b.sessions - a.sessions);
+
+  // Real Top pages
+  const pageData = rows.reduce((acc: any, row) => {
+    const path = row.pagePath || '/';
+    if (!acc[path]) {
+      acc[path] = { views: 0, uniqueViews: 0 };
+    }
+    if (row.eventName === 'page_view') {
+      acc[path].views += row.screenPageViews || row.eventCount || 0;
+      acc[path].uniqueViews += row.totalUsers || 0;
+    }
+    return acc;
+  }, {});
+
+  const topPages = Object.entries(pageData)
+    .map(([path, data]: [string, any]) => ({
+      path,
+      views: data.views,
+      uniqueViews: data.uniqueViews
+    }))
+    .sort((a, b) => b.views - a.views)
+    .slice(0, 5);
 
   // Conversions from events
   const conversions = [
@@ -149,7 +174,7 @@ const processGA4Metrics = (rows: any[]) => {
     users: totalUsers || 0,
     pageviews: totalPageViews || 0,
     bounceRate: totalSessions > 0 ? Math.max(0, 1 - (userEngagementEvents.length / totalSessions)) : 0,
-    avgSessionDuration: 120, // Estimated
+    avgSessionDuration: totalSessions > 0 ? 120 : 0, // Still estimated as we don't have duration metric yet
     topPages,
     trafficSources,
     devices,
@@ -173,7 +198,7 @@ const processGoogleAdsData = (apiResponse: any) => {
       error: apiResponse?.error || null
     };
   }
-  
+
   const summary = apiResponse.data.summary;
   return {
     clicks: summary.clicks || 0,
@@ -193,9 +218,9 @@ const processGA4TimeSeries = (rows: any[]) => {
   const dailyData = rows.reduce((acc: any, row) => {
     const date = row.date;
     if (!date) return acc;
-    
-    const formattedDate = `${date.substring(0,4)}-${date.substring(4,6)}-${date.substring(6,8)}`;
-    
+
+    const formattedDate = `${date.substring(0, 4)}-${date.substring(4, 6)}-${date.substring(6, 8)}`;
+
     if (!acc[formattedDate]) {
       acc[formattedDate] = {
         date: formattedDate,
@@ -207,7 +232,7 @@ const processGA4TimeSeries = (rows: any[]) => {
         conversions: 0
       };
     }
-    
+
     if (row.eventName === 'session_start') {
       acc[formattedDate].sessions += row.eventCount || 0;
       acc[formattedDate].users = Math.max(acc[formattedDate].users, row.totalUsers || 0);
@@ -220,10 +245,10 @@ const processGA4TimeSeries = (rows: any[]) => {
       acc[formattedDate].googleAdsCost += (row.sessions || 0) * 2.5; // Estimated CPC
       acc[formattedDate].conversions += row.conversions || 0;
     }
-    
+
     return acc;
   }, {});
-  
+
   return Object.values(dailyData).sort((a: any, b: any) => a.date.localeCompare(b.date));
 };
 
@@ -233,7 +258,7 @@ export default function GoogleAnalytics() {
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState("7");
   const [activeTab, setActiveTab] = useState("overview");
-  const [googleAdsStatus, setGoogleAdsStatus] = useState<{needsAuth: boolean, error: string | null}>({needsAuth: false, error: null});
+  const [googleAdsStatus, setGoogleAdsStatus] = useState<{ needsAuth: boolean, error: string | null }>({ needsAuth: false, error: null });
   const { toast } = useToast();
 
   const fetchGA4Data = useCallback(async (days: string) => {
@@ -250,25 +275,25 @@ export default function GoogleAnalytics() {
       let googleAdsData = { success: false, data: null, needsAuth: false, error: null };
       try {
         const googleAdsResponse = await fetch(`${API_BASE}/api/google-ads/sync`, {
-          method: "POST", 
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             workspaceId: "00000000-0000-0000-0000-000000000010",
-            days: parseInt(days) 
+            days: parseInt(days)
           })
         });
         googleAdsData = await googleAdsResponse.json();
-        
+
         // Show specific error message for invalid_client
         if (googleAdsData.error === 'invalid_client') {
           console.warn('Google Ads OAuth credentials need to be reconfigured');
           googleAdsData.needsAuth = true;
           googleAdsData.error = 'Google Ads authentication needs to be reconfigured';
-          setGoogleAdsStatus({needsAuth: true, error: 'Google Ads authentication needs to be reconfigured'});
+          setGoogleAdsStatus({ needsAuth: true, error: 'Google Ads authentication needs to be reconfigured' });
         } else if (!googleAdsData.success) {
-          setGoogleAdsStatus({needsAuth: false, error: googleAdsData.error});
+          setGoogleAdsStatus({ needsAuth: false, error: googleAdsData.error });
         } else {
-          setGoogleAdsStatus({needsAuth: false, error: null});
+          setGoogleAdsStatus({ needsAuth: false, error: null });
         }
       } catch (googleAdsError) {
         console.warn('Google Ads API failed, continuing without ads data:', googleAdsError);
@@ -291,7 +316,7 @@ export default function GoogleAnalytics() {
         pageviews: processedMetrics.pageviews,
         bounceRate: processedMetrics.bounceRate,
         avgSessionDuration: processedMetrics.avgSessionDuration,
-        
+
         googleAds: {
           clicks: processedAds.clicks,
           impressions: processedAds.impressions,
@@ -302,7 +327,7 @@ export default function GoogleAnalytics() {
           cpc: processedAds.cpc,
           roas: processedAds.roas
         },
-        
+
         topPages: processedMetrics.topPages,
         trafficSources: processedMetrics.trafficSources,
         devices: processedMetrics.devices,
@@ -380,9 +405,8 @@ export default function GoogleAnalytics() {
               <SelectItem value="90">Últimos 90 dias</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={() => fetchGA4Data(dateRange)} size="sm">
             <RefreshCw className="w-4 h-4 mr-2" />
-            Atualizar
+            Sincronizar Dados
           </Button>
         </div>
       </div>
@@ -726,6 +750,6 @@ export default function GoogleAnalytics() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </div >
   );
 }
