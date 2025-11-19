@@ -17,6 +17,7 @@ import Integrations from "./pages/Integrations";
 import InternalChat from "./pages/InternalChat";
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
+import Instagram from "./pages/Instagram";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DriveCreatives from "./pages/DriveCreatives";
 import NotFound from "./pages/NotFound";
@@ -77,6 +78,7 @@ const App = () => (
               <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
               <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
               
+              <Route path="/instagram" element={<RequireAuth><Instagram /></RequireAuth>} />
               <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
