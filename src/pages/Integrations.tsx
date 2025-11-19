@@ -590,7 +590,31 @@ function GoogleAdsCredentialsDialog() {
       console.warn("Failed to load stored Google Ads credentials", error);
       setCredentials(base);
     }
-  }, [open]);
+    (async () => {
+      try {
+        const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/google_ads`, { credentials: "include" });
+        if (resp.ok) {
+          const json = await resp.json();
+          const serverCred = json?.data?.credentials || {};
+          const merged: GoogleAdsCredentials = {
+            clientId: serverCred.clientId || base.clientId,
+            clientSecret: serverCred.clientSecret || base.clientSecret,
+            developerToken: serverCred.developerToken || base.developerToken,
+            refreshToken: serverCred.refreshToken || base.refreshToken,
+            customerId: serverCred.customerId || base.customerId,
+            loginCustomerId: serverCred.loginCustomerId || base.loginCustomerId,
+            workspaceId: base.workspaceId || WORKSPACE_ID,
+          };
+          setCredentials(merged);
+          setServerStatus("Credenciais do servidor carregadas");
+        } else if (resp.status === 404) {
+          setServerStatus("Sem credenciais salvas no servidor");
+        }
+      } catch {
+        setServerStatus("");
+      }
+    })();
+  }, [open, WORKSPACE_ID]);
 
   const envSnippet = useMemo(
     () =>
@@ -626,6 +650,30 @@ VITE_WORKSPACE_ID=${credentials.workspaceId}`,
     localStorage.setItem(GOOGLE_ADS_CREDENTIALS_KEY, JSON.stringify(credentials));
     setSaved(true);
     setOpen(false);
+  };
+
+  const handleSaveServer = async () => {
+    const payload = {
+      workspaceId: WORKSPACE_ID,
+      platformKey: "google_ads",
+      credentials: {
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        developerToken: credentials.developerToken,
+        refreshToken: credentials.refreshToken,
+        customerId: credentials.customerId,
+        loginCustomerId: credentials.loginCustomerId,
+      },
+    };
+    const resp = await fetch(`/api/integrations/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (resp.ok) {
+      setServerStatus("Credenciais salvas no servidor");
+      setSaved(true);
+    }
   };
 
   const handleReset = () => {
@@ -742,6 +790,7 @@ VITE_WORKSPACE_ID=${credentials.workspaceId}`,
             Limpar credenciais
           </Button>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={handleSaveServer}>Salvar no servidor</Button>
             <Button onClick={handleSave}>Salvar no navegador</Button>
           </div>
         </DialogFooter>
