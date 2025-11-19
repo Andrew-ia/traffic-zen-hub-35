@@ -1,13 +1,39 @@
 import { useEffect, useState } from "react";
 import { ObjectivePerformanceSection } from "@/components/dashboard/ObjectivePerformance";
+import { KPIOverview } from "@/components/dashboard/KPIOverview";
 import { usePerformanceMetrics } from "@/hooks/usePerformanceMetrics";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DashboardLoadingSkeleton, ErrorDashboardState } from "@/components/dashboard/DashboardSkeleton";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
   const [periodDays, setPeriodDays] = useState(30);
-  
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
-  const { data: performance, isLoading: isLoadingMetrics } = usePerformanceMetrics(periodDays);
+  const { data: performance, isLoading: isLoadingMetrics, error } = usePerformanceMetrics(periodDays);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ["meta", "performance-metrics"] });
+      await queryClient.invalidateQueries({ queryKey: ["objective-performance-summary"] });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Show loading skeleton on initial load
+  if (isLoadingMetrics && !performance) {
+    return <DashboardLoadingSkeleton />;
+  }
+
+  // Show error state
+  if (error && !performance) {
+    return <ErrorDashboardState error={error} onRefresh={handleRefresh} />;
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -20,20 +46,41 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <Select value={periodDays.toString()} onValueChange={(value) => setPeriodDays(Number(value))}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Últimos 7 dias</SelectItem>
-            <SelectItem value="14">Últimos 14 dias</SelectItem>
-            <SelectItem value="30">Últimos 30 dias</SelectItem>
-            <SelectItem value="60">Últimos 60 dias</SelectItem>
-            <SelectItem value="90">Últimos 90 dias</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 flex-col sm:flex-row">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="w-full sm:w-auto"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+          
+          <Select value={periodDays.toString()} onValueChange={(value) => setPeriodDays(Number(value))}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Últimos 7 dias</SelectItem>
+              <SelectItem value="14">Últimos 14 dias</SelectItem>
+              <SelectItem value="30">Últimos 30 dias</SelectItem>
+              <SelectItem value="60">Últimos 60 dias</SelectItem>
+              <SelectItem value="90">Últimos 90 dias</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
+      {/* KPI Overview Section */}
+      <KPIOverview 
+        days={periodDays} 
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
+
+      {/* Objective Performance Section */}
       <ObjectivePerformanceSection days={periodDays} />
     </div>
   );
