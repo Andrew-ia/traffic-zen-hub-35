@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
 import MetaSyncButton from "@/components/MetaSyncButton";
+import GoogleAdsSyncButton from "@/components/GoogleAdsSyncButton";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -31,7 +32,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function Integrations() {
   const { data: overview, isLoading } = useIntegrationOverview();
   const [metaDays, setMetaDays] = useState<number>(7);
-  const [instagramDays, setInstagramDays] = useState<number>(7);
+  const [googleAdsDays, setGoogleAdsDays] = useState<number>(7);
+
 
   const metaIntegration = useMemo(
     () => overview?.integrations.find((integration) => integration.platform_key === "meta") ?? null,
@@ -43,13 +45,13 @@ export default function Integrations() {
     [overview],
   );
 
-  const instagramIntegration = useMemo(
-    () => overview?.integrations.find((integration) => integration.platform_key === "instagram") ?? null,
+  const googleAdsIntegration = useMemo(
+    () => overview?.integrations.find((integration) => integration.platform_key === "google_ads") ?? null,
     [overview],
   );
 
-  const instagramAccounts = useMemo(
-    () => overview?.platformAccounts.filter((account) => account.platform_key === "instagram") ?? [],
+  const googleAdsAccounts = useMemo(
+    () => overview?.platformAccounts.filter((account) => account.platform_key === "google_ads") ?? [],
     [overview],
   );
 
@@ -64,16 +66,18 @@ export default function Integrations() {
     return "Sincronização pendente";
   }, [metaIntegration]);
 
-  const instagramStatusText = useMemo(() => {
-    if (!instagramIntegration) return "Não conectado";
-    if (instagramIntegration.last_synced_at) {
-      return `Sincronizado ${formatDistanceToNow(new Date(instagramIntegration.last_synced_at), {
+  const googleAdsStatusText = useMemo(() => {
+    if (!googleAdsIntegration) return "Não conectado";
+    if (googleAdsIntegration.last_synced_at) {
+      return `Sincronizado ${formatDistanceToNow(new Date(googleAdsIntegration.last_synced_at), {
         addSuffix: true,
         locale: ptBR,
       })}`;
     }
     return "Sincronização pendente";
-  }, [instagramIntegration]);
+  }, [googleAdsIntegration]);
+
+
 
   const adsPlatforms = useMemo(() => {
     const metaCard = {
@@ -86,18 +90,18 @@ export default function Integrations() {
       status: metaStatusText,
     };
 
-    const instagramCard = {
+    const googleAdsCard = {
       id: 2,
-      name: "Instagram Insights",
-      description: "Métricas do Instagram Business",
-      icon: Instagram,
-      connected: instagramIntegration?.status === "active",
-      accounts: instagramAccounts.length,
-      status: instagramStatusText,
+      name: "Google Ads",
+      description: "Google Search & Display",
+      icon: TrendingUp,
+      connected: googleAdsIntegration?.status === "active",
+      accounts: googleAdsAccounts.length,
+      status: googleAdsStatusText,
     };
 
-    return [metaCard, instagramCard];
-  }, [metaIntegration, metaAccounts.length, metaStatusText, instagramIntegration, instagramAccounts.length, instagramStatusText]);
+    return [metaCard, googleAdsCard];
+  }, [metaIntegration, metaAccounts.length, metaStatusText, googleAdsIntegration, googleAdsAccounts.length, googleAdsStatusText]);
 
   return (
     <div className="space-y-6">
@@ -155,30 +159,30 @@ export default function Integrations() {
       <div>
         <h2 className="text-2xl font-bold mb-4">Plataformas de Anúncios</h2>
         <div className="grid gap-4">
-        {adsPlatforms.map((platform) => (
-          <Card key={platform.id}>
-            <CardContent className="flex items-center justify-between p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <platform.icon className="h-6 w-6 text-primary" />
-                </div>
-                    <div>
-                      <p className="font-semibold">{platform.name}</p>
-                      <p className="text-sm text-muted-foreground">{platform.description}</p>
-                      <div className="flex gap-2 mt-2">
-                        {isLoading ? (
-                          <Skeleton className="h-5 w-32" />
-                        ) : platform.connected ? (
-                          <>
-                            {platform.accounts ? <Badge variant="outline">{platform.accounts} contas</Badge> : null}
-                            <Badge variant="secondary">{platform.status}</Badge>
-                          </>
-                        ) : (
+          {adsPlatforms.map((platform) => (
+            <Card key={platform.id}>
+              <CardContent className="flex items-center justify-between p-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <platform.icon className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">{platform.name}</p>
+                    <p className="text-sm text-muted-foreground">{platform.description}</p>
+                    <div className="flex gap-2 mt-2">
+                      {isLoading ? (
+                        <Skeleton className="h-5 w-32" />
+                      ) : platform.connected ? (
+                        <>
+                          {platform.accounts ? <Badge variant="outline">{platform.accounts} contas</Badge> : null}
                           <Badge variant="secondary">{platform.status}</Badge>
-                        )}
-                      </div>
+                        </>
+                      ) : (
+                        <Badge variant="secondary">{platform.status}</Badge>
+                      )}
                     </div>
                   </div>
+                </div>
                 <div className="flex items-center gap-4">
                   {platform.id === 1 ? (
                     <div className="flex items-center gap-2">
@@ -202,7 +206,7 @@ export default function Integrations() {
                   ) : platform.id === 2 ? (
                     <div className="flex items-center gap-2">
                       <div className="w-40">
-                        <Select value={String(instagramDays)} onValueChange={(v) => setInstagramDays(Number(v))}>
+                        <Select value={String(googleAdsDays)} onValueChange={(v) => setGoogleAdsDays(Number(v))}>
                           <SelectTrigger className="h-8">
                             <SelectValue placeholder="Últimos 7 dias" />
                           </SelectTrigger>
@@ -215,8 +219,8 @@ export default function Integrations() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <InstagramSyncButton size="sm" days={instagramDays} />
-                      <InstagramCredentialsDialog />
+                      <GoogleAdsSyncButton size="sm" days={googleAdsDays} />
+                      <GoogleAdsCredentialsDialog />
                     </div>
                   ) : platform.connected ? (
                     <>
@@ -283,9 +287,9 @@ export default function Integrations() {
                         <span className="text-muted-foreground">
                           {integration.last_synced_at
                             ? `Sincronizado ${formatDistanceToNow(new Date(integration.last_synced_at), {
-                                addSuffix: true,
-                                locale: ptBR,
-                              })}`
+                              addSuffix: true,
+                              locale: ptBR,
+                            })}`
                             : "Sincronização pendente"}
                         </span>
                       </div>
@@ -301,7 +305,7 @@ export default function Integrations() {
 }
 
 const META_CREDENTIALS_KEY = "trafficpro.meta.credentials";
-const INSTAGRAM_CREDENTIALS_KEY = "trafficpro.instagram.credentials";
+
 
 interface MetaCredentials {
   appId: string;
@@ -311,11 +315,7 @@ interface MetaCredentials {
   workspaceId: string;
 }
 
-interface InstagramCredentials {
-  igUserId: string;
-  accessToken: string;
-  workspaceId: string;
-}
+
 
 const defaultCredentials = (): MetaCredentials => ({
   appId: import.meta.env.VITE_META_APP_ID ?? "",
@@ -510,17 +510,17 @@ function MetaCredentialsDialog() {
             </div>
           </div>
 
-        <div className="space-y-2">
-          <Label>Snippet para .env.local</Label>
-          <Textarea readOnly value={envSnippet} rows={6} />
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleCopy}>
-              <Copy className="mr-2 h-4 w-4" /> Copiar snippet
-            </Button>
-            {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
-            {serverStatus && <span className="text-xs text-muted-foreground">{serverStatus}</span>}
+          <div className="space-y-2">
+            <Label>Snippet para .env.local</Label>
+            <Textarea readOnly value={envSnippet} rows={6} />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleCopy}>
+                <Copy className="mr-2 h-4 w-4" /> Copiar snippet
+              </Button>
+              {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
+              {serverStatus && <span className="text-xs text-muted-foreground">{serverStatus}</span>}
+            </div>
           </div>
-        </div>
         </div>
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
@@ -537,65 +537,82 @@ function MetaCredentialsDialog() {
   );
 }
 
-const defaultInstagramCredentials = (): InstagramCredentials => ({
-  igUserId: import.meta.env.VITE_IG_USER_ID ?? "",
-  accessToken: import.meta.env.VITE_META_ACCESS_TOKEN ?? "",
+
+const GOOGLE_ADS_CREDENTIALS_KEY = "trafficpro.googleads.credentials";
+
+interface GoogleAdsCredentials {
+  clientId: string;
+  clientSecret: string;
+  developerToken: string;
+  refreshToken: string;
+  customerId: string;
+  loginCustomerId: string;
+  workspaceId: string;
+}
+
+const defaultGoogleAdsCredentials = (): GoogleAdsCredentials => ({
+  clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "",
+  clientSecret: import.meta.env.VITE_GOOGLE_CLIENT_SECRET ?? "",
+  developerToken: import.meta.env.VITE_GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
+  refreshToken: import.meta.env.VITE_GOOGLE_ADS_REFRESH_TOKEN ?? "",
+  customerId: import.meta.env.VITE_GOOGLE_ADS_CUSTOMER_ID ?? "",
+  loginCustomerId: import.meta.env.VITE_GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? "",
   workspaceId: import.meta.env.VITE_WORKSPACE_ID ?? "",
 });
 
-function InstagramCredentialsDialog() {
+function GoogleAdsCredentialsDialog() {
   const [open, setOpen] = useState(false);
-  const [credentials, setCredentials] = useState<InstagramCredentials>(defaultInstagramCredentials);
+  const [credentials, setCredentials] = useState<GoogleAdsCredentials>(defaultGoogleAdsCredentials);
   const [saved, setSaved] = useState(false);
-  const [serverTokenMasked, setServerTokenMasked] = useState<string>("");
+  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [showDeveloperToken, setShowDeveloperToken] = useState(false);
+  const [serverStatus, setServerStatus] = useState<string>("");
   const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
 
-  const maskToken = (t: string) => {
-    const s = (t || "").trim();
-    if (s.length < 12) return s ? `${s.slice(0, 4)}••••${s.slice(-2)}` : "";
-    return `${s.slice(0, 6)}••••••••${s.slice(-4)}`;
-  };
-
   useEffect(() => {
+    let base = defaultGoogleAdsCredentials();
     try {
-      const stored = localStorage.getItem(INSTAGRAM_CREDENTIALS_KEY);
+      const stored = localStorage.getItem(GOOGLE_ADS_CREDENTIALS_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored) as InstagramCredentials;
-        const defaults = defaultInstagramCredentials();
-        const merged: InstagramCredentials = {
-          igUserId: parsed.igUserId || defaults.igUserId,
-          accessToken: parsed.accessToken || defaults.accessToken,
-          workspaceId: parsed.workspaceId || defaults.workspaceId,
+        const parsed = JSON.parse(stored) as GoogleAdsCredentials;
+        base = {
+          clientId: parsed.clientId || base.clientId,
+          clientSecret: parsed.clientSecret || base.clientSecret,
+          developerToken: parsed.developerToken || base.developerToken,
+          refreshToken: parsed.refreshToken || base.refreshToken,
+          customerId: parsed.customerId || base.customerId,
+          loginCustomerId: parsed.loginCustomerId || base.loginCustomerId,
+          workspaceId: parsed.workspaceId || base.workspaceId,
         };
-        setCredentials(merged);
-      } else {
-        setCredentials(defaultInstagramCredentials());
       }
+      setCredentials(base);
     } catch (error) {
-      console.warn("Failed to load stored Instagram credentials", error);
+      console.warn("Failed to load stored Google Ads credentials", error);
+      setCredentials(base);
     }
-    // Fetch server-side credentials (masked)
-    (async () => {
-      try {
-        const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/instagram`, { credentials: "include" });
-        if (resp.ok) {
-          const json = await resp.json();
-          const token = json?.data?.credentials?.accessToken || "";
-          if (token) setServerTokenMasked(maskToken(String(token)));
-        }
-      } catch {
-        void 0;
-      }
-    })();
-  }, [open, WORKSPACE_ID]);
+  }, [open]);
 
   const envSnippet = useMemo(
     () =>
-      `IG_USER_ID=${credentials.igUserId}\nIG_ACCESS_TOKEN=${credentials.accessToken || serverTokenMasked}\nIG_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_IG_USER_ID=${credentials.igUserId}`,
-    [credentials, serverTokenMasked],
+      `GOOGLE_CLIENT_ID=${credentials.clientId}
+GOOGLE_CLIENT_SECRET=${credentials.clientSecret}
+GOOGLE_ADS_DEVELOPER_TOKEN=${credentials.developerToken}
+GOOGLE_ADS_REFRESH_TOKEN=${credentials.refreshToken}
+GOOGLE_ADS_CUSTOMER_ID=${credentials.customerId}
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=${credentials.loginCustomerId}
+WORKSPACE_ID=${credentials.workspaceId}
+
+VITE_GOOGLE_CLIENT_ID=${credentials.clientId}
+VITE_GOOGLE_CLIENT_SECRET=${credentials.clientSecret}
+VITE_GOOGLE_ADS_DEVELOPER_TOKEN=${credentials.developerToken}
+VITE_GOOGLE_ADS_REFRESH_TOKEN=${credentials.refreshToken}
+VITE_GOOGLE_ADS_CUSTOMER_ID=${credentials.customerId}
+VITE_GOOGLE_ADS_LOGIN_CUSTOMER_ID=${credentials.loginCustomerId}
+VITE_WORKSPACE_ID=${credentials.workspaceId}`,
+    [credentials],
   );
 
-  const handleChange = (field: keyof InstagramCredentials) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (field: keyof GoogleAdsCredentials) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setSaved(false);
     setCredentials((prev) => ({ ...prev, [field]: event.target.value }));
   };
@@ -606,118 +623,116 @@ function InstagramCredentialsDialog() {
   };
 
   const handleSave = () => {
-    localStorage.setItem(INSTAGRAM_CREDENTIALS_KEY, JSON.stringify(credentials));
+    localStorage.setItem(GOOGLE_ADS_CREDENTIALS_KEY, JSON.stringify(credentials));
     setSaved(true);
     setOpen(false);
   };
 
   const handleReset = () => {
-    localStorage.removeItem(INSTAGRAM_CREDENTIALS_KEY);
-    setCredentials(defaultInstagramCredentials());
+    localStorage.removeItem(GOOGLE_ADS_CREDENTIALS_KEY);
+    setCredentials(defaultGoogleAdsCredentials());
     setSaved(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">Configurar Instagram</Button>
+        <Button variant="outline">Configurar credenciais</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Credenciais do Instagram</DialogTitle>
+          <DialogTitle>Credenciais do Google Ads</DialogTitle>
           <DialogDescription>
-            Configure o Instagram Business Account ID. O Access Token é o mesmo usado no Meta Ads.
+            Preencha os dados da API do Google Ads. Eles são salvos localmente e servem como referência para o `.env.local`.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-full bg-blue-100 p-2">
-                <svg
-                  className="w-5 h-5 text-blue-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h4 className="font-semibold text-sm mb-1 text-orange-600">⚠️ IMPORTANTE: Use o Instagram Business Account ID, não o Page ID</h4>
-                <p className="text-xs text-muted-foreground mb-2">
-                  <strong>Método 1 - Via Graph API Explorer (recomendado):</strong>
-                </p>
-                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside ml-2">
-                  <li>Acesse <a href="https://developers.facebook.com/tools/explorer" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Graph API Explorer</a></li>
-                  <li>Cole sua Facebook Page ID e adicione <code className="bg-white px-1 py-0.5 rounded">?fields=instagram_business_account</code></li>
-                  <li>Clique em "Submit". O ID do Instagram aparecerá na resposta</li>
-                </ol>
-                <p className="text-xs text-muted-foreground mt-2 mb-1">
-                  <strong>Método 2 - Via Business Suite:</strong>
-                </p>
-                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside ml-2">
-                  <li>Acesse <a href="https://business.facebook.com" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">business.facebook.com</a></li>
-                  <li>Vá em "Instagram accounts" (não "Pages"!)</li>
-                  <li>Clique na sua conta do Instagram</li>
-                  <li>O <strong>Instagram Business Account ID</strong> aparece na URL</li>
-                </ol>
-              </div>
+          <div>
+            <Label htmlFor="google-client-id">Client ID</Label>
+            <Input id="google-client-id" value={credentials.clientId} onChange={handleChange("clientId")} placeholder="123456789..." />
+          </div>
+          <div>
+            <Label htmlFor="google-client-secret">Client Secret</Label>
+            <div className="relative">
+              <Input
+                id="google-client-secret"
+                value={credentials.clientSecret}
+                onChange={handleChange("clientSecret")}
+                type={showClientSecret ? "text" : "password"}
+                placeholder="••••••"
+                className="pr-10"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute inset-y-0 right-0 my-1 mr-1 h-8 w-8"
+                onClick={() => setShowClientSecret((prev) => !prev)}
+              >
+                {showClientSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
             </div>
           </div>
-
           <div>
-            <Label htmlFor="ig-user-id">Instagram Business Account ID</Label>
-            <Input
-              id="ig-user-id"
-              value={credentials.igUserId}
-              onChange={handleChange("igUserId")}
-              placeholder="211443329551349"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              O ID numérico da sua conta Instagram Business conectada ao Facebook Page
-            </p>
+            <Label htmlFor="google-developer-token">Developer Token</Label>
+            <div className="relative">
+              <Input
+                id="google-developer-token"
+                value={credentials.developerToken}
+                onChange={handleChange("developerToken")}
+                type={showDeveloperToken ? "text" : "password"}
+                placeholder="••••••"
+                className="pr-10"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute inset-y-0 right-0 my-1 mr-1 h-8 w-8"
+                onClick={() => setShowDeveloperToken((prev) => !prev)}
+              >
+                {showDeveloperToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
-
           <div>
-            <Label htmlFor="ig-access-token">Access Token (mesmo do Meta Ads)</Label>
+            <Label htmlFor="google-refresh-token">Refresh Token</Label>
             <Textarea
-              id="ig-access-token"
-              value={credentials.accessToken}
-              onChange={handleChange("accessToken")}
+              id="google-refresh-token"
+              value={credentials.refreshToken}
+              onChange={handleChange("refreshToken")}
               rows={3}
-              placeholder="Access token de longa duração do Meta"
+              placeholder="Refresh token de longa duração"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Use o mesmo Access Token configurado no Meta Ads. No servidor, o token está {serverTokenMasked ? `configurado (${serverTokenMasked})` : "configurado"}.
-            </p>
           </div>
-
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="google-customer-id">Customer ID</Label>
+              <Input id="google-customer-id" value={credentials.customerId} onChange={handleChange("customerId")} placeholder="1234567890" />
+            </div>
+            <div>
+              <Label htmlFor="google-login-customer-id">Login Customer ID</Label>
+              <Input id="google-login-customer-id" value={credentials.loginCustomerId} onChange={handleChange("loginCustomerId")} placeholder="1234567890" />
+            </div>
+          </div>
           <div>
-            <Label htmlFor="ig-workspace">Workspace ID</Label>
-            <Input
-              id="ig-workspace"
-              value={credentials.workspaceId}
-              onChange={handleChange("workspaceId")}
-            />
+            <Label htmlFor="google-workspace">Workspace ID</Label>
+            <Input id="google-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
             <p className="mt-1 text-xs text-muted-foreground">
-              ID do workspace no Supabase (geralmente o mesmo do Meta Ads)
+              ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
             </p>
           </div>
 
           <div className="space-y-2">
             <Label>Snippet para .env.local</Label>
-            <Textarea readOnly value={envSnippet} rows={4} />
+            <Textarea readOnly value={envSnippet} rows={8} />
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleCopy}>
                 <Copy className="mr-2 h-4 w-4" /> Copiar snippet
               </Button>
               {saved && <span className="text-xs text-muted-foreground">Snippet copiado/salvo recentemente</span>}
+              {serverStatus && <span className="text-xs text-muted-foreground">{serverStatus}</span>}
             </div>
           </div>
         </div>
@@ -726,9 +741,12 @@ function InstagramCredentialsDialog() {
           <Button variant="ghost" onClick={handleReset} className="justify-start">
             Limpar credenciais
           </Button>
-          <Button onClick={handleSave}>Salvar no navegador</Button>
+          <div className="flex gap-2">
+            <Button onClick={handleSave}>Salvar no navegador</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
