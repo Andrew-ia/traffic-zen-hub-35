@@ -141,6 +141,8 @@ export async function ga4Report(req: Request, res: Response) {
         { name: 'date' },
         { name: 'eventName' },
         { name: 'country' },
+        { name: 'deviceCategory' },
+        { name: 'pagePath' },
       ],
       metrics: [
         { name: 'eventCount' },

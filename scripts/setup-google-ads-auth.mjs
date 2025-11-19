@@ -161,7 +161,7 @@ async function main() {
 
     console.log('✅ Tokens received successfully!');
     console.log(`   Access Token: ${tokens.access_token?.substring(0, 20)}...`);
-    console.log(`   Refresh Token: ${tokens.refresh_token?.substring(0, 20)}...`);
+    console.log(`   Refresh Token: ${tokens.refresh_token}`); // PRINT FULL TOKEN FOR CAPTURE
 
     // Prepare credentials object
     const credentials = {
