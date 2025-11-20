@@ -45,7 +45,6 @@ import { Label } from '@/components/ui/label';
 // Removed KanbanBoard and Select imports after removing Quadro/Kanban view
 import { TaskDetailModal } from '@/components/pm/TaskDetailModal';
 import { CreateItemModal } from '@/components/pm/CreateItemModal';
-import { EmojiPicker } from '@/components/pm/EmojiPicker';
 import type { PMTaskFull } from '@/types/project-management';
 import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, useDeletePMList, useCreatePMDocument, useCreatePMReminder, useUpdatePMList, useUploadPMDocumentAttachment, useDeletePMFolder, usePMDocuments, useUploadPMTaskAttachment, useUpdatePMFolder, usePMReminders } from '@/hooks/useProjectManagement';
 import { supabase, hasSupabase } from '@/lib/supabaseClient';
@@ -77,8 +76,7 @@ export default function ProjectManagementV3() {
   const { data: documentsData } = usePMDocuments(WORKSPACE_ID, undefined, {
     enabled: !!hierarchyData?.success && !isLoading
   });
-  // Load reminders for selected list
-  const { data: remindersData } = usePMReminders(WORKSPACE_ID, selectedListId || undefined);
+
   const createFolder = useCreatePMFolder();
   const createList = useCreatePMList();
   const createTask = useCreatePMTask();
@@ -92,6 +90,10 @@ export default function ProjectManagementV3() {
 
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
+
+  // Load reminders for selected list
+  const { data: remindersData } = usePMReminders(WORKSPACE_ID, selectedListId || undefined);
+
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set());
   // Visão inicial (Overview): estados de recolher/expandir
