@@ -120,20 +120,39 @@ export async function createNotification(
       RETURNING *
     `;
 
+        console.log('[createNotification] Creating notification:', {
+            userId,
+            type,
+            title,
+            message,
+            link,
+            metadata
+        });
+
         const result = await pool.query(query, [
             userId,
             type,
             title,
             message,
             link || null,
-            metadata || {},
+            metadata ? JSON.stringify(metadata) : '{}',
         ]);
 
+        console.log('[createNotification] Notification created successfully:', result.rows[0]);
         return result.rows[0];
     } catch (error) {
-        console.error('Error creating notification:', error);
-        // Don't throw, just log error so main flow doesn't break
-        return null;
+        console.error('[createNotification] Error creating notification:', error);
+        console.error('[createNotification] Error details:', {
+            userId,
+            type,
+            title,
+            message,
+            link,
+            metadata,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined
+        });
+        throw error; // Throw instead of returning null so we can see the actual error
     }
 }
 
