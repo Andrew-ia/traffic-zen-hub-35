@@ -98,7 +98,7 @@ function calculateTrend(current: number, previous: number): {
   if (previous === 0) {
     return { trend: current > 0 ? "up" : "neutral", percentage: current > 0 ? 100 : 0 };
   }
-  
+
   const percentage = ((current - previous) / previous) * 100;
   return {
     trend: percentage > 2 ? "up" : percentage < -2 ? "down" : "neutral",
@@ -115,9 +115,9 @@ interface KPIOverviewProps {
 export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
   const { data: currentData, isLoading: currentLoading } = usePerformanceMetrics(days);
   const { data: previousData, isLoading: previousLoading } = usePerformanceMetrics(days, days);
-  
+
   const isLoading = currentLoading || previousLoading || refreshing;
-  
+
   if (!currentData && !isLoading) {
     return (
       <Card>
@@ -172,8 +172,8 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
           <CardDescription>Resumo dos últimos {days} dias</CardDescription>
         </CardHeader>
       </Card>
-      
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <KPICard
           title="Investimento Total"
           value={current ? formatCurrency(current.spend) : "R$ 0,00"}
@@ -182,7 +182,7 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
           icon={<DollarSign className="h-4 w-4" />}
           loading={isLoading}
         />
-        
+
         <KPICard
           title="Conversões"
           value={current ? formatNumber(current.conversions) : "0"}
@@ -191,7 +191,7 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
           icon={<Target className="h-4 w-4" />}
           loading={isLoading}
         />
-        
+
         <KPICard
           title="Cliques"
           value={current ? formatNumber(current.clicks) : "0"}
@@ -200,7 +200,7 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
           icon={<MousePointer className="h-4 w-4" />}
           loading={isLoading}
         />
-        
+
         <KPICard
           title="ROAS"
           value={current ? `${current.roas.toFixed(2)}x` : "0x"}
@@ -214,12 +214,12 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
       {current && (
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">
-            CPM: {current.spend > 0 && current.conversions > 0 
+            CPM: {current.spend > 0 && current.conversions > 0
               ? formatCurrency(current.spend / current.conversions)
               : "N/A"}
           </Badge>
           <Badge variant="outline">
-            CPC: {current.spend > 0 && current.clicks > 0 
+            CPC: {current.spend > 0 && current.clicks > 0
               ? formatCurrency(current.spend / current.clicks)
               : "N/A"}
           </Badge>

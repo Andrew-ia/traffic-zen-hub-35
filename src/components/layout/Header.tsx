@@ -14,6 +14,8 @@ import { ModeToggle } from "@/components/theme/mode-toggle";
 import { useCommandMenu } from "./CommandMenu";
 import { useResponsive } from "@/hooks/use-responsive";
 import { useAuth } from "@/hooks/useAuth";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { AvatarSelector } from "@/components/user/AvatarSelector";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -64,7 +66,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden flex-shrink-0"
+          className="lg:hidden relative z-50"
           onClick={onMenuClick}
         >
           <Menu className="h-5 w-5" />
@@ -78,7 +80,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             <Input
               ref={searchInputRef}
               placeholder={isMobile ? "Buscar..." : "Buscar campanhas, relatórios..."}
-              className="pl-10 pr-8 sm:pr-16 text-sm"
+              className="pl-10 pr-8 sm:pr-16 text-sm w-full transition-all duration-300 focus:w-full"
             />
             {!isMobile && (
               <span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -115,10 +117,9 @@ export function Header({ onMenuClick }: HeaderProps) {
             </Button>
           )}
 
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-          </Button>
+          <NotificationBell />
+
+          <AvatarSelector />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -139,7 +140,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              
+
               {isMobile && (
                 <>
                   <DropdownMenuSeparator />

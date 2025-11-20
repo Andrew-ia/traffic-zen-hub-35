@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
+import { createNotification } from '../notifications.js';
 
 /**
  * PM Tasks API endpoints
@@ -280,6 +281,18 @@ export async function createTask(req: Request, res: Response) {
       [result.rows[0].id, created_by || null, { task_name: name }]
     );
 
+    // Create notification for assignee if different from creator
+    if (assignee_id && assignee_id !== created_by) {
+      await createNotification(
+        assignee_id,
+        'task_assignment',
+        'Nova tarefa atribuída',
+        `Você foi atribuído à tarefa "${name}"`,
+        `/project-management?taskId=${result.rows[0].id}`,
+        { taskId: result.rows[0].id, taskName: name }
+      );
+    }
+
     return res.status(201).json({
       success: true,
       data: result.rows[0],
@@ -424,6 +437,31 @@ export async function updateTask(req: Request, res: Response) {
         `INSERT INTO pm_task_activity (task_id, user_id, action, field_name, old_value, new_value)
          VALUES ($1, $2, 'status_changed', 'status', $3, $4)`,
         [taskId, assignee_id || null, currentTask.rows[0].status, status]
+      );
+
+      // Notify assignee about status change
+      const currentAssignee = assignee_id || currentTask.rows[0].assignee_id;
+      if (currentAssignee) {
+        await createNotification(
+          currentAssignee,
+          'task_assignment',
+          'Status da tarefa atualizado',
+          `A tarefa "${currentTask.rows[0].name}" mudou para ${status}`,
+          `/project-management?taskId=${taskId}`,
+          { taskId, taskName: currentTask.rows[0].name, oldStatus: currentTask.rows[0].status, newStatus: status }
+        );
+      }
+    }
+
+    // Notify new assignee
+    if (assignee_id && assignee_id !== currentTask.rows[0].assignee_id) {
+      await createNotification(
+        assignee_id,
+        'task_assignment',
+        'Nova tarefa atribuída',
+        `Você foi atribuído à tarefa "${currentTask.rows[0].name}"`,
+        `/project-management?taskId=${taskId}`,
+        { taskId, taskName: currentTask.rows[0].name }
       );
     }
 

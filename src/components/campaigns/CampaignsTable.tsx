@@ -13,6 +13,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MoreVertical, Pause, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { getCampaignObjectiveLabel } from "@/constants/campaignObjectives";
 
 export interface CampaignTableRow {
   id: string;
@@ -78,6 +79,11 @@ function formatStatus(status: string) {
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
+  const [datePart] = value.split("T");
+  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
   try {
     return new Intl.DateTimeFormat("pt-BR", {
       day: "2-digit",
@@ -201,7 +207,7 @@ export function CampaignsTable({
                     </div>
                   </TableCell>
                   <TableCell className="hidden sm:table-cell px-2">
-                    <span className="text-[10px] truncate block">{campaign.objective ?? "-"}</span>
+                    <span className="text-[10px] truncate block">{getCampaignObjectiveLabel(campaign.objective) || "-"}</span>
                   </TableCell>
                   <TableCell className="px-2">
                     <Badge

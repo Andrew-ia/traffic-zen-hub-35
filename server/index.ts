@@ -24,6 +24,7 @@ import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integratio
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
 import { generateCreative } from './api/ai/generate-creative.js';
+import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
@@ -32,8 +33,9 @@ import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.
 import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from './api/analytics/metrics.js';
 import { getDemographics } from './api/analytics/demographics.js';
+import { getCreativePerformance } from './api/analytics/creative-performance.js';
 import { syncGoogleAdsData } from './api/google-ads/sync.js';
- 
+
 import {
   getCampaignLibrary,
   getCampaignById,
@@ -110,6 +112,15 @@ import {
   getPendingReminders,
   markReminderAsSent,
 } from './api/pm/reminders.js';
+import {
+  getUnreadNotifications,
+  markAsRead,
+  createNotificationHandler,
+} from './api/notifications.js';
+import {
+  getUserPreferences,
+  updateUserPreferences,
+} from './api/user-preferences.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -192,7 +203,7 @@ app.get('/api/integrations/instagram/sync-status/:workspaceId', getInstagramSync
 app.get('/api/integrations/sync/:jobId', getSyncStatus);
 app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
 app.post('/api/integrations/billing/sync', syncMetaBilling);
- 
+
 
 // Immediate Instagram media+user sync (bypasses queue)
 app.post('/api/integrations/instagram/run-direct', async (req, res) => {
@@ -214,7 +225,7 @@ app.post('/api/integrations/instagram/run-direct', async (req, res) => {
 
     const ctx = {
       db: { query: (text: string, params?: any[]) => pool.query(text, params) },
-      reportProgress: () => {},
+      reportProgress: () => { },
     };
     const result = await runInstagramSync({ igUserId, accessToken, workspaceId: normalizedWorkspaceId, days }, ctx as any);
     return res.json({ success: true, data: result });
@@ -226,6 +237,7 @@ app.post('/api/integrations/instagram/run-direct', async (req, res) => {
 
 // AI endpoints
 app.post('/api/ai/generate-creative', generateCreative);
+app.post('/api/ai/analyze-creative', analyzeCreative);
 app.post('/api/ai/virtual-tryon', virtualTryOn);
 app.post('/api/ai/generate-look-caption', generateLookCaption);
 app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
@@ -243,7 +255,7 @@ app.post('/api/ga4/google-ads', ga4GoogleAds);
 
 // Google Ads API endpoints (direct sync)
 app.post('/api/google-ads/sync', syncGoogleAdsData);
- 
+
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
   res.json({ success: true, message: 'GA4 test endpoint' });
@@ -260,6 +272,7 @@ app.get('/api/metrics/aggregate', getAggregateMetrics);
 app.get('/api/metrics/aggregate-by-objective', getAggregateMetricsByObjective);
 app.get('/api/metrics/timeseries', getTimeSeriesMetrics);
 app.get('/api/metrics/demographics', getDemographics);
+app.get('/api/analytics/creative-performance', getCreativePerformance);
 
 // Campaign Library endpoints
 app.get('/api/campaigns/library/:workspaceId', getCampaignLibrary);
@@ -343,6 +356,15 @@ app.get('/api/pm/reminders/:workspaceId/:listId', getReminders);
 app.post('/api/pm/reminders/:workspaceId/:listId', createReminder);
 app.post('/api/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
 
+// Notifications
+app.get('/api/notifications/:userId', getUnreadNotifications);
+app.put('/api/notifications/:id/read', markAsRead);
+app.post('/api/notifications', createNotificationHandler);
+
+// User preferences routes
+app.get('/api/user-preferences/:userId', getUserPreferences);
+app.put('/api/user-preferences/:userId', updateUserPreferences);
+
 // Serve frontend build (SPA) from /dist when deployed online
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -399,7 +421,7 @@ async function start() {
       console.log('🚀 TrafficPro API Server');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Server running on: http://localhost:${PORT}`);
-      
+
       // Worker local apenas para desenvolvimento - não funciona no Vercel (serverless)
       if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
         try {

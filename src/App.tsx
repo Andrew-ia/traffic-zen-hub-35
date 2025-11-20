@@ -19,6 +19,7 @@ import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DriveCreatives from "./pages/DriveCreatives";
+import MetaCreativeAnalysis from "./pages/MetaCreativeAnalysis";
 import NotFound from "./pages/NotFound";
 import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
@@ -70,25 +71,26 @@ const App = () => (
               <Route path="/login" element={<Login />} />
 
               <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
-              
+
               <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
               <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
               <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
               <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
               <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
-              
+
               <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
+              <Route path="/creative-analysis/meta" element={<RequireAuth><MetaCreativeAnalysis /></RequireAuth>} />
               <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
               <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
               <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
               <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
               <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
               <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
-              
+
               <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
-              
+
               <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

@@ -1,4 +1,5 @@
 import { supabase as supabaseClient } from '@/lib/supabaseClient'
+import { resolveApiBase } from '@/lib/apiBase'
 export const supabase: any = supabaseClient
 
 export async function getRooms(userId: string) {
@@ -29,6 +30,46 @@ export async function sendMessage(roomId: string, senderId: string, content: str
     .select('*')
     .single()
   if (error) throw error
+
+  // Trigger notifications for other members
+  try {
+    const { data: members } = await supabase
+      .from('room_members')
+      .select('user_id')
+      .eq('room_id', roomId)
+      .neq('user_id', senderId)
+
+    if (members && members.length > 0) {
+      const apiBase = resolveApiBase()
+
+      // Get sender name
+      const { data: sender } = await supabase
+        .from('users')
+        .select('full_name, email')
+        .eq('id', senderId)
+        .single()
+
+      const senderName = sender?.full_name || sender?.email || 'Alguém'
+
+      await Promise.all(members.map((m: any) =>
+        fetch(`${apiBase}/api/notifications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: m.user_id,
+            type: 'message',
+            title: `Nova mensagem de ${senderName}`,
+            message: content || (image ? 'Enviou uma imagem' : 'Nova mensagem'),
+            link: `/internal-chat`,
+            metadata: { roomId, senderId }
+          })
+        })
+      ))
+    }
+  } catch (err) {
+    console.error('Failed to send notifications', err)
+  }
+
   return data
 }
 

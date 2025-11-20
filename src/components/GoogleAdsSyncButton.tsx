@@ -7,6 +7,17 @@ import { resolveApiBase } from "@/lib/apiBase";
 
 const API_BASE = resolveApiBase();
 
+const formatNumber = (value?: number | null) =>
+    new Intl.NumberFormat('pt-BR').format(Number(value ?? 0));
+
+const formatCurrency = (value?: number | null, currency?: string) =>
+    new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: currency || 'BRL',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(Number(value ?? 0));
+
 interface GoogleAdsSyncButtonProps {
     variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
     size?: "default" | "sm" | "lg" | "icon";
@@ -27,12 +38,10 @@ export default function GoogleAdsSyncButton({
     const { toast } = useToast();
 
     const syncStages = [
-        "Conectando com Google Ads API",
-        "Buscando contas de anúncios",
-        "Sincronizando campanhas",
-        "Processando grupos e anúncios",
-        "Coletando métricas de performance",
-        "Finalizando sincronização",
+        "Preparando requisição",
+        "Consultando API do Google",
+        "Salvando métricas no Supabase",
+        "Sincronização concluída",
     ];
 
     const handleGoogleSync = async () => {
@@ -52,7 +61,7 @@ export default function GoogleAdsSyncButton({
             setSyncing(true);
             setCurrentStage(0);
             setStatusMessage(`Preparando sincronização (${days} dias)...`);
-            setProgress(0);
+            setProgress(5);
 
             const response = await fetch(`${API_BASE}/api/google-ads/sync`, {
                 method: "POST",
@@ -60,31 +69,64 @@ export default function GoogleAdsSyncButton({
                 body: JSON.stringify({ workspaceId, days }),
             });
 
+            setCurrentStage(1);
+            setStatusMessage("Consultando API do Google Ads...");
+            setProgress(35);
+
             const payload = await response.json().catch(() => ({}));
             if (!response.ok || payload?.success === false) {
                 const msg = payload?.error || `Falha ao sincronizar: ${response.statusText}`;
                 throw new Error(msg);
             }
 
-            toast({ title: "Sincronização iniciada", description: `Buscando dados dos últimos ${days} dias.` });
-            setCurrentStage(1);
-            setStatusMessage("Conectando com Google Ads API...");
-            setProgress(30);
+            if (payload?.needsAuth) {
+                throw new Error(payload?.error || "Conclua a autenticação do Google Ads para sincronizar.");
+            }
+
+            setCurrentStage(2);
+            setStatusMessage("Processando e salvando métricas...");
+            setProgress(70);
+
+            const summary = payload?.data?.summary;
+            const persisted = payload?.data?.persisted;
+            const accountName = payload?.data?.account?.name as string | undefined;
+
+            setCurrentStage(syncStages.length - 1);
+            setProgress(100);
+            setStatusMessage(summary
+                ? `Concluído: ${formatNumber(summary.clicks)} cliques • ${formatCurrency(summary.cost, summary.currency)}`
+                : "Sincronização concluída");
+
+            const descriptionParts: string[] = [];
+            if (summary) {
+                descriptionParts.push(`${formatCurrency(summary.cost, summary.currency)} em ${formatNumber(summary.clicks)} cliques (${formatNumber(summary.impressions)} impr.)`);
+            }
+            if (persisted) {
+                descriptionParts.push(`Linhas atualizadas: ${persisted.adsSpendRows ?? 0} spend / ${persisted.performanceRows ?? 0} métricas`);
+            }
+
+            toast({
+                title: accountName ? `Google Ads (${accountName}) sincronizado` : "Google Ads sincronizado",
+                description: descriptionParts.join(" · ") || `Dados dos últimos ${days} dias sincronizados.`,
+            });
 
             setTimeout(() => {
-                setProgress(100);
-                setCurrentStage(syncStages.length - 1);
-                setStatusMessage("Sincronização concluída");
-                setTimeout(() => {
-                    setSyncing(false);
-                    setStatusMessage(null);
-                    setProgress(null);
-                    setCurrentStage(0);
-                }, 800);
-            }, 1200);
+                setSyncing(false);
+                setStatusMessage(null);
+                setProgress(null);
+                setCurrentStage(0);
+            }, 900);
         } catch (error) {
             setSyncing(false);
-            toast({ title: "Erro na sincronização", description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.", variant: "destructive" });
+            setStatusMessage(null);
+            setProgress(null);
+            setCurrentStage(0);
+
+            toast({
+                title: "Erro na sincronização",
+                description: error instanceof Error ? error.message : "Não foi possível iniciar a sincronização.",
+                variant: "destructive",
+            });
         }
     };
 

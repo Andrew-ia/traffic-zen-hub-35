@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, ChevronRight, Plus, Trash2, FolderOpen, Clipboard } from 'lucide-react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CAMPAIGN_OBJECTIVES, getCampaignObjectiveLabel } from '@/constants/campaignObjectives';
 
 export interface Creative {
   id: string;
@@ -351,11 +352,11 @@ export function CampaignFormWizard({
                     <SelectValue placeholder="Selecione um objetivo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="traffic">Tráfego</SelectItem>
-                    <SelectItem value="conversions">Conversões</SelectItem>
-                    <SelectItem value="awareness">Reconhecimento</SelectItem>
-                    <SelectItem value="leads">Leads</SelectItem>
-                    <SelectItem value="engagement">Engajamento</SelectItem>
+                    {CAMPAIGN_OBJECTIVES.map((objective) => (
+                      <SelectItem key={objective.value} value={objective.value}>
+                        {objective.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -615,7 +616,7 @@ export function CampaignFormWizard({
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Objetivo:</span>
-                    <span className="font-semibold capitalize">{data.objective}</span>
+                    <span className="font-semibold">{getCampaignObjectiveLabel(data.objective)}</span>
                   </div>
                 </div>
 

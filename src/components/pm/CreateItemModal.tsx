@@ -27,6 +27,7 @@ import type { TaskStatus, TaskPriority, ReminderNotifyVia } from '@/types/projec
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CampaignFormWizard } from './CampaignFormWizard';
+import { getCampaignObjectiveLabel } from '@/constants/campaignObjectives';
 // removed duplicate react import
 
 interface CreateItemModalProps {
@@ -1172,9 +1173,10 @@ export function CreateItemModal({
             </div>
             <CampaignFormWizard
               onSubmit={(data) => {
+                const objectiveLabel = getCampaignObjectiveLabel(data.objective) || data.objective;
                 onCreateTask({
                   name: data.campaignName,
-                  description: `Meta Ads - ${data.objective}`,
+                  description: `Meta Ads - ${objectiveLabel}`,
                   status: 'pendente',
                   priority: 'media',
                   metadata: {

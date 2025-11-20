@@ -25,6 +25,7 @@ import type { PMTaskFull, TaskStatus, TaskPriority } from '@/types/project-manag
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CampaignFormWizard, type CampaignData } from './CampaignFormWizard';
+import { getCampaignObjectiveLabel } from '@/constants/campaignObjectives';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 
 interface TaskDetailModalProps {
@@ -33,6 +34,14 @@ interface TaskDetailModalProps {
   onOpenChange: (open: boolean) => void;
   workspaceId: string;
 }
+
+type TaskAttachment = {
+  id: string;
+  file_name: string;
+  file_url: string;
+  file_type?: string;
+  file_size?: number;
+};
 
 const statusOptions: { value: TaskStatus; label: string; color: string }[] = [
   { value: 'pendente', label: 'Pendente', color: 'bg-gray-500' },
@@ -49,6 +58,20 @@ const priorityOptions: { value: TaskPriority; label: string; color: string }[] =
   { value: 'urgente', label: 'Urgente', color: 'bg-red-100 text-red-800' },
 ];
 
+function formatPlainDate(value?: string | null) {
+  if (!value) return '-';
+  const [datePart] = value.split('T');
+  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
+  try {
+    return new Date(value).toLocaleDateString('pt-BR');
+  } catch {
+    return value;
+  }
+}
+
 export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskDetailModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -59,9 +82,11 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isEditingCampaign, setIsEditingCampaign] = useState(false);
+  const [isEditingTaskDetails, setIsEditingTaskDetails] = useState(false);
   const [campaignDetails, setCampaignDetails] = useState<CampaignData | null>(null);
 
-  const { data: taskAttachments = [] } = usePMTaskAttachments(task?.id || undefined);
+  const { data: taskAttachmentsRaw = [] } = usePMTaskAttachments(task?.id || undefined);
+  const taskAttachments = taskAttachmentsRaw as TaskAttachment[];
   const { data: members = [] } = useWorkspaceMembers();
   const updateTask = useUpdatePMTask();
   const deleteTask = useDeletePMTask();
@@ -77,6 +102,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
       setAttachmentFile(null);
       setCampaignDetails((task.metadata?.campaign_data as CampaignData) || null);
       setIsEditingCampaign(false);
+      setIsEditingTaskDetails(false);
       setAssigneeId(task.assignee_id || undefined);
       setDueDate(task.due_date ? new Date(task.due_date).toISOString().slice(0, 10) : undefined);
     }
@@ -188,6 +214,52 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
 
   const statusOption = statusOptions.find(s => s.value === status);
   const priorityOption = priorityOptions.find(p => p.value === priority);
+  const assigneeDisplay = assigneeId
+    ? members.find((m) => m.userId === assigneeId)?.name || members.find((m) => m.userId === assigneeId)?.email || assigneeId
+    : 'Sem responsável';
+
+  const handleAttachmentClick = (attachment: TaskAttachment) => {
+    if (!attachment?.file_url) return;
+
+    const url = attachment.file_url;
+    if (url.startsWith('data:')) {
+      const commaIndex = url.indexOf(',');
+      if (commaIndex === -1) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      const header = url.substring(0, commaIndex);
+      const base64 = url.substring(commaIndex + 1);
+      const mimeMatch = header.match(/^data:(.*?)(;base64)?$/);
+      const mimeType = mimeMatch?.[1] || attachment.file_type || 'application/octet-stream';
+
+      try {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType });
+        const objectUrl = URL.createObjectURL(blob);
+        const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = attachment.file_name || 'anexo';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+      } catch (error) {
+        console.error('Falha ao abrir anexo base64', error);
+        toast({ title: 'Não foi possível abrir o anexo', variant: 'destructive' });
+      }
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -221,82 +293,138 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
         <div className="space-y-6 py-4">
           {/* Basic Info */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm uppercase text-muted-foreground">Informações Básicas</h3>
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="name">Nome da Tarefa</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="description">Descrição</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="mt-1 resize-none"
-                  rows={2}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="status">Status</Label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
-                    <SelectTrigger id="status" className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusOptions.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="priority">Prioridade</Label>
-                  <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
-                    <SelectTrigger id="priority" className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {priorityOptions.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="assignee">Responsável</Label>
-                  <Select value={assigneeId ?? '__none__'} onValueChange={(v) => setAssigneeId(v === '__none__' ? undefined : v)}>
-                    <SelectTrigger id="assignee" className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Sem responsável</SelectItem>
-                      {members.map(m => (
-                        <SelectItem key={m.userId} value={m.userId}>
-                          {m.name || m.email || m.userId}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="due_date">Prazo</Label>
-                  <Input id="due_date" type="date" value={dueDate || ''} onChange={(e) => setDueDate(e.target.value || undefined)} className="mt-1" />
-                </div>
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-sm uppercase text-muted-foreground">Informações Básicas</h3>
+              <Button
+                size="sm"
+                variant={isEditingTaskDetails ? 'secondary' : 'outline'}
+                onClick={() => setIsEditingTaskDetails((prev) => !prev)}
+              >
+                {isEditingTaskDetails ? 'Fechar edição' : 'Editar tarefa'}
+              </Button>
             </div>
+
+            {isEditingTaskDetails ? (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="name">Nome da Tarefa</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="description">Descrição</Label>
+                  <Textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="mt-1 min-h-[160px] resize-y"
+                    placeholder="Descreva o que precisa ser feito"
+                    rows={6}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="status">Status</Label>
+                    <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
+                      <SelectTrigger id="status" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statusOptions.map(opt => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="priority">Prioridade</Label>
+                    <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
+                      <SelectTrigger id="priority" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {priorityOptions.map(opt => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="assignee">Responsável</Label>
+                    <Select value={assigneeId ?? '__none__'} onValueChange={(v) => setAssigneeId(v === '__none__' ? undefined : v)}>
+                      <SelectTrigger id="assignee" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sem responsável</SelectItem>
+                        {members.map(m => (
+                          <SelectItem key={m.userId} value={m.userId}>
+                            {m.name || m.email || m.userId}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="due_date">Prazo</Label>
+                    <Input id="due_date" type="date" value={dueDate || ''} onChange={(e) => setDueDate(e.target.value || undefined)} className="mt-1" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 rounded-lg border bg-muted/40 p-4">
+                <div>
+                  <span className="text-xs text-muted-foreground">Nome</span>
+                  <p className="font-semibold text-sm">{name}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Descrição</span>
+                  <p className="text-sm whitespace-pre-wrap mt-1">
+                    {description || 'Sem descrição fornecida.'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-xs text-muted-foreground">Status</span>
+                    <div className="mt-1">
+                      {statusOption ? (
+                        <Badge className={`${statusOption.color} text-white`}>{statusOption.label}</Badge>
+                      ) : (
+                        '-'
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Prioridade</span>
+                    <div className="mt-1">
+                      {priorityOption ? (
+                        <Badge variant="outline" className={priorityOption.color}>{priorityOption.label}</Badge>
+                      ) : (
+                        '-'
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Responsável</span>
+                    <p className="mt-1 font-medium">{assigneeDisplay}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Prazo</span>
+                    <p className="mt-1 font-medium">{dueDate ? formatPlainDate(dueDate) : 'Sem prazo'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Campaign Data */}
@@ -341,7 +469,7 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                         {campaignData.objective && (
                           <div>
                             <span className="text-xs text-muted-foreground">Objetivo:</span>
-                            <p className="font-medium text-sm capitalize">{campaignData.objective}</p>
+                            <p className="font-medium text-sm">{getCampaignObjectiveLabel(campaignData.objective)}</p>
                           </div>
                         )}
                       </div>
@@ -377,13 +505,13 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                         {campaignData.startDate && (
                           <div>
                             <span className="text-xs text-muted-foreground">Início:</span>
-                            <p className="font-medium text-sm">{new Date(campaignData.startDate).toLocaleDateString('pt-BR')}</p>
+                            <p className="font-medium text-sm">{formatPlainDate(campaignData.startDate)}</p>
                           </div>
                         )}
                         {campaignData.endDate && (
                           <div>
                             <span className="text-xs text-muted-foreground">Término:</span>
-                            <p className="font-medium text-sm">{new Date(campaignData.endDate).toLocaleDateString('pt-BR')}</p>
+                            <p className="font-medium text-sm">{formatPlainDate(campaignData.endDate)}</p>
                           </div>
                         )}
                       </div>
@@ -465,16 +593,16 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
                 <div key={att.id} className="flex items-center justify-between p-2 bg-muted rounded">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <FileText className="h-4 w-4 flex-shrink-0" />
-                    <a
-                      href={att.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline truncate"
+                    <button
+                      type="button"
+                      onClick={() => handleAttachmentClick(att)}
+                      className="text-sm text-blue-600 hover:underline truncate text-left"
                     >
                       {att.file_name}
-                    </a>
+                    </button>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleDeleteAttachment(att.id)}
                     className="text-red-600 hover:text-red-800 ml-2"
                   >
@@ -545,13 +673,22 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
             <Trash2 className="h-4 w-4 mr-2" />
             Deletar
           </Button>
-          <Button
-            onClick={handleSave}
-            disabled={updateTask.isPending}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {updateTask.isPending ? 'Salvando...' : 'Salvar'}
-          </Button>
+          {isEditingTaskDetails ? (
+            <Button
+              onClick={() => {
+                handleSave();
+                setIsEditingTaskDetails(false);
+              }}
+              disabled={updateTask.isPending}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {updateTask.isPending ? 'Salvando...' : 'Salvar'}
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={() => setIsEditingTaskDetails(true)}>
+              Editar detalhes
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

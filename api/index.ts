@@ -88,6 +88,8 @@ import {
   getInsightsStats,
   getAIDashboard,
 } from '../server/api/ai/insights.js';
+import { createNotificationHandler, getUnreadNotifications, markAsRead } from '../server/api/notifications.js';
+import { getUserPreferences, updateUserPreferences } from '../server/api/user-preferences.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -108,156 +110,154 @@ app.use((req, res, next) => {
   next();
 });
 
-// Normalize Vercel /api prefix so Express routes are defined without /api
+// Normalize Vercel /api prefix: Ensure all routes start with /api
 app.use((req, _res, next) => {
-  if (req.url === '/api') {
-    req.url = '/';
-  } else if (req.url.startsWith('/api/')) {
-    req.url = req.url.slice(4);
+  if (!req.url.startsWith('/api/')) {
+    req.url = '/api' + req.url;
   }
   next();
 });
 
 // Auth endpoints
-app.post('/auth/login', login);
-app.get('/auth/me', authMiddleware, me);
-app.post('/auth/users', ...adminOnly, createUser);
-app.get('/auth/page-permissions/:userId', authMiddleware, getPagePermissions);
-app.post('/auth/page-permissions/:userId', ...adminOnly, setPagePermissions);
+app.post('/api/auth/login', login);
+app.get('/api/auth/me', authMiddleware, me);
+app.post('/api/auth/users', ...adminOnly, createUser);
+app.get('/api/auth/page-permissions/:userId', authMiddleware, getPagePermissions);
+app.post('/api/auth/page-permissions/:userId', ...adminOnly, setPagePermissions);
 
 // Credentials endpoints
-app.post('/integrations/credentials', saveCredentials);
-app.get('/integrations/credentials/:workspaceId/:platformKey', getCredentials);
-app.delete('/integrations/credentials/:workspaceId/:platformKey', deleteCredentials);
+app.post('/api/integrations/credentials', saveCredentials);
+app.get('/api/integrations/credentials/:workspaceId/:platformKey', getCredentials);
+app.delete('/api/integrations/credentials/:workspaceId/:platformKey', deleteCredentials);
 
 // Sync endpoints
-app.post('/integrations/sync', startSync);
-app.post('/integrations/simple-sync', startSync);
-app.post('/integrations/direct-sync', directInstagramSync);
+app.post('/api/integrations/sync', startSync);
+app.post('/api/integrations/simple-sync', startSync);
+app.post('/api/integrations/direct-sync', directInstagramSync);
 
 // Optimized sync endpoints (new)
-app.post('/integrations/meta/sync-optimized', optimizedMetaSync);
-app.get('/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
+app.post('/api/integrations/meta/sync-optimized', optimizedMetaSync);
+app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
 // Instagram sync endpoints
-app.post('/integrations/instagram/sync-optimized', optimizedInstagramSync);
-app.post('/integrations/instagram/sync-simple', simpleInstagramSync);
-app.get('/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
+app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);
+app.post('/api/integrations/instagram/sync-simple', simpleInstagramSync);
+app.get('/api/integrations/instagram/sync-status/:workspaceId', getInstagramSyncStatus);
 
 // Legacy sync status endpoints
-app.get('/integrations/sync/:jobId', getSyncStatus);
-app.get('/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
-app.post('/integrations/billing/sync', syncMetaBilling);
+app.get('/api/integrations/sync/:jobId', getSyncStatus);
+app.get('/api/integrations/sync/workspace/:workspaceId', getWorkspaceSyncJobs);
+app.post('/api/integrations/billing/sync', syncMetaBilling);
 
 // AI endpoints
-app.post('/ai/generate-creative', generateCreative);
-app.post('/ai/virtual-tryon', virtualTryOn);
-app.post('/ai/generate-look-caption', generateLookCaption);
-app.put('/ai/caption/:creativeId', updateCreativeCaption);
+app.post('/api/ai/generate-creative', generateCreative);
+app.post('/api/ai/virtual-tryon', virtualTryOn);
+app.post('/api/ai/generate-look-caption', generateLookCaption);
+app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
 
 // Creatives endpoints
-app.get('/creatives/download-proxy', downloadProxy);
-app.post('/creatives/save-tryon', saveTryOnCreatives);
-app.get('/creatives/tryon-looks', getTryOnLooks);
-app.delete('/creatives/tryon-looks/:id', deleteTryOnLook);
+app.get('/api/creatives/download-proxy', downloadProxy);
+app.post('/api/creatives/save-tryon', saveTryOnCreatives);
+app.get('/api/creatives/tryon-looks', getTryOnLooks);
+app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 
 // GA4 Analytics endpoints
-app.post('/ga4/realtime', ga4Realtime);
-app.post('/ga4/report', ga4Report);
-app.post('/ga4/google-ads', ga4GoogleAds);
+app.post('/api/ga4/realtime', ga4Realtime);
+app.post('/api/ga4/report', ga4Report);
+app.post('/api/ga4/google-ads', ga4GoogleAds);
 
 // Google Ads API endpoints
-app.post('/google-ads/sync', syncGoogleAdsData);
+app.post('/api/google-ads/sync', syncGoogleAdsData);
 
 // Google Ads OAuth endpoints
-app.get('/integrations/google-ads/auth', initiateGoogleAdsAuth);
-app.get('/integrations/google-ads/callback', handleGoogleAdsCallback);
-app.get('/integrations/google-ads/test', googleAdsTest);
-app.get('/integrations/google-ads/debug', debugGoogleAdsAuth);
-app.get('/google-ads/check-credentials', checkGoogleAdsCredentials);
+app.get('/api/integrations/google-ads/auth', initiateGoogleAdsAuth);
+app.get('/api/integrations/google-ads/callback', handleGoogleAdsCallback);
+app.get('/api/integrations/google-ads/test', googleAdsTest);
+app.get('/api/integrations/google-ads/debug', debugGoogleAdsAuth);
+app.get('/api/google-ads/check-credentials', checkGoogleAdsCredentials);
 
 
 // Finance: Cashflow import endpoint
-app.post('/finance/cashflow/import', importCashflowXlsx);
+app.post('/api/finance/cashflow/import', importCashflowXlsx);
 
 // Instagram engagement endpoint
-app.get('/instagram/engagement', getEngagementRate);
+app.get('/api/instagram/engagement', getEngagementRate);
 
 // Platform metrics endpoints
-app.get('/metrics/aggregate', getAggregateMetrics);
-app.get('/metrics/aggregate-by-objective', getAggregateMetricsByObjective);
-app.get('/metrics/timeseries', getTimeSeriesMetrics);
-app.get('/metrics/demographics', getDemographics);
+app.get('/api/metrics/aggregate', getAggregateMetrics);
+app.get('/api/metrics/aggregate-by-objective', getAggregateMetricsByObjective);
+app.get('/api/metrics/timeseries', getTimeSeriesMetrics);
+app.get('/api/metrics/demographics', getDemographics);
 
 // Campaign Library endpoints
-app.get('/campaigns/library/:workspaceId', getCampaignLibrary);
-app.get('/campaigns/library/item/:id', getCampaignById);
-app.post('/campaigns/library', createCampaign);
-app.put('/campaigns/library/:id', updateCampaign);
-app.delete('/campaigns/library/:id', deleteCampaign);
-app.post('/campaigns/library/:id/copy', copyCampaign);
-app.post('/campaigns/library/upload', uploadCreative);
+app.get('/api/campaigns/library/:workspaceId', getCampaignLibrary);
+app.get('/api/campaigns/library/item/:id', getCampaignById);
+app.post('/api/campaigns/library', createCampaign);
+app.put('/api/campaigns/library/:id', updateCampaign);
+app.delete('/api/campaigns/library/:id', deleteCampaign);
+app.post('/api/campaigns/library/:id/copy', copyCampaign);
+app.post('/api/campaigns/library/upload', uploadCreative);
 
 // AI Agents endpoints
-app.get('/ai/agents', getAgents);
-app.get('/ai/agents/:id', getAgentById);
-app.post('/ai/agents', createAgent);
-app.put('/ai/agents/:id', updateAgent);
-app.delete('/ai/agents/:id', deleteAgent);
-app.post('/ai/agents/:id/run', runAgent);
-app.post('/ai/agents/:id/pause', pauseAgent);
-app.post('/ai/agents/:id/resume', resumeAgent);
-app.get('/ai/agents/:id/executions', getAgentExecutions);
-app.get('/ai/executions/:id', getExecutionById);
+app.get('/api/ai/agents', getAgents);
+app.get('/api/ai/agents/:id', getAgentById);
+app.post('/api/ai/agents', createAgent);
+app.put('/api/ai/agents/:id', updateAgent);
+app.delete('/api/ai/agents/:id', deleteAgent);
+app.post('/api/ai/agents/:id/run', runAgent);
+app.post('/api/ai/agents/:id/pause', pauseAgent);
+app.post('/api/ai/agents/:id/resume', resumeAgent);
+app.get('/api/ai/agents/:id/executions', getAgentExecutions);
+app.get('/api/ai/executions/:id', getExecutionById);
 
 // AI Insights endpoints
-app.get('/ai/insights', getInsights);
-app.get('/ai/insights/stats', getInsightsStats);
-app.get('/ai/insights/:id', getInsightById);
-app.put('/ai/insights/:id/status', updateInsightStatus);
-app.post('/ai/insights/:id/action', applyInsightAction);
-app.get('/ai/dashboard', getAIDashboard);
+app.get('/api/ai/insights', getInsights);
+app.get('/api/ai/insights/stats', getInsightsStats);
+app.get('/api/ai/insights/:id', getInsightById);
+app.put('/api/ai/insights/:id/status', updateInsightStatus);
+app.post('/api/ai/insights/:id/action', applyInsightAction);
+app.get('/api/ai/dashboard', getAIDashboard);
 
 // AI Chat endpoints
-app.use('/ai/chat', chatRouter);
-app.use('/ai/conversations', conversationsRouter);
+app.use('/api/ai/chat', chatRouter);
+app.use('/api/ai/conversations', conversationsRouter);
 
 // Project Management endpoints
-app.get('/pm/hierarchy/:workspaceId', getHierarchy);
-app.get('/pm/hierarchy/:workspaceId/:folderId', getFolderHierarchy);
-app.get('/pm/folders/:workspaceId', getFolders);
-app.get('/pm/folders/:workspaceId/:folderId', getFolderById);
-app.post('/pm/folders/:workspaceId', createFolder);
-app.put('/pm/folders/:workspaceId/:folderId', updateFolder);
-app.delete('/pm/folders/:workspaceId/:folderId', deleteFolder);
-app.post('/pm/tasks/:taskId/attachments', uploadTaskAttachment);
-app.get('/pm/tasks/:taskId/attachments', getTaskAttachments);
-app.delete('/pm/tasks/:taskId/attachments/:attachmentId', deleteTaskAttachment);
-app.get('/pm/lists/:workspaceId', getAllListsForWorkspace);
-app.get('/pm/lists/:workspaceId/:folderId', getLists);
-app.get('/pm/lists/:workspaceId/list/:listId', getListById);
-app.post('/pm/lists/:workspaceId/:folderId', createList);
-app.put('/pm/lists/:workspaceId/:listId', updateList);
-app.delete('/pm/lists/:workspaceId/:listId', deleteList);
-app.get('/pm/tasks/:workspaceId', getAllTasksForWorkspace);
-app.get('/pm/tasks/:workspaceId/:listId', getTasks);
-app.get('/pm/tasks/:workspaceId/:taskId/details', getTaskById);
-app.post('/pm/tasks/:workspaceId/:listId', createTask);
-app.put('/pm/tasks/:workspaceId/:taskId', updateTask);
-app.delete('/pm/tasks/:workspaceId/:taskId', deleteTask);
-app.post('/pm/documents/:workspaceId/:listId', createDocument);
-app.get('/pm/documents/:workspaceId', getDocuments);
-app.get('/pm/documents/:workspaceId/:listId', getDocuments);
-app.post('/pm/documents/:documentId/attachments', uploadAttachment);
-app.get('/pm/documents/:documentId/attachments', getAttachments);
-app.get('/pm/reminders/pending', getPendingReminders);
-app.get('/pm/reminders/:workspaceId', getReminders);
-app.get('/pm/reminders/:workspaceId/:listId', getReminders);
-app.post('/pm/reminders/:workspaceId/:listId', createReminder);
-app.post('/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
+app.get('/api/pm/hierarchy/:workspaceId', getHierarchy);
+app.get('/api/pm/hierarchy/:workspaceId/:folderId', getFolderHierarchy);
+app.get('/api/pm/folders/:workspaceId', getFolders);
+app.get('/api/pm/folders/:workspaceId/:folderId', getFolderById);
+app.post('/api/pm/folders/:workspaceId', createFolder);
+app.put('/api/pm/folders/:workspaceId/:folderId', updateFolder);
+app.delete('/api/pm/folders/:workspaceId/:folderId', deleteFolder);
+app.post('/api/pm/tasks/:taskId/attachments', uploadTaskAttachment);
+app.get('/api/pm/tasks/:taskId/attachments', getTaskAttachments);
+app.delete('/api/pm/tasks/:taskId/attachments/:attachmentId', deleteTaskAttachment);
+app.get('/api/pm/lists/:workspaceId', getAllListsForWorkspace);
+app.get('/api/pm/lists/:workspaceId/:folderId', getLists);
+app.get('/api/pm/lists/:workspaceId/list/:listId', getListById);
+app.post('/api/pm/lists/:workspaceId/:folderId', createList);
+app.put('/api/pm/lists/:workspaceId/:listId', updateList);
+app.delete('/api/pm/lists/:workspaceId/:listId', deleteList);
+app.get('/api/pm/tasks/:workspaceId', getAllTasksForWorkspace);
+app.get('/api/pm/tasks/:workspaceId/:listId', getTasks);
+app.get('/api/pm/tasks/:workspaceId/:taskId/details', getTaskById);
+app.post('/api/pm/tasks/:workspaceId/:listId', createTask);
+app.put('/api/pm/tasks/:workspaceId/:taskId', updateTask);
+app.delete('/api/pm/tasks/:workspaceId/:taskId', deleteTask);
+app.post('/api/pm/documents/:workspaceId/:listId', createDocument);
+app.get('/api/pm/documents/:workspaceId', getDocuments);
+app.get('/api/pm/documents/:workspaceId/:listId', getDocuments);
+app.post('/api/pm/documents/:documentId/attachments', uploadAttachment);
+app.get('/api/pm/documents/:documentId/attachments', getAttachments);
+app.get('/api/pm/reminders/pending', getPendingReminders);
+app.get('/api/pm/reminders/:workspaceId', getReminders);
+app.get('/api/pm/reminders/:workspaceId/:listId', getReminders);
+app.post('/api/pm/reminders/:workspaceId/:listId', createReminder);
+app.post('/api/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -268,19 +268,43 @@ app.get('/db-health', async (req, res) => {
     const { getPool } = await import('../server/config/database.js');
     const pool = getPool();
     const result = await pool.query('SELECT NOW() as timestamp, version() as version');
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       database: 'connected',
       timestamp: result.rows[0]?.timestamp,
       version: result.rows[0]?.version?.substring(0, 50) + '...'
     });
   } catch (error) {
     console.error('Database health check failed:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Database connection failed' 
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Database connection failed'
     });
   }
+});
+
+// Notification routes
+app.get('/api/notifications/:userId', getUnreadNotifications);
+app.put('/api/notifications/:id/read', markAsRead);
+app.post('/api/notifications', createNotificationHandler);
+
+// User preferences routes
+app.get('/api/user-preferences/:userId', getUserPreferences);
+app.put('/api/user-preferences/:userId', updateUserPreferences);
+
+// 404 handler
+app.use((req, res) => {
+  console.log('404 Not Found:', req.method, req.url);
+  res.status(404).json({
+    success: false,
+    error: 'Not found',
+    debug: {
+      url: req.url,
+      path: req.path,
+      method: req.method,
+      headers: req.headers
+    }
+  });
 });
 
 // Test credentials endpoint
@@ -288,17 +312,17 @@ app.get('/integrations/test-credentials/:workspaceId/:platformKey', async (req, 
   try {
     const { workspaceId, platformKey } = req.params;
     const { getPool } = await import('../server/config/database.js');
-    
+
     const pool = getPool();
-    
+
     // Test database connection
     const dbTest = await pool.query('SELECT NOW() as timestamp');
-    
+
     const result = await pool.query(
       `SELECT id, created_at, updated_at FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2`,
       [workspaceId, platformKey]
     );
-    
+
     res.json({
       success: true,
       data: {
