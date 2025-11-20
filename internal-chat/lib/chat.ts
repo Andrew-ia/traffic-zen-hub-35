@@ -33,14 +33,18 @@ export async function sendMessage(roomId: string, senderId: string, content: str
 
   // Trigger notifications for other members
   try {
+    console.log('[sendMessage] Starting notification creation for room:', roomId)
     const { data: members } = await supabase
       .from('room_members')
       .select('user_id')
       .eq('room_id', roomId)
       .neq('user_id', senderId)
 
+    console.log('[sendMessage] Found members to notify:', members?.length || 0, members)
+
     if (members && members.length > 0) {
       const apiBase = resolveApiBase()
+      console.log('[sendMessage] API Base:', apiBase)
 
       // Get sender name
       const { data: sender } = await supabase
@@ -50,28 +54,41 @@ export async function sendMessage(roomId: string, senderId: string, content: str
         .single()
 
       const senderName = sender?.full_name || sender?.email || 'Alguém'
+      console.log('[sendMessage] Sender name:', senderName)
 
-      await Promise.all(members.map((m: any) =>
-        fetch(`${apiBase}/api/notifications`, {
+      const notificationPromises = members.map((m: any) => {
+        const payload = {
+          userId: m.user_id,
+          type: 'message',
+          title: `Nova mensagem de ${senderName}`,
+          message: content || (image ? 'Enviou uma imagem' : 'Nova mensagem'),
+          link: `/internal-chat`,
+          metadata: { roomId, senderId }
+        }
+        console.log('[sendMessage] Creating notification for user:', m.user_id, payload)
+        return fetch(`${apiBase}/api/notifications`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: m.user_id,
-            type: 'message',
-            title: `Nova mensagem de ${senderName}`,
-            message: content || (image ? 'Enviou uma imagem' : 'Nova mensagem'),
-            link: `/internal-chat`,
-            metadata: { roomId, senderId }
-          })
+          body: JSON.stringify(payload)
+        }).then(async (response) => {
+          const result = await response.json()
+          console.log('[sendMessage] Notification API response:', response.status, result)
+          return result
         })
-      ))
+      })
+
+      await Promise.all(notificationPromises)
+      console.log('[sendMessage] All notifications created successfully')
+    } else {
+      console.log('[sendMessage] No members to notify')
     }
   } catch (err) {
-    console.error('Failed to send notifications', err)
+    console.error('[sendMessage] Failed to send notifications', err)
   }
 
   return data
 }
+
 
 export function subscribeToMessages(roomId: string, callback: (payload: any) => void) {
   const channel = supabase.channel(`room:${roomId}`, {
