@@ -13,6 +13,7 @@ import {
   Trash2,
   Edit,
   LayoutDashboard,
+  Bell,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import EmojiPicker from '@/components/pm/EmojiPicker';
@@ -46,7 +47,7 @@ import { TaskDetailModal } from '@/components/pm/TaskDetailModal';
 import { CreateItemModal } from '@/components/pm/CreateItemModal';
 import { EmojiPicker } from '@/components/pm/EmojiPicker';
 import type { PMTaskFull } from '@/types/project-management';
-import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, useDeletePMList, useCreatePMDocument, useCreatePMReminder, useUpdatePMList, useUploadPMDocumentAttachment, useDeletePMFolder, usePMDocuments, useUploadPMTaskAttachment, useUpdatePMFolder } from '@/hooks/useProjectManagement';
+import { usePMHierarchy, useCreatePMFolder, useCreatePMList, useCreatePMTask, useDeletePMList, useCreatePMDocument, useCreatePMReminder, useUpdatePMList, useUploadPMDocumentAttachment, useDeletePMFolder, usePMDocuments, useUploadPMTaskAttachment, useUpdatePMFolder, usePMReminders } from '@/hooks/useProjectManagement';
 import { supabase, hasSupabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import type { TaskStatus, TaskPriority } from '@/types/project-management';
@@ -76,6 +77,8 @@ export default function ProjectManagementV3() {
   const { data: documentsData } = usePMDocuments(WORKSPACE_ID, undefined, {
     enabled: !!hierarchyData?.success && !isLoading
   });
+  // Load reminders for selected list
+  const { data: remindersData } = usePMReminders(WORKSPACE_ID, selectedListId || undefined);
   const createFolder = useCreatePMFolder();
   const createList = useCreatePMList();
   const createTask = useCreatePMTask();
@@ -282,14 +285,14 @@ export default function ProjectManagementV3() {
       return;
     }
 
-      try {
-        const created = await createList.mutateAsync({
-          workspace_id: WORKSPACE_ID,
-          folder_id: selectedFolderId,
-          name: newListName,
-          icon: newListIcon,
-          color: newListColor,
-        });
+    try {
+      const created = await createList.mutateAsync({
+        workspace_id: WORKSPACE_ID,
+        folder_id: selectedFolderId,
+        name: newListName,
+        icon: newListIcon,
+        color: newListColor,
+      });
       toast({
         title: 'Lista criada!',
         description: `A lista "${newListName}" foi criada com sucesso.`,
@@ -606,9 +609,9 @@ export default function ProjectManagementV3() {
           <p className="mt-2 text-sm text-muted-foreground">
             Verifique sua conexão e tente novamente
           </p>
-          <Button 
-            onClick={() => window.location.reload()} 
-            variant="outline" 
+          <Button
+            onClick={() => window.location.reload()}
+            variant="outline"
             className="mt-4"
           >
             Tentar novamente
@@ -654,9 +657,8 @@ export default function ProjectManagementV3() {
                       setSelectedFolderId(folder.id);
                       setSelectedListId(null);
                     }}
-                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors cursor-pointer ${
-                      isSelected ? 'bg-muted' : ''
-                    }`}
+                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors cursor-pointer ${isSelected ? 'bg-muted' : ''
+                      }`}
                   >
                     {isExpanded ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0" />
@@ -726,9 +728,8 @@ export default function ProjectManagementV3() {
                             setSelectedFolderId(folder.id);
                             setSelectedListId(list.id);
                           }}
-                          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors ${
-                            selectedListId === list.id ? 'bg-muted' : ''
-                          }`}
+                          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors ${selectedListId === list.id ? 'bg-muted' : ''
+                            }`}
                         >
                           <span className="text-sm">{list.icon}</span>
                           <span className="truncate flex-1 text-left text-xs">{list.name}</span>
@@ -761,11 +762,11 @@ export default function ProjectManagementV3() {
         {/* Header quando há pasta selecionada */}
         {selectedFolder && (
           <div className="border-b bg-card px-3 py-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">{selectedFolder.icon}</span>
-                  <h1 className="text-2xl font-bold">{selectedFolder.name}</h1>
-                </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{selectedFolder.icon}</span>
+                <h1 className="text-2xl font-bold">{selectedFolder.name}</h1>
+              </div>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -776,7 +777,7 @@ export default function ProjectManagementV3() {
                     setExpandedFolders(new Set());
                     setExpandedLists(new Set());
                   }}
-                > 
+                >
                   <LayoutDashboard className="h-4 w-4 mr-2" />
                   Início
                 </Button>
@@ -827,6 +828,10 @@ export default function ProjectManagementV3() {
                 <TabsTrigger value="calendario" className="gap-2">
                   <CalendarIcon className="h-4 w-4" />
                   Calendário
+                </TabsTrigger>
+                <TabsTrigger value="lembretes" className="gap-2">
+                  <Bell className="h-4 w-4" />
+                  Lembretes
                 </TabsTrigger>
               </TabsList>
 
@@ -1005,6 +1010,56 @@ export default function ProjectManagementV3() {
                   </Card>
                 </div>
               </TabsContent>
+
+              {/* Lembretes View */}
+              <TabsContent value="lembretes" className="mt-2">
+                <div className="space-y-2">
+                  {remindersData?.data && remindersData.data.length > 0 ? (
+                    remindersData.data.map((reminder) => (
+                      <Card key={reminder.id}>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <CardTitle className="text-base">{reminder.name}</CardTitle>
+                              {reminder.description && (
+                                <CardDescription className="mt-1">{reminder.description}</CardDescription>
+                              )}
+                            </div>
+                            <Badge variant={reminder.status === 'sent' ? 'default' : reminder.status === 'pending' ? 'secondary' : 'outline'}>
+                              {reminder.status === 'sent' ? 'Enviado' : reminder.status === 'pending' ? 'Pendente' : 'Cancelado'}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-4 text-muted-foreground">
+                              <div className="flex items-center gap-1">
+                                <CalendarIcon className="h-4 w-4" />
+                                <span>{new Date(reminder.due_date).toLocaleString('pt-BR')}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Bell className="h-4 w-4" />
+                                <span className="capitalize">{reminder.notify_via}</span>
+                              </div>
+                            </div>
+                            {reminder.assignee_name && (
+                              <div className="text-muted-foreground">
+                                {reminder.assignee_name}
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Bell className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">Nenhum lembrete criado</p>
+                      <p className="text-sm mt-2">Clique no botão "+" para criar um novo lembrete</p>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
             </Tabs>
           </div>
         )}
@@ -1078,41 +1133,41 @@ export default function ProjectManagementV3() {
                       {folder.lists.map((list) => (
                         <div key={list.id} className="border rounded-lg">
                           <div className="flex items-center justify-between px-2 py-1.5 bg-muted/40">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              aria-label="Recolher/Expandir lista"
-                              onClick={() => toggleListOverview(list.id)}
-                              className="h-7 w-7"
-                            >
-                              {collapsedListsOverview.has(list.id) ? (
-                                <ChevronRight className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <span>{list.icon}</span>
-                            <span className="font-medium">{list.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="text-xs">{list.task_count} tarefas</Badge>
-                            {/* Botão para adicionar nova tarefa diretamente na lista (visão inicial) */}
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              aria-label="Adicionar tarefa"
-                              className="h-7 w-7"
-                              onClick={() => {
-                                // Pré-seleciona a pasta e a lista e abre o modal de criação
-                                setSelectedFolderId(folder.id);
-                                setSelectedListId(list.id);
-                                setNewItemOpen(true);
-                              }}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Recolher/Expandir lista"
+                                onClick={() => toggleListOverview(list.id)}
+                                className="h-7 w-7"
+                              >
+                                {collapsedListsOverview.has(list.id) ? (
+                                  <ChevronRight className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <span>{list.icon}</span>
+                              <span className="font-medium">{list.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-xs">{list.task_count} tarefas</Badge>
+                              {/* Botão para adicionar nova tarefa diretamente na lista (visão inicial) */}
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                aria-label="Adicionar tarefa"
+                                className="h-7 w-7"
+                                onClick={() => {
+                                  // Pré-seleciona a pasta e a lista e abre o modal de criação
+                                  setSelectedFolderId(folder.id);
+                                  setSelectedListId(list.id);
+                                  setNewItemOpen(true);
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                           {!collapsedListsOverview.has(list.id) && (
                             <div className="divide-y">
