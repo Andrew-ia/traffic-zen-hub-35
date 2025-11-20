@@ -5,7 +5,7 @@ import { TrendingUp, ShoppingCart, Target, DollarSign, Wallet } from "lucide-rea
 import MetaSyncButton from "@/components/MetaSyncButton";
 import { PlatformFilters } from "@/components/platform/PlatformFilters";
 import { CompactKPICard } from "@/components/platform/CompactKPICard";
-import { MetricCard as PlatformMetricCard, MetricsGrid } from "@/components/platform/MetricCard";
+import { MetricCard, MetricsGrid } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { DemographicCharts, AgeChart, GenderChart } from "@/components/platform/DemographicCharts";
 import { FunnelCard, type FunnelType } from "@/components/platform/FunnelCard";

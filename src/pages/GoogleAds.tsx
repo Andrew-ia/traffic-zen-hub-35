@@ -4,7 +4,7 @@ import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 import { Target, DollarSign, Wallet } from "lucide-react";
 import { PlatformFilters } from "@/components/platform/PlatformFilters";
 import { CompactKPICard } from "@/components/platform/CompactKPICard";
-import { MetricCard as PlatformMetricCard } from "@/components/platform/MetricCard";
+import { MetricCard } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { AgeChart, GenderChart } from "@/components/platform/DemographicCharts";
 import { FunnelCard } from "@/components/platform/FunnelCard";

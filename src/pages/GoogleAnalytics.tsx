@@ -22,7 +22,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiBase } from "@/lib/apiBase";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
-import { MetricCard } from "@/components/ui/metric-card";
+import { MetricCard } from "@/components/dashboard/MetricCard";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const API_BASE = resolveApiBase();

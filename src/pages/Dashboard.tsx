@@ -7,8 +7,6 @@ import { DashboardLoadingSkeleton, ErrorDashboardState } from "@/components/dash
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { PageHeader, createPageActions } from "@/components/ui/page-header";
-import { ResponsiveContainer, ResponsiveGrid } from "@/components/ui/responsive-container";
 
 export default function Dashboard() {
   const [periodDays, setPeriodDays] = useState(30);
@@ -37,54 +35,53 @@ export default function Dashboard() {
     return <ErrorDashboardState error={error} onRefresh={handleRefresh} />;
   }
 
-  const pageActions = createPageActions([
-    {
-      label: "Atualizar",
-      onClick: handleRefresh,
-      variant: "outline",
-      icon: RefreshCw,
-      loading: refreshing
-    }
-  ]);
-
   return (
-    <ResponsiveContainer>
-      <div className="space-y-4 sm:space-y-6">
-        {/* Header Section - Using standardized PageHeader */}
-        <PageHeader
-          title="Dashboard"
-          description="Visão geral das suas campanhas e performance"
-          actions={
-            <>
-              {pageActions}
-              <Select value={periodDays.toString()} onValueChange={(value) => setPeriodDays(Number(value))}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">Últimos 7 dias</SelectItem>
-                  <SelectItem value="14">Últimos 14 dias</SelectItem>
-                  <SelectItem value="30">Últimos 30 dias</SelectItem>
-                  <SelectItem value="60">Últimos 60 dias</SelectItem>
-                  <SelectItem value="90">Últimos 90 dias</SelectItem>
-                </SelectContent>
-              </Select>
-            </>
-          }
-        />
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header Section - Responsive */}
+      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
+            Visão geral das suas campanhas e performance
+          </p>
+        </div>
 
-        {/* KPI Overview Section */}
-        <KPIOverview
-          days={periodDays}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-        />
-
-        {/* Objective Performance Section */}
-        <ResponsiveGrid>
-          <ObjectivePerformanceSection days={periodDays} />
-        </ResponsiveGrid>
+        <div className="flex gap-2 flex-col sm:flex-row">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="w-full sm:w-auto"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+          
+          <Select value={periodDays.toString()} onValueChange={(value) => setPeriodDays(Number(value))}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Últimos 7 dias</SelectItem>
+              <SelectItem value="14">Últimos 14 dias</SelectItem>
+              <SelectItem value="30">Últimos 30 dias</SelectItem>
+              <SelectItem value="60">Últimos 60 dias</SelectItem>
+              <SelectItem value="90">Últimos 90 dias</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-    </ResponsiveContainer>
+
+      {/* KPI Overview Section */}
+      <KPIOverview 
+        days={periodDays} 
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
+
+      {/* Objective Performance Section */}
+      <ObjectivePerformanceSection days={periodDays} />
+    </div>
   );
 }
