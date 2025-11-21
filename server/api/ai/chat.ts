@@ -11,121 +11,138 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 async function buildContext(workspaceId: string): Promise<string> {
   const pool = getPool();
 
-  // 1. KPI Summary (Last 30 Days) - Filtered by Workspace
-  const summaryQuery = `
+  // 1. Platform-specific Summary (Last 30 Days)
+  const platformSummaryQuery = `
     SELECT 
+      pa.platform_key,
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.impressions), 0) as impressions,
       COALESCE(SUM(m.clicks), 0) as clicks,
       COALESCE(SUM(m.conversions), 0) as conversions
     FROM performance_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
+    JOIN platform_accounts pa ON c.account_id = pa.id
     WHERE c.workspace_id = $1
       AND m.metric_date >= NOW() - INTERVAL '30 days'
+    GROUP BY pa.platform_key
+    ORDER BY spend DESC
   `;
 
-  // 2. Top 5 Campaigns
+  // 2. Top 5 Campaigns (with platform)
   const campaignsQuery = `
-    SELECT c.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
+    SELECT 
+      c.name, 
+      pa.platform_key,
+      SUM(m.spend) as spend, 
+      SUM(m.conversions) as conversions
     FROM campaigns c
+    JOIN platform_accounts pa ON c.account_id = pa.id
     JOIN performance_metrics m ON c.id = m.campaign_id
     WHERE c.workspace_id = $1
       AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY c.name
+    GROUP BY c.name, pa.platform_key
     ORDER BY spend DESC
     LIMIT 5
   `;
 
-  // 3. Top 5 Ad Sets
-  const adSetsQuery = `
-    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
-    FROM ad_sets a
-    JOIN campaigns c ON a.campaign_id = c.id
-    JOIN performance_metrics m ON m.ad_set_id = a.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY a.name
-    ORDER BY spend DESC
-    LIMIT 5
-  `;
-
-  // 4. Top 5 Ads
-  const adsQuery = `
-    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
-    FROM ads a
-    JOIN ad_sets adset ON a.ad_set_id = adset.id
-    JOIN campaigns c ON adset.campaign_id = c.id
-    JOIN performance_metrics m ON m.ad_id = a.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY a.name
-    ORDER BY spend DESC
-    LIMIT 5
-  `;
-
-  // 5. Daily Metrics (Last 30 Days)
-  const dailyQuery = `
+  // 3. Daily Metrics by Platform (Last 30 Days)
+  const dailyByPlatformQuery = `
     SELECT 
       TO_CHAR(m.metric_date, 'YYYY-MM-DD') as date,
+      pa.platform_key,
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.conversions), 0) as conversions
     FROM performance_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
+    JOIN platform_accounts pa ON c.account_id = pa.id
     WHERE c.workspace_id = $1
       AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY m.metric_date
-    ORDER BY m.metric_date DESC
+    GROUP BY m.metric_date, pa.platform_key
+    ORDER BY m.metric_date DESC, pa.platform_key
   `;
 
   try {
-    const [summaryRes, campaignsRes, adSetsRes, adsRes, dailyRes] = await Promise.all([
-      pool.query(summaryQuery, [workspaceId]),
+    const [platformSummaryRes, campaignsRes, dailyByPlatformRes] = await Promise.all([
+      pool.query(platformSummaryQuery, [workspaceId]),
       pool.query(campaignsQuery, [workspaceId]),
-      pool.query(adSetsQuery, [workspaceId]),
-      pool.query(adsQuery, [workspaceId]),
-      pool.query(dailyQuery, [workspaceId])
+      pool.query(dailyByPlatformQuery, [workspaceId])
     ]);
 
-    const s = summaryRes.rows[0];
+    const platformData = platformSummaryRes.rows;
     const campaigns = campaignsRes.rows;
-    const adSets = adSetsRes.rows;
-    const ads = adsRes.rows;
-    const daily = dailyRes.rows;
+    const dailyByPlatform = dailyByPlatformRes.rows;
 
-    const ctr = s.impressions > 0 ? ((s.clicks / s.impressions) * 100).toFixed(2) : '0.00';
-    const cpc = s.clicks > 0 ? (s.spend / s.clicks).toFixed(2) : '0.00';
-    const cpa = s.conversions > 0 ? (s.spend / s.conversions).toFixed(2) : '0.00';
+    // Calculate overall totals
+    const totalSpend = platformData.reduce((sum: number, p: any) => sum + parseFloat(p.spend), 0);
+    const totalImpressions = platformData.reduce((sum: number, p: any) => sum + parseInt(p.impressions), 0);
+    const totalClicks = platformData.reduce((sum: number, p: any) => sum + parseInt(p.clicks), 0);
+    const totalConversions = platformData.reduce((sum: number, p: any) => sum + parseInt(p.conversions), 0);
+
+    const overallCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : '0.00';
+    const overallCpc = totalClicks > 0 ? (totalSpend / totalClicks).toFixed(2) : '0.00';
+    const overallCpa = totalConversions > 0 ? (totalSpend / totalConversions).toFixed(2) : '0.00';
 
     let context = `
 CURRENT PERFORMANCE CONTEXT (Last 30 Days):
 
-OVERALL METRICS (Last 30 Days):
-- Total Spend: R$ ${s.spend}
-- Impressions: ${s.impressions}
-- Clicks: ${s.clicks}
-- Conversions (Results): ${s.conversions}
-- CTR: ${ctr}%
-- CPC: R$ ${cpc}
-- CPA (Cost per Result): R$ ${cpa}
+OVERALL METRICS (All Platforms Combined):
+- Total Spend: R$ ${totalSpend.toFixed(2)}
+- Impressions: ${totalImpressions}
+- Clicks: ${totalClicks}
+- Conversions (Results): ${totalConversions}
+- CTR: ${overallCtr}%
+- CPC: R$ ${overallCpc}
+- CPA (Cost per Result): R$ ${overallCpa}
 
-DAILY BREAKDOWN (Last 30 Days):
-${daily.map((d: any) => `- ${d.date}: Spend R$ ${d.spend} | Results ${d.conversions}`).join('\n')}
-
-TOP 5 CAMPAIGNS (by Spend):
+BREAKDOWN BY PLATFORM:
 `;
 
+    // Add platform-specific data
+    platformData.forEach((p: any) => {
+      const platformName = p.platform_key === 'meta' ? 'Meta Ads (Facebook/Instagram)' :
+        p.platform_key === 'google' ? 'Google Ads' : p.platform_key;
+      const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : '0.00';
+      const cpc = p.clicks > 0 ? (p.spend / p.clicks).toFixed(2) : '0.00';
+      const cpa = p.conversions > 0 ? (p.spend / p.conversions).toFixed(2) : '0.00';
+
+      context += `
+${platformName}:
+  - Spend: R$ ${parseFloat(p.spend).toFixed(2)}
+  - Impressions: ${p.impressions}
+  - Clicks: ${p.clicks}
+  - Conversions: ${p.conversions}
+  - CTR: ${ctr}%
+  - CPC: R$ ${cpc}
+  - CPA: R$ ${cpa}
+`;
+    });
+
+    context += `\nTOP 5 CAMPAIGNS (by Spend):\n`;
     campaigns.forEach((c: any, i: number) => {
-      context += `${i + 1}. ${c.name} | Spend: R$ ${c.spend} | Results: ${c.conversions}\n`;
+      const platformLabel = c.platform_key === 'meta' ? '[Meta]' :
+        c.platform_key === 'google' ? '[Google]' : `[${c.platform_key}]`;
+      context += `${i + 1}. ${platformLabel} ${c.name} | Spend: R$ ${parseFloat(c.spend).toFixed(2)} | Results: ${c.conversions}\n`;
     });
 
-    context += `\nTOP 5 AD SETS (by Spend):\n`;
-    adSets.forEach((a: any, i: number) => {
-      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions}\n`;
-    });
+    // Group daily data by date for easier reading
+    const dailyByDate = dailyByPlatform.reduce((acc: any, row: any) => {
+      if (!acc[row.date]) {
+        acc[row.date] = {};
+      }
+      acc[row.date][row.platform_key] = {
+        spend: parseFloat(row.spend),
+        conversions: parseInt(row.conversions)
+      };
+      return acc;
+    }, {});
 
-    context += `\nTOP 5 ADS (by Spend):\n`;
-    ads.forEach((a: any, i: number) => {
-      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions}\n`;
+    context += `\nDAILY BREAKDOWN BY PLATFORM (Last 7 Days):\n`;
+    Object.entries(dailyByDate).slice(0, 7).forEach(([date, platforms]: [string, any]) => {
+      context += `${date}:\n`;
+      Object.entries(platforms).forEach(([platform, data]: [string, any]) => {
+        const platformLabel = platform === 'meta' ? 'Meta' : platform === 'google' ? 'Google' : platform;
+        context += `  - ${platformLabel}: R$ ${data.spend.toFixed(2)} | Results: ${data.conversions}\n`;
+      });
     });
 
     return context;
