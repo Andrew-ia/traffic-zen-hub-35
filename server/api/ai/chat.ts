@@ -193,13 +193,31 @@ ${context}`
       });
     });
 
-    // Call OpenAI
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: messages,
+    // Call OpenAI via fetch to avoid SDK connection issues and get better debugging
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: messages
+      })
     });
 
-    const responseText = completion.choices[0].message.content || "Desculpe, não consegui gerar uma resposta.";
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      throw new Error(`OpenAI API Error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+    const responseText = data.choices[0]?.message?.content || "Desculpe, não consegui gerar uma resposta.";
 
     // Save AI Response
     const aiMsgId = randomUUID();
