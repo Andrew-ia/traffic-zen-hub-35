@@ -87,29 +87,10 @@ export function KanbanCard({ task, onClick }: KanbanCardProps) {
           </div>
         )}
 
-        {/* Lista origem e Botão de Roteiro */}
-        <div className="flex items-center justify-between pt-0.5 border-t">
-          <div className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-            <span>{task.folder_icon}</span>
-            <span className="truncate">{task.list_name}</span>
-          </div>
-
-          {/* Botão de Roteiro (só aparece se tiver dados de campanha) */}
-          {task.metadata?.campaign_data?.adSets?.length > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                import('@/utils/printCreativeScripts').then(({ printCreativeScripts }) => {
-                  printCreativeScripts(task);
-                });
-              }}
-              className="flex items-center gap-1 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded transition-colors"
-              title="Imprimir Roteiro para Gravação"
-            >
-              <span className="text-xs">📄</span>
-              <span>Roteiro</span>
-            </button>
-          )}
+        {/* Lista origem */}
+        <div className="text-[10px] text-muted-foreground flex items-center gap-0.5 pt-0.5 border-t">
+          <span>{task.folder_icon}</span>
+          <span className="truncate">{task.list_name}</span>
         </div>
       </CardContent>
     </Card>

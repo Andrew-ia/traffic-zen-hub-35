@@ -941,6 +941,25 @@ export default function ProjectManagementV3() {
                                     </div>
                                     {/* Ocultado a pedido: não exibir a descrição abaixo do título */}
                                   </div>
+
+                                  {/* Botão de Roteiro */}
+                                  {task.metadata?.campaign_data?.adSets?.length > 0 && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-xs gap-1 ml-2 shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        import('@/utils/printCreativeScripts').then(({ printCreativeScripts }) => {
+                                          printCreativeScripts(task);
+                                        });
+                                      }}
+                                      title="Imprimir Roteiro"
+                                    >
+                                      <span className="text-xs">📄</span>
+                                      Roteiro
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -1193,6 +1212,25 @@ export default function ProjectManagementV3() {
                                       <span className="text-muted-foreground">{(t.metadata?.responsavel_nome as string) || t.assignee_name || 'Sem responsável'}</span>
                                       <span className="text-muted-foreground">{t.due_date ? new Date(t.due_date).toLocaleDateString() : 'Sem prazo'}</span>
                                       <span className={`px-2 py-0.5 rounded text-xs capitalize ${priorityColors[t.priority || 'media']}`}>{t.priority || 'media'}</span>
+
+                                      {/* Botão de Roteiro */}
+                                      {t.metadata?.campaign_data?.adSets?.length > 0 && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 px-2 text-xs gap-1 ml-2 shrink-0"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            import('@/utils/printCreativeScripts').then(({ printCreativeScripts }) => {
+                                              printCreativeScripts(t);
+                                            });
+                                          }}
+                                          title="Imprimir Roteiro"
+                                        >
+                                          <span className="text-xs">📄</span>
+                                          Roteiro
+                                        </Button>
+                                      )}
                                     </div>
                                   </button>
                                 ))
