@@ -63,18 +63,34 @@ async function buildContext(workspaceId: string): Promise<string> {
     LIMIT 5
   `;
 
+  // 5. Daily Metrics (Last 30 Days)
+  const dailyQuery = `
+    SELECT 
+      TO_CHAR(m.metric_date, 'YYYY-MM-DD') as date,
+      COALESCE(SUM(m.spend), 0) as spend,
+      COALESCE(SUM(m.conversions), 0) as conversions
+    FROM performance_metrics m
+    JOIN campaigns c ON m.campaign_id = c.id
+    WHERE c.workspace_id = $1
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    GROUP BY m.metric_date
+    ORDER BY m.metric_date DESC
+  `;
+
   try {
-    const [summaryRes, campaignsRes, adSetsRes, adsRes] = await Promise.all([
+    const [summaryRes, campaignsRes, adSetsRes, adsRes, dailyRes] = await Promise.all([
       pool.query(summaryQuery, [workspaceId]),
       pool.query(campaignsQuery, [workspaceId]),
       pool.query(adSetsQuery, [workspaceId]),
-      pool.query(adsQuery, [workspaceId])
+      pool.query(adsQuery, [workspaceId]),
+      pool.query(dailyQuery, [workspaceId])
     ]);
 
     const s = summaryRes.rows[0];
     const campaigns = campaignsRes.rows;
     const adSets = adSetsRes.rows;
     const ads = adsRes.rows;
+    const daily = dailyRes.rows;
 
     const ctr = s.impressions > 0 ? ((s.clicks / s.impressions) * 100).toFixed(2) : '0.00';
     const cpc = s.clicks > 0 ? (s.spend / s.clicks).toFixed(2) : '0.00';
@@ -83,7 +99,7 @@ async function buildContext(workspaceId: string): Promise<string> {
     let context = `
 CURRENT PERFORMANCE CONTEXT (Last 30 Days):
 
-OVERALL METRICS:
+OVERALL METRICS (Last 30 Days):
 - Total Spend: R$ ${s.spend}
 - Impressions: ${s.impressions}
 - Clicks: ${s.clicks}
@@ -91,6 +107,9 @@ OVERALL METRICS:
 - CTR: ${ctr}%
 - CPC: R$ ${cpc}
 - CPA (Cost per Result): R$ ${cpa}
+
+DAILY BREAKDOWN (Last 30 Days):
+${daily.map((d: any) => `- ${d.date}: Spend R$ ${d.spend} | Results ${d.conversions}`).join('\n')}
 
 TOP 5 CAMPAIGNS (by Spend):
 `;
