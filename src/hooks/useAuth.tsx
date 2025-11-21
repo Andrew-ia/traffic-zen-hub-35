@@ -9,6 +9,7 @@ type User = {
   email: string;
   name?: string | null;
   role: Role;
+  workspace_id?: string;
 };
 
 type PagePerm = { prefix: string; allowed: boolean };
@@ -35,7 +36,7 @@ const DEFAULT_USER: User = {
   role: 'adm',
 };
 
- 
+
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize with localStorage data immediately 
@@ -58,13 +59,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (authChecked) return; // Prevent multiple checks
-    
+
     console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
-    
+
     if (token && !user) {
       console.log('🔑 Token exists, validating...');
-      
-      fetch(`${API_BASE}/api/auth/me`, { 
+
+      fetch(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(10000)
       })
@@ -112,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       navigate('/');
       return true;
     }
-    
+
     try {
       console.log('🔑 Attempting login for:', username);
       const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -120,32 +121,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      
+
       console.log('📡 Login response status:', res.status);
-      
+
       if (!res.ok) {
         console.log('❌ Login failed - HTTP error:', res.status);
         return false;
       }
-      
+
       const data = await res.json();
-      console.log('📝 Login response data:', { 
-        success: data?.success, 
-        hasToken: !!data?.token, 
+      console.log('📝 Login response data:', {
+        success: data?.success,
+        hasToken: !!data?.token,
         hasUser: !!data?.user,
         userRole: data?.user?.role
       });
-      
+
       if (!data?.success || !data?.token || !data?.user) {
         console.log('❌ Login failed - Invalid response data');
         return false;
       }
-      
+
       console.log('💾 Storing token and user data');
       window.localStorage.setItem(STORAGE_KEY, data.token);
       setToken(data.token);
       setUser(data.user);
-      
+
       console.log('✅ Login successful, redirecting to dashboard');
       navigate('/', { replace: true });
       return true;
@@ -246,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
     }
-    
+
     // Default: if no permissions are set, allow access (for backwards compatibility)
     return true;
   }, [user, pagePermissions]);
@@ -260,20 +261,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return; // Wait for auth to load
     if (location.pathname === '/login') return; // login is public
-    
+
     if (!user) {
       console.log('🔄 No user found, redirecting to login');
       navigate('/login', { replace: true });
       return;
     }
-    
+
     // Check if current path is accessible
     if (!hasAccess(location.pathname)) {
       console.log('🚫 No access to', location.pathname, 'for role:', user.role);
-      
+
       // Try to get allowed routes from overrides first
       const allowed = getAllowedRoutes();
-      
+
       if (allowed.length > 0) {
         console.log('➡️ Redirecting to first allowed route:', allowed[0]);
         navigate(allowed[0], { replace: true });

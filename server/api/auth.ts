@@ -108,7 +108,17 @@ export async function login(req: Request, res: Response) {
     const token = signToken(payload);
 
     await client.end();
-    res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.full_name, role: appRole } });
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.full_name,
+        role: appRole,
+        workspace_id: WORKSPACE_ID
+      }
+    });
   } catch (err) {
     console.error('Login error', err);
     try {
@@ -123,7 +133,20 @@ export async function login(req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
   const payload = (req as any).user as TokenPayload | undefined;
   if (!payload) return res.status(401).json({ success: false, error: 'invalid_token' });
-  res.json({ success: true, user: { id: payload.sub, email: payload.email, role: payload.role } });
+
+  // We need to return the workspace_id here too. 
+  // Ideally it should be in the token, but for now let's use the env var as the source of truth for the current context
+  const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+
+  res.json({
+    success: true,
+    user: {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      workspace_id: WORKSPACE_ID
+    }
+  });
 }
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -200,9 +223,9 @@ export async function getPagePermissions(req: Request, res: Response) {
   try {
     const payload = (req as any).user as TokenPayload | undefined;
     if (!payload) return res.status(401).json({ success: false, error: 'invalid_token' });
-    
+
     const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
-    
+
     const pool = getPool();
     await ensurePagePermissionsTable(pool);
 
@@ -237,9 +260,9 @@ export async function setPagePermissions(req: Request, res: Response) {
     if (!targetUserId || !Array.isArray(permissions)) {
       return res.status(400).json({ success: false, error: 'invalid_payload' });
     }
-    
+
     const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
-    
+
     if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
 
     const pool = getPool();

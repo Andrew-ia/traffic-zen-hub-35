@@ -16,16 +16,18 @@ interface ChatMessage {
 async function buildContext(workspaceId: string): Promise<string> {
   const pool = getPool();
 
-  // 1. KPI Summary (Last 30 Days)
+  // 1. KPI Summary (Last 30 Days) - Filtered by Workspace
   const summaryQuery = `
     SELECT 
-      COALESCE(SUM(spend), 0) as spend,
-      COALESCE(SUM(impressions), 0) as impressions,
-      COALESCE(SUM(clicks), 0) as clicks,
-      COALESCE(SUM(conversions), 0) as conversions,
-      COALESCE(SUM(conversations_started), 0) as conversations
-    FROM metrics
-    WHERE date >= NOW() - INTERVAL '30 days'
+      COALESCE(SUM(m.spend), 0) as spend,
+      COALESCE(SUM(m.impressions), 0) as impressions,
+      COALESCE(SUM(m.clicks), 0) as clicks,
+      COALESCE(SUM(m.conversions), 0) as conversions,
+      COALESCE(SUM(m.conversations_started), 0) as conversations
+    FROM metrics m
+    JOIN campaigns c ON m.campaign_id = c.id
+    WHERE c.workspace_id = $1
+      AND m.date >= NOW() - INTERVAL '30 days'
   `;
 
   // 2. Top 5 Campaigns
@@ -33,20 +35,52 @@ async function buildContext(workspaceId: string): Promise<string> {
     SELECT c.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
     FROM campaigns c
     JOIN metrics m ON c.id = m.campaign_id
-    WHERE m.date >= NOW() - INTERVAL '30 days'
+    WHERE c.workspace_id = $1
+      AND m.date >= NOW() - INTERVAL '30 days'
     GROUP BY c.name
     ORDER BY spend DESC
     LIMIT 5
   `;
 
+  // 3. Top 5 Ad Sets
+  const adSetsQuery = `
+    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
+    FROM ad_sets a
+    JOIN campaigns c ON a.campaign_id = c.id
+    JOIN metrics m ON m.ad_set_id = a.id
+    WHERE c.workspace_id = $1
+      AND m.date >= NOW() - INTERVAL '30 days'
+    GROUP BY a.name
+    ORDER BY spend DESC
+    LIMIT 5
+  `;
+
+  // 4. Top 5 Ads
+  const adsQuery = `
+    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
+    FROM ads a
+    JOIN ad_sets adset ON a.ad_set_id = adset.id
+    JOIN campaigns c ON adset.campaign_id = c.id
+    JOIN metrics m ON m.ad_id = a.id
+    WHERE c.workspace_id = $1
+      AND m.date >= NOW() - INTERVAL '30 days'
+    GROUP BY a.name
+    ORDER BY spend DESC
+    LIMIT 5
+  `;
+
   try {
-    const [summaryRes, campaignsRes] = await Promise.all([
-      pool.query(summaryQuery),
-      pool.query(campaignsQuery)
+    const [summaryRes, campaignsRes, adSetsRes, adsRes] = await Promise.all([
+      pool.query(summaryQuery, [workspaceId]),
+      pool.query(campaignsQuery, [workspaceId]),
+      pool.query(adSetsQuery, [workspaceId]),
+      pool.query(adsQuery, [workspaceId])
     ]);
 
     const s = summaryRes.rows[0];
     const campaigns = campaignsRes.rows;
+    const adSets = adSetsRes.rows;
+    const ads = adsRes.rows;
 
     const ctr = s.impressions > 0 ? ((s.clicks / s.impressions) * 100).toFixed(2) : '0.00';
     const cpc = s.clicks > 0 ? (s.spend / s.clicks).toFixed(2) : '0.00';
@@ -70,8 +104,18 @@ OVERALL METRICS:
 TOP 5 CAMPAIGNS (by Spend):
 `;
 
-    campaigns.forEach((c, i) => {
+    campaigns.forEach((c: any, i: number) => {
       context += `${i + 1}. ${c.name} | Spend: R$ ${c.spend} | Results: ${c.conversions} | Conversations: ${c.conversations}\n`;
+    });
+
+    context += `\nTOP 5 AD SETS (by Spend):\n`;
+    adSets.forEach((a: any, i: number) => {
+      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions} | Conversations: ${a.conversations}\n`;
+    });
+
+    context += `\nTOP 5 ADS (by Spend):\n`;
+    ads.forEach((a: any, i: number) => {
+      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions} | Conversations: ${a.conversations}\n`;
     });
 
     return context;
@@ -136,8 +180,8 @@ router.post('/', async (req: Request, res: Response) => {
       [activeConversationId]
     );
 
-    const history: ChatMessage[] = historyRes.rows.map(row => ({
-      role: row.role === 'user' ? 'user' : 'model',
+    const history = historyRes.rows.map((row: any) => ({
+      role: row.role,
       parts: [{ text: row.content }]
     }));
 

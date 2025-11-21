@@ -8,15 +8,19 @@ import { SuggestedQuestions } from '@/components/ai/SuggestedQuestions';
 import { useAIChat } from '@/hooks/useAIChat';
 import type { ChatMessage as ChatMessageType } from '@/types/chat';
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || '00000000-0000-0000-0000-000000000010';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AIChat() {
+  const { user } = useAuth();
+  // Use the user's actual workspace ID or fallback only if absolutely necessary (though auth should ensure user exists)
+  const workspaceId = user?.workspace_id || (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || '00000000-0000-0000-0000-000000000010';
+
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [initializing, setInitializing] = useState<boolean>(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { loading, error, sendMessage, getConversations, getConversation } = useAIChat(WORKSPACE_ID);
+  const { loading, error, sendMessage, getConversations, getConversation } = useAIChat(workspaceId);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -86,10 +90,10 @@ export default function AIChat() {
       setMessages((prev) => {
         const updated = !conversationId
           ? prev.map((msg) =>
-              msg.id === userMessage.id
-                ? { ...msg, conversation_id: result.conversationId }
-                : msg
-            )
+            msg.id === userMessage.id
+              ? { ...msg, conversation_id: result.conversationId }
+              : msg
+          )
           : prev;
 
         return [...updated, result.message];
