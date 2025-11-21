@@ -1,17 +1,12 @@
 
 
 import { Router, Request, Response } from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { getPool } from '../../config/database.js';
 import { randomUUID } from 'crypto';
 
 const router = Router();
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-interface ChatMessage {
-  role: 'user' | 'model';
-  parts: { text: string }[];
-}
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 async function buildContext(workspaceId: string): Promise<string> {
   const pool = getPool();
@@ -135,8 +130,8 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Check for API key
-    if (!process.env.GEMINI_API_KEY) {
-      console.error('GEMINI_API_KEY not configured');
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY not configured');
       return res.status(500).json({
         success: false,
         error: 'AI service not configured. Please contact administrator.'
@@ -176,15 +171,10 @@ router.post('/', async (req: Request, res: Response) => {
       [activeConversationId]
     );
 
-    const history = historyRes.rows.map((row: any) => ({
-      role: row.role,
-      parts: [{ text: row.content }]
-    }));
-
-    // Call Gemini
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-pro',
-      systemInstruction: `You are an expert Digital Marketing Assistant for the "Traffic Zen Hub" platform.
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `You are an expert Digital Marketing Assistant for the "Traffic Zen Hub" platform.
 Your goal is to help the user analyze their campaign performance and suggest optimizations.
 You have access to the last 30 days of performance data below.
 Use this data to answer the user's questions accurately.
@@ -193,14 +183,23 @@ Be concise, professional, and helpful.
 Format monetary values as R$ (BRL).
 
 ${context}`
+      }
+    ];
+
+    historyRes.rows.forEach((row: any) => {
+      messages.push({
+        role: row.role === 'assistant' ? 'assistant' : 'user',
+        content: row.content
+      });
     });
 
-    const chat = model.startChat({
-      history: history.slice(0, -1) // Exclude current message if it was added to history (it wasn't in this logic, but just safe keeping)
+    // Call OpenAI
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: messages,
     });
 
-    const result = await chat.sendMessage(message);
-    const responseText = result.response.text();
+    const responseText = completion.choices[0].message.content || "Desculpe, não consegui gerar uma resposta.";
 
     // Save AI Response
     const aiMsgId = randomUUID();
@@ -224,12 +223,9 @@ ${context}`
 
   } catch (error) {
     console.error('Chat API Error:', error);
-    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     console.error('Error details:', {
       message: error instanceof Error ? error.message : String(error),
-      name: error instanceof Error ? error.name : 'Unknown',
-      hasGeminiKey: !!process.env.GEMINI_API_KEY,
-      geminiKeyLength: process.env.GEMINI_API_KEY?.length || 0
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY
     });
 
     return res.status(500).json({
