@@ -20,7 +20,9 @@ import { checkGoogleAdsCredentials } from '../server/api/google-ads/check-creden
 import { ga4Realtime, ga4Report, ga4GoogleAds } from '../server/api/analytics/ga4.js';
 import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjective } from '../server/api/analytics/metrics.js';
 import { getDemographics } from '../server/api/analytics/demographics.js';
+import { getCreativePerformance } from '../server/api/analytics/creative-performance.js';
 import { generateCreative } from '../server/api/ai/generate-creative.js';
+import { analyzeCreative } from '../server/api/ai/analyze-creative.js';
 import { virtualTryOn } from '../server/api/ai/virtual-tryon.js';
 import { generateLookCaption, updateCreativeCaption } from '../server/api/ai/generate-look-caption.js';
 import chatRouter from '../server/api/ai/chat.js';
@@ -151,6 +153,7 @@ app.post('/api/integrations/billing/sync', syncMetaBilling);
 
 // AI endpoints
 app.post('/api/ai/generate-creative', generateCreative);
+app.post('/api/ai/analyze-creative', analyzeCreative);
 app.post('/api/ai/virtual-tryon', virtualTryOn);
 app.post('/api/ai/generate-look-caption', generateLookCaption);
 app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
@@ -188,6 +191,7 @@ app.get('/api/metrics/aggregate', getAggregateMetrics);
 app.get('/api/metrics/aggregate-by-objective', getAggregateMetricsByObjective);
 app.get('/api/metrics/timeseries', getTimeSeriesMetrics);
 app.get('/api/metrics/demographics', getDemographics);
+app.get('/api/analytics/creative-performance', getCreativePerformance);
 
 // Campaign Library endpoints
 app.get('/api/campaigns/library/:workspaceId', getCampaignLibrary);
