@@ -183,7 +183,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Call Gemini
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-pro',
       systemInstruction: `You are an expert Digital Marketing Assistant for the "Traffic Zen Hub" platform.
 Your goal is to help the user analyze their campaign performance and suggest optimizations.
 You have access to the last 30 days of performance data below.
