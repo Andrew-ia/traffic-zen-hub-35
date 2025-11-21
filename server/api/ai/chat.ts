@@ -22,21 +22,20 @@ async function buildContext(workspaceId: string): Promise<string> {
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.impressions), 0) as impressions,
       COALESCE(SUM(m.clicks), 0) as clicks,
-      COALESCE(SUM(m.conversions), 0) as conversions,
-      COALESCE(SUM(m.conversations_started), 0) as conversations
-    FROM metrics m
+      COALESCE(SUM(m.conversions), 0) as conversions
+    FROM performance_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
     WHERE c.workspace_id = $1
-      AND m.date >= NOW() - INTERVAL '30 days'
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
   `;
 
   // 2. Top 5 Campaigns
   const campaignsQuery = `
-    SELECT c.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
+    SELECT c.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
     FROM campaigns c
-    JOIN metrics m ON c.id = m.campaign_id
+    JOIN performance_metrics m ON c.id = m.campaign_id
     WHERE c.workspace_id = $1
-      AND m.date >= NOW() - INTERVAL '30 days'
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
     GROUP BY c.name
     ORDER BY spend DESC
     LIMIT 5
@@ -44,12 +43,12 @@ async function buildContext(workspaceId: string): Promise<string> {
 
   // 3. Top 5 Ad Sets
   const adSetsQuery = `
-    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
+    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
     FROM ad_sets a
     JOIN campaigns c ON a.campaign_id = c.id
-    JOIN metrics m ON m.ad_set_id = a.id
+    JOIN performance_metrics m ON m.ad_set_id = a.id
     WHERE c.workspace_id = $1
-      AND m.date >= NOW() - INTERVAL '30 days'
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
     GROUP BY a.name
     ORDER BY spend DESC
     LIMIT 5
@@ -57,13 +56,13 @@ async function buildContext(workspaceId: string): Promise<string> {
 
   // 4. Top 5 Ads
   const adsQuery = `
-    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions, SUM(m.conversations_started) as conversations
+    SELECT a.name, SUM(m.spend) as spend, SUM(m.conversions) as conversions
     FROM ads a
     JOIN ad_sets adset ON a.ad_set_id = adset.id
     JOIN campaigns c ON adset.campaign_id = c.id
-    JOIN metrics m ON m.ad_id = a.id
+    JOIN performance_metrics m ON m.ad_id = a.id
     WHERE c.workspace_id = $1
-      AND m.date >= NOW() - INTERVAL '30 days'
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
     GROUP BY a.name
     ORDER BY spend DESC
     LIMIT 5
@@ -85,7 +84,6 @@ async function buildContext(workspaceId: string): Promise<string> {
     const ctr = s.impressions > 0 ? ((s.clicks / s.impressions) * 100).toFixed(2) : '0.00';
     const cpc = s.clicks > 0 ? (s.spend / s.clicks).toFixed(2) : '0.00';
     const cpa = s.conversions > 0 ? (s.spend / s.conversions).toFixed(2) : '0.00';
-    const costPerConversation = s.conversations > 0 ? (s.spend / s.conversations).toFixed(2) : '0.00';
 
     let context = `
 CURRENT PERFORMANCE CONTEXT (Last 30 Days):
@@ -95,27 +93,25 @@ OVERALL METRICS:
 - Impressions: ${s.impressions}
 - Clicks: ${s.clicks}
 - Conversions (Results): ${s.conversions}
-- Conversations Started: ${s.conversations}
 - CTR: ${ctr}%
 - CPC: R$ ${cpc}
 - CPA (Cost per Result): R$ ${cpa}
-- Cost per Conversation: R$ ${costPerConversation}
 
 TOP 5 CAMPAIGNS (by Spend):
 `;
 
     campaigns.forEach((c: any, i: number) => {
-      context += `${i + 1}. ${c.name} | Spend: R$ ${c.spend} | Results: ${c.conversions} | Conversations: ${c.conversations}\n`;
+      context += `${i + 1}. ${c.name} | Spend: R$ ${c.spend} | Results: ${c.conversions}\n`;
     });
 
     context += `\nTOP 5 AD SETS (by Spend):\n`;
     adSets.forEach((a: any, i: number) => {
-      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions} | Conversations: ${a.conversations}\n`;
+      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions}\n`;
     });
 
     context += `\nTOP 5 ADS (by Spend):\n`;
     ads.forEach((a: any, i: number) => {
-      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions} | Conversations: ${a.conversations}\n`;
+      context += `${i + 1}. ${a.name} | Spend: R$ ${a.spend} | Results: ${a.conversions}\n`;
     });
 
     return context;
