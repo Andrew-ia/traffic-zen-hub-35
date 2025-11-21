@@ -30,7 +30,10 @@ export function useAIChat(workspaceId: string) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro ao enviar mensagem');
+        const errorMessage = errorData.details
+          ? `${errorData.error}: ${errorData.details}`
+          : (errorData.error || 'Erro ao enviar mensagem');
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

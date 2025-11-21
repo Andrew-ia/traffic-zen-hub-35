@@ -235,7 +235,8 @@ ${context}`
     return res.status(500).json({
       success: false,
       error: 'Internal Server Error',
-      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : String(error)) : undefined
+      details: error instanceof Error ? error.message : String(error),
+      stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined
     });
   }
 });
