@@ -1,8 +1,9 @@
 
+
 import { Router, Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getPool } from '../../config/database.js';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -111,7 +112,7 @@ router.post('/', async (req: Request, res: Response) => {
       const newConv = await pool.query(
         `INSERT INTO chat_conversations (id, workspace_id, user_id, title) 
          VALUES ($1, $2, $3, $4) RETURNING id`,
-        [uuidv4(), workspaceId, userId, title]
+        [randomUUID(), workspaceId, userId, title]
       );
       activeConversationId = newConv.rows[0].id;
     }
@@ -120,7 +121,7 @@ router.post('/', async (req: Request, res: Response) => {
     await pool.query(
       `INSERT INTO chat_messages (id, conversation_id, role, content) 
        VALUES ($1, $2, 'user', $3)`,
-      [uuidv4(), activeConversationId, message]
+      [randomUUID(), activeConversationId, message]
     );
 
     // Build Context
@@ -162,7 +163,7 @@ ${context}`
     const responseText = result.response.text();
 
     // Save AI Response
-    const aiMsgId = uuidv4();
+    const aiMsgId = randomUUID();
     await pool.query(
       `INSERT INTO chat_messages (id, conversation_id, role, content) 
        VALUES ($1, $2, 'assistant', $3) RETURNING *`,
