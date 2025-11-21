@@ -15,6 +15,11 @@ import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
 import Integrations from "./pages/Integrations";
 import InternalChat from "./pages/InternalChat";
+import AIChat from "./pages/AIChat";
+
+
+
+
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
@@ -88,6 +93,7 @@ const App = () => (
               <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
               <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
               <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
+              <Route path="/ai-assistant" element={<RequireAuth><AIChat /></RequireAuth>} />
 
               <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
 

@@ -13,6 +13,7 @@ import {
   Kanban,
   ChartLine,
   Folder,
+  Bot,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -34,6 +35,7 @@ export const mainNavigation: NavigationItem[] = [
 
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
+  { name: "AI Assistant", href: "/ai-assistant", icon: Bot, keywords: ["ai", "chat", "assistente", "inteligencia"] },
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
 
   { name: "Rastreamento Digital", href: "/tracking", icon: Sparkles, keywords: ["tags", "gtm", "rastreamento"] },
