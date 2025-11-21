@@ -83,10 +83,23 @@ TOP 5 CAMPAIGNS (by Spend):
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { message, conversationId, workspaceId } = req.body;
-    const userId = (req as any).user?.id; // Assuming auth middleware populates this
+    const userId = (req as any).user?.id || 'system'; // Fallback to 'system' if no auth
 
     if (!message) {
       return res.status(400).json({ success: false, error: 'Message is required' });
+    }
+
+    if (!workspaceId) {
+      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
+    }
+
+    // Check for API key
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'AI service not configured. Please contact administrator.'
+      });
     }
 
     const pool = getPool();
