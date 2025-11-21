@@ -18,7 +18,14 @@ async function buildContext(workspaceId: string): Promise<string> {
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.impressions), 0) as impressions,
       COALESCE(SUM(m.clicks), 0) as clicks,
-      COALESCE(SUM(m.conversions), 0) as conversions
+      COALESCE(SUM(m.conversions), 0) as conversions,
+      COALESCE(SUM(m.conversion_value), 0) as conversion_value,
+      COALESCE(AVG(m.roas), 0) as avg_roas,
+      COALESCE(AVG((m.extra_metrics->>'frequency')::float), 0) as avg_frequency,
+      COALESCE(SUM((m.extra_metrics->>'reach')::float), 0) as total_reach,
+      COALESCE(SUM((m.extra_metrics->>'unique_clicks')::float), 0) as unique_clicks,
+      COALESCE(SUM((m.extra_metrics->>'inline_link_clicks')::float), 0) as inline_link_clicks,
+      COALESCE(SUM((m.extra_metrics->>'inline_post_engagement')::float), 0) as inline_post_engagement
     FROM performance_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
     JOIN platform_accounts pa ON c.account_id = pa.id
@@ -176,16 +183,34 @@ BREAKDOWN BY PLATFORM:
       const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : '0.00';
       const cpc = p.clicks > 0 ? (p.spend / p.clicks).toFixed(2) : '0.00';
       const cpa = p.conversions > 0 ? (p.spend / p.conversions).toFixed(2) : '0.00';
+      const roas = parseFloat(p.avg_roas || 0).toFixed(2);
+      const frequency = parseFloat(p.avg_frequency || 0).toFixed(2);
+      const reach = parseInt(p.total_reach || 0);
+      const uniqueClicks = parseInt(p.unique_clicks || 0);
+      const linkClicks = parseInt(p.inline_link_clicks || 0);
+      const engagement = parseInt(p.inline_post_engagement || 0);
 
       context += `
 ${platformName}:
-  - Spend: R$ ${parseFloat(p.spend).toFixed(2)}
-  - Impressions: ${parseInt(p.impressions).toLocaleString()}
-  - Clicks: ${parseInt(p.clicks).toLocaleString()}
-  - Conversions: ${p.conversions}
-  - CTR: ${ctr}%
-  - CPC: R$ ${cpc}
-  - CPA: R$ ${cpa}
+  Core Metrics:
+    - Spend: R$ ${parseFloat(p.spend).toFixed(2)}
+    - Conversions: ${p.conversions}
+    - Conversion Value: R$ ${parseFloat(p.conversion_value || 0).toFixed(2)}
+    - ROAS: ${roas}
+    - CPA: R$ ${cpa}
+  
+  Reach & Frequency:
+    - Impressions: ${parseInt(p.impressions).toLocaleString()}
+    - Reach: ${reach.toLocaleString()}
+    - Frequency: ${frequency}
+  
+  Engagement:
+    - Clicks: ${parseInt(p.clicks).toLocaleString()}
+    - Unique Clicks: ${uniqueClicks.toLocaleString()}
+    - Link Clicks: ${linkClicks.toLocaleString()}
+    - Post Engagement: ${engagement.toLocaleString()}
+    - CTR: ${ctr}%
+    - CPC: R$ ${cpc}
 `;
     });
 
