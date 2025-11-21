@@ -28,49 +28,117 @@ async function buildContext(workspaceId: string): Promise<string> {
     ORDER BY spend DESC
   `;
 
-  // 2. Top 5 Campaigns (with platform)
+  // 2. Top 10 Campaigns (with platform and ROAS)
   const campaignsQuery = `
     SELECT 
       c.name, 
+      c.status,
       pa.platform_key,
       SUM(m.spend) as spend, 
-      SUM(m.conversions) as conversions
+      SUM(m.conversions) as conversions,
+      SUM(m.impressions) as impressions,
+      SUM(m.clicks) as clicks,
+      CASE WHEN SUM(m.spend) > 0 THEN SUM(m.conversions) / SUM(m.spend) ELSE 0 END as roas
     FROM campaigns c
     JOIN platform_accounts pa ON c.account_id = pa.id
     JOIN performance_metrics m ON c.id = m.campaign_id
     WHERE c.workspace_id = $1
       AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY c.name, pa.platform_key
+    GROUP BY c.name, c.status, pa.platform_key
     ORDER BY spend DESC
+    LIMIT 10
+  `;
+
+  // 3. Top 10 Creatives by Performance
+  const creativesQuery = `
+    SELECT 
+      ca.name,
+      ca.type,
+      SUM(m.spend) as spend,
+      SUM(m.conversions) as conversions,
+      SUM(m.impressions) as impressions,
+      SUM(m.clicks) as clicks,
+      CASE WHEN SUM(m.impressions) > 0 THEN (SUM(m.clicks)::float / SUM(m.impressions) * 100) ELSE 0 END as ctr,
+      CASE WHEN SUM(m.conversions) > 0 THEN SUM(m.spend) / SUM(m.conversions) ELSE 0 END as cpa
+    FROM creative_assets ca
+    JOIN ads a ON ca.id = a.creative_asset_id
+    JOIN performance_metrics m ON a.id = m.ad_id
+    JOIN ad_sets adset ON a.ad_set_id = adset.id
+    JOIN campaigns c ON adset.campaign_id = c.id
+    WHERE c.workspace_id = $1
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    GROUP BY ca.name, ca.type
+    ORDER BY conversions DESC
+    LIMIT 10
+  `;
+
+  // 4. Week-over-Week Trends
+  const trendsQuery = `
+    SELECT 
+      'Last 7 Days' as period,
+      COALESCE(SUM(m.spend), 0) as spend,
+      COALESCE(SUM(m.conversions), 0) as conversions,
+      COALESCE(SUM(m.clicks), 0) as clicks
+    FROM performance_metrics m
+    JOIN campaigns c ON m.campaign_id = c.id
+    WHERE c.workspace_id = $1
+      AND m.metric_date >= NOW() - INTERVAL '7 days'
+    UNION ALL
+    SELECT 
+      'Previous 7 Days' as period,
+      COALESCE(SUM(m.spend), 0) as spend,
+      COALESCE(SUM(m.conversions), 0) as conversions,
+      COALESCE(SUM(m.clicks), 0) as clicks
+    FROM performance_metrics m
+    JOIN campaigns c ON m.campaign_id = c.id
+    WHERE c.workspace_id = $1
+      AND m.metric_date >= NOW() - INTERVAL '14 days'
+      AND m.metric_date < NOW() - INTERVAL '7 days'
+  `;
+
+  // 5. Campaign Status Distribution
+  const statusQuery = `
+    SELECT 
+      status,
+      COUNT(*) as count
+    FROM campaigns
+    WHERE workspace_id = $1
+    GROUP BY status
+  `;
+
+  // 6. Top 5 Ad Sets by Conversions
+  const adSetsQuery = `
+    SELECT 
+      a.name,
+      SUM(m.spend) as spend,
+      SUM(m.conversions) as conversions,
+      CASE WHEN SUM(m.conversions) > 0 THEN SUM(m.spend) / SUM(m.conversions) ELSE 0 END as cpa
+    FROM ad_sets a
+    JOIN campaigns c ON a.campaign_id = c.id
+    JOIN performance_metrics m ON m.ad_set_id = a.id
+    WHERE c.workspace_id = $1
+      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    GROUP BY a.name
+    ORDER BY conversions DESC
     LIMIT 5
   `;
 
-  // 3. Daily Metrics by Platform (Last 30 Days)
-  const dailyByPlatformQuery = `
-    SELECT 
-      TO_CHAR(m.metric_date, 'YYYY-MM-DD') as date,
-      pa.platform_key,
-      COALESCE(SUM(m.spend), 0) as spend,
-      COALESCE(SUM(m.conversions), 0) as conversions
-    FROM performance_metrics m
-    JOIN campaigns c ON m.campaign_id = c.id
-    JOIN platform_accounts pa ON c.account_id = pa.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY m.metric_date, pa.platform_key
-    ORDER BY m.metric_date DESC, pa.platform_key
-  `;
-
   try {
-    const [platformSummaryRes, campaignsRes, dailyByPlatformRes] = await Promise.all([
+    const [platformSummaryRes, campaignsRes, creativesRes, trendsRes, statusRes, adSetsRes] = await Promise.all([
       pool.query(platformSummaryQuery, [workspaceId]),
       pool.query(campaignsQuery, [workspaceId]),
-      pool.query(dailyByPlatformQuery, [workspaceId])
+      pool.query(creativesQuery, [workspaceId]),
+      pool.query(trendsQuery, [workspaceId]),
+      pool.query(statusQuery, [workspaceId]),
+      pool.query(adSetsQuery, [workspaceId])
     ]);
 
     const platformData = platformSummaryRes.rows;
     const campaigns = campaignsRes.rows;
-    const dailyByPlatform = dailyByPlatformRes.rows;
+    const creatives = creativesRes.rows;
+    const trends = trendsRes.rows;
+    const statuses = statusRes.rows;
+    const adSets = adSetsRes.rows;
 
     // Calculate overall totals
     const totalSpend = platformData.reduce((sum: number, p: any) => sum + parseFloat(p.spend), 0);
@@ -83,18 +151,22 @@ async function buildContext(workspaceId: string): Promise<string> {
     const overallCpa = totalConversions > 0 ? (totalSpend / totalConversions).toFixed(2) : '0.00';
 
     let context = `
-CURRENT PERFORMANCE CONTEXT (Last 30 Days):
+COMPREHENSIVE PERFORMANCE ANALYSIS (Last 30 Days):
 
+═══════════════════════════════════════════════════════════════
 OVERALL METRICS (All Platforms Combined):
+═══════════════════════════════════════════════════════════════
 - Total Spend: R$ ${totalSpend.toFixed(2)}
-- Impressions: ${totalImpressions}
-- Clicks: ${totalClicks}
+- Impressions: ${totalImpressions.toLocaleString()}
+- Clicks: ${totalClicks.toLocaleString()}
 - Conversions (Results): ${totalConversions}
 - CTR: ${overallCtr}%
 - CPC: R$ ${overallCpc}
 - CPA (Cost per Result): R$ ${overallCpa}
 
+═══════════════════════════════════════════════════════════════
 BREAKDOWN BY PLATFORM:
+═══════════════════════════════════════════════════════════════
 `;
 
     // Add platform-specific data
@@ -108,8 +180,8 @@ BREAKDOWN BY PLATFORM:
       context += `
 ${platformName}:
   - Spend: R$ ${parseFloat(p.spend).toFixed(2)}
-  - Impressions: ${p.impressions}
-  - Clicks: ${p.clicks}
+  - Impressions: ${parseInt(p.impressions).toLocaleString()}
+  - Clicks: ${parseInt(p.clicks).toLocaleString()}
   - Conversions: ${p.conversions}
   - CTR: ${ctr}%
   - CPC: R$ ${cpc}
@@ -117,33 +189,106 @@ ${platformName}:
 `;
     });
 
-    context += `\nTOP 5 CAMPAIGNS (by Spend):\n`;
+    // Week-over-Week Trends
+    if (trends.length === 2) {
+      const lastWeek = trends.find((t: any) => t.period === 'Last 7 Days');
+      const prevWeek = trends.find((t: any) => t.period === 'Previous 7 Days');
+
+      const spendChange = prevWeek.spend > 0 ? (((lastWeek.spend - prevWeek.spend) / prevWeek.spend) * 100).toFixed(1) : 'N/A';
+      const conversionsChange = prevWeek.conversions > 0 ? (((lastWeek.conversions - prevWeek.conversions) / prevWeek.conversions) * 100).toFixed(1) : 'N/A';
+
+      context += `
+═══════════════════════════════════════════════════════════════
+WEEK-OVER-WEEK TRENDS:
+═══════════════════════════════════════════════════════════════
+Last 7 Days:
+  - Spend: R$ ${parseFloat(lastWeek.spend).toFixed(2)}
+  - Conversions: ${lastWeek.conversions}
+  - Clicks: ${lastWeek.clicks}
+
+Previous 7 Days:
+  - Spend: R$ ${parseFloat(prevWeek.spend).toFixed(2)}
+  - Conversions: ${prevWeek.conversions}
+  - Clicks: ${prevWeek.clicks}
+
+Change:
+  - Spend: ${spendChange}%
+  - Conversions: ${conversionsChange}%
+`;
+    }
+
+    // Campaign Status Distribution
+    context += `
+═══════════════════════════════════════════════════════════════
+CAMPAIGN STATUS DISTRIBUTION:
+═══════════════════════════════════════════════════════════════
+`;
+    statuses.forEach((s: any) => {
+      context += `- ${s.status}: ${s.count} campaigns\n`;
+    });
+
+    // Top 10 Campaigns
+    context += `
+═══════════════════════════════════════════════════════════════
+TOP 10 CAMPAIGNS (by Spend):
+═══════════════════════════════════════════════════════════════
+`;
     campaigns.forEach((c: any, i: number) => {
       const platformLabel = c.platform_key === 'meta' ? '[Meta]' :
         c.platform_key === 'google' ? '[Google]' : `[${c.platform_key}]`;
-      context += `${i + 1}. ${platformLabel} ${c.name} | Spend: R$ ${parseFloat(c.spend).toFixed(2)} | Results: ${c.conversions}\n`;
+      const ctr = c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) : '0.00';
+      const cpa = c.conversions > 0 ? (c.spend / c.conversions).toFixed(2) : '0.00';
+      context += `${i + 1}. ${platformLabel} ${c.name} [${c.status}]
+   Spend: R$ ${parseFloat(c.spend).toFixed(2)} | Results: ${c.conversions} | CTR: ${ctr}% | CPA: R$ ${cpa}\n`;
     });
 
-    // Group daily data by date for easier reading
-    const dailyByDate = dailyByPlatform.reduce((acc: any, row: any) => {
-      if (!acc[row.date]) {
-        acc[row.date] = {};
-      }
-      acc[row.date][row.platform_key] = {
-        spend: parseFloat(row.spend),
-        conversions: parseInt(row.conversions)
-      };
-      return acc;
-    }, {});
+    // Top 5 Ad Sets
+    context += `
+═══════════════════════════════════════════════════════════════
+TOP 5 AD SETS (by Conversions):
+═══════════════════════════════════════════════════════════════
+`;
+    adSets.forEach((a: any, i: number) => {
+      context += `${i + 1}. ${a.name}
+   Spend: R$ ${parseFloat(a.spend).toFixed(2)} | Results: ${a.conversions} | CPA: R$ ${parseFloat(a.cpa).toFixed(2)}\n`;
+    });
 
-    context += `\nDAILY BREAKDOWN BY PLATFORM (Last 7 Days):\n`;
-    Object.entries(dailyByDate).slice(0, 7).forEach(([date, platforms]: [string, any]) => {
-      context += `${date}:\n`;
-      Object.entries(platforms).forEach(([platform, data]: [string, any]) => {
-        const platformLabel = platform === 'meta' ? 'Meta' : platform === 'google' ? 'Google' : platform;
-        context += `  - ${platformLabel}: R$ ${data.spend.toFixed(2)} | Results: ${data.conversions}\n`;
+    // Top 10 Creatives
+    context += `
+═══════════════════════════════════════════════════════════════
+TOP 10 CREATIVES (by Conversions):
+═══════════════════════════════════════════════════════════════
+`;
+    creatives.forEach((cr: any, i: number) => {
+      context += `${i + 1}. ${cr.name} [${cr.type}]
+   Spend: R$ ${parseFloat(cr.spend).toFixed(2)} | Results: ${cr.conversions} | CTR: ${parseFloat(cr.ctr).toFixed(2)}% | CPA: R$ ${parseFloat(cr.cpa).toFixed(2)}\n`;
+    });
+
+    // Best and Worst Performers
+    const sortedByCpa = campaigns.filter((c: any) => c.conversions > 0).sort((a: any, b: any) => {
+      const cpaA = a.spend / a.conversions;
+      const cpaB = b.spend / b.conversions;
+      return cpaA - cpaB;
+    });
+
+    if (sortedByCpa.length > 0) {
+      context += `
+═══════════════════════════════════════════════════════════════
+PERFORMANCE INSIGHTS:
+═══════════════════════════════════════════════════════════════
+BEST PERFORMERS (Lowest CPA):
+`;
+      sortedByCpa.slice(0, 3).forEach((c: any, i: number) => {
+        const cpa = (c.spend / c.conversions).toFixed(2);
+        context += `${i + 1}. ${c.name} - CPA: R$ ${cpa}\n`;
       });
-    });
+
+      context += `\nWORST PERFORMERS (Highest CPA):\n`;
+      sortedByCpa.slice(-3).reverse().forEach((c: any, i: number) => {
+        const cpa = (c.spend / c.conversions).toFixed(2);
+        context += `${i + 1}. ${c.name} - CPA: R$ ${cpa}\n`;
+      });
+    }
 
     return context;
   } catch (error) {
@@ -210,15 +355,33 @@ router.post('/', async (req: Request, res: Response) => {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are an expert Digital Marketing Assistant for the "Traffic Zen Hub" platform.
-Your goal is to help the user analyze their campaign performance and suggest optimizations.
-You have access to the last 30 days of performance data below.
-Use this data to answer the user's questions accurately.
-If the user asks about something not in the data, say you don't have that information yet.
-Be concise, professional, and helpful.
-Format monetary values as R$ (BRL).
+        content: `You are an expert Digital Marketing Analyst and Strategist for the "Traffic Zen Hub" platform.
 
-${context}`
+YOUR ROLE:
+- Analyze campaign performance data and provide actionable insights
+- Identify trends, anomalies, and optimization opportunities
+- Suggest specific actions to improve ROAS, reduce CPA, and increase conversions
+- Compare platforms (Meta vs Google) and recommend budget allocation
+- Highlight underperforming campaigns/creatives that need attention
+
+ANALYSIS APPROACH:
+1. Always provide context and reasoning for your insights
+2. Use specific numbers from the data to support your recommendations
+3. Prioritize actionable advice over generic observations
+4. When comparing, explain WHY one option is better
+5. Identify both quick wins and long-term strategies
+
+RESPONSE STYLE:
+- Be concise but comprehensive
+- Use bullet points for clarity
+- Format monetary values as R$ (BRL)
+- Highlight critical issues with emphasis
+- End with clear next steps when appropriate
+
+AVAILABLE DATA (Last 30 Days):
+${context}
+
+If the user asks about something not in the data, politely explain what data you DO have access to and offer to analyze that instead.`
       }
     ];
 
