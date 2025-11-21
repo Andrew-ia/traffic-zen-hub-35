@@ -3,20 +3,20 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export function printCreativeScripts(task: PMTaskFull) {
-    const campaignData = task.metadata?.campaign_data;
+  const campaignData = task.metadata?.campaign_data;
 
-    if (!campaignData || !campaignData.adSets || campaignData.adSets.length === 0) {
-        alert('Não há dados de campanha ou criativos para gerar roteiro.');
-        return;
-    }
+  if (!campaignData || !campaignData.adSets || campaignData.adSets.length === 0) {
+    alert('Não há dados de campanha ou criativos para gerar roteiro.');
+    return;
+  }
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-        alert('Por favor, permita popups para gerar o roteiro.');
-        return;
-    }
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Por favor, permita popups para gerar o roteiro.');
+    return;
+  }
 
-    const styles = `
+  const styles = `
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
       
@@ -30,14 +30,42 @@ export function printCreativeScripts(task: PMTaskFull) {
       }
 
       @media print {
+        @page {
+          margin: 1.5cm;
+          size: auto;
+        }
         body {
           padding: 0;
+          max-width: none;
+          width: 100%;
+          margin: 0;
         }
         .no-print {
-          display: none;
+          display: none !important;
         }
         .page-break {
           page-break-before: always;
+        }
+        .creative {
+          break-inside: avoid;
+          border-bottom: none;
+          padding: 0;
+          margin-bottom: 40px;
+        }
+        .ad-set {
+          border: none;
+          margin-bottom: 0;
+        }
+        .ad-set-header {
+          background: none;
+          border-bottom: 2px solid #000;
+          padding-left: 0;
+          margin-bottom: 20px;
+        }
+        .script-content {
+          border-left: 2px solid #000;
+          background: none;
+          padding-left: 15px;
         }
       }
 
@@ -159,7 +187,7 @@ export function printCreativeScripts(task: PMTaskFull) {
     </style>
   `;
 
-    let content = `
+  let content = `
     <header>
       <h1>Roteiro de Gravação</h1>
       <div class="meta-info">
@@ -171,18 +199,18 @@ export function printCreativeScripts(task: PMTaskFull) {
     </header>
   `;
 
-    campaignData.adSets.forEach((adSet: any, index: number) => {
-        if (!adSet.creatives || adSet.creatives.length === 0) return;
+  campaignData.adSets.forEach((adSet: any, index: number) => {
+    if (!adSet.creatives || adSet.creatives.length === 0) return;
 
-        content += `
+    content += `
       <div class="ad-set">
         <div class="ad-set-header">
           Conjunto ${index + 1}: ${adSet.name}
         </div>
     `;
 
-        adSet.creatives.forEach((creative: any, cIndex: number) => {
-            content += `
+    adSet.creatives.forEach((creative: any, cIndex: number) => {
+      content += `
         <div class="creative ${index > 0 && cIndex === 0 ? 'page-break' : ''}">
           <div class="creative-header">
             <span>Criativo ${cIndex + 1}</span>
@@ -209,12 +237,12 @@ export function printCreativeScripts(task: PMTaskFull) {
           </div>
         </div>
       `;
-        });
-
-        content += `</div>`;
     });
 
-    content += `
+    content += `</div>`;
+  });
+
+  content += `
     <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimir Roteiro</button>
     <script>
       // Auto-print on load
@@ -226,7 +254,7 @@ export function printCreativeScripts(task: PMTaskFull) {
     </script>
   `;
 
-    printWindow.document.write(`
+  printWindow.document.write(`
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
@@ -240,5 +268,5 @@ export function printCreativeScripts(task: PMTaskFull) {
     </html>
   `);
 
-    printWindow.document.close();
+  printWindow.document.close();
 }
