@@ -67,6 +67,7 @@ import {
 } from './api/ai/insights.js';
 import chatRouter from './api/ai/chat.js';
 import conversationsRouter from './api/ai/conversations.js';
+import debugRouter from './api/debug.js';
 import { importCashflowXlsx } from './api/finance/cashflow.js';
 import { getEngagementRate } from './api/instagram/engagement.js';
 import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
@@ -306,6 +307,7 @@ app.get('/api/ai/dashboard', getAIDashboard);
 // AI Chat endpoints
 app.use('/api/ai/chat', chatRouter);
 app.use('/api/ai/conversations', conversationsRouter);
+app.use('/api/debug', debugRouter);
 
 // Project Management endpoints
 // Hierarchy
