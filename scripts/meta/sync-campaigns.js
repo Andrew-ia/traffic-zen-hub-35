@@ -2,6 +2,7 @@
 import fetch from "node-fetch";
 import process from "node:process";
 import { Client } from "pg";
+import { createClient } from "@supabase/supabase-js";
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -13,7 +14,15 @@ const {
   META_AD_ACCOUNT_ID,
   META_WORKSPACE_ID,
   SUPABASE_DATABASE_URL,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
 } = process.env;
+
+// Initialize Supabase client for storage
+let supabaseClient = null;
+if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+  supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+}
 
 function assertEnv(value, name) {
   if (!value) {
@@ -208,14 +217,12 @@ async function fetchAllAudiences(accessToken, adAccountId) {
     fields: [
       "id",
       "name",
+      "rule",
       "subtype",
-      "approximate_count",
-      "delivery_status",
-      "operation_status",
-      "time_updated",
+      "description",
+      "customer_file_source",
       "time_created",
-      "data_source",
-      "lookalike_spec",
+      "time_updated",
     ].join(","),
     limit: "100",
     access_token: accessToken,
@@ -257,6 +264,65 @@ async function fetchCreatives(accessToken, creativeIds) {
   return results;
 }
 
+/**
+ * Download creative image from Facebook and upload to Supabase storage
+ * @param {string} imageUrl - Facebook CDN URL
+ * @param {string} creativeId - Creative ID for filename
+ * @returns {Promise<string|null>} - Supabase public URL or null if failed
+ */
+async function downloadAndStoreCreative(imageUrl, creativeId) {
+  if (!supabaseClient) {
+    console.warn('Supabase client not initialized, skipping image download');
+    return null;
+  }
+
+  if (!imageUrl) {
+    return null;
+  }
+
+  try {
+    // Download image from Facebook
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      console.warn(`Failed to download image for creative ${creativeId}: ${response.statusText}`);
+      return null;
+    }
+
+    // Get content type and determine file extension
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const extension = contentType.split('/')[1]?.split(';')[0] || 'jpg';
+
+    // Generate filename
+    const filename = `${creativeId}.${extension}`;
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Upload to Supabase storage
+    const { data, error } = await supabaseClient.storage
+      .from('creatives')
+      .upload(filename, buffer, {
+        contentType,
+        upsert: true, // Overwrite if exists
+      });
+
+    if (error) {
+      console.warn(`Failed to upload creative ${creativeId} to storage:`, error.message);
+      return null;
+    }
+
+    // Get public URL
+    const { data: publicUrlData } = supabaseClient.storage
+      .from('creatives')
+      .getPublicUrl(filename);
+
+    console.log(`✓ Stored creative ${creativeId} in Supabase storage`);
+    return publicUrlData.publicUrl;
+  } catch (error) {
+    console.warn(`Error storing creative ${creativeId}:`, error.message ?? error);
+    return null;
+  }
+}
+
 function deriveCreativeType(creative) {
   const story = creative.object_story_spec ?? {};
   if (story.video_data) return "video";
@@ -266,25 +332,25 @@ function deriveCreativeType(creative) {
   return "text";
 }
 
-function buildCreativePayload(creative) {
+async function buildCreativePayload(creative) {
   const story = creative.object_story_spec ?? {};
   const type = deriveCreativeType(creative);
 
-  let storageUrl = creative.image_url ?? null;
-  let thumbnailUrl = creative.thumbnail_url ?? storageUrl ?? null;
+  let facebookImageUrl = creative.image_url ?? null;
+  let facebookThumbnailUrl = creative.thumbnail_url ?? facebookImageUrl ?? null;
   let textContent = creative.body ?? null;
   let durationSeconds = null;
   let aspectRatio = null;
 
   if (story.video_data) {
-    storageUrl = story.video_data.video_url ?? storageUrl;
-    thumbnailUrl = story.video_data.image_url ?? thumbnailUrl;
+    facebookImageUrl = story.video_data.video_url ?? facebookImageUrl;
+    facebookThumbnailUrl = story.video_data.image_url ?? facebookThumbnailUrl;
     textContent = story.video_data.message ?? textContent;
   }
 
   if (story.image_data) {
-    storageUrl = storageUrl ?? story.image_data.image_url ?? null;
-    thumbnailUrl = story.image_data.image_url ?? thumbnailUrl;
+    facebookImageUrl = facebookImageUrl ?? story.image_data.image_url ?? null;
+    facebookThumbnailUrl = story.image_data.image_url ?? facebookThumbnailUrl;
     textContent = story.image_data.message ?? textContent;
   }
 
@@ -296,13 +362,19 @@ function buildCreativePayload(creative) {
     textContent = textContent ?? story.carousel_data.cards.map((card) => card.title).filter(Boolean).join(" • ");
   }
 
+  // Download and store image in Supabase
+  const supabaseStorageUrl = await downloadAndStoreCreative(
+    facebookThumbnailUrl || facebookImageUrl,
+    creative.id
+  );
+
   const metadata = {
     metaCreativeId: creative.id,
     object_story_spec: story,
     asset_feed_spec: creative.asset_feed_spec ?? null,
     body: creative.body ?? null,
-    thumbnail_url: creative.thumbnail_url ?? null,
-    image_url: creative.image_url ?? null,
+    thumbnail_url: facebookThumbnailUrl,
+    image_url: facebookImageUrl,
     status: creative.status ?? null,
   };
 
@@ -310,8 +382,8 @@ function buildCreativePayload(creative) {
     externalId: creative.id,
     name: creative.name ?? `Creative ${creative.id}`,
     type,
-    storageUrl,
-    thumbnailUrl,
+    storageUrl: supabaseStorageUrl || facebookImageUrl, // Prefer Supabase, fallback to Facebook
+    thumbnailUrl: facebookThumbnailUrl,
     textContent,
     durationSeconds,
     aspectRatio,
@@ -818,7 +890,7 @@ async function main() {
       if (creativeIdSet.size > 0) {
         const creatives = await fetchCreatives(accessToken, Array.from(creativeIdSet));
         for (const creative of creatives) {
-          const payload = buildCreativePayload(creative);
+          const payload = await buildCreativePayload(creative);
           const creativeAssetId = await upsertCreativeAsset(client, workspaceId, payload);
           creativeAssetIdMap.set(creative.id, creativeAssetId);
         }

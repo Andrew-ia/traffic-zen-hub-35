@@ -13,12 +13,27 @@ export async function analyzeCreative(req: Request, res: Response) {
         }
 
         console.log('🧠 Analyzing creative:', creativeName);
+        console.log('📸 Image URL:', imageUrl);
 
         // Fetch image
-        const imageResp = await fetch(imageUrl);
-        if (!imageResp.ok) {
-            throw new Error(`Failed to fetch image: ${imageResp.statusText}`);
+        let imageResp;
+        try {
+            imageResp = await fetch(imageUrl);
+            if (!imageResp.ok) {
+                console.error(`Failed to fetch image: ${imageResp.status} ${imageResp.statusText}`);
+                return res.status(400).json({
+                    success: false,
+                    error: `Não foi possível acessar a imagem do criativo. A URL pode estar expirada ou inacessível.`
+                });
+            }
+        } catch (fetchError) {
+            console.error('Error fetching image:', fetchError);
+            return res.status(400).json({
+                success: false,
+                error: 'Erro ao baixar a imagem do criativo. Verifique se a URL está acessível.'
+            });
         }
+
         const imageBuffer = await imageResp.arrayBuffer();
         const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
@@ -64,6 +79,9 @@ export async function analyzeCreative(req: Request, res: Response) {
 
     } catch (error) {
         console.error('Error analyzing creative:', error);
-        res.status(500).json({ success: false, error: 'Failed to analyze creative' });
+        res.status(500).json({
+            success: false,
+            error: 'Falha ao analisar criativo com IA. Tente novamente.'
+        });
     }
 }

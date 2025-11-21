@@ -66,7 +66,8 @@ export default function MetaCreativeAnalysis() {
     setIsAnalyzing(true);
 
     try {
-      const imageUrl = creative.thumbnail_url || creative.storage_url;
+      // Only use storage_url (Supabase) to avoid 403 errors from expired Facebook URLs
+      const imageUrl = creative.storage_url;
       if (!imageUrl) {
         throw new Error("No image URL available for analysis");
       }
@@ -160,9 +161,9 @@ export default function MetaCreativeAnalysis() {
           {creatives.map((creative) => (
             <Card key={creative.id} className="overflow-hidden flex flex-col">
               <div className="aspect-square relative bg-muted group">
-                {creative.thumbnail_url || creative.storage_url ? (
+                {creative.storage_url ? (
                   <img
-                    src={creative.thumbnail_url || creative.storage_url || ""}
+                    src={creative.storage_url}
                     alt={creative.name}
                     className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
@@ -241,7 +242,7 @@ export default function MetaCreativeAnalysis() {
               <div className="flex items-center gap-4 p-3 bg-muted/30 rounded-lg">
                 <div className="h-16 w-16 rounded overflow-hidden flex-shrink-0">
                   <img
-                    src={selectedCreative.thumbnail_url || selectedCreative.storage_url || ""}
+                    src={selectedCreative.storage_url || ""}
                     className="w-full h-full object-cover"
                     alt="Thumbnail"
                   />
