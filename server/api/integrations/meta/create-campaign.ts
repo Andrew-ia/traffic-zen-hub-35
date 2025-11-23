@@ -127,11 +127,11 @@ export async function createMetaCampaign(req: Request, res: Response) {
     };
 
     // Get pageId from credentials OR fetch from API if missing
-    let pageId = requestedPageId || (credentials as any).pageId || (credentials as any).page_id;
+    let pageId = requestedPageId || (credentials as any).pageId || (credentials as any).page_id || (String(process.env.META_PAGE_ID || '').trim() || undefined);
     let pageAccessToken: string | undefined;
     let igActorId = (credentials as any).instagramActorId || (credentials as any).instagram_actor_id;
 
-    if (!pageId) {
+    if (!pageId && (credentials as any).accessToken) {
       console.log('Page ID not found in credentials, attempting to fetch from Meta API...');
       try {
         const pagesResponse = await callMetaApi('me/accounts', 'GET', {
@@ -171,7 +171,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
     }
 
     // Ensure page access token
-    if (!pageAccessToken && pageId) {
+    if (!pageAccessToken && pageId && (credentials as any).accessToken) {
       try {
         const pagesAgain = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
         if (Array.isArray(pagesAgain?.data)) {
@@ -186,7 +186,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
     }
 
     // Try to fetch connected Instagram actor id for profile destinations
-    if (!igActorId && pageId) {
+    if (!igActorId && pageId && (credentials as any).accessToken) {
       try {
         const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
         igActorId = resp?.connected_instagram_account?.id || undefined;
@@ -720,15 +720,15 @@ export async function getMetaPageInfo(req: Request, res: Response) {
 
     const accessToken = credentials.accessToken || credentials.access_token || process.env.META_ACCESS_TOKEN;
     const actAccountId = credentials.adAccountId || credentials.ad_account_id || process.env.META_AD_ACCOUNT_ID;
-    if (!accessToken) {
+    if (!accessToken && !process.env.META_PAGE_ID) {
       return res.status(400).json({ success: false, error: 'Meta access token missing' });
     }
 
-    let pageId = credentials.pageId || credentials.page_id;
+    let pageId = credentials.pageId || credentials.page_id || (String(process.env.META_PAGE_ID || '').trim() || undefined);
     let pageName: string | undefined;
     let igActorId = credentials.instagramActorId || credentials.instagram_actor_id;
 
-    if (!pageId) {
+    if (!pageId && accessToken) {
       try {
         const pagesResponse = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
         const first = Array.isArray(pagesResponse?.data) ? pagesResponse.data[0] : undefined;
@@ -746,7 +746,7 @@ export async function getMetaPageInfo(req: Request, res: Response) {
       } catch (e: any) {
         console.warn('Failed to fetch pages for Meta:', e?.message || e);
       }
-    } else {
+    } else if (pageId && accessToken) {
       try {
         const info = await callMetaApi(`${pageId}`, 'GET', { fields: 'name' });
         pageName = info?.name || undefined;
@@ -755,7 +755,7 @@ export async function getMetaPageInfo(req: Request, res: Response) {
       }
     }
 
-    if (!igActorId && pageId) {
+    if (!igActorId && pageId && accessToken) {
       try {
         const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
         igActorId = resp?.connected_instagram_account?.id || undefined;
@@ -765,7 +765,7 @@ export async function getMetaPageInfo(req: Request, res: Response) {
     }
 
     if (!pageId) {
-      return res.status(404).json({ success: false, error: 'No Facebook Page associated with the account' });
+      return res.status(404).json({ success: false, error: 'No Facebook Page associated with the account or environment' });
     }
 
     return res.json({
