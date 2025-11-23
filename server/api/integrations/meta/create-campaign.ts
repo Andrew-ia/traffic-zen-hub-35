@@ -698,6 +698,86 @@ export async function createMetaCampaign(req: Request, res: Response) {
   }
 }
 
+// GET /api/integrations/meta/page-info/:workspaceId
+export async function getMetaPageInfo(req: Request, res: Response) {
+  try {
+    const { workspaceId } = req.params as { workspaceId: string };
+    if (!workspaceId) {
+      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
+    }
+
+    const pool = getPool();
+    const credRow = await pool.query(
+      `SELECT encrypted_credentials, encryption_iv FROM integration_credentials WHERE workspace_id = $1 AND platform_key = 'meta' LIMIT 1`,
+      [workspaceId]
+    );
+    if (credRow.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Meta credentials not found for workspace' });
+    }
+
+    const { encrypted_credentials, encryption_iv } = credRow.rows[0];
+    const credentials = decryptCredentials(encrypted_credentials, encryption_iv);
+
+    const accessToken = credentials.accessToken || credentials.access_token || process.env.META_ACCESS_TOKEN;
+    const actAccountId = credentials.adAccountId || credentials.ad_account_id || process.env.META_AD_ACCOUNT_ID;
+    if (!accessToken) {
+      return res.status(400).json({ success: false, error: 'Meta access token missing' });
+    }
+
+    let pageId = credentials.pageId || credentials.page_id;
+    let pageName: string | undefined;
+    let igActorId = credentials.instagramActorId || credentials.instagram_actor_id;
+
+    if (!pageId) {
+      try {
+        const pagesResponse = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
+        const first = Array.isArray(pagesResponse?.data) ? pagesResponse.data[0] : undefined;
+        if (first?.id) {
+          pageId = first.id;
+          pageName = first.name;
+          // persist in DB
+          const newCreds = { ...credentials, pageId, page_id: pageId };
+          const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCreds);
+          await pool.query(
+            `UPDATE integration_credentials SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW() WHERE workspace_id = $3 AND platform_key = 'meta'`,
+            [newEncrypted, newIv, workspaceId]
+          );
+        }
+      } catch (e: any) {
+        console.warn('Failed to fetch pages for Meta:', e?.message || e);
+      }
+    } else {
+      try {
+        const info = await callMetaApi(`${pageId}`, 'GET', { fields: 'name' });
+        pageName = info?.name || undefined;
+      } catch (err: any) {
+        console.warn('Failed to fetch page name', err?.message || err);
+      }
+    }
+
+    if (!igActorId && pageId) {
+      try {
+        const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
+        igActorId = resp?.connected_instagram_account?.id || undefined;
+      } catch (err: any) {
+        console.warn('Failed to fetch connected Instagram account', err?.message || err);
+      }
+    }
+
+    if (!pageId) {
+      return res.status(404).json({ success: false, error: 'No Facebook Page associated with the account' });
+    }
+
+    return res.json({
+      success: true,
+      data: { page_id: pageId, page_name: pageName, instagram_actor_id: igActorId }
+    });
+  } catch (error: any) {
+    console.error('Error in getMetaPageInfo:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Internal error' });
+  }
+}
+
 /**
  * SANITY CHECK FUNCTION
  * Impede o envio de combinações inválidas para a API do Meta.

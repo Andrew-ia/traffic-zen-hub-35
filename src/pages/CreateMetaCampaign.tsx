@@ -109,6 +109,7 @@ export default function CreateMetaCampaign() {
     const [isSimpleMode, setIsSimpleMode] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
     const [pageId, setPageId] = useState<string>("");
+    const [pageInfo, setPageInfo] = useState<{ id?: string; name?: string } | null>(null);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
     const [pickerSearch, setPickerSearch] = useState("");
@@ -276,6 +277,30 @@ export default function CreateMetaCampaign() {
 
         return ['WEBSITE'];
     }
+
+    useEffect(() => {
+        const destinationKey = adSets.map(s => String(s.destination_type || '')).join('|');
+        const hasTrafficDestNeedingPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type)));
+        const needsPage = (
+            campaign.objective === 'OUTCOME_ENGAGEMENT' ||
+            campaign.objective === 'OUTCOME_LEADS' ||
+            (campaign.objective === 'OUTCOME_TRAFFIC' && hasTrafficDestNeedingPage)
+        );
+        if (needsPage && !pageId) {
+            (async () => {
+                try {
+                    const resp = await fetch(`${API_BASE}/api/integrations/meta/page-info/${WORKSPACE_ID}`);
+                    const data = await resp.json();
+                    if (data?.success && data?.data?.page_id) {
+                        setPageId(data.data.page_id);
+                        setPageInfo({ id: data.data.page_id, name: data.data.page_name });
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch page info', e);
+                }
+            })();
+        }
+    }, [campaign.objective, pageId, adSets]);
 
     const handleTaskSelect = (taskId: string) => {
         setSelectedTaskId(taskId);
@@ -711,15 +736,18 @@ export default function CreateMetaCampaign() {
                                 {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
                                   (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
                                   campaign.objective === 'OUTCOME_LEADS') && (
-                                    <div className="space-y-2">
-                                      <Label>Page ID (Facebook)</Label>
-                                      <Input
-                                        placeholder="Ex: 123456789012345"
-                                        value={pageId}
-                                        onChange={(e) => setPageId(e.target.value)}
-                                      />
-                                    </div>
-                                  )}
+                                  <div className="space-y-2">
+                                    <Label>Page ID (Facebook)</Label>
+                                    <Input
+                                      placeholder="Ex: 123456789012345"
+                                      value={pageId}
+                                      onChange={(e) => setPageId(e.target.value)}
+                                    />
+                                    {pageInfo?.name && (
+                                      <p className="text-xs text-muted-foreground">Página detectada: {pageInfo.name} ({pageInfo.id})</p>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Publisher Platforms Selection for Generic Engagement */}
                                 {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
