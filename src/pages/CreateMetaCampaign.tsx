@@ -250,6 +250,12 @@ export default function CreateMetaCampaign() {
     function updateCampaign<K extends keyof typeof campaign>(key: K, value: (typeof campaign)[K]) {
         setCampaign(prev => ({ ...prev, [key]: value }));
         setTimeout(ensureValidDestinations, 0);
+        setTimeout(() => {
+            setAdSets(prev => prev.map(s => {
+                const allowed = getAllowedOptimizations(String((key === 'objective' ? value : campaign.objective)));
+                return allowed.includes(s.optimization_goal) ? s : { ...s, optimization_goal: allowed[0] };
+            }));
+        }, 0);
     }
 
     function getAllowedDestinations(objective: string, optimization: string) {
@@ -276,6 +282,16 @@ export default function CreateMetaCampaign() {
       }
 
         return ['WEBSITE'];
+    }
+
+    function getAllowedOptimizations(objective: string) {
+        const obj = String(objective || '').toUpperCase();
+        if (obj === 'OUTCOME_TRAFFIC') return ['LINK_CLICKS'];
+        if (obj === 'OUTCOME_LEADS') return ['LEAD_GENERATION'];
+        if (obj === 'OUTCOME_SALES') return ['OFFSITE_CONVERSIONS'];
+        if (obj === 'OUTCOME_ENGAGEMENT') return ['POST_ENGAGEMENT'];
+        if (obj === 'OUTCOME_AWARENESS') return ['REACH'];
+        return ['LINK_CLICKS'];
     }
 
     useEffect(() => {
@@ -695,13 +711,17 @@ export default function CreateMetaCampaign() {
                                                         <SelectTrigger>
                                                             <SelectValue />
                                                         </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="LEAD_GENERATION">Geração de Leads</SelectItem>
-                                                            <SelectItem value="OFFSITE_CONVERSIONS">Conversões</SelectItem>
-                                                            <SelectItem value="LINK_CLICKS">Cliques no Link</SelectItem>
-                                                            <SelectItem value="POST_ENGAGEMENT">Engajamentos</SelectItem>
-                                                            <SelectItem value="MESSAGES">Mensagens</SelectItem>
-                                                        </SelectContent>
+                                                <SelectContent>
+                                                    {getAllowedOptimizations(campaign.objective).map((opt) => (
+                                                        <SelectItem key={opt} value={opt}>
+                                                            {opt === 'LINK_CLICKS' ? 'Cliques no Link'
+                                                                : opt === 'LEAD_GENERATION' ? 'Geração de Leads'
+                                                                    : opt === 'OFFSITE_CONVERSIONS' ? 'Conversões'
+                                                                        : opt === 'POST_ENGAGEMENT' ? 'Engajamentos'
+                                                                            : 'Alcance'}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
                                                     </Select>
                                                 </div>
                                             </div>
