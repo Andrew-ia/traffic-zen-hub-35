@@ -185,20 +185,23 @@ export default function CreateMetaCampaign() {
     }
 
     function getAllowedDestinations(objective: string, optimization: string) {
-        const obj = objective.toUpperCase();
-        const opt = optimization.toUpperCase();
+      const obj = objective.toUpperCase();
+      const opt = optimization.toUpperCase();
 
-        if (obj === 'OUTCOME_ENGAGEMENT') {
-            if (opt === 'MESSAGES') {
-                return ['MESSAGING_APP']; // WhatsApp/Messenger/IG Direct
-            }
-            // Para engajamento, sempre usar Instagram ou Facebook (não "No seu anúncio")
-            return ['INSTAGRAM_OR_FACEBOOK'];
+      if (obj === 'OUTCOME_ENGAGEMENT') {
+        if (opt === 'MESSAGES') {
+          return ['MESSAGING_APP']; // WhatsApp/Messenger/IG Direct
         }
+        // Para engajamento, sempre usar Instagram ou Facebook (não "No seu anúncio")
+        return ['INSTAGRAM_OR_FACEBOOK'];
+      }
 
-        if (obj === 'OUTCOME_SALES' || obj === 'OUTCOME_LEADS' || obj === 'OUTCOME_TRAFFIC') {
-            return ['WEBSITE'];
-        }
+      if (obj === 'OUTCOME_LEADS') {
+          return ['MESSAGING_APP'];
+      }
+      if (obj === 'OUTCOME_SALES' || obj === 'OUTCOME_TRAFFIC') {
+          return ['WEBSITE'];
+      }
 
         return ['WEBSITE'];
     }
@@ -278,7 +281,7 @@ export default function CreateMetaCampaign() {
                         case 'OUTCOME_TRAFFIC': return 'WEBSITE';
                         case 'MESSAGES': return 'MESSAGES_DESTINATIONS';
                         case 'OUTCOME_SALES': return 'WEBSITE';
-                        case 'OUTCOME_LEADS': return 'ON_AD';
+                        case 'OUTCOME_LEADS': return 'MESSAGING_APP';
                         case 'OUTCOME_ENGAGEMENT': return undefined;
                         default: return undefined;
                     }
@@ -335,9 +338,10 @@ export default function CreateMetaCampaign() {
                     campaign: campaign,
                     adSets: adSets.map(adSet => {
                         // FORÇA POST_ENGAGEMENT para campanhas de engajamento
-                        const finalOptimizationGoal = campaign.objective === 'OUTCOME_ENGAGEMENT'
-                            ? 'POST_ENGAGEMENT'
-                            : adSet.optimization_goal;
+                        const finalOptimizationGoal =
+                            campaign.objective === 'OUTCOME_ENGAGEMENT'
+                                ? 'POST_ENGAGEMENT'
+                                : (campaign.objective === 'OUTCOME_LEADS' ? 'MESSAGES' : adSet.optimization_goal);
 
                         // REMOVE destination_type completamente para engajamento (backend infere)
                         const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';

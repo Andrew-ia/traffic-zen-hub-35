@@ -49,8 +49,8 @@ export async function listMetaPages(req: Request, res: Response) {
         };
 
         // 1. Try /me/accounts (Standard)
-        let url = `${GRAPH_URL}/me/accounts?access_token=${accessToken}&fields=id,name,access_token,perms,picture&limit=100`;
-        let data = await fetchPages(url);
+        const url = `${GRAPH_URL}/me/accounts?access_token=${accessToken}&fields=id,name,access_token,perms,picture&limit=100`;
+        const data = await fetchPages(url);
 
         // 2. If empty or error, and we have a business ID, try business client pages
         // (This is a guess, but sometimes helpful for agencies)

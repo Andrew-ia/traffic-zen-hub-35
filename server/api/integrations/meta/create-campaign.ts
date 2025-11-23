@@ -279,7 +279,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       const optUpper = String(adSet.optimization_goal || '').toUpperCase();
       const destUpper = String((adSet as any).destination_type || '').toUpperCase();
 
-      let adSetPayload: any = {
+      const adSetPayload: any = {
         name: adSet.name,
         campaign_id: campaignId,
         daily_budget: typeof adSet.daily_budget === 'string' ? adSet.daily_budget : String(adSet.daily_budget),
@@ -295,9 +295,6 @@ export async function createMetaCampaign(req: Request, res: Response) {
       // A) Campanha de Engajamento (OUTCOME_ENGAGEMENT)
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
-
-        // CRITICAL: Set conversion_location for engagement campaigns
-        adSetPayload.conversion_location = 'onsite_engagement';
 
         // SEMPRE usar ON_POST para POST_ENGAGEMENT (Test Q passou)
         if (optUpper === 'POST_ENGAGEMENT') {
@@ -338,18 +335,20 @@ export async function createMetaCampaign(req: Request, res: Response) {
         }
       }
 
-      // B) Campanha de Conversão no Site (OUTCOME_SALES, OUTCOME_LEADS, OUTCOME_TRAFFIC)
+      // B) Campanhas de Conversão/Leads/Tráfego
       else if (['OUTCOME_SALES', 'OUTCOME_LEADS', 'OUTCOME_TRAFFIC', 'CONVERSIONS'].includes(objUpper)) {
-        adSetPayload.destination_type = 'WEBSITE';
         adSetPayload.billing_event = 'IMPRESSIONS';
 
-        // Add pixel for Sales/Leads if available
-        if (objUpper === 'OUTCOME_SALES' || objUpper === 'OUTCOME_LEADS') {
-          if (pixelId) {
-            adSetPayload.promoted_object = {
-              pixel_id: pixelId,
-              custom_event_type: 'PURCHASE' // Default for Sales
-            };
+        if (objUpper === 'OUTCOME_LEADS') {
+          adSetPayload.destination_type = 'MESSAGING_APP';
+          adSetPayload.optimization_goal = 'MESSAGES';
+          if (pageId) {
+            adSetPayload.promoted_object = { page_id: pageId };
+          }
+        } else {
+          adSetPayload.destination_type = 'WEBSITE';
+          if (objUpper === 'OUTCOME_SALES' && pixelId) {
+            adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
           }
         }
       }
@@ -494,7 +493,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
  * SANITY CHECK FUNCTION
  * Impede o envio de combinações inválidas para a API do Meta.
  */
-function validateMetaPayload(objective: string, adSetPayload: any) {
+export function validateMetaPayload(objective: string, adSetPayload: any) {
   const obj = String(objective).toUpperCase();
   const dest = String(adSetPayload.destination_type || '').toUpperCase();
   const promoted = adSetPayload.promoted_object || {};
@@ -524,6 +523,11 @@ function validateMetaPayload(objective: string, adSetPayload: any) {
   if (obj === 'OUTCOME_SALES' && dest === 'WEBSITE') {
     // Warn or Error? User said "C) ... promoted_object: { pixel_id: PIXEL ... }"
     // We won't throw here if pixel is missing because maybe they just want traffic, but strictly for SALES it's good practice.
+  }
+  if (obj === 'OUTCOME_LEADS' && dest === 'MESSAGING_APP') {
+    if (!promoted.page_id) {
+      throw new Error(`SANITY CHECK FAILED: OUTCOME_LEADS to WhatsApp requires 'page_id'.`);
+    }
   }
 }
 

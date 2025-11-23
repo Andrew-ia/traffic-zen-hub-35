@@ -25,7 +25,9 @@
     "generate:encryption-key": "node server/scripts/generate-encryption-key.js",
     "import:cashflow": "tsx scripts/financial/import-cashflow.ts",
     "test:env": "node scripts/test-env.ts",
-    "test:api": "tsx scripts/test-api-health.ts"
+    "test:api": "tsx scripts/test-api-health.ts",
+    "test:meta:flows": "tsx scripts/tests/validate-meta-flows.ts",
+    "verify:meta:create": "tsx scripts/meta/verify-create-flows.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
