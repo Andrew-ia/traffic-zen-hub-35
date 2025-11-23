@@ -391,10 +391,114 @@ async function testPayloads() {
                 },
                 promoted_object: { page_id: PAGE_ID }
             }
+        },
+        {
+            name: 'Test Q: Exact User Scenario (POST_ENGAGEMENT + IMPRESSIONS + ON_POST inferred)',
+            payload: {
+                name: 'Test Q',
+                campaign_id: campaignId,
+                billing_event: 'IMPRESSIONS',
+                optimization_goal: 'POST_ENGAGEMENT',
+                daily_budget: 1000,
+                bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+                status: 'PAUSED',
+                destination_type: 'ON_POST', // Backend infers this
+                targeting: {
+                    geo_locations: { countries: ['BR'] },
+                    publisher_platforms: ['facebook', 'instagram'],
+                    age_min: 18,
+                    age_max: 65,
+                    genders: [1, 2],
+                    facebook_positions: ['feed'],
+                    instagram_positions: ['stream'],
+                    device_platforms: ['mobile', 'desktop']
+                },
+                promoted_object: { page_id: PAGE_ID }
+            }
+        },
+        {
+            name: 'Test R: ON_POST + POST_ENGAGEMENT + Missing Page ID',
+            payload: {
+                name: 'Test R',
+                campaign_id: campaignId,
+                billing_event: 'IMPRESSIONS',
+                optimization_goal: 'POST_ENGAGEMENT',
+                daily_budget: 1000,
+                bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+                status: 'PAUSED',
+                destination_type: 'ON_POST',
+                targeting: {
+                    geo_locations: { countries: ['BR'] },
+                    publisher_platforms: ['facebook', 'instagram'],
+                },
+                // promoted_object: { page_id: PAGE_ID } // Missing
+            }
+        },
+        {
+            name: 'Test S: ON_POST + POST_ENGAGEMENT + Invalid Page ID',
+            payload: {
+                name: 'Test S',
+                campaign_id: campaignId,
+                billing_event: 'IMPRESSIONS',
+                optimization_goal: 'POST_ENGAGEMENT',
+                daily_budget: 1000,
+                bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+                status: 'PAUSED',
+                destination_type: 'ON_POST',
+                targeting: {
+                    geo_locations: { countries: ['BR'] },
+                    publisher_platforms: ['facebook', 'instagram'],
+                },
+                promoted_object: { page_id: '12345' } // Invalid
+            }
         }
     ];
 
-    for (const test of payloads) {
+    const basePayload = {
+        campaign_id: campaignId,
+        billing_event: 'IMPRESSIONS',
+        daily_budget: 1000,
+        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+        status: 'PAUSED',
+        targeting: {
+            geo_locations: { countries: ['BR'] },
+            publisher_platforms: ['facebook', 'instagram'],
+        },
+        promoted_object: { page_id: PAGE_ID }
+    };
+
+    const extraTests = [
+        {
+            name: 'Test V: ON_PAGE + POST_ENGAGEMENT',
+            payload: { ...basePayload, name: 'Test V', destination_type: 'ON_PAGE', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test W: WEBSITE + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'WEBSITE', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test X: APP + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'APP', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test Y: FACEBOOK + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'FACEBOOK', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test Z: INSTAGRAM_DIRECT + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'INSTAGRAM_DIRECT', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test AA: WHATSAPP + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'WHATSAPP', optimization_goal: 'POST_ENGAGEMENT' }
+        },
+        {
+            name: 'Test AB: MESSENGER + POST_ENGAGEMENT',
+            payload: { ...basePayload, destination_type: 'MESSENGER', optimization_goal: 'POST_ENGAGEMENT' }
+        }
+    ];
+
+    for (const test of [...payloads, ...extraTests]) {
         console.log(`\nRunning ${test.name}...`);
         const res = await callMetaApi(`act_${AD_ACCOUNT_ID}/adsets`, 'POST', ACCESS_TOKEN, test.payload);
         if (res.error) {
