@@ -333,20 +333,36 @@ export default function CreateMetaCampaign() {
                 body: JSON.stringify({
                     workspaceId: WORKSPACE_ID,
                     campaign: campaign,
-                    adSets: adSets.map(adSet => ({
-                        ...adSet,
-                        daily_budget: parseInt(adSet.daily_budget),
-                        destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type) ? undefined : adSet.destination_type,
-                        targeting: {
-                            ...adSet.targeting,
-                            publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
-                        },
-                        ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
-                            ...ad,
-                            creative_id: ad.creative_id,
-                            status: 'PAUSED'
-                        }))
-                    })),
+                    adSets: adSets.map(adSet => {
+                        // FORÇA POST_ENGAGEMENT para campanhas de engajamento
+                        const finalOptimizationGoal = campaign.objective === 'OUTCOME_ENGAGEMENT'
+                            ? 'POST_ENGAGEMENT'
+                            : adSet.optimization_goal;
+
+                        // REMOVE destination_type completamente para engajamento (backend infere)
+                        const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';
+
+                        return {
+                            ...adSet,
+                            optimization_goal: finalOptimizationGoal,
+                            daily_budget: parseInt(adSet.daily_budget),
+                            // NÃO enviar destination_type para engajamento
+                            ...(shouldRemoveDestination ? {} : {
+                                destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type)
+                                    ? undefined
+                                    : adSet.destination_type
+                            }),
+                            targeting: {
+                                ...adSet.targeting,
+                                publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
+                            },
+                            ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
+                                ...ad,
+                                creative_id: ad.creative_id,
+                                status: 'PAUSED'
+                            }))
+                        };
+                    }),
                 }),
             });
 
