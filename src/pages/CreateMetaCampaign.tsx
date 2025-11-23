@@ -370,9 +370,9 @@ export default function CreateMetaCampaign() {
                         },
                         ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
                             ...ad,
-                            creative_id: ad.creative_id,
+                            creative_id: campaign.objective === 'OUTCOME_ENGAGEMENT' ? '' : (ad.creative_id || ''),
                             creative_asset_id: ad.creative_asset_id,
-                            status: 'PAUSED'
+                            status: 'paused'
                         }))
                     };
                 }),
@@ -752,15 +752,7 @@ export default function CreateMetaCampaign() {
                                                                 className="h-8"
                                                             />
                                                         </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">ID Criativo (Meta)</Label>
-                                                            <Input
-                                                                value={ad.creative_id}
-                                                                onChange={(e) => updateAd(adSet.id, ad.id, "creative_id", e.target.value)}
-                                                                className="h-8"
-                                                                placeholder="123456789"
-                                                            />
-                                                        </div>
+                                                        {/* Campo de ID do Criativo (Meta) removido — usar seleção de Drive */}
                                                         <div className="col-span-2 flex items-center gap-2">
                                                             <Button variant="outline" size="sm" onClick={() => { setPickerContext({ adSetId: adSet.id, adId: ad.id }); setPickerOpen(true); }}>
                                                                 Escolher criativo do Drive (vídeo)
