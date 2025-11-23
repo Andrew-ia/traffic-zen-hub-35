@@ -464,7 +464,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       const localAdSetId = upsertAdSetResult.rows[0].id as string;
       const createdAds = [];
 
-      // 4. Create Ads for this Ad Set (tolerante a falhas)
+      // 4. Create Ads for this Ad Set (somente quando explicitamente fornecido)
       if (adSet.ads && adSet.ads.length > 0) {
         for (const ad of adSet.ads) {
           console.log('Creating Ad:', ad.name);
