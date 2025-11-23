@@ -192,9 +192,7 @@ export default function CreateMetaCampaign() {
             if (opt === 'MESSAGES') {
                 return ['MESSAGING_APP']; // WhatsApp/Messenger/IG Direct
             }
-            if (opt === 'POST_ENGAGEMENT' || opt === 'PAGE_LIKES' || opt === 'VIDEO_VIEWS') {
-                return ['ON_AD', 'INSTAGRAM_OR_FACEBOOK']; // Generic (Instagram/Facebook)
-            }
+            // Para engajamento, sempre usar Instagram ou Facebook (não "No seu anúncio")
             return ['INSTAGRAM_OR_FACEBOOK'];
         }
 
