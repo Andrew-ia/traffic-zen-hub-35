@@ -36,6 +36,7 @@ import { getAggregateMetrics, getTimeSeriesMetrics, getAggregateMetricsByObjecti
 import { getDemographics } from './api/analytics/demographics.js';
 import { getCreativePerformance } from './api/analytics/creative-performance.js';
 import { syncGoogleAdsData } from './api/google-ads/sync.js';
+import { listMetaPages } from './api/integrations/meta/list-pages.js';
 
 import {
   getCampaignLibrary,

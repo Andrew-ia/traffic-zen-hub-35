@@ -183,10 +183,9 @@ export async function createMetaCampaign(req: Request, res: Response) {
       special_ad_categories: campaign.special_ad_categories || [],
     };
 
-    // CRITICAL: Add engagement_type AND promoted_object for OUTCOME_ENGAGEMENT campaigns
+    // ENGAGEMENT: apenas engagement_type na campanha (sem promoted_object)
     if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
-      campaignPayload.engagement_type = 'post_engagement'; // Required field
-      campaignPayload.promoted_object = { page_id: pageId }; // Required field
+      campaignPayload.engagement_type = 'post_engagement';
     }
 
     const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', campaignPayload);
@@ -340,8 +339,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
         if (objUpper === 'OUTCOME_LEADS') {
-          adSetPayload.destination_type = 'MESSAGING_APP';
-          adSetPayload.optimization_goal = 'MESSAGES';
+          adSetPayload.destination_type = 'MESSAGING_INSTAGRAM_DIRECT_WHATSAPP';
+          adSetPayload.optimization_goal = 'CONVERSATIONS';
           if (pageId) {
             adSetPayload.promoted_object = { page_id: pageId };
           }
@@ -372,7 +371,21 @@ export async function createMetaCampaign(req: Request, res: Response) {
       console.log(`[Meta API] Full Payload:`, JSON.stringify(adSetPayload, null, 2));
       console.log(`[Meta API] ========================================`);
 
-      const adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+      let adSetResponse: any;
+      try {
+        adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+      } catch (e: any) {
+        const msg = String(e?.message || e || '').toLowerCase();
+        const isParamError = msg.includes('invalid parameter') || msg.includes('destination_type');
+        if (objUpper === 'OUTCOME_LEADS' && isParamError) {
+          console.warn('[Meta API] Fallback for OUTCOME_LEADS → ON_AD + LEAD_GENERATION');
+          adSetPayload.destination_type = 'ON_AD';
+          adSetPayload.optimization_goal = 'LEAD_GENERATION';
+          adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+        } else {
+          throw e;
+        }
+      }
       const adSetId = adSetResponse.id;
 
       const upsertAdSetResult = await pool.query(

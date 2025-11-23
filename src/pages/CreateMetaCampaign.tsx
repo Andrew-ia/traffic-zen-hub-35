@@ -196,9 +196,9 @@ export default function CreateMetaCampaign() {
         return ['INSTAGRAM_OR_FACEBOOK'];
       }
 
-      if (obj === 'OUTCOME_LEADS') {
-          return ['MESSAGING_APP'];
-      }
+        if (obj === 'OUTCOME_LEADS') {
+            return ['WHATSAPP'];
+        }
       if (obj === 'OUTCOME_SALES' || obj === 'OUTCOME_TRAFFIC') {
           return ['WEBSITE'];
       }
@@ -281,7 +281,7 @@ export default function CreateMetaCampaign() {
                         case 'OUTCOME_TRAFFIC': return 'WEBSITE';
                         case 'MESSAGES': return 'MESSAGES_DESTINATIONS';
                         case 'OUTCOME_SALES': return 'WEBSITE';
-                        case 'OUTCOME_LEADS': return 'MESSAGING_APP';
+                        case 'OUTCOME_LEADS': return 'WHATSAPP';
                         case 'OUTCOME_ENGAGEMENT': return undefined;
                         default: return undefined;
                     }
@@ -341,7 +341,7 @@ export default function CreateMetaCampaign() {
                         const finalOptimizationGoal =
                             campaign.objective === 'OUTCOME_ENGAGEMENT'
                                 ? 'POST_ENGAGEMENT'
-                                : (campaign.objective === 'OUTCOME_LEADS' ? 'MESSAGES' : adSet.optimization_goal);
+                                : (campaign.objective === 'OUTCOME_LEADS' ? 'CONVERSATIONS' : adSet.optimization_goal);
 
                         // REMOVE destination_type completamente para engajamento (backend infere)
                         const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';
