@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, ChevronRight, Loader2, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,11 @@ interface AdSet {
         geo_locations: { countries: string[] };
         age_min: number;
         age_max: number;
+        genders?: number[];
+        publisher_platforms?: string[];
+        facebook_positions?: string[];
+        instagram_positions?: string[];
+        device_platforms?: string[];
         interests?: string;
         custom_audiences?: string;
     };
