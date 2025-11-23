@@ -467,13 +467,13 @@ export async function createMetaCampaign(req: Request, res: Response) {
       // 4. Create Ads for this Ad Set
       const adsForSet = (adSet.ads && adSet.ads.length > 0)
         ? adSet.ads
-        : [];
+        : [{ name: `${adSet.name} - Anúncio 1`, creative_id: '', status: 'paused' }];
       if (adsForSet.length > 0) {
         for (const ad of adsForSet) {
           console.log('Creating Ad:', ad.name);
           let creativeId = ad.creative_id;
 
-          // ENGAGEMENT: criar post não publicado e usar object_story_id
+          // ENGAGEMENT: criar post não publicado e usar object_story_id, com fallback para promotable_posts
           if ((!creativeId || String(creativeId).trim() === '') && objUpper === 'OUTCOME_ENGAGEMENT' && pageId) {
             try {
               const uploadToken = pageAccessToken || accessToken;
@@ -494,8 +494,17 @@ export async function createMetaCampaign(req: Request, res: Response) {
               creativeId = creativeResp.id;
               console.log(`[Meta API] Created engagement adcreative from dark post ${objectStoryId}: ${creativeId}`);
             } catch (engErr: any) {
-              console.warn('[Meta API] Failed to create engagement adcreative from dark post:', msg3(engErr));
-              failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(engErr) });
+              try {
+                const posts = await callMetaApi(`${pageId}/promotable_posts`, 'GET', { fields: 'id,created_time', is_published: true, limit: 10 });
+                const items = Array.isArray(posts?.data) ? posts.data : [];
+                const chosen = items[0]?.id;
+                if (!chosen) throw new Error('No promotable_posts available');
+                const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_id: chosen });
+                creativeId = creativeResp.id;
+              } catch (fbErr: any) {
+                console.warn('[Meta API] Failed engagement fallback via promotable_posts:', msg3(fbErr));
+                failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(fbErr) });
+              }
             }
           }
 
@@ -570,7 +579,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
             name: ad.name,
             adset_id: adSetId,
             creative: { creative_id: creativeId },
-            status: ad.status,
+            status: String(ad.status || 'PAUSED').toUpperCase(),
           };
           try {
             const adResponse = await callMetaApi(`${actAccountId}/ads`, 'POST', adPayload);
