@@ -189,6 +189,13 @@ export default function CreateMetaCampaign() {
         }
     });
 
+    const apiDiagnostics = {
+        apiBase: API_BASE,
+        isProd: !import.meta.env.DEV,
+        hasAudiences: Array.isArray(audiences) && audiences.length > 0,
+        likelyMisconfigured: (!import.meta.env.DEV && !API_BASE),
+    };
+
     const isMetaCampaignTask = (task: PMTask) => {
         const cd = task.metadata?.campaign_data;
         if (!cd) return false;
@@ -851,6 +858,11 @@ export default function CreateMetaCampaign() {
                                     <div className="space-y-2 mt-4">
                                         <Label>Públicos personalizados (Meta)</Label>
                                         <p className="text-xs text-muted-foreground">Selecione um ou mais IDs. Busca por nome disponível.</p>
+                                        {!apiDiagnostics.hasAudiences && apiDiagnostics.isProd && (
+                                            <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                                                API não retornou públicos. Verifique a variável VITE_API_URL e credenciais Meta no ambiente de produção.
+                                            </div>
+                                        )}
                                         <div className="border rounded p-2">
                                             <Input
                                                 placeholder="Buscar público..."
