@@ -360,9 +360,13 @@ export async function createMetaCampaign(req: Request, res: Response) {
       // A) Campanhas de Engajamento (OUTCOME_ENGAGEMENT)
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
-        // Engajamento em Post é o fluxo estável via API
         adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-        adSetPayload.destination_type = 'ON_POST';
+        if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
+          adSetPayload.destination_type = 'ON_POST';
+        } else {
+          // MENSAGENS_DESTINATIONS e ON_AD mapeiam para ON_AD
+          adSetPayload.destination_type = 'ON_AD';
+        }
         if (pageId) {
           adSetPayload.promoted_object = { page_id: pageId };
         }

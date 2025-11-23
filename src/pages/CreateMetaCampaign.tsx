@@ -264,10 +264,8 @@ export default function CreateMetaCampaign() {
       const opt = optimization.toUpperCase();
 
         if (obj === 'OUTCOME_ENGAGEMENT') {
-            // Para engajamento, oferecemos seleção entre interagir no anúncio (ON_AD)
-            // e interagir em perfil/página (INSTAGRAM_OR_FACEBOOK). Ambas serão mapeadas
-            // corretamente no backend (ON_POST para estabilidade).
-            return ['ON_AD', 'INSTAGRAM_OR_FACEBOOK'];
+            // Engajamento: mensagens, no anúncio, ou Instagram/Facebook
+            return ['MESSAGES_DESTINATIONS', 'ON_AD', 'INSTAGRAM_OR_FACEBOOK'];
         }
 
         if (obj === 'OUTCOME_LEADS') {
