@@ -22,6 +22,7 @@ import AIChat from "./pages/AIChat";
 
 import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
+import CreateMetaCampaign from "./pages/CreateMetaCampaign";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DriveCreatives from "./pages/DriveCreatives";
 import MetaCreativeAnalysis from "./pages/MetaCreativeAnalysis";
@@ -82,6 +83,7 @@ const App = () => (
               <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
               <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
               <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
+              <Route path="/campaigns/new/meta" element={<RequireAuth><CreateMetaCampaign /></RequireAuth>} />
 
               <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />

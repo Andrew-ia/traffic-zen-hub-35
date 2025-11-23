@@ -8,6 +8,7 @@ import { saveCredentials, getCredentials, deleteCredentials } from '../server/ap
 import { startSync, getSyncStatus, getWorkspaceSyncJobs } from '../server/api/integrations/simpleSync.js';
 import { directInstagramSync } from '../server/api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from '../server/api/integrations/optimizedMetaSync.js';
+import { createMetaCampaign } from '../server/api/integrations/meta/create-campaign.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from '../server/api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from '../server/api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from '../server/api/integrations/billing.js';
@@ -139,6 +140,7 @@ app.post('/api/integrations/direct-sync', directInstagramSync);
 
 // Optimized sync endpoints (new)
 app.post('/api/integrations/meta/sync-optimized', optimizedMetaSync);
+app.post('/api/integrations/meta/create-campaign', createMetaCampaign);
 app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 
 // Instagram sync endpoints

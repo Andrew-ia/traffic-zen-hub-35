@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 import { TrendingUp, ShoppingCart, Target, DollarSign, Wallet } from "lucide-react";
@@ -13,11 +14,13 @@ import { ObjectiveKPICard, ObjectiveKPIGrid } from "@/components/platform/Object
 import { usePlatformMetrics, useTimeSeries, useDemographics, useMetricsByObjective } from "@/hooks/usePlatformMetrics";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE = 10;
 
 export default function MetaAds() {
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -556,6 +559,7 @@ export default function MetaAds() {
                 total={total}
                 onPageChange={setPage}
                 showCreateButton={false}
+                headerActions={<Button onClick={() => navigate("/campaigns/new/meta")}>Nova Campanha</Button>}
               />
             </div>
           </Card>

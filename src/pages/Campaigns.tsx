@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 const PAGE_SIZE = 12;
 
 export default function Campaigns() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<CampaignStatusFilter>("all");
   const [metaPage, setMetaPage] = useState(1);
   const [googlePage, setGooglePage] = useState(1);
@@ -117,6 +119,9 @@ export default function Campaigns() {
           />
           <Button onClick={exportCampaignsCsv} disabled={(metaCampaigns.length + googleCampaigns.length) === 0}>
             Exportar CSV
+          </Button>
+          <Button onClick={() => navigate("/campaigns/new/meta")}>
+            Nova Campanha
           </Button>
         </div>
       </div>
