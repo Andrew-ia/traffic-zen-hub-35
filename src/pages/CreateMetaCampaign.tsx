@@ -98,7 +98,7 @@ export default function CreateMetaCampaign() {
     const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSimpleMode, setIsSimpleMode] = useState(false);
+    const [isSimpleMode, setIsSimpleMode] = useState(true);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
@@ -349,7 +349,7 @@ export default function CreateMetaCampaign() {
                         const finalOptimizationGoal =
                             campaign.objective === 'OUTCOME_ENGAGEMENT'
                                 ? 'POST_ENGAGEMENT'
-                                : (campaign.objective === 'OUTCOME_LEADS' ? 'CONVERSATIONS' : adSet.optimization_goal);
+                                : adSet.optimization_goal;
 
                         // REMOVE destination_type completamente para engajamento (backend infere)
                         const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';

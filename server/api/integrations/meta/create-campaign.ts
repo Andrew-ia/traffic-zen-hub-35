@@ -128,6 +128,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
     // Get pageId from credentials OR fetch from API if missing
     let pageId = (credentials as any).pageId || (credentials as any).page_id;
+    let pageAccessToken: string | undefined;
     let igActorId = (credentials as any).instagramActorId || (credentials as any).instagram_actor_id;
 
     if (!pageId) {
@@ -143,6 +144,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
           const firstPage = pagesResponse.data[0];
           pageId = firstPage.id;
           console.log(`Found Page ID from API: ${pageId} (${firstPage.name})`);
+          pageAccessToken = firstPage.access_token;
 
           // Update credentials in DB to save this pageId for future use
           try {
@@ -165,6 +167,21 @@ export async function createMetaCampaign(req: Request, res: Response) {
         }
       } catch (apiError) {
         console.error('Failed to fetch pages from Meta API:', apiError);
+      }
+    }
+
+    // Ensure page access token
+    if (!pageAccessToken && pageId) {
+      try {
+        const pagesAgain = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
+        if (Array.isArray(pagesAgain?.data)) {
+          const match = pagesAgain.data.find((p: any) => String(p.id) === String(pageId));
+          if (match?.access_token) {
+            pageAccessToken = match.access_token;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch page access token', e);
       }
     }
 
@@ -321,55 +338,14 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
       // --- SIMPLIFIED STRICT RULES (BASED ON PASSING TESTS) ---
 
-      // A) Campanha de Engajamento (OUTCOME_ENGAGEMENT)
+      // A) Campanhas de Engajamento (OUTCOME_ENGAGEMENT)
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
-
-        // Conversão: Instagram ou Facebook (perfil e página)
-        if ((adSet as any).destination_type && String((adSet as any).destination_type).toUpperCase() === 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE') {
-          adSetPayload.destination_type = 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE';
-          // Otimização recomendada para visitas a perfil/página
-          adSetPayload.optimization_goal = 'PROFILE_AND_PAGE_ENGAGEMENT';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-        }
-        // ON_POST para post engagement
-        else if (optUpper === 'POST_ENGAGEMENT') {
-          adSetPayload.destination_type = 'ON_POST';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-        }
-        // REACH também funciona com ON_POST (Test G passou)
-        else if (optUpper === 'REACH') {
-          adSetPayload.destination_type = 'ON_POST';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-        }
-        // EVENT_RESPONSES usa ON_EVENT (Test M passou)
-        else if (optUpper === 'EVENT_RESPONSES') {
-          adSetPayload.destination_type = 'ON_EVENT';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-        }
-        // PAGE_LIKES usa ON_PAGE
-        else if (optUpper === 'PAGE_LIKES') {
-          adSetPayload.destination_type = 'ON_PAGE';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-        }
-        // Fallback seguro: POST_ENGAGEMENT + ON_POST
-        else {
-          console.warn(`[Meta API] Unknown optimization_goal for ENGAGEMENT: ${optUpper}, defaulting to POST_ENGAGEMENT`);
-          adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-          adSetPayload.destination_type = 'ON_POST';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
+        // Engajamento em Post é o fluxo estável via API
+        adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
+        adSetPayload.destination_type = 'ON_POST';
+        if (pageId) {
+          adSetPayload.promoted_object = { page_id: pageId };
         }
       }
 
@@ -378,8 +354,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
         if (objUpper === 'OUTCOME_LEADS') {
-          adSetPayload.destination_type = 'MESSAGING_INSTAGRAM_DIRECT_WHATSAPP';
-          adSetPayload.optimization_goal = 'CONVERSATIONS';
+          adSetPayload.destination_type = 'ON_AD';
+          adSetPayload.optimization_goal = 'LEAD_GENERATION';
           if (pageId) {
             adSetPayload.promoted_object = { page_id: pageId };
           }
@@ -420,6 +396,9 @@ export async function createMetaCampaign(req: Request, res: Response) {
         if (objUpper === 'OUTCOME_LEADS' && isParamError) {
           adSetPayload.destination_type = 'ON_AD';
           adSetPayload.optimization_goal = 'LEAD_GENERATION';
+          if (pageId) {
+            adSetPayload.promoted_object = { page_id: pageId };
+          }
           try {
             adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
           } catch (e2: any) {
@@ -427,6 +406,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
             continue;
           }
         } else if (objUpper === 'OUTCOME_ENGAGEMENT') {
+          // Fallback: força ON_POST
           adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
           adSetPayload.destination_type = 'ON_POST';
           if (pageId) adSetPayload.promoted_object = { page_id: pageId };
@@ -501,11 +481,32 @@ export async function createMetaCampaign(req: Request, res: Response) {
               if (assetRow.rows.length > 0) {
                 const asset = assetRow.rows[0];
                 if (String(asset.type || '').toLowerCase() === 'video' && asset.storage_url) {
-                  // 4.1 Upload video (file_url) → advideos
-                  const videoResp = await callMetaApi(`${actAccountId}/advideos`, 'POST', {
-                    file_url: asset.storage_url,
-                  });
-                  const videoId = videoResp.id;
+                  // 4.1 Upload video (Page videos API)
+                  // Prefer upload to Page videos with page access token
+                  const uploadToken = pageAccessToken || accessToken;
+                  const vUrl = `${GRAPH_URL}/${pageId}/videos?access_token=${uploadToken}`;
+                  const form = new URLSearchParams();
+                  form.append('file_url', asset.storage_url);
+                  form.append('published', 'false');
+                  form.append('description', ad.name);
+                  const vResp = await fetch(vUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+                  const vData = await vResp.json();
+                  if (vData.error) {
+                    throw new Error(`Meta API Error: ${vData.error.message} (Code: ${vData.error.code}, Subcode: ${vData.error.error_subcode})`);
+                  }
+                  const videoId = vData.id;
+
+                  // Wait for video processing to complete
+                  let attempts = 0;
+                  while (attempts < 10) {
+                    try {
+                      const vInfo = await callMetaApi(`${videoId}`, 'GET', { fields: 'processing_progress,status' });
+                      const progress = vInfo?.processing_progress ?? vInfo?.status?.processing_progress ?? 100;
+                      if (typeof progress === 'number' && progress >= 100) break;
+                    } catch (_err) { /* ignore */ }
+                    await new Promise(r => setTimeout(r, 2000));
+                    attempts++;
+                  }
 
                   // 4.2 Create adcreative with object_story_spec.video_data
                   const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
