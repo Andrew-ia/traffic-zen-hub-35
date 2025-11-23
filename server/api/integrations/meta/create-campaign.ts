@@ -464,11 +464,40 @@ export async function createMetaCampaign(req: Request, res: Response) {
       const localAdSetId = upsertAdSetResult.rows[0].id as string;
       const createdAds = [];
 
-      // 4. Create Ads for this Ad Set (somente quando explicitamente fornecido)
-      if (adSet.ads && adSet.ads.length > 0) {
-        for (const ad of adSet.ads) {
+      // 4. Create Ads for this Ad Set
+      const adsForSet = (adSet.ads && adSet.ads.length > 0)
+        ? adSet.ads
+        : (objUpper === 'OUTCOME_ENGAGEMENT' ? [{ name: `${adSet.name} - Anúncio`, creative_id: '', status: 'PAUSED' }] as any[] : []);
+      if (adsForSet.length > 0) {
+        for (const ad of adsForSet) {
           console.log('Creating Ad:', ad.name);
           let creativeId = ad.creative_id;
+
+          // ENGAGEMENT: criar post não publicado e usar object_story_id
+          if ((!creativeId || String(creativeId).trim() === '') && objUpper === 'OUTCOME_ENGAGEMENT' && pageId) {
+            try {
+              const uploadToken = pageAccessToken || accessToken;
+              const postUrl = `${GRAPH_URL}/${pageId}/feed?access_token=${uploadToken}`;
+              const postForm = new URLSearchParams();
+              postForm.append('message', ad.name);
+              postForm.append('published', 'false');
+              const pResp = await fetch(postUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: postForm.toString() });
+              const pData = await pResp.json();
+              if (pData.error) {
+                throw new Error(`Meta API Error: ${pData.error.message} (Code: ${pData.error.code}, Subcode: ${pData.error.error_subcode})`);
+              }
+              const objectStoryId = pData.id;
+              const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
+                name: ad.name,
+                object_story_id: objectStoryId,
+              });
+              creativeId = creativeResp.id;
+              console.log(`[Meta API] Created engagement adcreative from dark post ${objectStoryId}: ${creativeId}`);
+            } catch (engErr: any) {
+              console.warn('[Meta API] Failed to create engagement adcreative from dark post:', msg3(engErr));
+              failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(engErr) });
+            }
+          }
 
           // Se não houver creative_id, tentar criar via asset do Drive (vídeo)
           if ((!creativeId || String(creativeId).trim() === '') && (ad as any).creative_asset_id) {
@@ -534,10 +563,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
             }
           }
 
-          // Se ainda não houver creativeId, não tenta criar o ad
-          if (!creativeId) {
-            continue;
-          }
+          // Criativo obrigatório para criar o ad
+          if (!creativeId) continue;
 
           const adPayload = {
             name: ad.name,
@@ -576,7 +603,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
                 platformAccountId,
                 adResponse.id,
                 ad.name,
-                ad.status,
+                String(ad.status || 'PAUSED').toLowerCase(),
                 (ad as any).creative_asset_id || null,
                 JSON.stringify({ creative_id: creativeId }),
               ]
