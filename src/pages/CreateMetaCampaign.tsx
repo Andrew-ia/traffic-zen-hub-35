@@ -532,21 +532,57 @@ export default function CreateMetaCampaign() {
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label>Localização da Conversão</Label>
+                                                    <Label>Orçamento (Centavos)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={adSet.daily_budget}
+                                                        onChange={(e) => updateAdSet(adSet.id, "daily_budget", e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Otimização</Label>
                                                     <Select
-                                                        value={adSet.destination_type}
-                                                        onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
+                                                        value={adSet.optimization_goal}
+                                                        onValueChange={(v) => updateAdSet(adSet.id, "optimization_goal", v)}
                                                     >
                                                         <SelectTrigger>
-                                                            <SelectValue placeholder="Selecione o destino" />
+                                                            <SelectValue />
                                                         </SelectTrigger>
                                                         <SelectContent>
-                                                            <SelectItem value="MESSAGING_APP">Apps de Mensagem (WhatsApp/Direct)</SelectItem>
-                                                            <SelectItem value="ON_AD">No Anúncio (Engajamento)</SelectItem>
-                                                            <SelectItem value="WEBSITE">Site</SelectItem>
+                                                            <SelectItem value="LEAD_GENERATION">Geração de Leads</SelectItem>
+                                                            <SelectItem value="OFFSITE_CONVERSIONS">Conversões</SelectItem>
+                                                            <SelectItem value="LINK_CLICKS">Cliques no Link</SelectItem>
+                                                            <SelectItem value="POST_ENGAGEMENT">Engajamentos</SelectItem>
+                                                            <SelectItem value="MESSAGES">Mensagens</SelectItem>
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Local da Conversão</Label>
+                                                    <Select
+                                                        value={adSet.destination_type || ''}
+                                                        onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Selecione" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
+                                                                <SelectItem key={v} value={v}>
+                                                                    {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
+                                                                        : v === 'ON_AD' ? 'No seu anúncio'
+                                                                            : v === 'CALLS' ? 'Ligações'
+                                                                                : v === 'WEBSITE' ? 'Site'
+                                                                                    : v === 'APP' ? 'App'
+                                                                                        : 'Instagram ou Facebook'}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
                                                 {/* Publisher Platforms Selection for Generic Engagement */}
                                                 {campaign.objective === 'OUTCOME_ENGAGEMENT' && (!adSet.destination_type || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK') && (
                                                     <div className="space-y-2">
@@ -585,60 +621,6 @@ export default function CreateMetaCampaign() {
                                                         </div>
                                                     </div>
                                                 )}
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label>Orçamento (Centavos)</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={adSet.daily_budget}
-                                                        onChange={(e) => updateAdSet(adSet.id, "daily_budget", e.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label>Otimização</Label>
-                                                    <Select
-                                                        value={adSet.optimization_goal}
-                                                        onValueChange={(v) => updateAdSet(adSet.id, "optimization_goal", v)}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="LEAD_GENERATION">Geração de Leads</SelectItem>
-                                                            <SelectItem value="OFFSITE_CONVERSIONS">Conversões</SelectItem>
-                                                            <SelectItem value="LINK_CLICKS">Cliques no Link</SelectItem>
-                                                            <SelectItem value="POST_ENGAGEMENT">Engajamentos</SelectItem>
-                                                            <SelectItem value="MESSAGES">Mensagens</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label>Local da Conversão</Label>
-                                                    <Select
-                                                        value={adSet.destination_type || ''}
-                                                        onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Selecione" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
-                                                                <SelectItem key={v} value={v}>
-                                                                    {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
-                                                                        : v === 'ON_AD' ? 'No seu anúncio'
-                                                                            : v === 'CALLS' ? 'Ligações'
-                                                                                : v === 'WEBSITE' ? 'Site'
-                                                                                    : v === 'APP' ? 'App'
-                                                                                        : 'Instagram ou Facebook'}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-
                                             </div>
                                             <div className="space-y-2 mt-4">
                                                 <Label>Segmentação por Interesses</Label>
