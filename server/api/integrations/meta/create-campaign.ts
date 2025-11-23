@@ -288,31 +288,35 @@ export async function createMetaCampaign(req: Request, res: Response) {
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
-        // A1) Mensagens (WhatsApp/Messenger/IG Direct)
+        // Handle explicit destination types
         if (destUpper === 'MESSAGING_APP' || destUpper === 'MESSAGES_DESTINATIONS') {
-          adSetPayload.destination_type = 'MESSAGING_APP';
-          adSetPayload.promoted_object = { page_id: pageId };
-          // PROHIBITED: pixel_id, custom_event_type, website
-        }
-        // A2) Engajamento no Post/Página/Vídeo
-        else if (destUpper === 'ON_AD' || destUpper === 'ON_POST' || destUpper === 'ON_PAGE' || destUpper === 'ON_VIDEO') {
-          // Infer ON_* type from optimization_goal
-          let onType = 'ON_POST'; // Default
+          (adSetPayload as any).destination_type = 'MESSAGING_APP';
+          if (pageId) {
+            (adSetPayload as any).promoted_object = { page_id: pageId };
+          }
+        } else if (destUpper === 'CALLS') {
+          (adSetPayload as any).destination_type = 'PHONE_CALL';
+        } else {
+          // Handle ON_AD or Generic/Missing destination (Instagram/Facebook)
+          // We MUST infer the correct ON_* type based on optimization_goal
+          let onType: string | undefined;
+
           if (optUpper === 'POST_ENGAGEMENT') onType = 'ON_POST';
           else if (optUpper === 'PAGE_LIKES') onType = 'ON_PAGE';
           else if (optUpper === 'EVENT_RESPONSES') onType = 'ON_EVENT';
           else if (optUpper === 'VIDEO_VIEWS' || optUpper === 'THRUPLAY') onType = 'ON_VIDEO';
 
-          adSetPayload.destination_type = onType;
-          adSetPayload.promoted_object = { page_id: pageId };
-          // PROHIBITED: pixel_id, custom_event_type
-        }
-        // A3) Engajamento Genérico (Instagram/Facebook) - SEM destination_type
-        else {
-          // For generic engagement, DO NOT set destination_type
-          // Just set promoted_object with page_id
-          adSetPayload.promoted_object = { page_id: pageId };
-          // publisher_platforms should be in targeting (from frontend)
+          // Default to ON_POST if we can't determine (common for generic engagement)
+          if (!onType && (destUpper === 'ON_AD' || !destUpper)) {
+            onType = 'ON_POST';
+          }
+
+          if (onType) {
+            (adSetPayload as any).destination_type = onType;
+            if (pageId) {
+              (adSetPayload as any).promoted_object = { page_id: pageId };
+            }
+          }
         }
       }
 
