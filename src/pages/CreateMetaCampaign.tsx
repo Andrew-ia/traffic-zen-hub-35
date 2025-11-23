@@ -100,31 +100,49 @@ export default function CreateMetaCampaign() {
         special_ad_categories: [] as string[],
     });
 
-    const [adSets, setAdSets] = useState<AdSet[]>([
-        {
-            id: crypto.randomUUID(),
-            name: 'Conjunto #1',
-            optimization_goal: 'POST_ENGAGEMENT',
-            billing_event: 'IMPRESSIONS',
-            daily_budget: "2000", // 20 BRL
-            status: 'PAUSED',
-            destination_type: 'ON_AD',
-            publisher_platforms: ['facebook', 'instagram'],
-            targeting: {
-                geo_locations: { countries: ['BR'] },
-                age_min: 18,
-                age_max: 65,
+    const initialAdSetState: AdSet = {
+        id: crypto.randomUUID(),
+        name: "Conjunto #1",
+        billing_event: "IMPRESSIONS",
+        optimization_goal: "POST_ENGAGEMENT", // Default to POST_ENGAGEMENT as it's safer/more common
+        daily_budget: "5000", // 50 BRL
+        status: "PAUSED",
+        destination_type: "ON_AD", // Default to ON_AD (which maps to ON_POST/ON_VIDEO etc)
+        publisher_platforms: ["facebook", "instagram"],
+        targeting: {
+            geo_locations: {
+                countries: ["BR"],
             },
-            ads: [
-                {
-                    id: crypto.randomUUID(),
-                    name: "Anúncio #1",
-                    creative_id: "",
-                    status: "PAUSED",
-                }
-            ]
+            age_min: 18,
+            age_max: 65,
+            genders: [1, 2],
+            publisher_platforms: ["facebook", "instagram"],
+            facebook_positions: ["feed"],
+            instagram_positions: ["stream"],
+            device_platforms: ["mobile", "desktop"],
+        },
+        ads: [
+            {
+                id: crypto.randomUUID(),
+                name: "Anúncio #1",
+                creative_id: "",
+                status: "PAUSED",
+            }
+        ],
+    };
+
+    const [adSets, setAdSets] = useState<AdSet[]>([initialAdSetState]);
+
+    // Update ad sets when campaign objective changes
+    useEffect(() => {
+        if (campaign.objective === 'OUTCOME_ENGAGEMENT') {
+            setAdSets(prev => prev.map(adSet => ({
+                ...adSet,
+                optimization_goal: 'POST_ENGAGEMENT',
+                destination_type: 'ON_AD'
+            })));
         }
-    ]);
+    }, [campaign.objective]);
 
     // Fetch Tasks for selection
     const { data: tasks } = useQuery({
