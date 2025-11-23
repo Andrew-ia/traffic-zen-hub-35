@@ -88,6 +88,69 @@ async function run() {
     ],
   };
 
+  const recognitionPayload = {
+    workspaceId: WORKSPACE_ID,
+    campaign: {
+      name: 'Teste Reconhecimento ' + Date.now(),
+      objective: 'OUTCOME_AWARENESS',
+      status: 'PAUSED',
+      special_ad_categories: [],
+    },
+    adSets: [
+      {
+        name: 'Conjunto Reconhecimento',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'REACH',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+  };
+
+  const trafficPayload = {
+    workspaceId: WORKSPACE_ID,
+    campaign: {
+      name: 'Teste Tráfego ' + Date.now(),
+      objective: 'OUTCOME_TRAFFIC',
+      status: 'PAUSED',
+      special_ad_categories: [],
+    },
+    adSets: [
+      {
+        name: 'Conjunto Tráfego Website',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+  };
+
+  const salesPayload = {
+    workspaceId: WORKSPACE_ID,
+    campaign: {
+      name: 'Teste Vendas ' + Date.now(),
+      objective: 'OUTCOME_SALES',
+      status: 'PAUSED',
+      special_ad_categories: [],
+    },
+    adSets: [
+      {
+        name: 'Conjunto Vendas Website',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'OFFSITE_CONVERSIONS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+  };
+
   const url = `${API_URL}/api/integrations/meta/create-campaign`;
 
   console.log('\nTesting Engagement flow (4 ad sets)...');
@@ -97,6 +160,18 @@ async function run() {
   console.log('\nTesting Leads (WhatsApp) single ad set...');
   const resB = await postJson(url, leadsWhatsAppPayload);
   console.log('Result:', JSON.stringify(resB.data, null, 2));
+
+  console.log('\nTesting Recognition (Reach) single ad set...');
+  const resC = await postJson(url, recognitionPayload);
+  console.log('Result:', JSON.stringify(resC.data, null, 2));
+
+  console.log('\nTesting Traffic (Website) single ad set...');
+  const resD = await postJson(url, trafficPayload);
+  console.log('Result:', JSON.stringify(resD.data, null, 2));
+
+  console.log('\nTesting Sales (Website conversions) single ad set...');
+  const resE = await postJson(url, salesPayload);
+  console.log('Result:', JSON.stringify(resE.data, null, 2));
 }
 
 run().catch((e) => {

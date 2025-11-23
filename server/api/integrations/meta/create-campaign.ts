@@ -296,8 +296,27 @@ export async function createMetaCampaign(req: Request, res: Response) {
       console.log('Creating Ad Set (Strict Mode):', adSet.name);
 
       const targeting = { ...adSet.targeting };
-      // Clean up custom_audiences if present but empty/invalid
-      if ((targeting as any).custom_audiences) delete (targeting as any).custom_audiences;
+      // Normalize custom audiences: accept comma-separated ids or array of ids/objects
+      if ((targeting as any).custom_audiences !== undefined) {
+        const ca = (targeting as any).custom_audiences;
+        try {
+          let ids: string[] = [];
+          if (typeof ca === 'string') {
+            ids = ca.split(',').map((s: string) => s.trim()).filter((s: string) => /^\d+$/.test(s));
+          } else if (Array.isArray(ca)) {
+            ids = ca
+              .map((v: any) => typeof v === 'object' && v && v.id ? String(v.id) : String(v))
+              .filter((s: string) => /^\d+$/.test(s));
+          }
+          if (ids.length > 0) {
+            (targeting as any).custom_audiences = ids.map((id: string) => ({ id }));
+          } else {
+            delete (targeting as any).custom_audiences;
+          }
+        } catch {
+          delete (targeting as any).custom_audiences;
+        }
+      }
 
       // Handle interests
       if (targeting.interests) {
@@ -319,7 +338,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
         adSet.optimization_goal === 'LEAD_GENERATION'
       );
       // pageId is already resolved above
-      const pixelId = (credentials as any).pixelId || (credentials as any).pixel_id; // Assuming we might have pixelId in credentials
+      const pixelId = (credentials as any).pixelId || (credentials as any).pixel_id || (String(process.env.META_PIXEL_ID || '').trim() || undefined);
 
       const objUpper = String(campaign.objective || '').toUpperCase();
       const optUpper = String(adSet.optimization_goal || '').toUpperCase();
@@ -439,7 +458,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
                   updated_at
                 )
                 VALUES (
-                  $1, $2, $3, $4, $5, 'daily', $6, $7::jsonb, '{}'::jsonb, now(), now()
+                  $1, $2, $3, $4, $5, 'daily', $6, $7::jsonb, $8::jsonb, now(), now()
                 )
                 ON CONFLICT (campaign_id, external_id)
                 DO UPDATE SET
@@ -447,6 +466,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
                   status = EXCLUDED.status,
                   daily_budget = EXCLUDED.daily_budget,
                   targeting = EXCLUDED.targeting,
+                  settings = EXCLUDED.settings,
                   last_synced_at = now(),
                   updated_at = now()
                 RETURNING id
@@ -459,6 +479,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
           String(adSet.status || '').toLowerCase(),
           Number(adSet.daily_budget) ? Math.round(Number(adSet.daily_budget) / 100) : null,
           JSON.stringify(targeting ?? {}),
+          JSON.stringify((adSet as any).settings ?? {}),
         ]
       );
       const localAdSetId = upsertAdSetResult.rows[0].id as string;
@@ -701,26 +722,30 @@ export async function getMetaCustomAudiences(req: Request, res: Response) {
     }
 
     const pool = getPool();
-    const { rows } = await pool.query(
+    let accessToken: string | undefined;
+    let adAccountId: string | undefined;
+    const credRows = await pool.query(
       `SELECT encrypted_credentials, encryption_iv 
        FROM integration_credentials 
        WHERE workspace_id = $1 AND platform_key = 'meta' LIMIT 1`,
       [workspaceId]
     );
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Meta Ads credentials not found' } as ApiResponse);
+    if (credRows.rows.length > 0) {
+      const credentials = await decryptCredentials(credRows.rows[0].encrypted_credentials, credRows.rows[0].encryption_iv);
+      accessToken = credentials.accessToken || credentials.access_token;
+      adAccountId = credentials.adAccountId || credentials.ad_account_id;
     }
-    const credentials = await decryptCredentials(rows[0].encrypted_credentials, rows[0].encryption_iv);
-    const accessToken = credentials.accessToken || credentials.access_token;
-    const adAccountId = credentials.adAccountId || credentials.ad_account_id;
+    // Fallback to ENV if DB credentials missing or incomplete
+    accessToken = accessToken || String(process.env.META_ACCESS_TOKEN || '').trim() || undefined;
+    adAccountId = adAccountId || String(process.env.META_AD_ACCOUNT_ID || '').trim() || undefined;
     if (!accessToken || !adAccountId) {
-      return res.status(400).json({ success: false, error: 'Incomplete Meta Ads credentials' } as ApiResponse);
+      return res.status(404).json({ success: false, error: 'Meta Ads credentials not found' } as ApiResponse);
     }
 
     const actAccountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
 
     const url = `${GRAPH_URL}/${actAccountId}/customaudiences`;
-    const params = new URLSearchParams({ access_token: accessToken, fields: 'id,name,subtype,approximate_count' });
+    const params = new URLSearchParams({ access_token: accessToken, fields: 'id,name,subtype' });
     const response = await fetch(`${url}?${params.toString()}`, { method: 'GET' });
     const data = await response.json();
 

@@ -36,25 +36,21 @@ export function AvatarSelector() {
     const [currentAvatar, setCurrentAvatar] = useState({ style: "avataaars", seed: "Felix" });
 
     useEffect(() => {
-        if (user?.id) {
-            loadUserPreferences();
-        }
-    }, [user?.id]);
-
-    const loadUserPreferences = async () => {
-        try {
-            const response = await fetch(`/api/user-preferences/${user?.id}`);
-            const result = await response.json();
-
-            if (result.success && result.data) {
-                setCurrentAvatar({ style: result.data.avatar_style || "avataaars", seed: result.data.avatar_seed || "Felix" });
-                setSelectedStyle(result.data.avatar_style || "avataaars");
-                setSelectedSeed(result.data.avatar_seed || "Felix");
+        if (!user?.id) return;
+        (async () => {
+            try {
+                const response = await fetch(`/api/user-preferences/${user.id}`);
+                const result = await response.json();
+                if (result.success && result.data) {
+                    setCurrentAvatar({ style: result.data.avatar_style || "avataaars", seed: result.data.avatar_seed || "Felix" });
+                    setSelectedStyle(result.data.avatar_style || "avataaars");
+                    setSelectedSeed(result.data.avatar_seed || "Felix");
+                }
+            } catch (error) {
+                console.error('Error loading preferences:', error);
             }
-        } catch (error) {
-            console.error('Error loading preferences:', error);
-        }
-    };
+        })();
+    }, [user?.id]);
 
     const saveAvatar = async () => {
         if (!user?.id) return;
