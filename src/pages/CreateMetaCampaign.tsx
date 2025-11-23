@@ -349,6 +349,7 @@ export default function CreateMetaCampaign() {
                     geo_locations: { countries: ["BR"] },
                     age_min: data.ageMin || 18,
                     age_max: data.ageMax || 65,
+                    genders: [2],
                     interests: undefined,
                     custom_audiences: undefined
                 },
