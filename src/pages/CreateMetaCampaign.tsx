@@ -263,11 +263,10 @@ export default function CreateMetaCampaign() {
       const opt = optimization.toUpperCase();
 
         if (obj === 'OUTCOME_ENGAGEMENT') {
-            if (opt === 'MESSAGES') {
-                return ['MESSAGING_APP'];
-            }
-            // Locais de conversão próprios: Perfil do Instagram e Página do Facebook
-            return ['INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE', 'ON_POST', 'ON_PAGE'];
+            // Para engajamento, oferecemos seleção entre interagir no anúncio (ON_AD)
+            // e interagir em perfil/página (INSTAGRAM_OR_FACEBOOK). Ambas serão mapeadas
+            // corretamente no backend (ON_POST para estabilidade).
+            return ['ON_AD', 'INSTAGRAM_OR_FACEBOOK'];
         }
 
         if (obj === 'OUTCOME_LEADS') {
@@ -727,7 +726,13 @@ export default function CreateMetaCampaign() {
                                             </div>
                             <div className="grid grid-cols-1 gap-4">
                                 {/* Hide destination type selector for engagement campaigns */}
-                                {campaign.objective !== 'OUTCOME_ENGAGEMENT' && (
+                                {(
+                                    campaign.objective === 'OUTCOME_ENGAGEMENT' ||
+                                    campaign.objective === 'OUTCOME_TRAFFIC' ||
+                                    campaign.objective === 'OUTCOME_LEADS' ||
+                                    campaign.objective === 'OUTCOME_SALES' ||
+                                    campaign.objective === 'OUTCOME_AWARENESS'
+                                ) && (
                                     <div className="space-y-2">
                                         <Label>Local da Conversão</Label>
                                         <Select
