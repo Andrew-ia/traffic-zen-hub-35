@@ -269,7 +269,8 @@ export default function CreateMetaCampaign() {
         }
 
         if (obj === 'OUTCOME_LEADS') {
-            return ['WHATSAPP'];
+            // Leads: permitir WhatsApp, Messenger, Instagram/Facebook e Site
+            return ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE'];
         }
       if (obj === 'OUTCOME_SALES') {
           return ['WEBSITE'];
@@ -793,7 +794,8 @@ export default function CreateMetaCampaign() {
                                                                     : v === 'WEBSITE' ? 'Site'
                                                                         : v === 'APP' ? 'App'
                                                                             : v === 'WHATSAPP' ? 'WhatsApp'
-                                                                                : 'Instagram ou Facebook'}
+                                                                                : v === 'MESSENGER' ? 'Messenger'
+                                                                                    : 'Instagram ou Facebook'}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>

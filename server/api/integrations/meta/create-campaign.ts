@@ -377,10 +377,22 @@ export async function createMetaCampaign(req: Request, res: Response) {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
         if (objUpper === 'OUTCOME_LEADS') {
-          adSetPayload.destination_type = 'ON_AD';
-          adSetPayload.optimization_goal = 'LEAD_GENERATION';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
+          // Mapear destinos de Leads conforme seleção
+          if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
+            adSetPayload.destination_type = 'ON_AD';
+            adSetPayload.optimization_goal = 'LEAD_GENERATION';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
+            adSetPayload.destination_type = 'ON_POST';
+            adSetPayload.optimization_goal = 'LEAD_GENERATION';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'WEBSITE') {
+            adSetPayload.destination_type = 'WEBSITE';
+            adSetPayload.optimization_goal = 'LEAD_GENERATION';
+          } else {
+            adSetPayload.destination_type = 'ON_AD';
+            adSetPayload.optimization_goal = 'LEAD_GENERATION';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           }
         } else if (objUpper === 'OUTCOME_TRAFFIC') {
           // Mapear destinos de tráfego conforme seleção do usuário
