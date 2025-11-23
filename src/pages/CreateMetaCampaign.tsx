@@ -242,7 +242,8 @@ export default function CreateMetaCampaign() {
                 return true;
             });
             if (!s.destination_type || filtered.includes(s.destination_type)) return s;
-            return { ...s, destination_type: undefined };
+            // Ajusta automaticamente para o primeiro destino válido do objetivo atual
+            return { ...s, destination_type: filtered[0] };
         }));
     }
 
@@ -279,6 +280,11 @@ export default function CreateMetaCampaign() {
           // Disponibiliza os mesmos destinos que o Meta UI: Site, App, Mensagens, Instagram ou Facebook, Ligações
           return ['WEBSITE','APP','MESSAGES_DESTINATIONS','INSTAGRAM_OR_FACEBOOK','CALLS'];
       }
+
+        if (obj === 'OUTCOME_AWARENESS') {
+            // Reconhecimento: opções de interação no anúncio ou perfil/página
+            return ['ON_AD', 'INSTAGRAM_OR_FACEBOOK'];
+        }
 
         return ['WEBSITE'];
     }
@@ -758,7 +764,8 @@ export default function CreateMetaCampaign() {
                                                                 : v === 'CALLS' ? 'Ligações'
                                                                     : v === 'WEBSITE' ? 'Site'
                                                                         : v === 'APP' ? 'App'
-                                                                            : 'Instagram ou Facebook'}
+                                                                            : v === 'WHATSAPP' ? 'WhatsApp'
+                                                                                : 'Instagram ou Facebook'}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
