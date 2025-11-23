@@ -188,13 +188,13 @@ export default function CreateMetaCampaign() {
       const obj = objective.toUpperCase();
       const opt = optimization.toUpperCase();
 
-      if (obj === 'OUTCOME_ENGAGEMENT') {
-        if (opt === 'MESSAGES') {
-          return ['MESSAGING_APP']; // WhatsApp/Messenger/IG Direct
+        if (obj === 'OUTCOME_ENGAGEMENT') {
+            if (opt === 'MESSAGES') {
+                return ['MESSAGING_APP'];
+            }
+            // Locais de conversão próprios: Perfil do Instagram e Página do Facebook
+            return ['INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE', 'ON_POST', 'ON_PAGE'];
         }
-        // Para engajamento, sempre usar Instagram ou Facebook (não "No seu anúncio")
-        return ['INSTAGRAM_OR_FACEBOOK'];
-      }
 
         if (obj === 'OUTCOME_LEADS') {
             return ['WHATSAPP'];
@@ -282,7 +282,7 @@ export default function CreateMetaCampaign() {
                         case 'MESSAGES': return 'MESSAGES_DESTINATIONS';
                         case 'OUTCOME_SALES': return 'WEBSITE';
                         case 'OUTCOME_LEADS': return 'WHATSAPP';
-                        case 'OUTCOME_ENGAGEMENT': return undefined;
+                        case 'OUTCOME_ENGAGEMENT': return 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE';
                         default: return undefined;
                     }
                 })(),
@@ -376,10 +376,19 @@ export default function CreateMetaCampaign() {
                 throw new Error(data.error || "Erro ao criar campanha");
             }
 
-            toast({
-                title: "Campanha criada com sucesso!",
-                description: "Sua campanha foi enviada para o Meta Ads.",
-            });
+            const errors = Array.isArray(data?.data?.errors) ? data.data.errors : [];
+            if (errors.length > 0) {
+                toast({
+                    title: "Campanha criada com avisos",
+                    description: `Alguns conjuntos falharam (${errors.length}). Verifique no Meta Ads.`,
+                    variant: "default",
+                });
+            } else {
+                toast({
+                    title: "Campanha criada com sucesso!",
+                    description: "Sua campanha foi enviada para o Meta Ads.",
+                });
+            }
 
             navigate("/meta-ads");
         } catch (error) {

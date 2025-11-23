@@ -42,16 +42,26 @@ async function run() {
   const engagementPayload = {
     workspaceId: WORKSPACE_ID,
     campaign: {
-      name: 'Teste Engajamento Automatizado ' + Date.now(),
+      name: 'Teste Engajamento ' + Date.now(),
       objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
       special_ad_categories: [],
     },
     adSets: [
       {
-        name: 'Conjunto Engajamento',
+        name: 'Conjunto Engajamento 1',
         billing_event: 'IMPRESSIONS',
         optimization_goal: 'POST_ENGAGEMENT',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        targeting: baseTargeting,
+        ads: [],
+      },
+      {
+        name: 'Conjunto Engajamento 2',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'PROFILE_AND_PAGE_ENGAGEMENT',
+        destination_type: 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE',
         daily_budget: 1500,
         status: 'PAUSED',
         targeting: baseTargeting,

@@ -128,6 +128,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
     // Get pageId from credentials OR fetch from API if missing
     let pageId = (credentials as any).pageId || (credentials as any).page_id;
+    let igActorId = (credentials as any).instagramActorId || (credentials as any).instagram_actor_id;
 
     if (!pageId) {
       console.log('Page ID not found in credentials, attempting to fetch from Meta API...');
@@ -164,6 +165,33 @@ export async function createMetaCampaign(req: Request, res: Response) {
         }
       } catch (apiError) {
         console.error('Failed to fetch pages from Meta API:', apiError);
+      }
+    }
+
+    // Try to fetch connected Instagram actor id for profile destinations
+    if (!igActorId && pageId) {
+      try {
+        const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
+        igActorId = resp?.connected_instagram_account?.id || undefined;
+        if (igActorId) {
+          console.log(`Found Instagram actor ID: ${igActorId}`);
+          // Persist to credentials for future calls
+          try {
+            const newCredentials = { ...credentials, instagramActorId: igActorId, instagram_actor_id: igActorId };
+            const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCredentials);
+            await pool.query(
+              `UPDATE integration_credentials 
+               SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW()
+               WHERE workspace_id = $3 AND platform_key = 'meta'`,
+              [newEncrypted, newIv, workspaceId]
+            );
+            console.log('Updated workspace credentials with Instagram actor ID');
+          } catch (dbError) {
+            console.warn('Failed to persist Instagram actor ID:', dbError);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not fetch connected Instagram account for page', pageId, e);
       }
     }
 
@@ -243,6 +271,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
     );
     const localCampaignId = upsertCampaignResult.rows[0].id as string;
     const createdAdSets = [];
+    const failedAdSets: { name: string; error: string }[] = [];
+    const failedAds: { adSetName: string; name: string; error: string }[] = [];
 
     // 3. Create Ad Sets and Ads (STRICT MODE)
     for (const adSet of adSets) {
@@ -295,8 +325,17 @@ export async function createMetaCampaign(req: Request, res: Response) {
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
-        // SEMPRE usar ON_POST para POST_ENGAGEMENT (Test Q passou)
-        if (optUpper === 'POST_ENGAGEMENT') {
+        // Conversão: Instagram ou Facebook (perfil e página)
+        if ((adSet as any).destination_type && String((adSet as any).destination_type).toUpperCase() === 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE') {
+          adSetPayload.destination_type = 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE';
+          // Otimização recomendada para visitas a perfil/página
+          adSetPayload.optimization_goal = 'PROFILE_AND_PAGE_ENGAGEMENT';
+          if (pageId) {
+            adSetPayload.promoted_object = { page_id: pageId };
+          }
+        }
+        // ON_POST para post engagement
+        else if (optUpper === 'POST_ENGAGEMENT') {
           adSetPayload.destination_type = 'ON_POST';
           if (pageId) {
             adSetPayload.promoted_object = { page_id: pageId };
@@ -375,15 +414,31 @@ export async function createMetaCampaign(req: Request, res: Response) {
       try {
         adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
       } catch (e: any) {
-        const msg = String(e?.message || e || '').toLowerCase();
+        const msgRaw = msg3(e);
+        const msg = String(msgRaw || '').toLowerCase();
         const isParamError = msg.includes('invalid parameter') || msg.includes('destination_type');
         if (objUpper === 'OUTCOME_LEADS' && isParamError) {
-          console.warn('[Meta API] Fallback for OUTCOME_LEADS → ON_AD + LEAD_GENERATION');
           adSetPayload.destination_type = 'ON_AD';
           adSetPayload.optimization_goal = 'LEAD_GENERATION';
-          adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+          try {
+            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+          } catch (e2: any) {
+            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
+            continue;
+          }
+        } else if (objUpper === 'OUTCOME_ENGAGEMENT') {
+          adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
+          adSetPayload.destination_type = 'ON_POST';
+          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          try {
+            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+          } catch (e2: any) {
+            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
+            continue;
+          }
         } else {
-          throw e;
+          failedAdSets.push({ name: adSet.name, error: msgRaw });
+          continue;
         }
       }
       const adSetId = adSetResponse.id;
@@ -429,7 +484,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       const localAdSetId = upsertAdSetResult.rows[0].id as string;
       const createdAds = [];
 
-      // 4. Create Ads for this Ad Set
+      // 4. Create Ads for this Ad Set (tolerante a falhas)
       if (adSet.ads && adSet.ads.length > 0) {
         for (const ad of adSet.ads) {
           console.log('Creating Ad:', ad.name);
@@ -439,42 +494,47 @@ export async function createMetaCampaign(req: Request, res: Response) {
             creative: { creative_id: ad.creative_id },
             status: ad.status,
           };
-
-          const adResponse = await callMetaApi(`${actAccountId}/ads`, 'POST', adPayload);
-          await pool.query(
-            `
-                        INSERT INTO ads (
-                          ad_set_id,
-                          platform_account_id,
-                          external_id,
-                          name,
-                          status,
-                          creative_asset_id,
-                          metadata,
-                          last_synced_at,
-                          updated_at
-                        )
-                        VALUES (
-                          $1, $2, $3, $4, $5, NULL, $6::jsonb, now(), now()
-                        )
-                        ON CONFLICT (ad_set_id, external_id)
-                        DO UPDATE SET
-                          name = EXCLUDED.name,
-                          status = EXCLUDED.status,
-                          metadata = EXCLUDED.metadata,
-                          last_synced_at = now(),
-                          updated_at = now()
-                      `,
-            [
-              localAdSetId,
-              platformAccountId,
-              adResponse.id,
-              ad.name,
-              ad.status,
-              JSON.stringify({ creative_id: ad.creative_id }),
-            ]
-          );
-          createdAds.push({ id: adResponse.id, name: ad.name });
+          try {
+            const adResponse = await callMetaApi(`${actAccountId}/ads`, 'POST', adPayload);
+            await pool.query(
+              `
+                          INSERT INTO ads (
+                            ad_set_id,
+                            platform_account_id,
+                            external_id,
+                            name,
+                            status,
+                            creative_asset_id,
+                            metadata,
+                            last_synced_at,
+                            updated_at
+                          )
+                          VALUES (
+                            $1, $2, $3, $4, $5, NULL, $6::jsonb, now(), now()
+                          )
+                          ON CONFLICT (ad_set_id, external_id)
+                          DO UPDATE SET
+                            name = EXCLUDED.name,
+                            status = EXCLUDED.status,
+                            metadata = EXCLUDED.metadata,
+                            last_synced_at = now(),
+                            updated_at = now()
+                        `,
+              [
+                localAdSetId,
+                platformAccountId,
+                adResponse.id,
+                ad.name,
+                ad.status,
+                JSON.stringify({ creative_id: ad.creative_id }),
+              ]
+            );
+            createdAds.push({ id: adResponse.id, name: ad.name });
+          } catch (adError: any) {
+            console.warn('[Meta API] Ad creation failed:', msg3(adError));
+            failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(adError) });
+            // Continua com os próximos anúncios e conjuntos
+          }
         }
       }
 
@@ -489,7 +549,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
       success: true,
       data: {
         campaign_id: campaignId,
-        ad_sets: createdAdSets
+        ad_sets: createdAdSets,
+        errors: [...failedAdSets, ...failedAds]
       }
     } as ApiResponse);
 
