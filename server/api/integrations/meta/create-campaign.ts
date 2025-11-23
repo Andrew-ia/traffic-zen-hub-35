@@ -176,19 +176,12 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
     // 2. Create Campaign
     console.log('Creating Campaign:', campaign.name);
-    const campaignPayload: any = {
+    const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', {
       name: campaign.name,
       objective: campaign.objective,
       status: campaign.status,
       special_ad_categories: campaign.special_ad_categories || [],
-    };
-
-    // CRITICAL: Add engagement_type for OUTCOME_ENGAGEMENT campaigns
-    if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
-      campaignPayload.engagement_type = 'post_engagement'; // Required field for engagement campaigns
-    }
-
-    const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', campaignPayload);
+    });
 
     const campaignId = campaignResponse.id;
 
@@ -294,6 +287,9 @@ export async function createMetaCampaign(req: Request, res: Response) {
       // A) Campanha de Engajamento (OUTCOME_ENGAGEMENT)
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
+
+        // CRITICAL: Set conversion_location for engagement campaigns
+        adSetPayload.conversion_location = 'onsite_engagement';
 
         // SEMPRE usar ON_POST para POST_ENGAGEMENT (Test Q passou)
         if (optUpper === 'POST_ENGAGEMENT') {

@@ -596,34 +596,40 @@ export default function CreateMetaCampaign() {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label>Local da Conversão</Label>
-                                                    <Select
-                                                        value={adSet.destination_type || ''}
-                                                        onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Selecione" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
-                                                                <SelectItem key={v} value={v}>
-                                                                    {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
-                                                                        : v === 'ON_AD' ? 'No seu anúncio'
-                                                                            : v === 'CALLS' ? 'Ligações'
-                                                                                : v === 'WEBSITE' ? 'Site'
-                                                                                    : v === 'APP' ? 'App'
-                                                                                        : 'Instagram ou Facebook'}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
+                                                {/* Hide destination type selector for engagement campaigns */}
+                                                {campaign.objective !== 'OUTCOME_ENGAGEMENT' && (
+                                                    <div className="space-y-2">
+                                                        <Label>Local da Conversão</Label>
+                                                        <Select
+                                                            value={adSet.destination_type || ''}
+                                                            onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Selecione" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
+                                                                    <SelectItem key={v} value={v}>
+                                                                        {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
+                                                                            : v === 'ON_AD' ? 'No seu anúncio'
+                                                                                : v === 'CALLS' ? 'Ligações'
+                                                                                    : v === 'WEBSITE' ? 'Site'
+                                                                                        : v === 'APP' ? 'App'
+                                                                                            : 'Instagram ou Facebook'}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                )}
 
                                                 {/* Publisher Platforms Selection for Generic Engagement */}
-                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (!adSet.destination_type || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK') && (
+                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
                                                     <div className="space-y-2">
                                                         <Label>Plataformas de Publicação</Label>
+                                                        <p className="text-xs text-muted-foreground mb-2">
+                                                            Local de conversão: Instagram ou Facebook (padrão)
+                                                        </p>
                                                         <div className="flex gap-4">
                                                             <label className="flex items-center gap-2 cursor-pointer">
                                                                 <input
