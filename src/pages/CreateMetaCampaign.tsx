@@ -458,21 +458,14 @@ export default function CreateMetaCampaign() {
                 }
                 const needsPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type))); 
                 if (needsPage && !pageId) {
+                    // Tenta resolver automaticamente, mas não bloqueia: backend possui fallback (META_PAGE_ID/credenciais)
                     try {
                         const resp = await fetch(`${API_BASE}/api/integrations/meta/page-info/${WORKSPACE_ID}`);
                         const data = await resp.json();
                         if (data?.success && data?.data?.page_id) {
                             setPageId(data.data.page_id);
-                        } else {
-                            toast({ title: "Page ID obrigatório", description: "Informe o Page ID para Mensagens ou Instagram/Facebook.", variant: "destructive" });
-                            setIsLoading(false);
-                            return;
                         }
-                    } catch {
-                        toast({ title: "Page ID obrigatório", description: "Informe o Page ID para Mensagens ou Instagram/Facebook.", variant: "destructive" });
-                        setIsLoading(false);
-                        return;
-                    }
+                    } catch { void 0; }
                 }
             }
             const response = await fetch(`${API_BASE}/api/integrations/meta/create-campaign`, {
