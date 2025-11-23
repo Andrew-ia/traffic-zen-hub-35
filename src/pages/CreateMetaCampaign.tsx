@@ -417,6 +417,23 @@ export default function CreateMetaCampaign() {
                     {/* Step 1: Campaign */}
                     {currentStep === 1 && ( // Added conditional rendering for Step 1
                         <div className="space-y-6">
+                            {/* Task Import */}
+                            <div className="space-y-2">
+                                <Label>Importar de Tarefa/Projeto (Opcional)</Label>
+                                <Select value={selectedTaskId} onValueChange={handleTaskSelect}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione uma tarefa para preencher dados..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {tasks?.map((task) => (
+                                            <SelectItem key={task.id} value={task.id}>
+                                                {task.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
                             {/* Campaign Name */}
                             <div className="space-y-2">
                                 <Label>Nome da Campanha</Label>
