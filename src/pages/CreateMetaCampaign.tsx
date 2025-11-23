@@ -108,7 +108,7 @@ export default function CreateMetaCampaign() {
             billing_event: 'IMPRESSIONS',
             daily_budget: "2000", // 20 BRL
             status: 'PAUSED',
-            destination_type: undefined,
+            destination_type: 'ON_AD',
             publisher_platforms: ['facebook', 'instagram'],
             targeting: {
                 geo_locations: { countries: ['BR'] },
@@ -170,9 +170,9 @@ export default function CreateMetaCampaign() {
                 return ['MESSAGING_APP']; // WhatsApp/Messenger/IG Direct
             }
             if (opt === 'POST_ENGAGEMENT' || opt === 'PAGE_LIKES' || opt === 'VIDEO_VIEWS') {
-                return ['ON_AD', '']; // '' = generic (Instagram/Facebook)
+                return ['ON_AD', 'INSTAGRAM_OR_FACEBOOK']; // Generic (Instagram/Facebook)
             }
-            return [''];
+            return ['INSTAGRAM_OR_FACEBOOK'];
         }
 
         if (obj === 'OUTCOME_SALES' || obj === 'OUTCOME_LEADS' || obj === 'OUTCOME_TRAFFIC') {
@@ -315,7 +315,7 @@ export default function CreateMetaCampaign() {
                     adSets: adSets.map(adSet => ({
                         ...adSet,
                         daily_budget: parseInt(adSet.daily_budget),
-                        destination_type: adSet.destination_type || undefined,
+                        destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type) ? undefined : adSet.destination_type,
                         targeting: {
                             ...adSet.targeting,
                             publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
@@ -548,7 +548,7 @@ export default function CreateMetaCampaign() {
                                                     </Select>
                                                 </div>
                                                 {/* Publisher Platforms Selection for Generic Engagement */}
-                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && !adSet.destination_type && (
+                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (!adSet.destination_type || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK') && (
                                                     <div className="space-y-2">
                                                         <Label>Plataformas de Publicação</Label>
                                                         <div className="flex gap-4">
