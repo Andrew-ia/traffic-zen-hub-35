@@ -127,7 +127,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
     };
 
     // Get pageId from credentials OR fetch from API if missing
-    let pageId = (credentials as any).pageId || (credentials as any).page_id;
+    let pageId = requestedPageId || (credentials as any).pageId || (credentials as any).page_id;
     let pageAccessToken: string | undefined;
     let igActorId = (credentials as any).instagramActorId || (credentials as any).instagram_actor_id;
 

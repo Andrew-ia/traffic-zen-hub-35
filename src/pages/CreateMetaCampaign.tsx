@@ -108,6 +108,7 @@ export default function CreateMetaCampaign() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSimpleMode, setIsSimpleMode] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+    const [pageId, setPageId] = useState<string>("");
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
     const [pickerSearch, setPickerSearch] = useState("");
@@ -437,6 +438,7 @@ export default function CreateMetaCampaign() {
                         }))
                     };
                 }),
+                pageId: pageId || undefined,
             }),
         });
 
@@ -705,6 +707,19 @@ export default function CreateMetaCampaign() {
                                             </Select>
                                         </div>
                                     )}
+
+                                {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
+                                  (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
+                                  campaign.objective === 'OUTCOME_LEADS') && (
+                                    <div className="space-y-2">
+                                      <Label>Page ID (Facebook)</Label>
+                                      <Input
+                                        placeholder="Ex: 123456789012345"
+                                        value={pageId}
+                                        onChange={(e) => setPageId(e.target.value)}
+                                      />
+                                    </div>
+                                  )}
 
                                 {/* Publisher Platforms Selection for Generic Engagement */}
                                 {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
