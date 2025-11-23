@@ -126,12 +126,51 @@ export async function createMetaCampaign(req: Request, res: Response) {
       return data;
     };
 
-    // Get pageId from credentials - no auto-fetch, fail if missing
-    const pageId = (credentials as any).pageId || (credentials as any).page_id;
+    // Get pageId from credentials OR fetch from API if missing
+    let pageId = (credentials as any).pageId || (credentials as any).page_id;
+
+    if (!pageId) {
+      console.log('Page ID not found in credentials, attempting to fetch from Meta API...');
+      try {
+        const pagesResponse = await callMetaApi('me/accounts', 'GET', {
+          fields: 'id,name,access_token',
+          limit: 100
+        });
+
+        if (pagesResponse.data && pagesResponse.data.length > 0) {
+          // Use the first page found
+          const firstPage = pagesResponse.data[0];
+          pageId = firstPage.id;
+          console.log(`Found Page ID from API: ${pageId} (${firstPage.name})`);
+
+          // Update credentials in DB to save this pageId for future use
+          try {
+            const newCredentials = { ...credentials, pageId: pageId, page_id: pageId };
+            const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCredentials);
+
+            await pool.query(
+              `UPDATE integration_credentials 
+               SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW()
+               WHERE workspace_id = $3 AND platform_key = 'meta'`,
+              [newEncrypted, newIv, workspaceId]
+            );
+            console.log('Updated workspace credentials with fetched Page ID');
+          } catch (dbError) {
+            console.error('Failed to update credentials with new Page ID:', dbError);
+            // Continue anyway since we have the pageId in memory
+          }
+        } else {
+          console.warn('No pages found for this ad account/user');
+        }
+      } catch (apiError) {
+        console.error('Failed to fetch pages from Meta API:', apiError);
+      }
+    }
+
     if (!pageId) {
       return res.status(400).json({
         success: false,
-        error: 'Page ID not configured in workspace credentials. Please add it in Integrations settings.'
+        error: 'Page ID not configured in workspace credentials and could not be fetched from Meta. Please ensure you have a Facebook Page associated with your account.'
       } as ApiResponse);
     }
 
