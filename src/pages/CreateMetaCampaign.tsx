@@ -389,11 +389,11 @@ export default function CreateMetaCampaign() {
                 status: "PAUSED",
                 destination_type: (() => {
                     switch (mappedObjective) {
-                        case 'OUTCOME_TRAFFIC': return 'WEBSITE';
+                        case 'OUTCOME_TRAFFIC': return undefined; // usuário escolhe explicitamente
                         case 'MESSAGES': return 'MESSAGES_DESTINATIONS';
                         case 'OUTCOME_SALES': return 'WEBSITE';
                         case 'OUTCOME_LEADS': return 'WHATSAPP';
-                        case 'OUTCOME_ENGAGEMENT': return 'INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE';
+                        case 'OUTCOME_ENGAGEMENT': return 'INSTAGRAM_OR_FACEBOOK';
                         default: return undefined;
                     }
                 })(),
@@ -516,9 +516,17 @@ export default function CreateMetaCampaign() {
     };
 
     const updateAdSet = (id: string, field: keyof AdSet, value: any) => {
-        setAdSets(prev => prev.map(adSet =>
-            adSet.id === id ? { ...adSet, [field]: value } : adSet
-        ));
+        setAdSets(prev => {
+            const next = prev.map(adSet => (
+                adSet.id === id ? { ...adSet, [field]: value } : adSet
+            ));
+            // Propagar destino escolhido para conjuntos sem destino definido quando objetivo é Tráfego
+            if (field === 'destination_type' && campaign.objective === 'OUTCOME_TRAFFIC') {
+                const chosen = String(value || '').trim();
+                return next.map(s => (!s.destination_type ? { ...s, destination_type: chosen } : s));
+            }
+            return next;
+        });
         if (field === 'optimization_goal' || field === 'destination_type') {
             setTimeout(ensureValidDestinations, 0);
         }
