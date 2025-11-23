@@ -378,6 +378,32 @@ export async function createMetaCampaign(req: Request, res: Response) {
           if (pageId) {
             adSetPayload.promoted_object = { page_id: pageId };
           }
+        } else if (objUpper === 'OUTCOME_TRAFFIC') {
+          // Mapear destinos de tráfego conforme seleção do usuário
+          if (destUpper === 'WEBSITE') {
+            adSetPayload.destination_type = 'WEBSITE';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+          } else if (destUpper === 'APP') {
+            adSetPayload.destination_type = 'APP';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+          } else if (destUpper === 'MESSAGES_DESTINATIONS') {
+            // Trafego para destinos de mensagens: usa ON_AD + page_id para evitar erro de parâmetro
+            adSetPayload.destination_type = 'ON_AD';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
+            // Trafego para perfil Instagram ou Página Facebook: usa ON_POST com page_id
+            adSetPayload.destination_type = 'ON_POST';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'CALLS') {
+            // Ligações: deixar como WEBSITE para evitar erro (Meta exige phone setup). Pode ser ajustado futuramente.
+            adSetPayload.destination_type = 'WEBSITE';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+          } else {
+            adSetPayload.destination_type = 'WEBSITE';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+          }
         } else {
           adSetPayload.destination_type = 'WEBSITE';
           if (objUpper === 'OUTCOME_SALES' && pixelId) {

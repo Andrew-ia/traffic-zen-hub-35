@@ -265,8 +265,12 @@ export default function CreateMetaCampaign() {
         if (obj === 'OUTCOME_LEADS') {
             return ['WHATSAPP'];
         }
-      if (obj === 'OUTCOME_SALES' || obj === 'OUTCOME_TRAFFIC') {
+      if (obj === 'OUTCOME_SALES') {
           return ['WEBSITE'];
+      }
+      if (obj === 'OUTCOME_TRAFFIC') {
+          // Disponibiliza os mesmos destinos que o Meta UI: Site, App, Mensagens, Instagram ou Facebook, Ligações
+          return ['WEBSITE','APP','MESSAGES_DESTINATIONS','INSTAGRAM_OR_FACEBOOK','CALLS'];
       }
 
         return ['WEBSITE'];
@@ -419,9 +423,7 @@ export default function CreateMetaCampaign() {
                         daily_budget: parseInt(adSet.daily_budget),
                         // NÃO enviar destination_type para engajamento
                         ...(shouldRemoveDestination ? {} : {
-                            destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type)
-                                ? undefined
-                                : adSet.destination_type
+                            destination_type: adSet.destination_type
                         }),
                         targeting: {
                             ...adSet.targeting,
