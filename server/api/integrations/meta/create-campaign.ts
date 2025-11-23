@@ -176,12 +176,20 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
     // 2. Create Campaign
     console.log('Creating Campaign:', campaign.name);
-    const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', {
+    const campaignPayload: any = {
       name: campaign.name,
       objective: campaign.objective,
       status: campaign.status,
       special_ad_categories: campaign.special_ad_categories || [],
-    });
+    };
+
+    // CRITICAL: Add engagement_type AND promoted_object for OUTCOME_ENGAGEMENT campaigns
+    if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
+      campaignPayload.engagement_type = 'post_engagement'; // Required field
+      campaignPayload.promoted_object = { page_id: pageId }; // Required field
+    }
+
+    const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', campaignPayload);
 
     const campaignId = campaignResponse.id;
 
