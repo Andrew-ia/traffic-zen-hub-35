@@ -467,7 +467,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       // 4. Create Ads for this Ad Set
       const adsForSet = (adSet.ads && adSet.ads.length > 0)
         ? adSet.ads
-        : (objUpper === 'OUTCOME_ENGAGEMENT' ? [{ name: `${adSet.name} - Anúncio`, creative_id: '', status: 'PAUSED' }] as any[] : []);
+        : [];
       if (adsForSet.length > 0) {
         for (const ad of adsForSet) {
           console.log('Creating Ad:', ad.name);
@@ -479,7 +479,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
               const uploadToken = pageAccessToken || accessToken;
               const postUrl = `${GRAPH_URL}/${pageId}/feed?access_token=${uploadToken}`;
               const postForm = new URLSearchParams();
-              postForm.append('message', ad.name);
+              postForm.append('message', (ad as any).primary_text || ad.name);
               postForm.append('published', 'false');
               const pResp = await fetch(postUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: postForm.toString() });
               const pData = await pResp.json();

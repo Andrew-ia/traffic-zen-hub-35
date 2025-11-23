@@ -98,7 +98,7 @@ export default function CreateMetaCampaign() {
     const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSimpleMode, setIsSimpleMode] = useState(true);
+    const [isSimpleMode, setIsSimpleMode] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
