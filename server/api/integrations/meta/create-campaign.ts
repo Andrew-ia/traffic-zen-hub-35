@@ -488,10 +488,60 @@ export async function createMetaCampaign(req: Request, res: Response) {
       if (adSet.ads && adSet.ads.length > 0) {
         for (const ad of adSet.ads) {
           console.log('Creating Ad:', ad.name);
+          let creativeId = ad.creative_id;
+
+          // Se não houver creative_id, tentar criar via asset do Drive (vídeo)
+          if ((!creativeId || String(creativeId).trim() === '') && (ad as any).creative_asset_id) {
+            try {
+              const assetId = String((ad as any).creative_asset_id);
+              const assetRow = await pool.query(
+                `SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
+                [assetId, workspaceId]
+              );
+              if (assetRow.rows.length > 0) {
+                const asset = assetRow.rows[0];
+                if (String(asset.type || '').toLowerCase() === 'video' && asset.storage_url) {
+                  // 4.1 Upload video (file_url) → advideos
+                  const videoResp = await callMetaApi(`${actAccountId}/advideos`, 'POST', {
+                    file_url: asset.storage_url,
+                  });
+                  const videoId = videoResp.id;
+
+                  // 4.2 Create adcreative with object_story_spec.video_data
+                  const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
+                    name: ad.name,
+                    object_story_spec: {
+                      page_id: pageId,
+                      video_data: {
+                        video_id: videoId,
+                        title: ad.name,
+                        message: (ad as any).primary_text || ''
+                      }
+                    }
+                  });
+                  creativeId = creativeResp.id;
+                  console.log(`[Meta API] Created video adcreative: ${creativeId} from asset ${assetId}`);
+                } else {
+                  throw new Error('Creative asset is not a video or missing storage_url');
+                }
+              } else {
+                throw new Error('Creative asset not found');
+              }
+            } catch (assetErr: any) {
+              console.warn('[Meta API] Failed to create creative from asset:', msg3(assetErr));
+              failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(assetErr) });
+            }
+          }
+
+          // Se ainda não houver creativeId, não tenta criar o ad
+          if (!creativeId) {
+            continue;
+          }
+
           const adPayload = {
             name: ad.name,
             adset_id: adSetId,
-            creative: { creative_id: ad.creative_id },
+            creative: { creative_id: creativeId },
             status: ad.status,
           };
           try {
@@ -510,7 +560,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
                             updated_at
                           )
                           VALUES (
-                            $1, $2, $3, $4, $5, NULL, $6::jsonb, now(), now()
+                            $1, $2, $3, $4, $5, $6, $7::jsonb, now(), now()
                           )
                           ON CONFLICT (ad_set_id, external_id)
                           DO UPDATE SET
@@ -526,7 +576,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
                 adResponse.id,
                 ad.name,
                 ad.status,
-                JSON.stringify({ creative_id: ad.creative_id }),
+                (ad as any).creative_asset_id || null,
+                JSON.stringify({ creative_id: creativeId }),
               ]
             );
             createdAds.push({ id: adResponse.id, name: ad.name });

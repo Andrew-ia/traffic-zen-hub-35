@@ -12,6 +12,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useCreativeLibrary } from "@/hooks/useCreativeLibrary";
 
 interface PMTask {
     id: string;
@@ -62,6 +65,7 @@ interface Ad {
     headline?: string;
     primary_text?: string;
     description?: string;
+    creative_asset_id?: string;
 }
 
 interface AdSet {
@@ -96,6 +100,9 @@ export default function CreateMetaCampaign() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSimpleMode, setIsSimpleMode] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
+    const [pickerSearch, setPickerSearch] = useState("");
 
     // Form State
     const [campaign, setCampaign] = useState({
@@ -162,6 +169,7 @@ export default function CreateMetaCampaign() {
     });
 
     const workspaceId = user?.workspace_id || WORKSPACE_ID;
+    const { data: driveCreatives } = useCreativeLibrary({ days: 90, onlyType: 'video', limit: 200 });
 
     // Auto-ajuste caso o destino atual fique inválido ao mudar objetivo/otimização
     function ensureValidDestinations() {
@@ -346,29 +354,30 @@ export default function CreateMetaCampaign() {
                         // REMOVE destination_type completamente para engajamento (backend infere)
                         const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';
 
-                        return {
-                            ...adSet,
-                            optimization_goal: finalOptimizationGoal,
-                            daily_budget: parseInt(adSet.daily_budget),
-                            // NÃO enviar destination_type para engajamento
-                            ...(shouldRemoveDestination ? {} : {
-                                destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type)
-                                    ? undefined
-                                    : adSet.destination_type
-                            }),
-                            targeting: {
-                                ...adSet.targeting,
-                                publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
-                            },
-                            ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
-                                ...ad,
-                                creative_id: ad.creative_id,
-                                status: 'PAUSED'
-                            }))
-                        };
-                    }),
+                    return {
+                        ...adSet,
+                        optimization_goal: finalOptimizationGoal,
+                        daily_budget: parseInt(adSet.daily_budget),
+                        // NÃO enviar destination_type para engajamento
+                        ...(shouldRemoveDestination ? {} : {
+                            destination_type: (adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK' || !adSet.destination_type)
+                                ? undefined
+                                : adSet.destination_type
+                        }),
+                        targeting: {
+                            ...adSet.targeting,
+                            publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
+                        },
+                        ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
+                            ...ad,
+                            creative_id: ad.creative_id,
+                            creative_asset_id: ad.creative_asset_id,
+                            status: 'PAUSED'
+                        }))
+                    };
                 }),
-            });
+            }),
+        });
 
             const data = await response.json();
 
@@ -733,27 +742,34 @@ export default function CreateMetaCampaign() {
                                                                 }}>
                                                                     <Trash2 className="h-4 w-4 text-destructive" />
                                                                 </Button>
-                                                            </div>
-
-                                                            <div className="grid grid-cols-2 gap-3">
-                                                                <div className="space-y-1">
-                                                                    <Label className="text-xs">Nome do Anúncio</Label>
-                                                                    <Input
-                                                                        value={ad.name}
-                                                                        onChange={(e) => updateAd(adSet.id, ad.id, "name", e.target.value)}
-                                                                        className="h-8"
-                                                                    />
-                                                                </div>
-                                                                <div className="space-y-1">
-                                                                    <Label className="text-xs">ID Criativo (Meta)</Label>
-                                                                    <Input
-                                                                        value={ad.creative_id}
-                                                                        onChange={(e) => updateAd(adSet.id, ad.id, "creative_id", e.target.value)}
-                                                                        className="h-8"
-                                                                        placeholder="123456789"
-                                                                    />
-                                                                </div>
-                                                            </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-xs">Nome do Anúncio</Label>
+                                                            <Input
+                                                                value={ad.name}
+                                                                onChange={(e) => updateAd(adSet.id, ad.id, "name", e.target.value)}
+                                                                className="h-8"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-xs">ID Criativo (Meta)</Label>
+                                                            <Input
+                                                                value={ad.creative_id}
+                                                                onChange={(e) => updateAd(adSet.id, ad.id, "creative_id", e.target.value)}
+                                                                className="h-8"
+                                                                placeholder="123456789"
+                                                            />
+                                                        </div>
+                                                        <div className="col-span-2 flex items-center gap-2">
+                                                            <Button variant="outline" size="sm" onClick={() => { setPickerContext({ adSetId: adSet.id, adId: ad.id }); setPickerOpen(true); }}>
+                                                                Escolher criativo do Drive (vídeo)
+                                                            </Button>
+                                                            {ad.creative_asset_id && (
+                                                                <Badge variant="secondary">Selecionado: {ad.creative_asset_id}</Badge>
+                                                            )}
+                                                        </div>
+                                                    </div>
 
                                                             {(ad.headline || ad.primary_text) && (
                                                                 <div className="bg-background p-2 rounded border text-xs space-y-1">
@@ -859,6 +875,46 @@ export default function CreateMetaCampaign() {
                     </div>
                 </CardContent >
             </Card >
+            <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Selecionar criativo do Drive</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <Input value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Buscar por nome" />
+                        <ScrollArea className="h-[420px]">
+                            <div className="grid grid-cols-2 gap-3">
+                                {(driveCreatives || [])
+                                    .filter((c: any) => !pickerSearch || String(c.name || '').toLowerCase().includes(pickerSearch.toLowerCase()))
+                                    .map((c: any) => (
+                                        <Card key={c.id} onClick={() => {
+                                            if (!pickerContext) return;
+                                            setAdSets(prev => prev.map(s => {
+                                                if (s.id !== pickerContext.adSetId) return s;
+                                                return {
+                                                    ...s,
+                                                    ads: s.ads.map(a => a.id === pickerContext.adId ? { ...a, creative_asset_id: c.id } : a)
+                                                };
+                                            }));
+                                            setPickerOpen(false);
+                                        }} className="cursor-pointer">
+                                            <CardContent className="p-3 space-y-2">
+                                                <div className="aspect-video rounded bg-muted overflow-hidden">
+                                                    {c.thumbnailUrl ? (
+                                                        <img src={c.thumbnailUrl} alt={c.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full" />
+                                                    )}
+                                                </div>
+                                                <div className="text-xs truncate">{c.name}</div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div >
     );
 }
