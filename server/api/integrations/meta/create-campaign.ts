@@ -817,6 +817,16 @@ export function validateMetaPayload(objective: string, adSetPayload: any) {
     }
   }
 
+  // 1.5. TRAFFIC com destinos que precisam de page_id (Instagram/Facebook ou Mensagens)
+  if (obj === 'OUTCOME_TRAFFIC') {
+    // ON_POST = Instagram or Facebook, ON_AD pode ser Mensagens (quando destination_type original = MESSAGES_DESTINATIONS)
+    if (dest === 'ON_POST' || (dest === 'ON_AD' && !promoted.pixel_id)) {
+      if (!promoted.page_id) {
+        throw new Error(`SANITY CHECK FAILED: Campaign Objective ${obj} with destination_type ${dest} MUST have 'page_id' in promoted_object.`);
+      }
+    }
+  }
+
   // 2. MESSAGING_APP deve ter page_id
   if (dest === 'MESSAGING_APP') {
     if (!promoted.page_id) {

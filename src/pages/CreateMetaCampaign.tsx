@@ -15,7 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCreativeLibrary } from "@/hooks/useCreativeLibrary";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 
 interface PMTask {
     id: string;
@@ -48,6 +48,7 @@ interface PMTask {
 }
 
 const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
+const ENV_PAGE_ID = (import.meta.env.VITE_META_PAGE_ID as string | undefined)?.trim() || "";
 const INVALID_WS_ID = '00000000-0000-0000-0000-000000000010';
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
@@ -108,7 +109,7 @@ export default function CreateMetaCampaign() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSimpleMode, setIsSimpleMode] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string>("");
-    const [pageId, setPageId] = useState<string>("");
+    const [pageId, setPageId] = useState<string>(ENV_PAGE_ID);
     const [pageInfo, setPageInfo] = useState<{ id?: string; name?: string } | null>(null);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
@@ -122,33 +123,33 @@ export default function CreateMetaCampaign() {
         special_ad_categories: [] as string[],
     });
 
-        const initialAdSetState: AdSet = {
-            id: crypto.randomUUID(),
-            name: "Conjunto #1",
-            billing_event: "IMPRESSIONS",
-            optimization_goal: "POST_ENGAGEMENT", // Default to POST_ENGAGEMENT as it's safer/more common
-            daily_budget: "5000", // 50 BRL
-            status: "PAUSED",
-            destination_type: "ON_AD", // Default to ON_AD (which maps to ON_POST/ON_VIDEO etc)
-            publisher_platforms: ["facebook", "instagram"],
-            targeting: {
-                geo_locations: {
-                    countries: ["BR"],
-                },
-                age_min: 18,
-                age_max: 65,
-                genders: [2],
-                publisher_platforms: ["facebook", "instagram"],
-                facebook_positions: ["feed"],
-                instagram_positions: ["stream"],
-                device_platforms: ["mobile", "desktop"],
+    const initialAdSetState: AdSet = {
+        id: crypto.randomUUID(),
+        name: "Conjunto #1",
+        billing_event: "IMPRESSIONS",
+        optimization_goal: "POST_ENGAGEMENT", // Default to POST_ENGAGEMENT as it's safer/more common
+        daily_budget: "5000", // 50 BRL
+        status: "PAUSED",
+        destination_type: "ON_AD", // Default to ON_AD (which maps to ON_POST/ON_VIDEO etc)
+        publisher_platforms: ["facebook", "instagram"],
+        targeting: {
+            geo_locations: {
+                countries: ["BR"],
             },
-            settings: { audience: { temperature: 'frio', theme: '', region: '' } },
-            ads: [
-                {
-                    id: crypto.randomUUID(),
-                    name: "Anúncio #1",
-                    creative_id: "",
+            age_min: 18,
+            age_max: 65,
+            genders: [2],
+            publisher_platforms: ["facebook", "instagram"],
+            facebook_positions: ["feed"],
+            instagram_positions: ["stream"],
+            device_platforms: ["mobile", "desktop"],
+        },
+        settings: { audience: { temperature: 'frio', theme: '', region: '' } },
+        ads: [
+            {
+                id: crypto.randomUUID(),
+                name: "Anúncio #1",
+                creative_id: "",
                 status: "PAUSED",
             }
         ],
@@ -260,8 +261,8 @@ export default function CreateMetaCampaign() {
     }
 
     function getAllowedDestinations(objective: string, optimization: string) {
-      const obj = objective.toUpperCase();
-      const opt = optimization.toUpperCase();
+        const obj = objective.toUpperCase();
+        const opt = optimization.toUpperCase();
 
         if (obj === 'OUTCOME_ENGAGEMENT') {
             // Engajamento: mensagens, no anúncio, ou Instagram/Facebook
@@ -272,13 +273,13 @@ export default function CreateMetaCampaign() {
             // Leads: permitir WhatsApp, Messenger, Instagram/Facebook e Site
             return ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE'];
         }
-      if (obj === 'OUTCOME_SALES') {
-          return ['WEBSITE'];
-      }
-      if (obj === 'OUTCOME_TRAFFIC') {
-          // Disponibiliza os mesmos destinos que o Meta UI: Site, App, Mensagens, Instagram ou Facebook, Ligações
-          return ['WEBSITE','APP','MESSAGES_DESTINATIONS','INSTAGRAM_OR_FACEBOOK','CALLS'];
-      }
+        if (obj === 'OUTCOME_SALES') {
+            return ['WEBSITE'];
+        }
+        if (obj === 'OUTCOME_TRAFFIC') {
+            // Disponibiliza os mesmos destinos que o Meta UI: Site, App, Mensagens, Instagram ou Facebook, Ligações
+            return ['WEBSITE', 'APP', 'MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'CALLS'];
+        }
 
         if (obj === 'OUTCOME_AWARENESS') {
             // Reconhecimento: opções de interação no anúncio ou perfil/página
@@ -456,7 +457,7 @@ export default function CreateMetaCampaign() {
                     setIsLoading(false);
                     return;
                 }
-                const needsPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type))); 
+                const needsPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type)));
                 if (needsPage && !pageId) {
                     // Tenta resolver automaticamente, mas não bloqueia: backend possui fallback (META_PAGE_ID/credenciais)
                     try {
@@ -486,29 +487,29 @@ export default function CreateMetaCampaign() {
                         // REMOVE destination_type completamente para engajamento (backend infere)
                         const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';
 
-                    return {
-                        ...adSet,
-                        optimization_goal: finalOptimizationGoal,
-                        daily_budget: parseInt(adSet.daily_budget),
-                        // NÃO enviar destination_type para engajamento
-                        ...(shouldRemoveDestination ? {} : {
-                            destination_type: adSet.destination_type
-                        }),
-                        targeting: {
-                            ...adSet.targeting,
-                            publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
-                        },
-                        ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
-                            ...ad,
-                            creative_id: campaign.objective === 'OUTCOME_ENGAGEMENT' ? '' : (ad.creative_id || ''),
-                            creative_asset_id: ad.creative_asset_id,
-                            status: 'paused'
-                        }))
-                    };
+                        return {
+                            ...adSet,
+                            optimization_goal: finalOptimizationGoal,
+                            daily_budget: parseInt(adSet.daily_budget),
+                            // NÃO enviar destination_type para engajamento
+                            ...(shouldRemoveDestination ? {} : {
+                                destination_type: adSet.destination_type
+                            }),
+                            targeting: {
+                                ...adSet.targeting,
+                                publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
+                            },
+                            ads: isSimpleMode ? [] : adSet.ads.map(ad => ({
+                                ...ad,
+                                creative_id: campaign.objective === 'OUTCOME_ENGAGEMENT' ? '' : (ad.creative_id || ''),
+                                creative_asset_id: ad.creative_asset_id,
+                                status: 'paused'
+                            }))
+                        };
+                    }),
+                    pageId: pageId || undefined,
                 }),
-                pageId: pageId || undefined,
-            }),
-        });
+            });
 
             const data = await response.json();
 
@@ -658,7 +659,7 @@ export default function CreateMetaCampaign() {
                                         <SelectItem value="OUTCOME_TRAFFIC">Tráfego</SelectItem>
                                         <SelectItem value="OUTCOME_ENGAGEMENT">Engajamento</SelectItem>
                                         <SelectItem value="OUTCOME_AWARENESS">Reconhecimento</SelectItem>
-                                        
+
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -746,188 +747,198 @@ export default function CreateMetaCampaign() {
                                                         <SelectTrigger>
                                                             <SelectValue />
                                                         </SelectTrigger>
-                                                <SelectContent>
-                                                    {getAllowedOptimizations(campaign.objective).map((opt) => (
-                                                        <SelectItem key={opt} value={opt}>
-                                                            {opt === 'LINK_CLICKS' ? 'Cliques no Link'
-                                                                : opt === 'LEAD_GENERATION' ? 'Geração de Leads'
-                                                                    : opt === 'OFFSITE_CONVERSIONS' ? 'Conversões'
-                                                                        : opt === 'POST_ENGAGEMENT' ? 'Engajamentos'
-                                                                            : 'Alcance'}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
+                                                        <SelectContent>
+                                                            {getAllowedOptimizations(campaign.objective).map((opt) => (
+                                                                <SelectItem key={opt} value={opt}>
+                                                                    {opt === 'LINK_CLICKS' ? 'Cliques no Link'
+                                                                        : opt === 'LEAD_GENERATION' ? 'Geração de Leads'
+                                                                            : opt === 'OFFSITE_CONVERSIONS' ? 'Conversões'
+                                                                                : opt === 'POST_ENGAGEMENT' ? 'Engajamentos'
+                                                                                    : 'Alcance'}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
                                                     </Select>
                                                 </div>
                                             </div>
-                            <div className="grid grid-cols-1 gap-4">
-                                {/* Hide destination type selector for engagement campaigns */}
-                                {(
-                                    campaign.objective === 'OUTCOME_ENGAGEMENT' ||
-                                    campaign.objective === 'OUTCOME_TRAFFIC' ||
-                                    campaign.objective === 'OUTCOME_LEADS' ||
-                                    campaign.objective === 'OUTCOME_SALES' ||
-                                    campaign.objective === 'OUTCOME_AWARENESS'
-                                ) && (
-                                    <div className="space-y-2">
-                                        <Label>Local da Conversão</Label>
-                                        <Select
-                                            value={adSet.destination_type || ''}
-                                            onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Selecione" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
-                                                    <SelectItem key={v} value={v}>
-                                                        {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
-                                                            : v === 'ON_AD' ? 'No seu anúncio'
-                                                                : v === 'CALLS' ? 'Ligações'
-                                                                    : v === 'WEBSITE' ? 'Site'
-                                                                        : v === 'APP' ? 'App'
-                                                                            : v === 'WHATSAPP' ? 'WhatsApp'
-                                                                                : v === 'MESSENGER' ? 'Messenger'
-                                                                                    : 'Instagram ou Facebook'}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                            </Select>
-                                        </div>
-                                    )}
+                                            <div className="grid grid-cols-1 gap-4">
+                                                {/* Hide destination type selector for engagement campaigns */}
+                                                {(
+                                                    campaign.objective === 'OUTCOME_ENGAGEMENT' ||
+                                                    campaign.objective === 'OUTCOME_TRAFFIC' ||
+                                                    campaign.objective === 'OUTCOME_LEADS' ||
+                                                    campaign.objective === 'OUTCOME_SALES' ||
+                                                    campaign.objective === 'OUTCOME_AWARENESS'
+                                                ) && (
+                                                        <div className="space-y-2">
+                                                            <Label>Local da Conversão</Label>
+                                                            <Select
+                                                                value={adSet.destination_type || ''}
+                                                                onValueChange={(v) => updateAdSet(adSet.id, "destination_type", v)}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Selecione" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {getAllowedDestinations(campaign.objective, adSet.optimization_goal).map((v) => (
+                                                                        <SelectItem key={v} value={v}>
+                                                                            {v === 'MESSAGES_DESTINATIONS' ? 'Destinos das mensagens'
+                                                                                : v === 'ON_AD' ? 'No seu anúncio'
+                                                                                    : v === 'CALLS' ? 'Ligações'
+                                                                                        : v === 'WEBSITE' ? 'Site'
+                                                                                            : v === 'APP' ? 'App'
+                                                                                                : v === 'WHATSAPP' ? 'WhatsApp'
+                                                                                                    : v === 'MESSENGER' ? 'Messenger'
+                                                                                                        : 'Instagram ou Facebook'}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    )}
 
-                                {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
-                                  (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
-                                  campaign.objective === 'OUTCOME_LEADS') && (
-                                  <div className="space-y-2">
-                                    <Label>Page ID (Facebook)</Label>
-                                    <Input
-                                      placeholder="Ex: 123456789012345"
-                                      value={pageId}
-                                      onChange={(e) => setPageId(e.target.value)}
-                                    />
-                                    {pageInfo?.name && (
-                                      <p className="text-xs text-muted-foreground">Página detectada: {pageInfo.name} ({pageInfo.id})</p>
-                                    )}
-                                  </div>
-                                )}
+                                                {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
+                                                    (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
+                                                    campaign.objective === 'OUTCOME_LEADS') && (
+                                                        <div className="space-y-2">
+                                                            <Label>Page ID (Facebook)</Label>
+                                                            {pageId ? (
+                                                                <div className="bg-green-50 text-green-800 p-3 rounded-md text-sm border border-green-200">
+                                                                    <p><strong>✓ Configurado automaticamente:</strong></p>
+                                                                    <p className="font-mono mt-1">{pageId}</p>
+                                                                    {pageInfo?.name && (
+                                                                        <p className="text-xs mt-1">Página: {pageInfo.name}</p>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                <>
+                                                                    <Input
+                                                                        placeholder="Ex: 123456789012345"
+                                                                        value={pageId}
+                                                                        onChange={(e) => setPageId(e.target.value)}
+                                                                    />
+                                                                    <p className="text-xs text-amber-600">⚠️ Page ID não encontrado. Configure VITE_META_PAGE_ID no .env.local</p>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
 
-                                {/* Publisher Platforms Selection for Generic Engagement */}
-                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
-                                    <div className="space-y-2">
-                                        <Label>Plataformas de Publicação</Label>
-                                        <p className="text-xs text-muted-foreground mb-2">
-                                            Local de conversão: Instagram ou Facebook (padrão)
-                                        </p>
-                                        <div className="flex gap-4">
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={adSet.publisher_platforms?.includes('facebook') ?? true}
-                                                    onChange={(e) => {
-                                                        const current = adSet.publisher_platforms || [];
-                                                        const updated = e.target.checked
-                                                            ? [...current.filter(p => p !== 'facebook'), 'facebook']
-                                                            : current.filter(p => p !== 'facebook');
-                                                        updateAdSet(adSet.id, 'publisher_platforms', updated);
-                                                    }}
-                                                    className="w-4 h-4"
-                                                />
-                                                <span>Facebook</span>
-                                            </label>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={adSet.publisher_platforms?.includes('instagram') ?? true}
-                                                    onChange={(e) => {
-                                                        const current = adSet.publisher_platforms || [];
-                                                        const updated = e.target.checked
-                                                            ? [...current.filter(p => p !== 'instagram'), 'instagram']
-                                                            : current.filter(p => p !== 'instagram');
-                                                        updateAdSet(adSet.id, 'publisher_platforms', updated);
-                                                    }}
-                                                    className="w-4 h-4"
-                                                />
-                                                <span>Instagram</span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>Temperatura do Público</Label>
-                                        <Select
-                                            value={adSet.settings?.audience?.temperature || 'frio'}
-                                            onValueChange={(v) => {
-                                                const s = adSet.settings || { audience: {} };
-                                                const a = { ...(s.audience || {}), temperature: v as any };
-                                                const settings = { ...s, audience: a };
-                                                const name = `${a.temperature || ''}${adSet.targeting.genders?.length === 1 ? `, ${adSet.targeting.genders?.[0] === 2 ? 'feminino' : 'masculino'}` : ''}, ${adSet.targeting.age_min} a ${adSet.targeting.age_max} anos`.trim();
-                                                setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, settings, name } : s0));
-                                            }}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="frio">Frio</SelectItem>
-                                                <SelectItem value="morno">Morno</SelectItem>
-                                                <SelectItem value="quente">Quente</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Faixa Etária</Label>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <Input
-                                                type="number"
-                                                value={adSet.targeting.age_min}
-                                                onChange={(e) => setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, age_min: Number(e.target.value) } } : s0))}
-                                            />
-                                            <Input
-                                                type="number"
-                                                value={adSet.targeting.age_max}
-                                                onChange={(e) => setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, age_max: Number(e.target.value) } } : s0))}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Sexo</Label>
-                                        <div className="flex gap-4">
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={(adSet.targeting.genders || []).includes(2)}
-                                                    onChange={(e) => {
-                                                        const g = new Set(adSet.targeting.genders || []);
-                                                        if (e.target.checked) g.add(2); else g.delete(2);
-                                                        setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, genders: Array.from(g) } } : s0));
-                                                    }}
-                                                    className="w-4 h-4"
-                                                />
-                                                <span>Feminino</span>
-                                            </label>
-                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={(adSet.targeting.genders || []).includes(1)}
-                                                    onChange={(e) => {
-                                                        const g = new Set(adSet.targeting.genders || []);
-                                                        if (e.target.checked) g.add(1); else g.delete(1);
-                                                        setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, genders: Array.from(g) } } : s0));
-                                                    }}
-                                                    className="w-4 h-4"
-                                                />
-                                                <span>Masculino</span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
+                                                {/* Publisher Platforms Selection for Generic Engagement */}
+                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
+                                                    <div className="space-y-2">
+                                                        <Label>Plataformas de Publicação</Label>
+                                                        <p className="text-xs text-muted-foreground mb-2">
+                                                            Local de conversão: Instagram ou Facebook (padrão)
+                                                        </p>
+                                                        <div className="flex gap-4">
+                                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={adSet.publisher_platforms?.includes('facebook') ?? true}
+                                                                    onChange={(e) => {
+                                                                        const current = adSet.publisher_platforms || [];
+                                                                        const updated = e.target.checked
+                                                                            ? [...current.filter(p => p !== 'facebook'), 'facebook']
+                                                                            : current.filter(p => p !== 'facebook');
+                                                                        updateAdSet(adSet.id, 'publisher_platforms', updated);
+                                                                    }}
+                                                                    className="w-4 h-4"
+                                                                />
+                                                                <span>Facebook</span>
+                                                            </label>
+                                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={adSet.publisher_platforms?.includes('instagram') ?? true}
+                                                                    onChange={(e) => {
+                                                                        const current = adSet.publisher_platforms || [];
+                                                                        const updated = e.target.checked
+                                                                            ? [...current.filter(p => p !== 'instagram'), 'instagram']
+                                                                            : current.filter(p => p !== 'instagram');
+                                                                        updateAdSet(adSet.id, 'publisher_platforms', updated);
+                                                                    }}
+                                                                    className="w-4 h-4"
+                                                                />
+                                                                <span>Instagram</span>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>Temperatura do Público</Label>
+                                                        <Select
+                                                            value={adSet.settings?.audience?.temperature || 'frio'}
+                                                            onValueChange={(v) => {
+                                                                const s = adSet.settings || { audience: {} };
+                                                                const a = { ...(s.audience || {}), temperature: v as any };
+                                                                const settings = { ...s, audience: a };
+                                                                const name = `${a.temperature || ''}${adSet.targeting.genders?.length === 1 ? `, ${adSet.targeting.genders?.[0] === 2 ? 'feminino' : 'masculino'}` : ''}, ${adSet.targeting.age_min} a ${adSet.targeting.age_max} anos`.trim();
+                                                                setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, settings, name } : s0));
+                                                            }}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="frio">Frio</SelectItem>
+                                                                <SelectItem value="morno">Morno</SelectItem>
+                                                                <SelectItem value="quente">Quente</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Faixa Etária</Label>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <Input
+                                                                type="number"
+                                                                value={adSet.targeting.age_min}
+                                                                onChange={(e) => setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, age_min: Number(e.target.value) } } : s0))}
+                                                            />
+                                                            <Input
+                                                                type="number"
+                                                                value={adSet.targeting.age_max}
+                                                                onChange={(e) => setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, age_max: Number(e.target.value) } } : s0))}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Sexo</Label>
+                                                        <div className="flex gap-4">
+                                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(adSet.targeting.genders || []).includes(2)}
+                                                                    onChange={(e) => {
+                                                                        const g = new Set(adSet.targeting.genders || []);
+                                                                        if (e.target.checked) g.add(2); else g.delete(2);
+                                                                        setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, genders: Array.from(g) } } : s0));
+                                                                    }}
+                                                                    className="w-4 h-4"
+                                                                />
+                                                                <span>Feminino</span>
+                                                            </label>
+                                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(adSet.targeting.genders || []).includes(1)}
+                                                                    onChange={(e) => {
+                                                                        const g = new Set(adSet.targeting.genders || []);
+                                                                        if (e.target.checked) g.add(1); else g.delete(1);
+                                                                        setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, genders: Array.from(g) } } : s0));
+                                                                    }}
+                                                                    className="w-4 h-4"
+                                                                />
+                                                                <span>Masculino</span>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
-                                    <div className="space-y-2 mt-4">
-                                        <Label>Segmentação por Interesses</Label>
-                                        <Select
-                                            value={adSet.targeting.interests || 'open'}
+                                            <div className="space-y-2 mt-4">
+                                                <Label>Segmentação por Interesses</Label>
+                                                <Select
+                                                    value={adSet.targeting.interests || 'open'}
                                                     onValueChange={(v) => setAdSets(prev => prev.map(s => {
                                                         if (s.id !== adSet.id) return s;
                                                         return {
@@ -943,11 +954,11 @@ export default function CreateMetaCampaign() {
                                                         <SelectItem value="open">🎯 Aberto (Método Andromeda - Recomendado)</SelectItem>
                                                         <SelectItem value="custom">📝 Personalizado (IDs de Interesses)</SelectItem>
                                                     </SelectContent>
-                                            </Select>
-                                            {adSet.targeting.interests !== undefined && adSet.targeting.interests !== 'open' && (
-                                                <div className="space-y-1">
-                                                    <Input
-                                                        value={adSet.targeting.interests || ''}
+                                                </Select>
+                                                {adSet.targeting.interests !== undefined && adSet.targeting.interests !== 'open' && (
+                                                    <div className="space-y-1">
+                                                        <Input
+                                                            value={adSet.targeting.interests || ''}
                                                             onChange={(e) => setAdSets(prev => prev.map(s => {
                                                                 if (s.id !== adSet.id) return s;
                                                                 return {
@@ -959,59 +970,59 @@ export default function CreateMetaCampaign() {
                                                         />
                                                         <p className="text-xs text-muted-foreground">IDs de interesses separados por vírgula</p>
                                                     </div>
-                                            )}
-                                    </div>
-
-                                    {/* Custom Audiences */}
-                                    <div className="space-y-2 mt-4">
-                                        <Label>Públicos personalizados (Meta)</Label>
-                                        <p className="text-xs text-muted-foreground">Selecione um ou mais IDs. Busca por nome disponível.</p>
-                                        {!apiDiagnostics.hasAudiences && apiDiagnostics.isProd && (
-                                            <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-                                                API não retornou públicos. Verifique a variável VITE_API_URL e credenciais Meta no ambiente de produção.
+                                                )}
                                             </div>
-                                        )}
-                                        <div className="border rounded p-2">
-                                            <Input
-                                                placeholder="Buscar público..."
-                                                value={pickerSearch}
-                                                onChange={(e) => setPickerSearch(e.target.value)}
-                                                className="mb-2"
-                                            />
-                                            <ScrollArea className="h-40">
-                                                <div className="space-y-1">
-                                                    {(audiences || [])
-                                                        .filter((a: any) => !pickerSearch || String(a.name).toLowerCase().includes(pickerSearch.toLowerCase()))
-                                                        .map((a: any) => {
-                                                            const selectedIds = (adSet.targeting.custom_audiences || '').split(',').map(s => s.trim()).filter(Boolean);
-                                                            const checked = selectedIds.includes(String(a.id));
-                                                            return (
-                                                                <label key={a.id} className="flex items-center justify-between gap-2 text-sm py-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={checked}
-                                                                            onChange={(e) => {
-                                                                                const setIds = new Set(selectedIds);
-                                                                                if (e.target.checked) setIds.add(String(a.id)); else setIds.delete(String(a.id));
-                                                                                const next = Array.from(setIds).join(',');
-                                                                                setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, custom_audiences: next } } : s0));
-                                                                            }}
-                                                                            className="w-4 h-4"
-                                                                        />
-                                                                        <span>{a.name}</span>
-                                                                    </div>
-                                                                    <span className="text-xs text-muted-foreground">{a.subtype}</span>
-                                                                </label>
-                                                            );
-                                                        })}
+
+                                            {/* Custom Audiences */}
+                                            <div className="space-y-2 mt-4">
+                                                <Label>Públicos personalizados (Meta)</Label>
+                                                <p className="text-xs text-muted-foreground">Selecione um ou mais IDs. Busca por nome disponível.</p>
+                                                {!apiDiagnostics.hasAudiences && apiDiagnostics.isProd && (
+                                                    <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                                                        API não retornou públicos. Verifique a variável VITE_API_URL e credenciais Meta no ambiente de produção.
+                                                    </div>
+                                                )}
+                                                <div className="border rounded p-2">
+                                                    <Input
+                                                        placeholder="Buscar público..."
+                                                        value={pickerSearch}
+                                                        onChange={(e) => setPickerSearch(e.target.value)}
+                                                        className="mb-2"
+                                                    />
+                                                    <ScrollArea className="h-40">
+                                                        <div className="space-y-1">
+                                                            {(audiences || [])
+                                                                .filter((a: any) => !pickerSearch || String(a.name).toLowerCase().includes(pickerSearch.toLowerCase()))
+                                                                .map((a: any) => {
+                                                                    const selectedIds = (adSet.targeting.custom_audiences || '').split(',').map(s => s.trim()).filter(Boolean);
+                                                                    const checked = selectedIds.includes(String(a.id));
+                                                                    return (
+                                                                        <label key={a.id} className="flex items-center justify-between gap-2 text-sm py-1">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={checked}
+                                                                                    onChange={(e) => {
+                                                                                        const setIds = new Set(selectedIds);
+                                                                                        if (e.target.checked) setIds.add(String(a.id)); else setIds.delete(String(a.id));
+                                                                                        const next = Array.from(setIds).join(',');
+                                                                                        setAdSets(prev => prev.map(s0 => s0.id === adSet.id ? { ...s0, targeting: { ...s0.targeting, custom_audiences: next } } : s0));
+                                                                                    }}
+                                                                                    className="w-4 h-4"
+                                                                                />
+                                                                                <span>{a.name}</span>
+                                                                            </div>
+                                                                            <span className="text-xs text-muted-foreground">{a.subtype}</span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                        </div>
+                                                    </ScrollArea>
+                                                    {adSet.targeting.custom_audiences && (
+                                                        <p className="text-xs text-muted-foreground mt-2">Selecionados: {(adSet.targeting.custom_audiences || '').split(',').filter(Boolean).length}</p>
+                                                    )}
                                                 </div>
-                                            </ScrollArea>
-                                            {adSet.targeting.custom_audiences && (
-                                                <p className="text-xs text-muted-foreground mt-2">Selecionados: {(adSet.targeting.custom_audiences || '').split(',').filter(Boolean).length}</p>
-                                            )}
-                                        </div>
-                                    </div>
+                                            </div>
 
 
                                             {/* Ads Section */}
@@ -1030,26 +1041,26 @@ export default function CreateMetaCampaign() {
                                                                 }}>
                                                                     <Trash2 className="h-4 w-4 text-destructive" />
                                                                 </Button>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-xs">Nome do Anúncio</Label>
-                                                            <Input
-                                                                value={ad.name}
-                                                                onChange={(e) => updateAd(adSet.id, ad.id, "name", e.target.value)}
-                                                                className="h-8"
-                                                            />
-                                                        </div>
-                                                        {/* Campo de ID do Criativo (Meta) removido — usar seleção de Drive */}
-                                                        <div className="col-span-2 flex items-center gap-2">
-                                                            <Button variant="outline" size="sm" onClick={() => { setPickerContext({ adSetId: adSet.id, adId: ad.id }); setPickerOpen(true); }}>
-                                                                Escolher criativo do Drive (vídeo)
-                                                            </Button>
-                                                            {ad.creative_asset_id && (
-                                                                <Badge variant="secondary">Selecionado: {ad.creative_asset_id}</Badge>
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-xs">Nome do Anúncio</Label>
+                                                                    <Input
+                                                                        value={ad.name}
+                                                                        onChange={(e) => updateAd(adSet.id, ad.id, "name", e.target.value)}
+                                                                        className="h-8"
+                                                                    />
+                                                                </div>
+                                                                {/* Campo de ID do Criativo (Meta) removido — usar seleção de Drive */}
+                                                                <div className="col-span-2 flex items-center gap-2">
+                                                                    <Button variant="outline" size="sm" onClick={() => { setPickerContext({ adSetId: adSet.id, adId: ad.id }); setPickerOpen(true); }}>
+                                                                        Escolher criativo do Drive (vídeo)
+                                                                    </Button>
+                                                                    {ad.creative_asset_id && (
+                                                                        <Badge variant="secondary">Selecionado: {ad.creative_asset_id}</Badge>
+                                                                    )}
+                                                                </div>
+                                                            </div>
 
                                                             {(ad.headline || ad.primary_text) && (
                                                                 <div className="bg-background p-2 rounded border text-xs space-y-1">
