@@ -548,10 +548,10 @@ export default function CreateMetaCampaign() {
             const next = prev.map(adSet => (
                 adSet.id === id ? { ...adSet, [field]: value } : adSet
             ));
-            // Propagar destino escolhido para conjuntos sem destino definido quando objetivo é Tráfego
+            // Propagar destino escolhido para todos os conjuntos quando objetivo é Tráfego
             if (field === 'destination_type' && campaign.objective === 'OUTCOME_TRAFFIC') {
                 const chosen = String(value || '').trim();
-                return next.map(s => (!s.destination_type ? { ...s, destination_type: chosen } : s));
+                return next.map(s => ({ ...s, destination_type: chosen }));
             }
             return next;
         });
