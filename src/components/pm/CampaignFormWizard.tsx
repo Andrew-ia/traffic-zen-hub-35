@@ -504,7 +504,8 @@ export function CampaignFormWizard({
                       </SelectTrigger>
                       <SelectContent>
                         {(() => {
-                          const obj = String(data.objective || '').toUpperCase();
+                          const objRaw = String(data.objective || '').toUpperCase();
+                          const obj = objRaw.startsWith('OUTCOME_') ? objRaw.replace('OUTCOME_', '') : objRaw;
                           const opts = obj === 'ENGAGEMENT'
                             ? ['MESSAGES_DESTINATIONS', 'ON_AD', 'INSTAGRAM_OR_FACEBOOK']
                             : obj === 'LEADS'
