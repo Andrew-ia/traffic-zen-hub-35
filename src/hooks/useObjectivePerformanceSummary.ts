@@ -542,7 +542,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         }
       }
 
-      let metricRows = Array.from(aggregatedMap.values());
+      metricRows = Array.from(aggregatedMap.values());
 
       const latestMetricDate = metricRows.reduce<string | null>((latest, row) => {
         if (!row.metric_date) return latest;

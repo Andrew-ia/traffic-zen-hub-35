@@ -124,6 +124,7 @@ export default function CreateMetaCampaign() {
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
     const [pickerSearch, setPickerSearch] = useState("");
+    const [mirroring, setMirroring] = useState<string | null>(null);
 
     // Form State
     const [campaign, setCampaign] = useState({
@@ -289,7 +290,7 @@ export default function CreateMetaCampaign() {
             return ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE'];
         }
         if (obj === 'OUTCOME_SALES') {
-            return ['WEBSITE'];
+            return ['WEBSITE', 'WHATSAPP'];
         }
         if (obj === 'OUTCOME_TRAFFIC') {
             // Disponibiliza os mesmos destinos que o Meta UI: Site, App, Mensagens, Instagram ou Facebook, Ligações
@@ -317,10 +318,12 @@ export default function CreateMetaCampaign() {
     useEffect(() => {
         const destinationKey = adSets.map(s => String(s.destination_type || '')).join('|');
         const hasTrafficDestNeedingPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type)));
+        const hasSalesMessages = adSets.some(s => ['WHATSAPP', 'MESSENGER'].includes(String(s.destination_type)));
         const needsPage = (
             campaign.objective === 'OUTCOME_ENGAGEMENT' ||
             campaign.objective === 'OUTCOME_LEADS' ||
-            (campaign.objective === 'OUTCOME_TRAFFIC' && hasTrafficDestNeedingPage)
+            (campaign.objective === 'OUTCOME_TRAFFIC' && hasTrafficDestNeedingPage) ||
+            (campaign.objective === 'OUTCOME_SALES' && hasSalesMessages)
         );
         if (needsPage && (!pageId || !instagramActorId)) {
             (async () => {
@@ -971,9 +974,10 @@ export default function CreateMetaCampaign() {
 
                                                 {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
                                                     (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
-                                                    campaign.objective === 'OUTCOME_LEADS') && (
-                                                        <div className="space-y-2">
-                                                            <Label>Page ID (Facebook)</Label>
+                                                    campaign.objective === 'OUTCOME_LEADS' ||
+                                                    (campaign.objective === 'OUTCOME_SALES' && (adSet.destination_type === 'WHATSAPP' || adSet.destination_type === 'MESSENGER'))) && (
+                                                    <div className="space-y-2">
+                                                        <Label>Page ID (Facebook)</Label>
                                                             {pageId ? (
                                                                 <div className="bg-green-50 text-green-800 p-3 rounded-md text-sm border border-green-200">
                                                                     <p><strong>✓ Configurado automaticamente:</strong></p>
@@ -1248,6 +1252,29 @@ export default function CreateMetaCampaign() {
                                                                     </Button>
                                                                     {ad.creative_asset_id && (
                                                                         <Badge variant="secondary">Selecionado: {ad.creative_asset_id}</Badge>
+                                                                    )}
+                                                                    {ad.creative_asset_id && (
+                                                                        <Button
+                                                                            variant="secondary"
+                                                                            size="sm"
+                                                                            disabled={mirroring === ad.creative_asset_id}
+                                                                            onClick={async () => {
+                                                                                try {
+                                                                                    setMirroring(ad.creative_asset_id!);
+                                                                                    const url = `${API_BASE}/api/creatives/mirror/${WORKSPACE_ID}/${ad.creative_asset_id}`;
+                                                                                    const resp = await fetch(url, { method: 'POST' });
+                                                                                    const data = await resp.json();
+                                                                                    if (!data?.success) throw new Error(String(data?.error || 'Falha ao espelhar'));
+                                                                                    toast({ title: 'Criativo espelhado', description: 'URL pública do Supabase preparada.' });
+                                                                                } catch (e: any) {
+                                                                                    toast({ title: 'Falha ao espelhar', description: String(e?.message || e), variant: 'destructive' });
+                                                                                } finally {
+                                                                                    setMirroring(null);
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            {mirroring === ad.creative_asset_id ? 'Espelhando...' : 'Espelhar para Supabase'}
+                                                                        </Button>
                                                                     )}
                                                                 </div>
                                                             </div>

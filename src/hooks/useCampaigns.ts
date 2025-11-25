@@ -116,11 +116,13 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
       } else if (platform !== "all") {
         const { data: platformAccounts } = await supabase
           .from("platform_accounts")
-          .select("id")
+          .select("id,name")
           .eq("workspace_id", WORKSPACE_ID)
           .eq("platform_key", platform);
 
-        const accountIds = (platformAccounts || []).map(acc => acc.id);
+        const accountIds = (platformAccounts || [])
+          .filter((acc: any) => !/\bdemo\b/i.test(String(acc?.name || "")))
+          .map((acc: any) => acc.id);
         if (accountIds.length > 0) {
           query = query.in("platform_account_id", accountIds);
         } // Caso não existam contas da plataforma, não aplicar filtro por platform_account_id;

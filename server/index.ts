@@ -20,7 +20,7 @@ import {
 } from './api/integrations/simpleSync.js';
 import { directInstagramSync } from './api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
-import { createMetaCampaign, getMetaCustomAudiences, getMetaPageInfo } from './api/integrations/meta/create-campaign.js';
+import { createMetaCampaign, getMetaCustomAudiences, getMetaPageInfo, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
@@ -200,6 +200,7 @@ app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 app.get('/api/integrations/meta/custom-audiences/:workspaceId', getMetaCustomAudiences);
 app.get('/api/integrations/meta/page-info/:workspaceId', getMetaPageInfo);
 app.get('/api/integrations/meta/pages/:workspaceId', listMetaPages);
+app.post('/api/creatives/mirror/:workspaceId/:assetId', mirrorCreativeAsset);
 
 // Instagram sync endpoints
 app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);

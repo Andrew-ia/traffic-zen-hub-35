@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { createClient } from '@supabase/supabase-js';
+import { google } from 'googleapis';
 import { getPool } from '../../../config/database.js';
 import { decryptCredentials, encryptCredentials } from '../../../services/encryption.js';
 import type { ApiResponse } from '../../../types/index.js';
@@ -115,8 +117,8 @@ export async function createMetaCampaign(req: Request, res: Response) {
         console.log(`[Meta API] POST ${url} Payload:`, options.body);
       }
 
-      const response = await fetch(`${url}?${queryParams.toString()}`, options);
-      const data = await response.json();
+    const response = await fetch(`${url}?${queryParams.toString()}`, options);
+    const data = await response.json();
 
       if (data.error) {
         console.error('[Meta API] Error Response:', JSON.stringify(data, null, 2));
@@ -125,6 +127,55 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
       return data;
     };
+
+    async function ensurePublicUrlFromAsset(asset: { id: string; name?: string; type?: string; storage_url?: string }, workspaceId: string): Promise<{ url: string; mime?: string }> {
+      const src = String(asset.storage_url || '').trim();
+      const isSupabase = src && (src.includes(String(process.env.SUPABASE_URL || '')) || /supabase\.co\//.test(src));
+      if (isSupabase) return { url: src };
+
+      const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
+      const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+      if (!supabaseUrl || !supabaseKey) throw new Error('Supabase not configured');
+      const sb = createClient(supabaseUrl, supabaseKey);
+
+      const bucket = 'creatives';
+      const pathBase = `${workspaceId}/assets/${asset.id}`;
+
+      const tryDrive = async (): Promise<{ buf: Buffer; mime?: string; name?: string }> => {
+        const m = src.match(/\/file\/d\/([^/]+)/) || src.match(/[?&]id=([^&]+)/);
+        const fileId = m?.[1];
+        const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
+        const drive = google.drive({ version: 'v3', auth });
+        let name: string | undefined; let mime: string | undefined; let buf: Buffer | undefined;
+        if (fileId) {
+          const meta = await drive.files.get({ fileId, fields: 'name,mimeType' });
+          name = meta.data.name || asset.name || asset.id;
+          mime = meta.data.mimeType || undefined;
+          const resp: any = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' } as any);
+          buf = Buffer.from(resp.data as ArrayBuffer);
+        } else {
+          const r = await fetch(src);
+          if (!r.ok) throw new Error(`Failed to fetch asset from ${src}`);
+          mime = r.headers.get('content-type') || undefined;
+          const ab = await r.arrayBuffer();
+          buf = Buffer.from(ab);
+          name = asset.name || asset.id;
+        }
+        return { buf: buf!, mime, name };
+      };
+
+      const { buf, mime } = await tryDrive();
+      const ext = (mime || '').includes('mp4') ? 'mp4' : (mime || '').includes('png') ? 'png' : (mime || '').includes('jpeg') ? 'jpg' : undefined;
+      const key = ext ? `${pathBase}.${ext}` : pathBase;
+      const upload = await sb.storage.from(bucket).upload(key, buf, { contentType: mime || 'application/octet-stream', upsert: true });
+      if ((upload as any).error) throw (upload as any).error;
+      const { data } = sb.storage.from(bucket).getPublicUrl(key);
+      if (!data?.publicUrl) throw new Error('Failed to get public URL from Supabase');
+      try {
+        await pool.query(`UPDATE creative_assets SET storage_url = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [data.publicUrl, asset.id, workspaceId]);
+      } catch (e) { void e; }
+      return { url: data.publicUrl, mime };
+    }
 
     // Get pageId from credentials OR fetch from API if missing
     let pageId = requestedPageId || (credentials as any).pageId || (credentials as any).page_id || (String(process.env.META_PAGE_ID || '').trim() || undefined);
@@ -433,7 +484,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
         if (objUpper === 'OUTCOME_LEADS') {
           // Mapear destinos de Leads conforme seleção
           if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = 'ON_AD';
+            adSetPayload.destination_type = 'MESSAGING_APP';
             adSetPayload.optimization_goal = 'LEAD_GENERATION';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
@@ -474,11 +525,24 @@ export async function createMetaCampaign(req: Request, res: Response) {
             adSetPayload.destination_type = 'WEBSITE';
             adSetPayload.optimization_goal = 'LINK_CLICKS';
           }
+        } else if (objUpper === 'OUTCOME_SALES') {
+          if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
+            adSetPayload.destination_type = 'MESSAGING_APP';
+            adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else {
+            adSetPayload.destination_type = 'WEBSITE';
+            adSetPayload.optimization_goal = 'OFFSITE_CONVERSIONS';
+            if (pixelId) {
+              adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
+            }
+          }
+        } else if (objUpper === 'OUTCOME_AWARENESS') {
+          adSetPayload.destination_type = 'ON_POST';
+          adSetPayload.optimization_goal = 'REACH';
+          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
         } else {
           adSetPayload.destination_type = 'WEBSITE';
-          if (objUpper === 'OUTCOME_SALES' && pixelId) {
-            adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
-          }
         }
       }
 
@@ -642,13 +706,14 @@ export async function createMetaCampaign(req: Request, res: Response) {
               );
               if (assetRow.rows.length > 0) {
                 const asset = assetRow.rows[0];
-                if (String(asset.type || '').toLowerCase() === 'video' && asset.storage_url) {
+                if (String(asset.type || '').toLowerCase() === 'video') {
+                  const ensured = await ensurePublicUrlFromAsset(asset, workspaceId);
                   // 4.1 Upload video (Page videos API)
                   // Prefer upload to Page videos with page access token
                   const uploadToken = pageAccessToken || accessToken;
                   const vUrl = `${GRAPH_URL}/${pageId}/videos?access_token=${uploadToken}`;
                   const form = new URLSearchParams();
-                  form.append('file_url', asset.storage_url);
+                  form.append('file_url', ensured.url);
                   form.append('published', 'false');
                   form.append('description', ad.name);
                   const vResp = await fetch(vUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
@@ -898,9 +963,9 @@ export function validateMetaPayload(objective: string, adSetPayload: any) {
   }
 
   // 2. MESSAGING_APP deve ter page_id
-  if (dest === 'MESSAGING_APP') {
+  if (dest === 'WHATSAPP' || dest === 'MESSENGER') {
     if (!promoted.page_id) {
-      throw new Error(`SANITY CHECK FAILED: Destination MESSAGING_APP requires 'page_id' in promoted_object.`);
+      throw new Error(`SANITY CHECK FAILED: Destination ${dest} requires 'page_id' in promoted_object.`);
     }
   }
 
@@ -909,7 +974,7 @@ export function validateMetaPayload(objective: string, adSetPayload: any) {
     // Warn or Error? User said "C) ... promoted_object: { pixel_id: PIXEL ... }"
     // We won't throw here if pixel is missing because maybe they just want traffic, but strictly for SALES it's good practice.
   }
-  if (obj === 'OUTCOME_LEADS' && dest === 'MESSAGING_APP') {
+  if (obj === 'OUTCOME_LEADS' && (dest === 'WHATSAPP' || dest === 'MESSENGER')) {
     if (!promoted.page_id) {
       throw new Error(`SANITY CHECK FAILED: OUTCOME_LEADS to WhatsApp requires 'page_id'.`);
     }
@@ -966,4 +1031,69 @@ export async function getMetaCustomAudiences(req: Request, res: Response) {
 }
 function msg3(e: any) {
   return String(e?.message || e || '');
+}
+
+export async function mirrorCreativeAsset(req: Request, res: Response) {
+  try {
+    const workspaceId = String(req.params.workspaceId || '').trim();
+    const assetId = String(req.params.assetId || '').trim();
+    if (!workspaceId || !assetId) {
+      return res.status(400).json({ success: false, error: 'Missing workspaceId or assetId' } as ApiResponse);
+    }
+    const pool = getPool();
+    const { rows } = await pool.query(`SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`, [assetId, workspaceId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Creative asset not found' } as ApiResponse);
+    }
+    const asset = rows[0] as any;
+    const src = String(asset.storage_url || '').trim();
+    const isSupabase = src && (src.includes(String(process.env.SUPABASE_URL || '')) || /supabase\.co\//.test(src));
+    if (isSupabase) {
+      return res.json({ success: true, data: { storage_url: src } } as ApiResponse);
+    }
+
+    const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
+    const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured' } as ApiResponse);
+    }
+    const sb = createClient(supabaseUrl, supabaseKey);
+    const bucket = 'creatives';
+    const pathBase = `${workspaceId}/assets/${asset.id}`;
+
+    const m = src.match(/\/file\/d\/([^/]+)/) || src.match(/[?&]id=([^&]+)/);
+    const fileId = m?.[1];
+    let buf: Buffer; let mime: string | undefined;
+    if (fileId) {
+      const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
+      const drive = google.drive({ version: 'v3', auth });
+      const meta = await drive.files.get({ fileId, fields: 'mimeType' });
+      mime = meta.data.mimeType || undefined;
+      const resp: any = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' } as any);
+      buf = Buffer.from(resp.data as ArrayBuffer);
+    } else {
+      const r = await fetch(src);
+      if (!r.ok) {
+        return res.status(502).json({ success: false, error: `Failed to fetch asset from source` } as ApiResponse);
+      }
+      mime = r.headers.get('content-type') || undefined;
+      const ab = await r.arrayBuffer();
+      buf = Buffer.from(ab);
+    }
+
+    const ext = (mime || '').includes('mp4') ? 'mp4' : (mime || '').includes('png') ? 'png' : (mime || '').includes('jpeg') ? 'jpg' : undefined;
+    const key = ext ? `${pathBase}.${ext}` : pathBase;
+    const upload = await sb.storage.from(bucket).upload(key, buf, { contentType: mime || 'application/octet-stream', upsert: true });
+    if ((upload as any).error) {
+      return res.status(500).json({ success: false, error: (upload as any).error.message || 'Upload failed' } as ApiResponse);
+    }
+    const { data } = sb.storage.from(bucket).getPublicUrl(key);
+    if (!data?.publicUrl) {
+      return res.status(500).json({ success: false, error: 'Failed to get public URL' } as ApiResponse);
+    }
+    await pool.query(`UPDATE creative_assets SET storage_url = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [data.publicUrl, asset.id, workspaceId]);
+    return res.json({ success: true, data: { storage_url: data.publicUrl } } as ApiResponse);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' } as ApiResponse);
+  }
 }

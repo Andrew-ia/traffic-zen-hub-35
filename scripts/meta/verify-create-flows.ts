@@ -246,6 +246,29 @@ async function run() {
     ],
   };
 
+  const salesWhatsAppPayload = {
+    workspaceId: WORKSPACE_ID,
+    campaign: {
+      name: 'Teste Vendas WhatsApp ' + Date.now(),
+      objective: 'OUTCOME_SALES',
+      status: 'PAUSED',
+      special_ad_categories: [],
+    },
+    adSets: [
+      {
+        name: 'Conjunto Vendas WhatsApp',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'POST_ENGAGEMENT',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        destination_type: 'WHATSAPP',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+    pageId: PAGE_ID,
+  };
+
   const url = `${API_URL}/api/integrations/meta/create-campaign`;
 
   console.log('\nTesting Engagement flow (4 ad sets)...');
@@ -287,6 +310,10 @@ async function run() {
   console.log('\nTesting Sales (Website conversions) single ad set...');
   const resE = await postJson(url, salesPayload);
   console.log('Result:', JSON.stringify(resE.data, null, 2));
+
+  console.log('\nTesting Sales (WhatsApp) single ad set...');
+  const resE2 = await postJson(url, salesWhatsAppPayload);
+  console.log('Result:', JSON.stringify(resE2.data, null, 2));
 }
 
 run().catch((e) => {
