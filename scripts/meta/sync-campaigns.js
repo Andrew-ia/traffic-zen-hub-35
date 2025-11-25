@@ -3,6 +3,9 @@ import fetch from "node-fetch";
 import process from "node:process";
 import { Client } from "pg";
 import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local" });
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -31,14 +34,16 @@ function assertEnv(value, name) {
   return value;
 }
 
-function mapCampaignStatus(status) {
+function mapMetaStatus(status) {
   const normalized = (status || "").toUpperCase();
   switch (normalized) {
     case "ACTIVE":
     case "IN_PROCESS":
     case "PENDING":
+    case "WITH_ISSUES":
       return "active";
     case "PAUSED":
+    case "INACTIVE":
       return "paused";
     case "ARCHIVED":
     case "DELETED":
@@ -51,12 +56,23 @@ function mapCampaignStatus(status) {
   }
 }
 
-function mapAdSetStatus(status) {
-  return mapCampaignStatus(status);
+function resolveDeliveryStatus(primaryStatus, effectiveStatus) {
+  const mappedEffective = effectiveStatus ? mapMetaStatus(effectiveStatus) : null;
+  if (mappedEffective === "paused" || mappedEffective === "archived") {
+    return mappedEffective;
+  }
+  if (mappedEffective === "active") {
+    return "active";
+  }
+  return mapMetaStatus(primaryStatus);
 }
 
-function mapAdStatus(status) {
-  return mapCampaignStatus(status);
+function mapAdSetStatus(status, effectiveStatus) {
+  return resolveDeliveryStatus(status, effectiveStatus);
+}
+
+function mapAdStatus(status, effectiveStatus) {
+  return resolveDeliveryStatus(status, effectiveStatus);
 }
 
 function centsToNumber(value) {
@@ -622,7 +638,7 @@ async function upsertCampaign(client, workspaceId, platformAccountId, campaign) 
       campaign.id,
       campaign.name,
       campaign.objective,
-      mapCampaignStatus(campaign.status),
+      resolveDeliveryStatus(campaign.status, campaign.effective_status),
       toDate(campaign.start_time),
       toDate(campaign.stop_time),
       centsToNumber(campaign.daily_budget),
@@ -704,7 +720,7 @@ async function upsertAdSet(client, platformAccountId, campaignId, adSet) {
       platformAccountId,
       adSet.id,
       adSet.name,
-      mapAdSetStatus(adSet.status),
+      mapAdSetStatus(adSet.status, adSet.effective_status),
       toDate(adSet.start_time),
       toDate(adSet.end_time),
       adSet.bid_strategy ?? adSet.campaign?.bid_strategy ?? null,
@@ -766,7 +782,7 @@ async function upsertAd(client, platformAccountId, adSetId, ad, creativeAssetId)
       creativeAssetId,
       ad.id,
       ad.name,
-      mapAdStatus(ad.status),
+      mapAdStatus(ad.status, ad.effective_status),
       JSON.stringify(metadata),
     ],
   );

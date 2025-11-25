@@ -91,7 +91,9 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
         throw accountsRes.error;
       }
 
-      const rawAccounts = (accountsRes.data as { id: string | null; name: string | null }[]) ?? [];
+      const rawAccounts = ((accountsRes.data as { id: string | null; name: string | null }[]) ?? []).filter(
+        (a) => !/\bdemo\b/i.test(String(a.name || '')),
+      );
 
       const accountNameMap = new Map<string, string>();
       for (const account of rawAccounts) {
@@ -102,8 +104,9 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
 
       const itemsByAccount = new Map<string, BudgetItem>();
 
+      const allowedIds = new Set(rawAccounts.map((a) => a.id).filter(Boolean) as string[]);
       for (const row of (campaignRes.data as CampaignBudgetRow[]) ?? []) {
-        if (!row.platform_account_id) continue;
+        if (!row.platform_account_id || !allowedIds.has(row.platform_account_id)) continue;
         const existing = itemsByAccount.get(row.platform_account_id) ?? {
           platformAccountId: row.platform_account_id,
           platformName:
@@ -121,7 +124,7 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
       }
 
       for (const row of (spendRes.data as MetricSpendRow[]) ?? []) {
-        if (!row.platform_account_id) continue;
+        if (!row.platform_account_id || !allowedIds.has(row.platform_account_id)) continue;
         const existing = itemsByAccount.get(row.platform_account_id);
         if (!existing) continue;
         existing.spend += Number(row.spend ?? 0);

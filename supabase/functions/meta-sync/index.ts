@@ -49,6 +49,17 @@ function mapMetaStatus(status: string): string {
   }
 }
 
+function resolveDeliveryStatus(primaryStatus: string, effectiveStatus?: string | null): string {
+  const mappedEffective = effectiveStatus ? mapMetaStatus(effectiveStatus) : null;
+  if (mappedEffective === 'paused' || mappedEffective === 'archived') {
+    return mappedEffective;
+  }
+  if (mappedEffective === 'active') {
+    return 'active';
+  }
+  return mapMetaStatus(primaryStatus);
+}
+
 function centsToNumber(value: string | number | null): number | null {
   if (!value) return null;
   const asNumber = Number(value);
@@ -134,7 +145,7 @@ async function syncCampaigns(
       external_id: campaign.id,
       name: campaign.name,
       objective: campaign.objective || null,
-      status: mapMetaStatus(campaign.status),
+      status: resolveDeliveryStatus(campaign.status, campaign.effective_status),
       start_date: campaign.start_time ? new Date(campaign.start_time).toISOString().split('T')[0] : null,
       end_date: campaign.stop_time ? new Date(campaign.stop_time).toISOString().split('T')[0] : null,
       daily_budget: centsToNumber(campaign.daily_budget),

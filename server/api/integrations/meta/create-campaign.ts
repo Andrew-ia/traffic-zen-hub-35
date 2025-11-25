@@ -226,7 +226,15 @@ export async function createMetaCampaign(req: Request, res: Response) {
       objective: campaign.objective,
       status: campaign.status,
       special_ad_categories: campaign.special_ad_categories || [],
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP'
     };
+
+    let campaignDailyBudgetCents = (req.body?.campaign as any)?.daily_budget ? Number((req.body?.campaign as any)?.daily_budget) : 0;
+    if (!campaignDailyBudgetCents || campaignDailyBudgetCents <= 0) {
+      campaignDailyBudgetCents = 2000; // fallback R$ 20,00
+    }
+    campaignPayload.daily_budget = String(Math.max(100, Math.floor(campaignDailyBudgetCents))); // cents
+    // Removido: budget_rebalance_flag (deprecated em Graph API v7.0+) para evitar erro (#12)
 
     // ENGAGEMENT: apenas engagement_type na campanha (sem promoted_object)
     if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
@@ -240,7 +248,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
     const adAccountIdWithPrefix = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
     const adAccountIdWithoutPrefix = adAccountId.replace('act_', '');
     const paRows = await pool.query(
-      `SELECT id FROM platform_accounts 
+      `SELECT id, timezone FROM platform_accounts 
            WHERE workspace_id = $1 AND platform_key = 'meta' 
            AND (external_id = $2 OR external_id = $3 OR external_id = $4) 
            LIMIT 1`,
@@ -250,6 +258,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       throw new Error('Platform account not found for this workspace/ad account');
     }
     const platformAccountId = paRows.rows[0].id as string;
+    const accountTimezone: string | undefined = paRows.rows[0].timezone || undefined;
 
     const dbStatus = String(campaign.status || '').toLowerCase() as 'draft' | 'active' | 'paused' | 'completed' | 'archived';
     const upsertCampaignResult = await pool.query(
@@ -273,7 +282,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
               updated_at
             )
             VALUES (
-              $1, $2, $3, $4, $5, $6, 'manual', NULL, NULL, NULL, NULL, '{}'::jsonb, '{}'::jsonb, now(), false, now()
+              $1, $2, $3, $4, $5, $6, 'manual', NULL, NULL, $7, NULL, '{}'::jsonb, '{}'::jsonb, now(), false, now()
             )
             ON CONFLICT (platform_account_id, external_id)
             DO UPDATE SET
@@ -284,7 +293,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
               updated_at = now()
             RETURNING id
           `,
-      [workspaceId, platformAccountId, campaignId, campaign.name, campaign.objective, dbStatus]
+      [workspaceId, platformAccountId, campaignId, campaign.name, campaign.objective, dbStatus, Math.round(campaignDailyBudgetCents / 100)]
     );
     const localCampaignId = upsertCampaignResult.rows[0].id as string;
     const createdAdSets = [];
@@ -347,7 +356,6 @@ export async function createMetaCampaign(req: Request, res: Response) {
       const adSetPayload: any = {
         name: adSet.name,
         campaign_id: campaignId,
-        daily_budget: typeof adSet.daily_budget === 'string' ? adSet.daily_budget : String(adSet.daily_budget),
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
         targeting: targeting,
         status: adSet.status,
@@ -355,13 +363,59 @@ export async function createMetaCampaign(req: Request, res: Response) {
         billing_event: 'IMPRESSIONS' // Default
       };
 
+      // In CBO, ad set budget must be omitted. Only include if provided/valid.
+      const rawDailyBudget = (adSet as any).daily_budget;
+      if (rawDailyBudget !== undefined && rawDailyBudget !== null && String(rawDailyBudget).trim() !== '' && String(rawDailyBudget).toLowerCase() !== 'undefined') {
+        adSetPayload.daily_budget = typeof rawDailyBudget === 'string' ? rawDailyBudget : String(rawDailyBudget);
+      }
+
+      function toUtcFromLocalDate(ymd: string, hms: string, tz?: string): string | undefined {
+        try {
+          const [year, month, day] = ymd.split('-').map((s) => parseInt(s, 10));
+          const [hh, mm, ss] = hms.split(':').map((s) => parseInt(s, 10));
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const base = `${pad(year)}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:${pad(ss)}Z`;
+          const baseDate = new Date(base);
+          if (!tz) return baseDate.toISOString();
+          const fmt = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour12: false,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+          });
+          const parts = Object.fromEntries(fmt.formatToParts(baseDate).map((p) => [p.type, p.value]));
+          const localAsUtcStr = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`;
+          const offsetMs = Date.parse(localAsUtcStr) - baseDate.getTime();
+          const utcMs = baseDate.getTime() - offsetMs;
+          return new Date(utcMs).toISOString();
+        } catch {
+          return undefined;
+        }
+      }
+
+      if ((adSet as any).start_time) {
+        const ymd = String((adSet as any).start_time).slice(0, 10);
+        adSetPayload.start_time = toUtcFromLocalDate(ymd, '00:00:00', accountTimezone) || (adSet as any).start_time;
+      }
+      if ((adSet as any).end_time) {
+        const ymd = String((adSet as any).end_time).slice(0, 10);
+        adSetPayload.end_time = toUtcFromLocalDate(ymd, '23:59:59', accountTimezone) || (adSet as any).end_time;
+      }
+
       // --- SIMPLIFIED STRICT RULES (BASED ON PASSING TESTS) ---
 
       // A) Campanhas de Engajamento (OUTCOME_ENGAGEMENT)
       if (objUpper === 'OUTCOME_ENGAGEMENT') {
         adSetPayload.billing_event = 'IMPRESSIONS';
         adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-        if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
+        const pubs: string[] = Array.isArray((adSet as any).publisher_platforms)
+          ? (adSet as any).publisher_platforms
+          : Array.isArray((adSet as any)?.targeting?.publisher_platforms)
+            ? (adSet as any).targeting.publisher_platforms
+            : [];
+        const pubsUpper = pubs.map((p) => String(p).toUpperCase());
+        if (destUpper === 'INSTAGRAM_OR_FACEBOOK' || pubsUpper.includes('INSTAGRAM') || pubsUpper.includes('FACEBOOK')) {
+          // Para engajamento, usar sempre ON_POST para evitar erro 1815508
           adSetPayload.destination_type = 'ON_POST';
         } else {
           // MENSAGENS_DESTINATIONS e ON_AD mapeiam para ON_AD
@@ -441,6 +495,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       console.log(`[Meta API] ========================================`);
       console.log(`[Meta API] Creating AdSet: ${adSet.name}`);
       console.log(`[Meta API] Campaign Objective: ${objUpper}`);
+      console.log(`[Meta API] Requested Destination: ${destUpper}`);
       console.log(`[Meta API] Optimization Goal: ${adSetPayload.optimization_goal}`);
       console.log(`[Meta API] Destination Type: ${adSetPayload.destination_type}`);
       console.log(`[Meta API] Billing Event: ${adSetPayload.billing_event}`);
@@ -467,15 +522,21 @@ export async function createMetaCampaign(req: Request, res: Response) {
             continue;
           }
         } else if (objUpper === 'OUTCOME_ENGAGEMENT') {
-          // Fallback: força ON_POST
+          // Fallback 1: sem destination_type
+          delete adSetPayload.destination_type;
           adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-          adSetPayload.destination_type = 'ON_POST';
           if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           try {
             adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
           } catch (e2: any) {
-            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
-            continue;
+            // Fallback 2: força ON_POST
+            adSetPayload.destination_type = 'ON_POST';
+            try {
+              adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+            } catch (e3: any) {
+              failedAdSets.push({ name: adSet.name, error: msg3(e3) });
+              continue;
+            }
           }
         } else {
           failedAdSets.push({ name: adSet.name, error: msgRaw });
@@ -610,16 +671,25 @@ export async function createMetaCampaign(req: Request, res: Response) {
                   }
 
                   // 4.2 Create adcreative with object_story_spec.video_data
+                  const usesInstagram = Array.isArray((adSet as any)?.targeting?.publisher_platforms)
+                    ? ((adSet as any).targeting.publisher_platforms as string[]).includes('instagram')
+                    : (Array.isArray((adSet as any)?.publisher_platforms) ? ((adSet as any).publisher_platforms as string[]).includes('instagram') : false);
+
+                  const object_story_spec: any = {
+                    page_id: pageId,
+                    video_data: {
+                      video_id: videoId,
+                      title: ad.name,
+                      message: (ad as any).primary_text || ''
+                    }
+                  };
+                  if (usesInstagram && igActorId) {
+                    object_story_spec.instagram_actor_id = igActorId;
+                  }
+
                   const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
                     name: ad.name,
-                    object_story_spec: {
-                      page_id: pageId,
-                      video_data: {
-                        video_id: videoId,
-                        title: ad.name,
-                        message: (ad as any).primary_text || ''
-                      }
-                    }
+                    object_story_spec
                   });
                   creativeId = creativeResp.id;
                   console.log(`[Meta API] Created video adcreative: ${creativeId} from asset ${assetId}`);

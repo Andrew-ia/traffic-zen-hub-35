@@ -337,7 +337,8 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         };
       });
 
-      const filtered = platform === 'all' ? mapped : mapped.filter((c) => c.platformKey === platform);
+      const withoutDemo = mapped.filter((c) => !/\bdemo\b/i.test(String(c.platformAccount || '')));
+      const filtered = platform === 'all' ? withoutDemo : withoutDemo.filter((c) => c.platformKey === platform);
       const sorted = filtered.sort((a, b) => {
         const aStatus = STATUS_ORDER[a.status?.toLowerCase()] ?? 99;
         const bStatus = STATUS_ORDER[b.status?.toLowerCase()] ?? 99;

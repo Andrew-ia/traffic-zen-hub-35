@@ -71,19 +71,23 @@ interface Ad {
 }
 
 interface AdSet {
-    id: string; // Temporary ID for UI
-    name: string;
-    billing_event: string;
-    optimization_goal: string;
-    daily_budget: string; // string for input, parsed to cents
-    status: string;
-    destination_type?: string; // 'MESSAGING_APP', 'ON_AD', 'WEBSITE', or empty
-    publisher_platforms?: string[]; // ['facebook'], ['instagram'], or ['facebook', 'instagram']
+  id: string; // Temporary ID for UI
+  name: string;
+  billing_event: string;
+  optimization_goal: string;
+  daily_budget: string; // string for input, parsed to cents
+  status: string;
+  destination_type?: string; // 'MESSAGING_APP', 'ON_AD', 'WEBSITE', or empty
+  destination_subtype?: string; // For messages
+  conversion_event?: string; // For WEBSITE
+  publisher_platforms?: string[]; // ['facebook'], ['instagram'], or ['facebook', 'instagram']
+  start_time?: string; // ISO string (YYYY-MM-DDTHH:mm:ssZ)
+  end_time?: string;   // ISO string (YYYY-MM-DDTHH:mm:ssZ)
     targeting: {
-        geo_locations: { countries: string[] };
-        age_min: number;
-        age_max: number;
-        genders?: number[];
+    geo_locations: { countries: string[] };
+    age_min: number;
+    age_max: number;
+    genders?: number[];
         publisher_platforms?: string[];
         facebook_positions?: string[];
         instagram_positions?: string[];
@@ -92,11 +96,17 @@ interface AdSet {
         custom_audiences?: string;
     };
     settings?: {
-        audience?: {
-            temperature?: 'frio' | 'morno' | 'quente';
-            theme?: string;
-            region?: string;
-        };
+      audience?: {
+        temperature?: 'frio' | 'morno' | 'quente';
+        theme?: string;
+        region?: string;
+      };
+      destination?: {
+        type?: string;
+        subtype?: string;
+        platform?: 'instagram' | 'facebook';
+        event?: string;
+      };
     };
     ads: Ad[];
 }
@@ -121,21 +131,24 @@ export default function CreateMetaCampaign() {
         objective: "OUTCOME_LEADS",
         status: "PAUSED",
         special_ad_categories: [] as string[],
+        daily_budget_cents: 0 as number,
     });
 
-    const initialAdSetState: AdSet = {
-        id: crypto.randomUUID(),
-        name: "Conjunto #1",
-        billing_event: "IMPRESSIONS",
-        optimization_goal: "POST_ENGAGEMENT", // Default to POST_ENGAGEMENT as it's safer/more common
-        daily_budget: "5000", // 50 BRL
-        status: "PAUSED",
-        destination_type: "ON_AD", // Default to ON_AD (which maps to ON_POST/ON_VIDEO etc)
-        publisher_platforms: ["facebook", "instagram"],
-        targeting: {
-            geo_locations: {
-                countries: ["BR"],
-            },
+  const initialAdSetState: AdSet = {
+      id: crypto.randomUUID(),
+      name: "Conjunto #1",
+      billing_event: "IMPRESSIONS",
+      optimization_goal: "POST_ENGAGEMENT", // Default to POST_ENGAGEMENT as it's safer/more common
+      daily_budget: "5000", // 50 BRL
+      status: "PAUSED",
+      destination_type: "ON_AD", // Default to ON_AD (which maps to ON_POST/ON_VIDEO etc)
+      destination_subtype: "",
+      conversion_event: "",
+      publisher_platforms: ["facebook", "instagram"],
+      targeting: {
+        geo_locations: {
+          countries: ["BR"],
+        },
             age_min: 18,
             age_max: 65,
             genders: [2],
@@ -153,9 +166,10 @@ export default function CreateMetaCampaign() {
                 status: "PAUSED",
             }
         ],
-    };
+  };
 
     const [adSets, setAdSets] = useState<AdSet[]>([initialAdSetState]);
+    const [instagramActorId, setInstagramActorId] = useState<string | null>(null);
 
     // Update ad sets when campaign objective changes
     useEffect(() => {
@@ -163,7 +177,8 @@ export default function CreateMetaCampaign() {
             setAdSets(prev => prev.map(adSet => ({
                 ...adSet,
                 optimization_goal: 'POST_ENGAGEMENT',
-                destination_type: 'ON_AD'
+                destination_type: 'ON_AD',
+                publisher_platforms: Array.from(new Set([...(adSet.publisher_platforms || []), 'instagram']))
             })));
         }
     }, [campaign.objective]);
@@ -307,7 +322,7 @@ export default function CreateMetaCampaign() {
             campaign.objective === 'OUTCOME_LEADS' ||
             (campaign.objective === 'OUTCOME_TRAFFIC' && hasTrafficDestNeedingPage)
         );
-        if (needsPage && !pageId) {
+        if (needsPage && (!pageId || !instagramActorId)) {
             (async () => {
                 try {
                     const resp = await fetch(`${API_BASE}/api/integrations/meta/page-info/${WORKSPACE_ID}`);
@@ -316,14 +331,17 @@ export default function CreateMetaCampaign() {
                         setPageId(data.data.page_id);
                         setPageInfo({ id: data.data.page_id, name: data.data.page_name });
                     }
+                    if (data?.success && data?.data?.instagram_actor_id) {
+                        setInstagramActorId(String(data.data.instagram_actor_id));
+                    }
                 } catch (e) {
                     console.warn('Failed to fetch page info', e);
                 }
             })();
         }
-    }, [campaign.objective, pageId, adSets]);
+    }, [campaign.objective, pageId, adSets, instagramActorId]);
 
-    const handleTaskSelect = (taskId: string) => {
+  const handleTaskSelect = (taskId: string) => {
         setSelectedTaskId(taskId);
         const task = tasks?.find(t => t.id === taskId);
         if (!task || !task.metadata?.campaign_data) {
@@ -336,6 +354,14 @@ export default function CreateMetaCampaign() {
         }
 
         const data = task.metadata.campaign_data;
+        const toIsoStart = (d?: string) => {
+            if (!d) return undefined;
+            try { return new Date(`${d}T00:00:00Z`).toISOString(); } catch { return undefined; }
+        };
+        const toIsoEnd = (d?: string) => {
+            if (!d) return undefined;
+            try { return new Date(`${d}T23:59:59Z`).toISOString(); } catch { return undefined; }
+        };
 
         // Map objective from various formats (PT/EN) to Meta codes
         const normalize = (s?: string) => (s || '').trim().toLowerCase();
@@ -376,6 +402,7 @@ export default function CreateMetaCampaign() {
             // Método Andromeda: Divide budget equally across all ad sets (ABO)
             const totalBudgetCents = data.budget ? parseInt(data.budget) * 100 : 2000;
             const budgetPerAdSet = Math.floor(totalBudgetCents / data.adSets.length);
+            setCampaign(prev => ({ ...prev, daily_budget_cents: totalBudgetCents }));
 
             const newAdSets: AdSet[] = data.adSets.map(importedAdSet => ({
                 id: crypto.randomUUID(),
@@ -394,15 +421,28 @@ export default function CreateMetaCampaign() {
                 daily_budget: String(budgetPerAdSet), // Budget divided equally (Método Andromeda)
                 status: "PAUSED",
                 destination_type: (() => {
-                    switch (mappedObjective) {
-                        case 'OUTCOME_TRAFFIC': return undefined; // usuário escolhe explicitamente
-                        case 'MESSAGES': return 'MESSAGES_DESTINATIONS';
-                        case 'OUTCOME_SALES': return 'WEBSITE';
-                        case 'OUTCOME_LEADS': return 'WHATSAPP';
-                        case 'OUTCOME_ENGAGEMENT': return 'INSTAGRAM_OR_FACEBOOK';
-                        default: return undefined;
-                    }
+                    const src = String((importedAdSet as any)?.destinationType || (task.metadata?.campaign_data as any)?.destinationType || '').toUpperCase();
+                    const obj = String(mappedObjective || '').toUpperCase();
+                    const allowed = obj === 'OUTCOME_ENGAGEMENT'
+                        ? ['MESSAGES_DESTINATIONS', 'ON_AD', 'INSTAGRAM_OR_FACEBOOK']
+                        : obj === 'OUTCOME_LEADS'
+                            ? ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE']
+                            : obj === 'OUTCOME_SALES'
+                                ? ['WEBSITE']
+                                : obj === 'OUTCOME_TRAFFIC'
+                                    ? ['WEBSITE', 'APP', 'MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'CALLS']
+                                    : obj === 'OUTCOME_AWARENESS'
+                                        ? ['ON_AD', 'INSTAGRAM_OR_FACEBOOK']
+                                        : ['WEBSITE'];
+                    if (src && allowed.includes(src)) return src;
+                    if (obj === 'OUTCOME_TRAFFIC') return undefined;
+                    if (obj === 'OUTCOME_SALES') return 'WEBSITE';
+                    if (obj === 'OUTCOME_LEADS') return 'WHATSAPP';
+                    if (obj === 'OUTCOME_ENGAGEMENT') return 'INSTAGRAM_OR_FACEBOOK';
+                    return undefined;
                 })(),
+                start_time: toIsoStart(data.startDate),
+                end_time: toIsoEnd(data.endDate),
                 targeting: {
                     geo_locations: { countries: ["BR"] },
                     age_min: data.ageMin || 18,
@@ -457,6 +497,38 @@ export default function CreateMetaCampaign() {
                     setIsLoading(false);
                     return;
                 }
+                const missingSub = adSets.some(s => s.destination_type === 'MESSAGES_DESTINATIONS' && !s.destination_subtype);
+                if (missingSub) {
+                    toast({
+                        title: "Selecione o Canal de Mensagem",
+                        description: "Escolha WhatsApp, Messenger ou Instagram Direct para todos os conjuntos com destino Mensagens.",
+                        variant: "destructive",
+                    });
+                    setIsLoading(false);
+                    return;
+                }
+                // Para Instagram/Facebook usamos as plataformas de publicação (checkboxes)
+                const instagramOnlySets = adSets.filter(s => String(s.destination_type) === 'INSTAGRAM_OR_FACEBOOK' && Array.isArray(s.publisher_platforms) && s.publisher_platforms.includes('instagram') && !s.publisher_platforms.includes('facebook'));
+                const missingIgCreative = instagramOnlySets.some(s => (s.ads || []).some(ad => !ad.creative_asset_id));
+                if (campaign.objective === 'OUTCOME_ENGAGEMENT' && missingIgCreative) {
+                    toast({
+                        title: "Selecione um criativo para Instagram",
+                        description: "Para publicar somente no Instagram, escolha um vídeo/imagem no Drive para cada anúncio.",
+                        variant: "destructive",
+                    });
+                    setIsLoading(false);
+                    return;
+                }
+                const missingEvent = adSets.some(s => s.destination_type === 'WEBSITE' && !s.conversion_event);
+                if (missingEvent) {
+                    toast({
+                        title: "Selecione o Evento de Conversão",
+                        description: "Defina o evento (ex.: Compra, Lead, Page View) para conjuntos com destino Site.",
+                        variant: "destructive",
+                    });
+                    setIsLoading(false);
+                    return;
+                }
                 const needsPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type)));
                 if (needsPage && !pageId) {
                     // Tenta resolver automaticamente, mas não bloqueia: backend possui fallback (META_PAGE_ID/credenciais)
@@ -476,7 +548,7 @@ export default function CreateMetaCampaign() {
                 },
                 body: JSON.stringify({
                     workspaceId: WORKSPACE_ID,
-                    campaign: campaign,
+                    campaign: { ...campaign, daily_budget: campaign.daily_budget_cents && campaign.daily_budget_cents > 0 ? String(campaign.daily_budget_cents) : undefined },
                     adSets: adSets.map(adSet => {
                         // FORÇA POST_ENGAGEMENT para campanhas de engajamento
                         const finalOptimizationGoal =
@@ -485,16 +557,26 @@ export default function CreateMetaCampaign() {
                                 : adSet.optimization_goal;
 
                         // REMOVE destination_type completamente para engajamento (backend infere)
-                        const shouldRemoveDestination = campaign.objective === 'OUTCOME_ENGAGEMENT';
+                        const shouldRemoveDestination = false;
 
-                        return {
+                        const baseSet = {
                             ...adSet,
                             optimization_goal: finalOptimizationGoal,
-                            daily_budget: parseInt(adSet.daily_budget),
                             // NÃO enviar destination_type para engajamento
                             ...(shouldRemoveDestination ? {} : {
                                 destination_type: adSet.destination_type
                             }),
+                            settings: {
+                                ...(adSet.settings || {}),
+                                destination: {
+                                    type: adSet.destination_type,
+                                    subtype: adSet.destination_subtype,
+                                    platform: adSet.destination_platform,
+                                    event: adSet.conversion_event,
+                                },
+                            },
+                            ...(adSet.start_time ? { start_time: adSet.start_time } : {}),
+                            ...(adSet.end_time ? { end_time: adSet.end_time } : {}),
                             targeting: {
                                 ...adSet.targeting,
                                 publisher_platforms: adSet.publisher_platforms || ['facebook', 'instagram']
@@ -506,6 +588,13 @@ export default function CreateMetaCampaign() {
                                 status: 'paused'
                             }))
                         };
+                        // CBO ativo: não enviar daily_budget nos ad sets
+                        if (campaign.daily_budget_cents && campaign.daily_budget_cents > 0) {
+                            const { daily_budget, ...rest } = baseSet as any;
+                            return rest;
+                        }
+                        // Sem CBO: manter daily_budget nos ad sets
+                        return { ...baseSet, daily_budget: parseInt(adSet.daily_budget) };
                     }),
                     pageId: pageId || undefined,
                 }),
@@ -518,10 +607,12 @@ export default function CreateMetaCampaign() {
             }
 
             const errors = Array.isArray(data?.data?.errors) ? data.data.errors : [];
+            const adSetErrors = errors.filter((e: any) => e && e.name && !e.adSetName);
+            const adErrors = errors.filter((e: any) => e && e.adSetName);
             if (errors.length > 0) {
                 toast({
                     title: "Campanha criada com avisos",
-                    description: `Alguns conjuntos falharam (${errors.length}). Verifique no Meta Ads.`,
+                    description: `Falhas: ${adSetErrors.length} conjunto(s), ${adErrors.length} anúncio(s). Verifique no Meta Ads.`,
                     variant: "default",
                 });
             } else {
@@ -546,13 +637,27 @@ export default function CreateMetaCampaign() {
 
     const updateAdSet = (id: string, field: keyof AdSet, value: any) => {
         setAdSets(prev => {
-            const next = prev.map(adSet => (
-                adSet.id === id ? { ...adSet, [field]: value } : adSet
-            ));
+            const next = prev.map(adSet => {
+                if (adSet.id !== id) return adSet;
+                const updated: AdSet = { ...adSet, [field]: value };
+                if (field === 'destination_type') {
+                    updated.destination_subtype = '';
+                    updated.destination_platform = undefined;
+                    updated.conversion_event = '';
+                }
+                const dest = {
+                    type: updated.destination_type,
+                    subtype: updated.destination_subtype,
+                    platform: updated.destination_platform,
+                    event: updated.conversion_event,
+                };
+                updated.settings = { ...(updated.settings || {}), destination: dest };
+                return updated;
+            });
             // Propagar destino escolhido para todos os conjuntos quando objetivo é Tráfego
             if (field === 'destination_type' && campaign.objective === 'OUTCOME_TRAFFIC') {
                 const chosen = String(value || '').trim();
-                return next.map(s => ({ ...s, destination_type: chosen }));
+                return next.map(s => ({ ...s, destination_type: chosen, destination_subtype: '', destination_platform: undefined, conversion_event: '' }));
             }
             return next;
         });
@@ -678,11 +783,11 @@ export default function CreateMetaCampaign() {
                                         <SelectItem value="ACTIVE">Ativa</SelectItem>
                                         <SelectItem value="PAUSED">Pausada</SelectItem>
                                     </SelectContent>
-                                </Select>
-                            </div>
+                            </Select>
+                        </div>
 
-                            {/* Simple Mode */}
-                            <div className="flex items-center space-x-2 pt-4 border-t">
+                        {/* Simple Mode */}
+                        <div className="flex items-center space-x-2 pt-4 border-t">
                                 <Switch
                                     id="simple-mode"
                                     checked={isSimpleMode}
@@ -702,6 +807,17 @@ export default function CreateMetaCampaign() {
                                     </ul>
                                 </div>
                             )}
+                            {/* Campaign Budget (CBO) */}
+                            <div className="space-y-2">
+                                <Label>Orçamento diário da campanha (centavos) — CBO</Label>
+                                <Input
+                                    type="number"
+                                    placeholder="Ex: 2000 (R$ 20,00)"
+                                    value={campaign.daily_budget_cents}
+                                    onChange={(e) => setCampaign(prev => ({ ...prev, daily_budget_cents: Number(e.target.value || 0) }))}
+                                />
+                                <p className="text-xs text-muted-foreground">Com CBO ativo, o Meta distribui automaticamente entre conjuntos e anúncios.</p>
+                            </div>
                         </div>
                     )}
 
@@ -731,12 +847,8 @@ export default function CreateMetaCampaign() {
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label>Orçamento (Centavos)</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={adSet.daily_budget}
-                                                        onChange={(e) => updateAdSet(adSet.id, "daily_budget", e.target.value)}
-                                                    />
+                                                    <Label>Orçamento</Label>
+                                                    <div className="text-xs text-muted-foreground">CBO ativo: orçamento definido na campanha.</div>
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label>Otimização</Label>
@@ -797,6 +909,66 @@ export default function CreateMetaCampaign() {
                                                         </div>
                                                     )}
 
+                                                    {/* Subcampo: Mensagens -> canal específico */}
+                                                    {adSet.destination_type === 'MESSAGES_DESTINATIONS' && (
+                                                        <div className="space-y-2">
+                                                            <Label>Canal de Mensagem</Label>
+                                                            <Select
+                                                                value={adSet.destination_subtype || ''}
+                                                                onValueChange={(v) => updateAdSet(adSet.id, 'destination_subtype', v)}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Selecione o canal" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+                                                                    <SelectItem value="MESSENGER">Messenger</SelectItem>
+                                                                    <SelectItem value="INSTAGRAM_DM">Instagram Direct</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Campo de plataforma removido; usar checkboxes de plataformas de publicação abaixo */}
+
+                                                    {/* Subcampo: Website -> evento de conversão */}
+                                                    {adSet.destination_type === 'WEBSITE' && (
+                                                        <div className="space-y-2">
+                                                            <Label>Evento de Conversão</Label>
+                                                            <Select
+                                                                value={adSet.conversion_event || ''}
+                                                                onValueChange={(v) => updateAdSet(adSet.id, 'conversion_event', v)}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Selecione o evento" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {(() => {
+                                                                        const obj = String(campaign.objective || '').toUpperCase();
+                                                                        const opts = obj === 'OUTCOME_SALES'
+                                                                            ? [
+                                                                                { v: 'PURCHASE', l: 'Compra' },
+                                                                                { v: 'INITIATE_CHECKOUT', l: 'Início de Checkout' },
+                                                                                { v: 'ADD_TO_CART', l: 'Adicionar ao Carrinho' },
+                                                                            ]
+                                                                            : obj === 'OUTCOME_LEADS'
+                                                                                ? [
+                                                                                    { v: 'LEAD', l: 'Lead' },
+                                                                                    { v: 'COMPLETE_REGISTRATION', l: 'Cadastro Concluído' },
+                                                                                ]
+                                                                                : [
+                                                                                    { v: 'VIEW_CONTENT', l: 'Visualização de Conteúdo' },
+                                                                                    { v: 'PAGE_VIEW', l: 'Page View' },
+                                                                                ];
+                                                                        return opts.map(({ v, l }) => (
+                                                                            <SelectItem key={v} value={v}>{l}</SelectItem>
+                                                                        ));
+                                                                    })()}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    )}
+
                                                 {(campaign.objective === 'OUTCOME_ENGAGEMENT' ||
                                                     (campaign.objective === 'OUTCOME_TRAFFIC' && (adSet.destination_type === 'MESSAGES_DESTINATIONS' || adSet.destination_type === 'INSTAGRAM_OR_FACEBOOK')) ||
                                                     campaign.objective === 'OUTCOME_LEADS') && (
@@ -822,6 +994,24 @@ export default function CreateMetaCampaign() {
                                                             )}
                                                         </div>
                                                     )}
+
+                                                {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
+                                                    <div className="space-y-2">
+                                                        <Label>Conta do Instagram</Label>
+                                                        {instagramActorId ? (
+                                                            <div className="bg-green-50 text-green-800 p-3 rounded-md text-sm border border-green-200">
+                                                                <p><strong>✓ Selecionada automaticamente:</strong></p>
+                                                                <p className="font-mono mt-1">{instagramActorId}</p>
+                                                                <p className="text-xs mt-1">Origem: página conectada</p>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="bg-amber-50 text-amber-800 p-3 rounded-md text-sm border border-amber-200">
+                                                                <p><strong>Conta não detectada</strong></p>
+                                                                <p className="text-xs mt-1">Conecte um perfil Instagram à sua Página do Facebook para seleção automática.</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
                                                 {/* Publisher Platforms Selection for Generic Engagement */}
                                                 {campaign.objective === 'OUTCOME_ENGAGEMENT' && (
@@ -1098,7 +1288,7 @@ export default function CreateMetaCampaign() {
                                         name: `Conjunto #${prev.length + 1}`,
                                         billing_event: "IMPRESSIONS",
                                         optimization_goal: "LEAD_GENERATION",
-                                        daily_budget: "2000",
+                                        daily_budget: "0",
                                         status: "PAUSED",
                                         destination_type: undefined,
                                         publisher_platforms: ['facebook', 'instagram'],
@@ -1132,17 +1322,30 @@ export default function CreateMetaCampaign() {
                                             <div key={adSet.id} className="bg-muted/30 p-3 rounded-md space-y-2">
                                                 <div className="flex justify-between">
                                                     <span className="font-medium text-sm">{adSet.name}</span>
-                                                    <Badge variant="outline">{(parseInt(adSet.daily_budget) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</Badge>
+                                                    <Badge variant="outline">CBO</Badge>
                                                 </div>
-                                                <div className="pl-4 border-l-2 border-muted">
-                                                    <p className="text-xs text-muted-foreground mb-2">{adSet.ads.length} Anúncios</p>
-                                                    {adSet.ads.map(ad => (
-                                                        <div key={ad.id} className="text-xs flex justify-between">
-                                                            <span>{ad.name}</span>
-                                                            <span className="font-mono text-muted-foreground">{ad.creative_id}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                            <div className="pl-4 border-l-2 border-muted">
+                                                <p className="text-xs text-muted-foreground">Local da Conversão: {(() => {
+                                                    const v = String(adSet.destination_type || '').toUpperCase();
+                                                    return v === 'WHATSAPP' ? 'WhatsApp'
+                                                        : v === 'MESSENGER' ? 'Messenger'
+                                                        : v === 'INSTAGRAM_OR_FACEBOOK' ? 'Instagram ou Facebook'
+                                                        : v === 'MESSAGES_DESTINATIONS' ? 'Mensagens'
+                                                        : v === 'ON_AD' ? 'No anúncio'
+                                                        : v === 'ON_POST' ? 'No post'
+                                                        : v === 'WEBSITE' ? 'Site'
+                                                        : v === 'APP' ? 'App'
+                                                        : v === 'CALLS' ? 'Ligações'
+                                                        : '-';
+                                                })()}</p>
+                                                <p className="text-xs text-muted-foreground mb-2">{adSet.ads.length} Anúncios</p>
+                                                {adSet.ads.map(ad => (
+                                                    <div key={ad.id} className="text-xs flex justify-between">
+                                                        <span>{ad.name}</span>
+                                                        <span className="font-mono text-muted-foreground">{ad.creative_id}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                             </div>
                                         ))}
                                     </div>

@@ -259,7 +259,8 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         });
       }
 
-      const platformAccountIds = (platformAccounts ?? [])
+      const allowedAccounts = (platformAccounts ?? []).filter((a) => !/\bdemo\b/i.test(String(a.name || '')));
+      const platformAccountIds = allowedAccounts
         .map((account) => account.id)
         .filter((id): id is string => Boolean(id));
 
@@ -311,7 +312,7 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
 
       const platformNameMap = new Map<string, string>();
       const platformKeyMap = new Map<string, string>();
-      for (const account of platformAccounts ?? []) {
+      for (const account of allowedAccounts ?? []) {
         if (account.id) {
           platformNameMap.set(account.id, account.name ?? account.id);
           platformKeyMap.set(account.id, account.platform_key ?? "meta");
@@ -475,7 +476,8 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
       const timeSeriesMap = new Map<string, ReportTimePoint>();
       const platformTotals = new Map<string, PlatformBreakdownItem>();
 
-      for (const row of metrics ?? []) {
+      const metricsFiltered = (metrics ?? []).filter((m) => platformAccountIds.includes(m.platform_account_id as string));
+      for (const row of metricsFiltered) {
         const date = row.metric_date as string;
         const valueDate = new Date(date);
         valueDate.setHours(0, 0, 0, 0);
@@ -565,7 +567,8 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
       }
 
       if (!metaDetailError) {
-        for (const row of metaDetail ?? []) {
+        const metaDetailFiltered = (metaDetail ?? []).filter((m) => platformAccountIds.includes(m.platform_account_id as string));
+        for (const row of metaDetailFiltered) {
           const metricDate = new Date(row.metric_date as string);
           metricDate.setHours(0, 0, 0, 0);
           if (metricDate < midpoint) continue;

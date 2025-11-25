@@ -126,6 +126,101 @@ async function run() {
         status: 'PAUSED',
         targeting: baseTargeting,
         ads: [],
+        destination_type: 'WEBSITE',
+      },
+    ],
+  };
+
+  // Extra payloads to validate all Traffic destinations
+  const pageInfo = await getPageInfo();
+  const PAGE_ID = pageInfo?.page_id || process.env.META_PAGE_ID || undefined;
+  if (!PAGE_ID) {
+    console.log('Warning: No PAGE_ID available. Traffic destinations requiring page will still be attempted without page_id.');
+  }
+
+  const trafficAppPayload = {
+    ...trafficPayload,
+    campaign: { ...trafficPayload.campaign, name: 'Teste Tráfego App ' + Date.now() },
+    adSets: [
+      {
+        name: 'Conjunto Tráfego App',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        destination_type: 'APP',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+  };
+
+  const trafficMessagesPayload = {
+    ...trafficPayload,
+    campaign: { ...trafficPayload.campaign, name: 'Teste Tráfego Mensagens ' + Date.now() },
+    adSets: [
+      {
+        name: 'Conjunto Tráfego Mensagens',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        destination_type: 'MESSAGES_DESTINATIONS',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+    pageId: PAGE_ID,
+  };
+
+  const trafficIGFBPayload = {
+    ...trafficPayload,
+    campaign: { ...trafficPayload.campaign, name: 'Teste Tráfego IG/FB ' + Date.now() },
+    adSets: [
+      {
+        name: 'Conjunto Tráfego IG/FB',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        destination_type: 'INSTAGRAM_OR_FACEBOOK',
+        targeting: baseTargeting,
+        ads: [],
+      },
+    ],
+    pageId: PAGE_ID,
+  };
+
+  // Multi-ad-set payload to validate propagation scenario for Traffic to IG/FB
+  const trafficMultiIGFBPayload = {
+    ...trafficPayload,
+    campaign: { ...trafficPayload.campaign, name: 'Teste Tráfego IG/FB Multi ' + Date.now() },
+    adSets: [1, 2, 3].map((i) => ({
+      name: `Conjunto Tráfego IG/FB ${i}`,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'LINK_CLICKS',
+      daily_budget: 1500,
+      status: 'PAUSED',
+      destination_type: 'INSTAGRAM_OR_FACEBOOK',
+      targeting: baseTargeting,
+      ads: [],
+    })),
+    pageId: PAGE_ID,
+  };
+
+  const trafficCallsPayload = {
+    ...trafficPayload,
+    campaign: { ...trafficPayload.campaign, name: 'Teste Tráfego Ligações ' + Date.now() },
+    adSets: [
+      {
+        name: 'Conjunto Tráfego Ligações',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        daily_budget: 1500,
+        status: 'PAUSED',
+        destination_type: 'CALLS',
+        targeting: baseTargeting,
+        ads: [],
       },
     ],
   };
@@ -169,6 +264,26 @@ async function run() {
   const resD = await postJson(url, trafficPayload);
   console.log('Result:', JSON.stringify(resD.data, null, 2));
 
+  console.log('\nTesting Traffic (App) single ad set...');
+  const resD2 = await postJson(url, trafficAppPayload);
+  console.log('Result:', JSON.stringify(resD2.data, null, 2));
+
+  console.log('\nTesting Traffic (Messages Destinations) single ad set...');
+  const resD3 = await postJson(url, trafficMessagesPayload);
+  console.log('Result:', JSON.stringify(resD3.data, null, 2));
+
+  console.log('\nTesting Traffic (Instagram or Facebook) single ad set...');
+  const resD4 = await postJson(url, trafficIGFBPayload);
+  console.log('Result:', JSON.stringify(resD4.data, null, 2));
+
+  console.log('\nTesting Traffic (Instagram or Facebook) multi ad sets (3)...');
+  const resD4Multi = await postJson(url, trafficMultiIGFBPayload);
+  console.log('Result:', JSON.stringify(resD4Multi.data, null, 2));
+
+  console.log('\nTesting Traffic (Calls) single ad set...');
+  const resD5 = await postJson(url, trafficCallsPayload);
+  console.log('Result:', JSON.stringify(resD5.data, null, 2));
+
   console.log('\nTesting Sales (Website conversions) single ad set...');
   const resE = await postJson(url, salesPayload);
   console.log('Result:', JSON.stringify(resE.data, null, 2));
@@ -196,6 +311,18 @@ async function findVideoAsset() {
     return rows[0] || null;
   } catch (e) {
     try { await client.end(); } catch (ignore) { /* ignore */ }
+    return null;
+  }
+}
+
+async function getPageInfo() {
+  try {
+    const url = `${API_URL}/api/integrations/meta/page-info/${WORKSPACE_ID}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data?.success) return data.data;
+    return null;
+  } catch (e) {
     return null;
   }
 }

@@ -44,6 +44,10 @@ export default function MetaAds() {
       "OUTCOME_TRAFFIC": "traffic",
       "TRAFFIC": "traffic",
       "LINK_CLICKS": "traffic",
+      "OUTCOME_AWARENESS": "engagement",
+      "AWARENESS": "engagement",
+      "BRAND_AWARENESS": "engagement",
+      "REACH": "engagement",
     };
     return mapping[objective] || "traffic";
   };
@@ -63,7 +67,7 @@ export default function MetaAds() {
   // Carregar contas da integração (dashboard) para alinhar com filtro de contas
   const { data: integrationOverview } = useIntegrationOverview();
   const metaAccounts = (integrationOverview?.platformAccounts ?? [])
-    .filter((acc) => acc.platform_key === "meta")
+    .filter((acc) => acc.platform_key === "meta" && !/\bdemo\b/i.test(String(acc.name || "")))
     .map((acc) => ({ id: acc.id, name: acc.name ?? acc.id }));
 
   useEffect(() => {
@@ -227,6 +231,7 @@ export default function MetaAds() {
                 { value: "MESSAGES", label: "Conversas" },
                 { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
                 { value: "OUTCOME_SALES", label: "Vendas" },
+                { value: "OUTCOME_AWARENESS", label: "Reconhecimento" },
               ],
             }}
             statusFilter={statusFilter}
@@ -241,29 +246,30 @@ export default function MetaAds() {
       </div>
 
       {/* Indicador de filtro ativo */}
-      {objectiveFilter !== "all" && (
-        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
-          <Target className="h-4 w-4 text-blue-600" />
-          <span className="text-sm text-blue-900 dark:text-blue-100">
-            Filtrando por: <strong>{(() => {
-              const opt = [
-                { value: "OUTCOME_LEADS", label: "Leads" },
-                { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
-                { value: "MESSAGES", label: "Conversas" },
-                { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
-                { value: "OUTCOME_SALES", label: "Vendas" },
-              ].find(o => o.value === objectiveFilter);
-              return opt?.label || objectiveFilter;
-            })()}</strong>
-          </span>
-          <button
-            onClick={() => setObjectiveFilter("all")}
-            className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
-          >
-            Limpar filtro
-          </button>
-        </div>
-      )}
+          {objectiveFilter !== "all" && (
+            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
+              <Target className="h-4 w-4 text-blue-600" />
+              <span className="text-sm text-blue-900 dark:text-blue-100">
+                Filtrando por: <strong>{(() => {
+                  const opt = [
+                    { value: "OUTCOME_LEADS", label: "Leads" },
+                    { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                    { value: "MESSAGES", label: "Conversas" },
+                    { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                    { value: "OUTCOME_SALES", label: "Vendas" },
+                    { value: "OUTCOME_AWARENESS", label: "Reconhecimento" },
+                  ].find(o => o.value === objectiveFilter);
+                  return opt?.label || objectiveFilter;
+                })()}</strong>
+              </span>
+              <button
+                onClick={() => setObjectiveFilter("all")}
+                className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
+              >
+                Limpar filtro
+              </button>
+            </div>
+          )}
 
       {/* Loading State - Skeleton Animado */}
       {isLoading && metricsLoading && (

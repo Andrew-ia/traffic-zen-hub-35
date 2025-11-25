@@ -17,6 +17,7 @@
 
 import { Client } from 'pg';
 import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 
 dotenv.config({ path: '.env.local' });
 
@@ -88,6 +89,74 @@ async function getActiveCampaigns() {
   `, [workspaceId]);
 
   return rows;
+}
+
+function mapMetaStatus(status) {
+  const normalized = (status || '').toUpperCase();
+  switch (normalized) {
+    case 'ACTIVE':
+    case 'IN_PROCESS':
+    case 'PENDING':
+    case 'WITH_ISSUES':
+      return 'active';
+    case 'PAUSED':
+    case 'INACTIVE':
+      return 'paused';
+    case 'ARCHIVED':
+    case 'DELETED':
+      return 'archived';
+    default:
+      return 'draft';
+  }
+}
+
+function resolveDeliveryStatus(primaryStatus, effectiveStatus) {
+  const mappedEffective = effectiveStatus ? mapMetaStatus(effectiveStatus) : null;
+  if (mappedEffective === 'paused' || mappedEffective === 'archived') return mappedEffective;
+  if (mappedEffective === 'active') return 'active';
+  return mapMetaStatus(primaryStatus);
+}
+
+async function getApiActiveCampaignsCount(days = 7) {
+  const accessToken = process.env.META_ACCESS_TOKEN;
+  const adAccountId = process.env.META_AD_ACCOUNT_ID;
+  if (!accessToken || !adAccountId) {
+    console.warn('⚠️  META_ACCESS_TOKEN ou META_AD_ACCOUNT_ID não configurados; pulando comparação API vs DB.');
+    return null;
+  }
+  const GRAPH_URL = 'https://graph.facebook.com/v19.0';
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceTs = Math.floor(since.getTime() / 1000);
+  let nextUrl = new URL(`${GRAPH_URL}/act_${adAccountId}/campaigns`);
+  nextUrl.searchParams.set('fields','id,name,status,effective_status,updated_time');
+  nextUrl.searchParams.set('limit','100');
+  nextUrl.searchParams.set('filtering', JSON.stringify([{ field:'updated_time', operator:'GREATER_THAN', value: sinceTs }]));
+  nextUrl.searchParams.set('access_token', accessToken);
+
+  let active = 0;
+  let total = 0;
+  while (nextUrl) {
+    const resp = await fetch(nextUrl);
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.warn(`⚠️  Falha ao consultar Meta API (${resp.status}): ${text}`);
+      break;
+    }
+    const payload = await resp.json();
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    total += data.length;
+    for (const c of data) {
+      const s = resolveDeliveryStatus(c.status, c.effective_status);
+      if (s === 'active') active += 1;
+    }
+    if (payload.paging?.next) {
+      nextUrl = new URL(payload.paging.next);
+    } else {
+      nextUrl = null;
+    }
+  }
+  return { active, total };
 }
 
 async function getRawMetrics(days) {
@@ -371,6 +440,20 @@ async function runAudit() {
   const campaigns = await getActiveCampaigns();
   console.log(`Total de campanhas: ${campaigns.length}`);
   console.log('');
+  const dbActive = campaigns.filter(c => c.status === 'active').length;
+  const apiCounts = await getApiActiveCampaignsCount(DAYS);
+  if (apiCounts) {
+    console.log(`Comparação API vs Banco (últimos ${DAYS} dias):`);
+    console.log(`  Banco (status=active): ${dbActive}`);
+    console.log(`  Meta API (effective):  ${apiCounts.active} de ${apiCounts.total} campanhas`);
+    const diff = apiCounts.active - dbActive;
+    if (diff !== 0) {
+      console.log(`  ⚠️  Diferença: ${diff} campanha(s). Recomenda-se executar sincronização completa.`);
+    } else {
+      console.log('  ✅ Contagens de campanhas ativas consistentes.');
+    }
+    console.log('');
+  }
   if (DETAILED) {
     campaigns.slice(0, 10).forEach((camp, i) => {
       console.log(`${i + 1}. ${camp.name}`);

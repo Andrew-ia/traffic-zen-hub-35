@@ -53,6 +53,15 @@ export async function getDemographics(req: Request, res: Response) {
       ageParams.push(objective);
     }
 
+    // Excluir contas demo quando não há filtro específico de conta
+    ageQuery += ` AND NOT EXISTS (
+      SELECT 1 FROM platform_accounts pa
+      WHERE pa.id = pmb.platform_account_id
+        AND pa.workspace_id = $1
+        AND pa.platform_key = 'meta'
+        AND pa.name ILIKE '%demo%'
+    )`;
+
     const ageResult = await pool.query(ageQuery, ageParams);
     const ageData = ageResult.rows;
 
@@ -79,6 +88,15 @@ export async function getDemographics(req: Request, res: Response) {
       )`;
       genderParams.push(objective);
     }
+
+    // Excluir contas demo quando não há filtro específico de conta
+    genderQuery += ` AND NOT EXISTS (
+      SELECT 1 FROM platform_accounts pa
+      WHERE pa.id = pmb.platform_account_id
+        AND pa.workspace_id = $1
+        AND pa.platform_key = 'meta'
+        AND pa.name ILIKE '%demo%'
+    )`;
 
     const genderResult = await pool.query(genderQuery, genderParams);
     const genderData = genderResult.rows;

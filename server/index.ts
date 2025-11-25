@@ -503,6 +503,15 @@ async function ensureAdminUser() {
   }
 }
 
+// Export express app for serverless platforms (e.g., Vercel)
+export default app;
+
+// Auto-start only in non-serverless environments
+if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  start();
+}
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
@@ -524,5 +533,5 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// Start the server
-start();
+// In ambientes serverless (Vercel/Netlify/AWS Lambda), não iniciar servidor aqui.
+// O app é exportado e a plataforma cuida de iniciar o handler.

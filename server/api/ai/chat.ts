@@ -43,9 +43,10 @@ async function buildContext(workspaceId: string): Promise<string> {
       pa.platform_key,
       SUM(m.spend) as spend, 
       SUM(m.conversions) as conversions,
+      SUM(m.conversion_value) as conversion_value,
       SUM(m.impressions) as impressions,
       SUM(m.clicks) as clicks,
-      CASE WHEN SUM(m.spend) > 0 THEN SUM(m.conversions) / SUM(m.spend) ELSE 0 END as roas
+      CASE WHEN SUM(m.spend) > 0 THEN SUM(m.conversion_value) / SUM(m.spend) ELSE 0 END as roas
     FROM campaigns c
     JOIN platform_accounts pa ON c.account_id = pa.id
     JOIN performance_metrics m ON c.id = m.campaign_id
@@ -263,8 +264,10 @@ TOP 10 CAMPAIGNS (by Spend):
         c.platform_key === 'google' ? '[Google]' : `[${c.platform_key}]`;
       const ctr = c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) : '0.00';
       const cpa = c.conversions > 0 ? (c.spend / c.conversions).toFixed(2) : '0.00';
+      const roas = c.spend > 0 ? (parseFloat(c.conversion_value || 0) / parseFloat(c.spend)).toFixed(2) : '0.00';
+      const roiPct = c.spend > 0 ? (((parseFloat(c.conversion_value || 0) - parseFloat(c.spend)) / parseFloat(c.spend)) * 100).toFixed(1) : '0.0';
       context += `${i + 1}. ${platformLabel} ${c.name} [${c.status}]
-   Spend: R$ ${parseFloat(c.spend).toFixed(2)} | Results: ${c.conversions} | CTR: ${ctr}% | CPA: R$ ${cpa}\n`;
+   Spend: R$ ${parseFloat(c.spend).toFixed(2)} | Results: ${c.conversions} | CTR: ${ctr}% | CPA: R$ ${cpa} | ROAS: ${roas}x | ROI: ${roiPct}%\n`;
     });
 
     // Top 5 Ad Sets
@@ -313,6 +316,23 @@ BEST PERFORMERS (Lowest CPA):
         const cpa = (c.spend / c.conversions).toFixed(2);
         context += `${i + 1}. ${c.name} - CPA: R$ ${cpa}\n`;
       });
+
+      const withRoi = campaigns.map((c: any) => {
+        const convValue = parseFloat(c.conversion_value || 0);
+        const spend = parseFloat(c.spend || 0);
+        const roi = spend > 0 ? ((convValue - spend) / spend) : 0;
+        const roas = spend > 0 ? (convValue / spend) : 0;
+        return { name: c.name, roi, roas };
+      }).sort((a: any, b: any) => b.roi - a.roi);
+
+      if (withRoi.length > 0) {
+        context += `
+TOP CAMPAIGNS BY ROI:
+`;
+        withRoi.slice(0, 5).forEach((c: any, i: number) => {
+          context += `${i + 1}. ${c.name} - ROI: ${(c.roi * 100).toFixed(1)}% | ROAS: ${c.roas.toFixed(2)}x\n`;
+        });
+      }
     }
 
     return context;

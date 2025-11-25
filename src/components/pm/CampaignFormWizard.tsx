@@ -21,6 +21,10 @@ export interface Creative {
 export interface AdSet {
   id: string;
   name: string;
+  destinationType?: string;
+  destinationSubtype?: string;
+  destinationPlatform?: 'instagram' | 'facebook';
+  conversionEvent?: string;
   creatives: Creative[];
   schedule?: {
     start?: string;
@@ -79,6 +83,10 @@ const DEFAULT_CREATIVE: Creative = {
 const DEFAULT_ADSET: AdSet = {
   id: '1',
   name: '',
+  destinationType: '',
+  destinationSubtype: '',
+  destinationPlatform: undefined,
+  conversionEvent: '',
   creatives: [{ ...DEFAULT_CREATIVE }],
 };
 
@@ -104,6 +112,7 @@ function normalizeCampaignData(initial?: Partial<CampaignData>): CampaignData {
       ? initial.adSets.map((adSet, idx) => ({
           id: adSet.id || (idx + 1).toString(),
           name: adSet.name || '',
+          destinationType: adSet.destinationType || '',
           schedule: adSet.schedule || {},
           placementNotes: adSet.placementNotes,
           creatives:
@@ -146,8 +155,20 @@ export function CampaignFormWizard({
   const [driveSelectorTarget, setDriveSelectorTarget] = useState<{ adSetId: string; creativeId: string } | null>(null);
   const [driveSelectedUrl, setDriveSelectedUrl] = useState('');
 
-  const DRIVE_FOLDER_ID = '1CW4zimagBD1syVRfbhSuH1NC5drzVZPt';
-  const DRIVE_EMBED_URL = `https://drive.google.com/embeddedfolderview?id=${DRIVE_FOLDER_ID}#grid`;
+  const DRIVE_FOLDERS = [
+    {
+      id: '1CW4zimagBD1syVRfbhSuH1NC5drzVZPt',
+      name: 'Drive Principal',
+      url: 'https://drive.google.com/drive/folders/1CW4zimagBD1syVRfbhSuH1NC5drzVZPt'
+    },
+    {
+      id: '14xINdKQ6xeRZsmbmMcjIaYLzQnhiP9aR',
+      name: 'Drive Vermezzo',
+      url: 'https://drive.google.com/drive/folders/14xINdKQ6xeRZsmbmMcjIaYLzQnhiP9aR?usp=drive_link'
+    }
+  ];
+  const [selectedDriveId, setSelectedDriveId] = useState<string>(DRIVE_FOLDERS[0].id);
+  const DRIVE_EMBED_URL = `https://drive.google.com/embeddedfolderview?id=${selectedDriveId}#grid`;
 
   useEffect(() => {
     setData(normalizeCampaignData(initialData));
@@ -287,15 +308,14 @@ export function CampaignFormWizard({
         return data.budget && data.startDate && data.endDate;
       case 4:
         return data.adSets.length > 0 &&
-          data.adSets.every(ads =>
-            ads.name.trim() &&
-            ads.creatives.length > 0 &&
-            ads.creatives.every(c =>
-              c.primaryText.trim() &&
-              c.headline.trim() &&
-              c.description.trim()
-            )
-          );
+          data.adSets.every(ads => {
+            const hasBase = ads.name.trim() && !!ads.destinationType && ads.creatives.length > 0 &&
+              ads.creatives.every(c => c.primaryText.trim() && c.headline.trim() && c.description.trim());
+            const needsMsg = ads.destinationType === 'MESSAGES_DESTINATIONS' ? !!ads.destinationSubtype : true;
+            const needsPlatform = ads.destinationType === 'INSTAGRAM_OR_FACEBOOK' ? !!ads.destinationPlatform : true;
+            const needsEvent = ads.destinationType === 'WEBSITE' ? !!ads.conversionEvent : true;
+            return hasBase && needsMsg && needsPlatform && needsEvent;
+          });
       case 5:
         return true;
       default:
@@ -360,6 +380,7 @@ export function CampaignFormWizard({
                   </SelectContent>
                 </Select>
               </div>
+              {/* destino no nível de campanha removido: escolha por conjunto no passo 4 */}
             </>
           )}
 
@@ -459,17 +480,156 @@ export function CampaignFormWizard({
                         onChange={(e) => updateAdSet(adSet.id, 'name', e.target.value)}
                         className="mt-1"
                       />
-                    </div>
-                    {data.adSets.length > 1 && (
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => removeAdSet(adSet.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                  </div>
+                  {data.adSets.length > 1 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => removeAdSet(adSet.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Local da Conversão *</Label>
+                    <Select
+                      value={adSet.destinationType || ''}
+                      onValueChange={(v) => updateAdSet(adSet.id, 'destinationType', v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          const obj = String(data.objective || '').toUpperCase();
+                          const opts = obj === 'ENGAGEMENT'
+                            ? ['MESSAGES_DESTINATIONS', 'ON_AD', 'INSTAGRAM_OR_FACEBOOK']
+                            : obj === 'LEADS'
+                              ? ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE']
+                              : obj === 'SALES'
+                                ? ['WEBSITE']
+                                : obj === 'TRAFFIC'
+                                  ? ['WEBSITE', 'APP', 'MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'CALLS']
+                                  : obj === 'AWARENESS'
+                                    ? ['ON_AD', 'INSTAGRAM_OR_FACEBOOK']
+                                    : ['WEBSITE'];
+                          const label = (v: string) => (
+                            v === 'WHATSAPP' ? 'WhatsApp' :
+                            v === 'MESSENGER' ? 'Messenger' :
+                            v === 'INSTAGRAM_OR_FACEBOOK' ? 'Instagram ou Facebook' :
+                            v === 'MESSAGES_DESTINATIONS' ? 'Mensagens' :
+                            v === 'ON_AD' ? 'No anúncio' :
+                            v === 'ON_POST' ? 'No post' :
+                            v === 'WEBSITE' ? 'Site' :
+                            v === 'APP' ? 'App' :
+                            v === 'CALLS' ? 'Ligações' : v
+                          );
+                          return opts.map(v => (
+                            <SelectItem key={v} value={v}>{label(v)}</SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                    {!adSet.destinationType && (
+                      <p className="text-xs text-destructive mt-1">Selecione o local de conversão</p>
                     )}
                   </div>
+                </div>
+
+                {/* Subcampo: Mensagens -> WhatsApp/Messenger/Instagram Direct */}
+                {adSet.destinationType === 'MESSAGES_DESTINATIONS' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Canal de Mensagem *</Label>
+                      <Select
+                        value={adSet.destinationSubtype || ''}
+                        onValueChange={(v) => updateAdSet(adSet.id, 'destinationSubtype', v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o canal" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+                          <SelectItem value="MESSENGER">Messenger</SelectItem>
+                          <SelectItem value="INSTAGRAM_DM">Instagram Direct</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {!adSet.destinationSubtype && (
+                        <p className="text-xs text-destructive mt-1">Selecione o canal de mensagem</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Subcampo: Instagram ou Facebook -> plataforma específica */}
+                {adSet.destinationType === 'INSTAGRAM_OR_FACEBOOK' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Plataforma *</Label>
+                      <Select
+                        value={adSet.destinationPlatform || ''}
+                        onValueChange={(v) => updateAdSet(adSet.id, 'destinationPlatform', v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a plataforma" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="instagram">Instagram</SelectItem>
+                          <SelectItem value="facebook">Facebook</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {!adSet.destinationPlatform && (
+                        <p className="text-xs text-destructive mt-1">Selecione Instagram ou Facebook</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Evento de conversão quando destino for Site */}
+                {adSet.destinationType === 'WEBSITE' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Evento de Conversão *</Label>
+                      <Select
+                        value={adSet.conversionEvent || ''}
+                        onValueChange={(v) => updateAdSet(adSet.id, 'conversionEvent', v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o evento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(() => {
+                            const obj = String(data.objective || '').toUpperCase();
+                            const opts = obj === 'SALES'
+                              ? [
+                                  { v: 'PURCHASE', l: 'Compra' },
+                                  { v: 'INITIATE_CHECKOUT', l: 'Início de Checkout' },
+                                  { v: 'ADD_TO_CART', l: 'Adicionar ao Carrinho' },
+                                ]
+                              : obj === 'LEADS'
+                                ? [
+                                    { v: 'LEAD', l: 'Lead' },
+                                    { v: 'COMPLETE_REGISTRATION', l: 'Cadastro Concluído' },
+                                  ]
+                                : [
+                                    { v: 'VIEW_CONTENT', l: 'Visualização de Conteúdo' },
+                                    { v: 'PAGE_VIEW', l: 'Page View' },
+                                  ];
+                            return opts.map(({ v, l }) => (
+                              <SelectItem key={v} value={v}>{l}</SelectItem>
+                            ));
+                          })()}
+                        </SelectContent>
+                      </Select>
+                      {!adSet.conversionEvent && (
+                        <p className="text-xs text-destructive mt-1">Selecione o evento de conversão</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                   {/* Creatives */}
                   <div className="space-y-3 border-t pt-4">
@@ -543,23 +703,25 @@ export function CampaignFormWizard({
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label htmlFor={`cta-${adSet.id}-${creative.id}`} className="text-xs">
-                              CTA
-                            </Label>
-                            <Select value={creative.cta} onValueChange={(v) => updateCreative(adSet.id, creative.id, 'cta', v)}>
-                              <SelectTrigger id={`cta-${adSet.id}-${creative.id}`} className="h-8 text-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Comprar Agora">Comprar Agora</SelectItem>
-                                <SelectItem value="Saiba Mais">Saiba Mais</SelectItem>
-                                <SelectItem value="Cadastrar-se">Cadastrar-se</SelectItem>
-                                <SelectItem value="Enviar Mensagem">Enviar Mensagem</SelectItem>
-                                <SelectItem value="Entrar em Contato">Entrar em Contato</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          {String(adSet.destination_type || adSet.destinationType || '') !== 'INSTAGRAM_OR_FACEBOOK' && (
+                            <div>
+                              <Label htmlFor={`cta-${adSet.id}-${creative.id}`} className="text-xs">
+                                CTA
+                              </Label>
+                              <Select value={creative.cta} onValueChange={(v) => updateCreative(adSet.id, creative.id, 'cta', v)}>
+                                <SelectTrigger id={`cta-${adSet.id}-${creative.id}`} className="h-8 text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Comprar Agora">Comprar Agora</SelectItem>
+                                  <SelectItem value="Saiba Mais">Saiba Mais</SelectItem>
+                                  <SelectItem value="Cadastrar-se">Cadastrar-se</SelectItem>
+                                  <SelectItem value="Enviar Mensagem">Enviar Mensagem</SelectItem>
+                                  <SelectItem value="Entrar em Contato">Entrar em Contato</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
                           <div>
                             <Label htmlFor={`url-${adSet.id}-${creative.id}`} className="text-xs">
                               URL do Criativo
@@ -608,16 +770,17 @@ export function CampaignFormWizard({
             <div className="space-y-4">
               <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg space-y-4">
                 {/* Campaign Info */}
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-sm">Informações da Campanha</h4>
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm">Informações da Campanha</h4>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Nome:</span>
                     <span className="font-semibold">{data.campaignName}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Objetivo:</span>
-                    <span className="font-semibold">{getCampaignObjectiveLabel(data.objective)}</span>
-                  </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Objetivo:</span>
+                  <span className="font-semibold">{getCampaignObjectiveLabel(data.objective)}</span>
+                </div>
+                {/* Local da Conversão removido do resumo da campanha */}
                 </div>
 
                 {/* Audience */}
@@ -707,6 +870,26 @@ export function CampaignFormWizard({
             <DialogTitle>Selecionar Criativo do Drive</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label>Pasta do Drive</Label>
+                <Select value={selectedDriveId} onValueChange={setSelectedDriveId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DRIVE_FOLDERS.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button asChild variant="outline" className="w-full">
+                  <a href={DRIVE_FOLDERS.find((f) => f.id === selectedDriveId)?.url || '#'} target="_blank" rel="noreferrer">Abrir no Google Drive</a>
+                </Button>
+              </div>
+            </div>
             <div className="rounded-md border overflow-hidden">
               <iframe src={DRIVE_EMBED_URL} className="w-full h-[520px]" allow="fullscreen" />
             </div>

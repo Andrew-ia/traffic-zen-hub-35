@@ -165,6 +165,7 @@ type AdSetRow = {
 type MetricRow = {
   ad_set_id: string | null;
   campaign_id: string | null;
+  platform_account_id?: string | null;
   metric_date: string;
   impressions: number | null;
   clicks: number | null;
@@ -351,7 +352,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const { data: metricsData, error: metricsError } = await supabase
         .from("performance_metrics")
         .select(
-          "ad_set_id, campaign_id, metric_date, impressions, clicks, ctr, spend, cpc, cpm, reach, extra_metrics, synced_at",
+          "ad_set_id, campaign_id, platform_account_id, metric_date, impressions, clicks, ctr, spend, cpc, cpm, reach, extra_metrics, synced_at",
         )
         .eq("workspace_id", WORKSPACE_ID)
         .eq("granularity", "day")
@@ -365,6 +366,25 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       }
 
       const metricRowsRaw = (metricsData as MetricRow[]) ?? [];
+
+      const { data: accountsData, error: accountsError } = await supabase
+        .from("platform_accounts")
+        .select("id, name")
+        .eq("workspace_id", WORKSPACE_ID);
+
+      if (accountsError) {
+        console.error("Failed to load platform accounts for objective summary", accountsError.message);
+        throw accountsError;
+      }
+
+      const allowedIds = new Set(
+        ((accountsData as { id: string | null; name: string | null }[]) ?? [])
+          .filter((a) => !/\bdemo\b/i.test(String(a.name || "")))
+          .map((a) => a.id)
+          .filter(Boolean) as string[]
+      );
+
+      let metricRows = metricRowsRaw.filter((r) => r.platform_account_id ? allowedIds.has(r.platform_account_id) : true);
 
       type AggregatedRow = {
         ad_set_id: string | null;

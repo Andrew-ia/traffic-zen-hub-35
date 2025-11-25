@@ -25,11 +25,28 @@ function parseDaysParam(days?: unknown): number {
   return !isNaN(n) && n > 0 ? Math.min(n, 90) : 7;
 }
 
+function expandObjectiveAliases(obj?: string | null): string[] | null {
+  if (!obj || obj === 'all') return null;
+  const o = String(obj).toUpperCase();
+  const map: Record<string, string[]> = {
+    'OUTCOME_LEADS': ['OUTCOME_LEADS', 'LEAD_GENERATION', 'LEADS'],
+    'OUTCOME_SALES': ['OUTCOME_SALES', 'SALES', 'CONVERSIONS', 'PURCHASE'],
+    'OUTCOME_TRAFFIC': ['OUTCOME_TRAFFIC', 'TRAFFIC', 'LINK_CLICKS'],
+    'OUTCOME_MESSAGES': ['OUTCOME_MESSAGES', 'MESSAGES'],
+    'OUTCOME_ENGAGEMENT': ['OUTCOME_ENGAGEMENT', 'ENGAGEMENT', 'POST_ENGAGEMENT'],
+    'OUTCOME_AWARENESS': ['OUTCOME_AWARENESS', 'AWARENESS', 'BRAND_AWARENESS', 'REACH'],
+    'OUTCOME_APP_PROMOTION': ['OUTCOME_APP_PROMOTION', 'APP_PROMOTION']
+  };
+  const arr = map[o] || [o];
+  return arr.map((s) => s.toUpperCase());
+}
+
 async function resolveAccountIds(pool: any, workspaceId: string, platform: string, accountId?: string) {
   if (accountId && accountId !== 'all') return [accountId];
   const { rows } = await pool.query(`
     select id from platform_accounts
     where workspace_id = $1 and platform_key = $2
+      and coalesce(name, '') not ilike '%demo%'
   `, [workspaceId, platform]);
   return rows.map((r: any) => r.id);
 }
@@ -43,6 +60,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
     const accountId = req.query.accountId as string | undefined;
     const status = (req.query.status as string | undefined);
     const objective = (req.query.objective as string | undefined);
+    const objectiveAliases = expandObjectiveAliases(objective);
 
     const accountIds = await resolveAccountIds(pool, workspaceId, platform, accountId);
     if (accountIds.length === 0) {
@@ -136,8 +154,8 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           select 1 from campaigns c
           where c.id = campaign_id
             and (
-              $5::text is not null and upper(c.objective) = upper($5)
-              or $5::text is null and upper(c.objective) <> 'UNKNOWN'
+              $5::text[] is not null and upper(c.objective) = any($5::text[])
+              or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
             )
         )
         group by workspace_id, campaign_id, metric_date
@@ -264,8 +282,8 @@ export async function getAggregateMetrics(req: Request, res: Response) {
             select 1 from campaigns c
             where c.id = kpi.campaign_id
               and (
-                $5::text is not null and upper(c.objective) = upper($5)
-                or $5::text is null and upper(c.objective) <> 'UNKNOWN'
+                $5::text[] is not null and upper(c.objective) = any($5::text[])
+                or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
               )
           )
       ),
@@ -307,11 +325,11 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       where (
         $4::text is null or c.status = $4
       ) and (
-        $5::text is not null and upper(c.objective) = upper($5)
-        or $5::text is null and upper(c.objective) <> 'UNKNOWN'
+        $5::text[] is not null and upper(c.objective) = any($5::text[])
+        or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
       )
       `,
-      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objective || null]
+      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objectiveAliases]
     );
 
     const row = rows[0] || {} as any;
@@ -383,6 +401,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
     const metric = (req.query.metric as string) || 'spend';
     const status = (req.query.status as string | undefined);
     const objective = (req.query.objective as string | undefined);
+    const objectiveAliases = expandObjectiveAliases(objective);
 
     const accountIds = await resolveAccountIds(pool, workspaceId, platform, accountId);
     if (accountIds.length === 0) return res.json([]);
@@ -437,8 +456,8 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
           select 1 from campaigns c
           where c.id = campaign_id
             and (
-              $5::text is not null and upper(c.objective) = upper($5)
-              or $5::text is null and upper(c.objective) <> 'UNKNOWN'
+              $5::text[] is not null and upper(c.objective) = any($5::text[])
+              or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
             )
         )
         group by workspace_id, campaign_id, metric_date
@@ -467,8 +486,8 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
               select 1 from campaigns c
               where c.id = kpi.campaign_id
                 and (
-                  $5::text is not null and upper(c.objective) = upper($5)
-                  or $5::text is null and upper(c.objective) <> 'UNKNOWN'
+                  $5::text[] is not null and upper(c.objective) = any($5::text[])
+                  or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
                 )
             )
           )
@@ -498,7 +517,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
       group by kpi_dedup.metric_date
       order by kpi_dedup.metric_date
       `,
-      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objective || null]
+      [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objectiveAliases]
     );
 
     const data = rows.map((r: {

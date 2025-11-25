@@ -313,6 +313,7 @@ interface MetaCredentials {
   accessToken: string;
   adAccountId: string;
   workspaceId: string;
+  pageId?: string;
 }
 
 
@@ -323,6 +324,7 @@ const defaultCredentials = (): MetaCredentials => ({
   accessToken: import.meta.env.VITE_META_ACCESS_TOKEN ?? "",
   adAccountId: import.meta.env.VITE_META_AD_ACCOUNT_ID ?? "",
   workspaceId: import.meta.env.VITE_WORKSPACE_ID ?? "",
+  pageId: (import.meta.env.VITE_META_PAGE_ID as string | undefined) ?? "",
 });
 
 function ClientConfigurationCard() {
@@ -352,17 +354,18 @@ function MetaCredentialsDialog() {
   useEffect(() => {
     let base = defaultCredentials();
     try {
-      const stored = localStorage.getItem(META_CREDENTIALS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as MetaCredentials;
-        base = {
-          appId: parsed.appId || base.appId,
-          appSecret: parsed.appSecret || base.appSecret,
-          accessToken: parsed.accessToken || base.accessToken,
-          adAccountId: parsed.adAccountId || base.adAccountId,
-          workspaceId: parsed.workspaceId || base.workspaceId,
-        };
-      }
+        const stored = localStorage.getItem(META_CREDENTIALS_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as MetaCredentials;
+          base = {
+            appId: parsed.appId || base.appId,
+            appSecret: parsed.appSecret || base.appSecret,
+            accessToken: parsed.accessToken || base.accessToken,
+            adAccountId: parsed.adAccountId || base.adAccountId,
+            workspaceId: parsed.workspaceId || base.workspaceId,
+            pageId: parsed.pageId || base.pageId,
+          };
+        }
       setCredentials(base);
     } catch (error) {
       console.warn("Failed to load stored Meta credentials", error);
@@ -380,6 +383,7 @@ function MetaCredentialsDialog() {
             accessToken: serverCred.accessToken || base.accessToken,
             adAccountId: serverCred.adAccountId || base.adAccountId,
             workspaceId: base.workspaceId || WORKSPACE_ID,
+            pageId: serverCred.pageId || serverCred.page_id || base.pageId,
           };
           setCredentials(merged);
           setServerStatus("Credenciais do servidor carregadas");
@@ -394,7 +398,7 @@ function MetaCredentialsDialog() {
 
   const envSnippet = useMemo(
     () =>
-      `META_APP_ID=${credentials.appId}\nMETA_APP_SECRET=${credentials.appSecret}\nMETA_ACCESS_TOKEN=${credentials.accessToken}\nMETA_AD_ACCOUNT_ID=${credentials.adAccountId}\nMETA_WORKSPACE_ID=${credentials.workspaceId}\n\nVITE_META_APP_ID=${credentials.appId}\nVITE_META_APP_SECRET=${credentials.appSecret}\nVITE_META_ACCESS_TOKEN=${credentials.accessToken}\nVITE_META_AD_ACCOUNT_ID=${credentials.adAccountId}\nVITE_WORKSPACE_ID=${credentials.workspaceId}`,
+      `META_APP_ID=${credentials.appId}\nMETA_APP_SECRET=${credentials.appSecret}\nMETA_ACCESS_TOKEN=${credentials.accessToken}\nMETA_AD_ACCOUNT_ID=${credentials.adAccountId}\nMETA_WORKSPACE_ID=${credentials.workspaceId}\nMETA_PAGE_ID=${credentials.pageId || ""}\n\nVITE_META_APP_ID=${credentials.appId}\nVITE_META_APP_SECRET=${credentials.appSecret}\nVITE_META_ACCESS_TOKEN=${credentials.accessToken}\nVITE_META_AD_ACCOUNT_ID=${credentials.adAccountId}\nVITE_WORKSPACE_ID=${credentials.workspaceId}\nVITE_META_PAGE_ID=${credentials.pageId || ""}`,
     [credentials],
   );
 
@@ -423,6 +427,7 @@ function MetaCredentialsDialog() {
         appSecret: credentials.appSecret,
         accessToken: credentials.accessToken,
         adAccountId: credentials.adAccountId,
+        pageId: credentials.pageId,
       },
     };
     const resp = await fetch(`/api/integrations/credentials`, {
@@ -496,19 +501,27 @@ function MetaCredentialsDialog() {
               placeholder="Access token de longa duração"
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="meta-ad-account">Ad Account ID</Label>
-              <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
-            </div>
-            <div>
-              <Label htmlFor="meta-workspace">Workspace ID</Label>
-              <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
-              <p className="mt-1 text-xs text-muted-foreground">
-                ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
-              </p>
-            </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="meta-ad-account">Ad Account ID</Label>
+            <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
           </div>
+          <div>
+            <Label htmlFor="meta-workspace">Workspace ID</Label>
+            <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="meta-page-id">Page ID (Facebook)</Label>
+            <Input id="meta-page-id" value={credentials.pageId || ""} onChange={handleChange("pageId")} placeholder="123456789012345" />
+            <p className="mt-1 text-xs text-muted-foreground">Use o ID da Página conectada à sua conta de anúncios.</p>
+          </div>
+        </div>
 
           <div className="space-y-2">
             <Label>Snippet para .env.local</Label>
@@ -822,4 +835,3 @@ VITE_WORKSPACE_ID=${credentials.workspaceId}`,
     </Dialog>
   );
 }
-
