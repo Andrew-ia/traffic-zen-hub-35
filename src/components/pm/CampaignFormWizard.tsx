@@ -510,7 +510,7 @@ export function CampaignFormWizard({
                             : obj === 'LEADS'
                               ? ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE']
                               : obj === 'SALES'
-                                ? ['WEBSITE']
+                                ? ['WEBSITE', 'WHATSAPP']
                                 : obj === 'TRAFFIC'
                                   ? ['WEBSITE', 'APP', 'MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'CALLS']
                                   : obj === 'AWARENESS'

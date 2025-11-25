@@ -484,7 +484,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
         if (objUpper === 'OUTCOME_LEADS') {
           // Mapear destinos de Leads conforme seleção
           if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = 'MESSAGING_APP';
+            adSetPayload.destination_type = destUpper; // usar valor aceito diretamente
             adSetPayload.optimization_goal = 'LEAD_GENERATION';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
@@ -527,7 +527,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
           }
         } else if (objUpper === 'OUTCOME_SALES') {
           if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = 'MESSAGING_APP';
+            adSetPayload.destination_type = destUpper; // usar valor aceito diretamente
             adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           } else {
