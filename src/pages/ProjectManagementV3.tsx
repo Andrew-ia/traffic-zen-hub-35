@@ -14,6 +14,7 @@ import {
   Edit,
   LayoutDashboard,
   Bell,
+  Menu,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import EmojiPicker from '@/components/pm/EmojiPicker';
@@ -40,6 +41,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 // Removed KanbanBoard and Select imports after removing Quadro/Kanban view
@@ -153,6 +155,8 @@ export default function ProjectManagementV3() {
     setEditFolderColor(folder.color || '#3B82F6');
     setEditFolderOpen(true);
   };
+
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleUpdateList = async () => {
     if (!editingListId) return;
@@ -631,122 +635,147 @@ export default function ProjectManagementV3() {
 
   // Removed filteredTasks (used only by Quadro/Kanban view)
 
-  return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <div className="w-64 border-r bg-card flex flex-col">
-        <div className="px-3 py-2.5 border-b">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Vermezzo - HUB</h2>
-            <Button size="icon" variant="ghost" onClick={() => setNewFolderOpen(true)}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+  const renderSidebarContent = (onItemClick?: () => void) => (
+    <>
+      <div className="px-3 py-2.5 border-b">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Vermezzo - HUB</h2>
+          <Button size="icon" variant="ghost" onClick={() => setNewFolderOpen(true)}>
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
+      </div>
 
-        <div className="flex-1 overflow-y-auto px-2 py-1">
-          <div className="space-y-0.5">
-            {folders.map((folder) => {
-              const isExpanded = expandedFolders.has(folder.id);
-              const isSelected = selectedFolderId === folder.id;
+      <div className="flex-1 overflow-y-auto px-2 py-1">
+        <div className="space-y-0.5">
+          {folders.map((folder) => {
+            const isExpanded = expandedFolders.has(folder.id);
+            const isSelected = selectedFolderId === folder.id;
 
-              return (
-                <div key={folder.id}>
-                  {/* Folder */}
-                  <div
-                    onClick={() => {
-                      toggleFolder(folder.id);
-                      setSelectedFolderId(folder.id);
-                      setSelectedListId(null);
-                    }}
-                    className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors cursor-pointer ${isSelected ? 'bg-muted' : ''
-                      }`}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                    )}
-                    <span className="text-sm">{folder.icon}</span>
-                    <span className="truncate flex-1 text-left text-xs">{folder.name}</span>
-                    <Badge variant="secondary" className="text-[10px] px-1 h-4">
-                      {folder.task_count}
-                    </Badge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEditFolder(folder);
-                          }}
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Editar Pasta
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          disabled={deleteFolder.isPending}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            const ok = confirm(`Excluir a pasta "${folder.name}"? Todas as listas e tarefas serão removidas.`);
-                            if (!ok) return;
-                            try {
-                              await deleteFolder.mutateAsync({ workspaceId: WORKSPACE_ID, folderId: folder.id });
-                              toast({ title: 'Pasta excluída', description: 'A pasta foi removida com sucesso.' });
-                              if (selectedFolderId === folder.id) {
-                                setSelectedFolderId(null);
-                                setSelectedListId(null);
-                              }
-                            } catch (err) {
-                              console.error('Erro ao excluir pasta:', err);
-                              toast({ title: 'Falha ao excluir pasta', variant: 'destructive' });
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Excluir Pasta
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  {/* Lists */}
-                  {isExpanded && (
-                    <div className="ml-5 mt-0.5 space-y-0.5">
-                      {folder.lists.map((list) => (
-                        <button
-                          key={list.id}
-                          onClick={() => {
-                            setSelectedFolderId(folder.id);
-                            setSelectedListId(list.id);
-                          }}
-                          className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors ${selectedListId === list.id ? 'bg-muted' : ''
-                            }`}
-                        >
-                          <span className="text-sm">{list.icon}</span>
-                          <span className="truncate flex-1 text-left text-xs">{list.name}</span>
-                          <Badge variant="secondary" className="text-[10px] px-1 h-4">
-                            {list.tasks.length}
-                          </Badge>
-                        </button>
-                      ))}
-                    </div>
+            return (
+              <div key={folder.id}>
+                {/* Folder */}
+                <div
+                  onClick={() => {
+                    toggleFolder(folder.id);
+                    setSelectedFolderId(folder.id);
+                    setSelectedListId(null);
+                    onItemClick?.();
+                  }}
+                  className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors cursor-pointer ${isSelected ? 'bg-muted' : ''
+                    }`}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                   )}
+                  <span className="text-sm">{folder.icon}</span>
+                  <span className="truncate flex-1 text-left text-xs">{folder.name}</span>
+                  <Badge variant="secondary" className="text-[10px] px-1 h-4">
+                    {folder.task_count}
+                  </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenEditFolder(folder);
+                        }}
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Editar Pasta
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        disabled={deleteFolder.isPending}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const ok = confirm(`Excluir a pasta "${folder.name}"? Todas as listas e tarefas serão removidas.`);
+                          if (!ok) return;
+                          try {
+                            await deleteFolder.mutateAsync({ workspaceId: WORKSPACE_ID, folderId: folder.id });
+                            toast({ title: 'Pasta excluída', description: 'A pasta foi removida com sucesso.' });
+                            if (selectedFolderId === folder.id) {
+                              setSelectedFolderId(null);
+                              setSelectedListId(null);
+                            }
+                          } catch (err) {
+                            console.error('Erro ao excluir pasta:', err);
+                            toast({ title: 'Falha ao excluir pasta', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Excluir Pasta
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Lists */}
+                {isExpanded && (
+                  <div className="ml-5 mt-0.5 space-y-0.5">
+                    {folder.lists.map((list) => (
+                      <button
+                        key={list.id}
+                        onClick={() => {
+                          setSelectedFolderId(folder.id);
+                          setSelectedListId(list.id);
+                          onItemClick?.();
+                        }}
+                        className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted transition-colors ${selectedListId === list.id ? 'bg-muted' : ''
+                          }`}
+                      >
+                        <span className="text-sm">{list.icon}</span>
+                        <span className="truncate flex-1 text-left text-xs">{list.name}</span>
+                        <Badge variant="secondary" className="text-[10px] px-1 h-4">
+                          {list.tasks.length}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-screen bg-background flex-col md:flex-row">
+      {/* Mobile Header */}
+      <div className="md:hidden border-b bg-card px-3 py-2.5 flex items-center gap-2">
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <Menu className="h-5 w-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-72">
+            <div className="h-full flex flex-col">
+              {renderSidebarContent(() => setMobileMenuOpen(false))}
+            </div>
+          </SheetContent>
+        </Sheet>
+        <h1 className="font-semibold">Vermezzo - HUB</h1>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex w-64 border-r bg-card flex-col">
+        {renderSidebarContent()}
       </div>
 
       {/* Main Content */}
