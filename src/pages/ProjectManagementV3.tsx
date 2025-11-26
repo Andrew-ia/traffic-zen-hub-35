@@ -760,7 +760,12 @@ export default function ProjectManagementV3() {
       <div className="md:hidden border-b bg-card px-3 py-2.5 flex items-center gap-2">
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Abrir menu"
+            >
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
