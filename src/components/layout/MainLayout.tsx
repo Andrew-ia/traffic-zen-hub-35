@@ -2,7 +2,7 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { CommandMenuProvider } from "./CommandMenu";
 import { useResponsive } from "@/hooks/use-responsive";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -32,14 +32,17 @@ export function MainLayout({ children }: MainLayoutProps) {
     localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  const handleToggle = useCallback(() => setSidebarOpen(prev => !prev), []);
+  const handleClose = useCallback(() => setSidebarOpen(false), []);
+
   return (
     <CommandMenuProvider>
       <div className="flex min-h-screen w-full bg-background">
         {!isLogin && (
           <Sidebar
             isOpen={sidebarOpen}
-            onToggle={() => setSidebarOpen(!sidebarOpen)}
-            onClose={() => setSidebarOpen(false)}
+            onToggle={handleToggle}
+            onClose={handleClose}
             isCollapsed={sidebarCollapsed}
             onCollapsedChange={setSidebarCollapsed}
           />

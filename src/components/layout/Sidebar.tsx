@@ -30,10 +30,14 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 bg-card/95 backdrop-blur-md border-r border-border/50 transform transition-all duration-300 ease-in-out lg:translate-x-0 shadow-xl lg:shadow-none",
-        isCollapsed ? "w-16" : "w-64",
+        "fixed inset-y-0 left-0 z-[100] bg-card/95 backdrop-blur-md border-r border-border/50 transform transition-all duration-300 ease-in-out lg:translate-x-0 shadow-2xl lg:shadow-none",
+        isMobile ? "w-64" : (isCollapsed ? "w-16" : "w-64"),
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        touchAction: 'pan-y'
+      }}
     >
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between px-4 py-4 border-b border-border">

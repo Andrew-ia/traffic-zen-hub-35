@@ -29,6 +29,7 @@ import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
+import { google } from 'googleapis';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
 import { ga4Realtime, ga4Report, ga4GoogleAds } from './api/analytics/ga4.js';
@@ -201,6 +202,30 @@ app.get('/api/integrations/meta/custom-audiences/:workspaceId', getMetaCustomAud
 app.get('/api/integrations/meta/page-info/:workspaceId', getMetaPageInfo);
 app.get('/api/integrations/meta/pages/:workspaceId', listMetaPages);
 app.post('/api/creatives/mirror/:workspaceId/:assetId', mirrorCreativeAsset);
+
+app.get('/api/drive/list/:folderId', async (req, res) => {
+  try {
+    const folderId = String(req.params.folderId || '').trim();
+    if (!folderId) return res.status(400).json({ success: false, error: 'folderId required' });
+    const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
+    const drive = google.drive({ version: 'v3', auth });
+    const resp = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: 'files(id,name,mimeType,thumbnailLink,webViewLink)',
+      pageSize: 200,
+    });
+    const files = (resp.data.files || []).map(f => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      thumbnailLink: f.thumbnailLink,
+      webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+    }));
+    return res.json({ success: true, files });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to list drive folder' });
+  }
+});
 
 // Instagram sync endpoints
 app.post('/api/integrations/instagram/sync-optimized', optimizedInstagramSync);

@@ -104,7 +104,16 @@ export function TaskDetailModal({ task, open, onOpenChange, workspaceId }: TaskD
       setIsEditingCampaign(false);
       setIsEditingTaskDetails(false);
       setAssigneeId(task.assignee_id || undefined);
-      setDueDate(task.due_date ? new Date(task.due_date).toISOString().slice(0, 10) : undefined);
+      setDueDate(
+        task.due_date
+          ? (() => {
+              const val = String(task.due_date);
+              const datePart = val.split('T')[0];
+              const match = datePart.match(/^\d{4}-\d{2}-\d{2}$/);
+              return match ? datePart : datePart || undefined;
+            })()
+          : undefined
+      );
     }
   }, [task]);
 

@@ -41,7 +41,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 // Removed KanbanBoard and Select imports after removing Quadro/Kanban view
@@ -758,8 +758,8 @@ export default function ProjectManagementV3() {
     <div className="flex h-screen bg-background flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden border-b bg-card px-3 py-2.5 flex items-center gap-2">
-        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-          <SheetTrigger asChild>
+        <Drawer open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <DrawerTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
@@ -768,13 +768,13 @@ export default function ProjectManagementV3() {
             >
               <Menu className="h-5 w-5" />
             </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-72">
-            <div className="h-full flex flex-col">
+          </DrawerTrigger>
+          <DrawerContent className="max-h-[80vh]">
+            <div className="overflow-y-auto">
               {renderSidebarContent(() => setMobileMenuOpen(false))}
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
         <h1 className="font-semibold">Vermezzo - HUB</h1>
       </div>
 
@@ -797,13 +797,13 @@ export default function ProjectManagementV3() {
 
         {/* Header quando há pasta selecionada */}
         {selectedFolder && (
-          <div className="border-b bg-card px-3 py-2.5">
+          <div className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur px-3 py-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-2xl">{selectedFolder.icon}</span>
                 <h1 className="text-2xl font-bold">{selectedFolder.name}</h1>
               </div>
-              <div className="flex gap-2">
+              <div className="hidden md:flex gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -844,11 +844,57 @@ export default function ProjectManagementV3() {
                   Nova Lista
                 </Button>
               </div>
+              <div className="md:hidden">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="icon" variant="ghost" aria-label="Ações">
+                      <MoreHorizontal className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => {
+                      setSelectedFolderId(null);
+                      setSelectedListId(null);
+                      setExpandedFolders(new Set());
+                      setExpandedLists(new Set());
+                    }}>
+                      <LayoutDashboard className="h-4 w-4 mr-2" />
+                      Início
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setNewListOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Nova Lista
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" disabled={deleteFolder.isPending} onClick={async () => {
+                      const ok = confirm(`Excluir a pasta "${selectedFolder.name}"? Todas as listas e tarefas serão removidas.`);
+                      if (!ok) return;
+                      try {
+                        await deleteFolder.mutateAsync({ workspaceId: WORKSPACE_ID, folderId: selectedFolder.id });
+                        toast({ title: 'Pasta excluída!', description: 'A pasta foi removida com sucesso.' });
+                        setSelectedFolderId(null);
+                        setSelectedListId(null);
+                      } catch (error) {
+                        console.error('Erro ao excluir pasta:', error);
+                        toast({ title: 'Erro ao excluir pasta', description: 'Não foi possível excluir a pasta.', variant: 'destructive' });
+                      }
+                    }}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir Pasta
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <span className="px-2 py-1 rounded-full bg-muted text-xs">{selectedFolder.list_count} listas</span>
+              <span className="px-2 py-1 rounded-full bg-muted text-xs">{selectedFolder.task_count} tarefas</span>
             </div>
 
             {/* Tabs */}
             <Tabs defaultValue="lista" className="mt-2">
-              <TabsList>
+              <TabsList className="w-full overflow-x-auto justify-start gap-1">
                 <TabsTrigger value="overview" className="gap-2">
                   <Eye className="h-4 w-4" />
                   Overview
@@ -892,7 +938,7 @@ export default function ProjectManagementV3() {
                               )}
                               <span className="text-xl">{list.icon}</span>
                               <h3 className="font-semibold text-lg">{list.name}</h3>
-                              <Badge variant="secondary">{list.tasks.length}</Badge>
+                              <span className="px-2 py-0.5 rounded-full bg-muted/70 text-xs">{list.tasks.length} tarefas</span>
                             </div>
                             <div className="flex gap-2">
                               <Button
@@ -957,7 +1003,7 @@ export default function ProjectManagementV3() {
                                   setTaskModalOpen(true);
                                 }}
                               >
-                                <div className="flex items-center gap-3">
+                                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                   <div className="flex-1">
                                     <div className="flex items-center gap-2">
                                       <h4 className="font-medium">{task.name}</h4>
@@ -991,7 +1037,7 @@ export default function ProjectManagementV3() {
                                       title="Imprimir Roteiro"
                                     >
                                       <span className="text-xs">📄</span>
-                                      Roteiro
+                                      <span className="hidden sm:inline"> Roteiro</span>
                                     </Button>
                                   )}
                                 </div>
@@ -1042,7 +1088,7 @@ export default function ProjectManagementV3() {
 
               {/* Overview */}
               <TabsContent value="overview" className="mt-2">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Card>
                     <CardContent className="p-3">
                       <div className="text-2xl font-bold">{selectedFolder.list_count}</div>
@@ -1122,7 +1168,7 @@ export default function ProjectManagementV3() {
         {!selectedFolder && (
           <div className="flex-1 overflow-y-auto p-3">
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
               <Card>
                 <CardContent className="p-3">
                   <div className="text-2xl font-bold">{hierarchyData?.data?.stats.folder_count ?? (hierarchyData?.data?.folders?.length || 0)}</div>
@@ -1242,7 +1288,7 @@ export default function ProjectManagementV3() {
                                       <span className={`h-2 w-2 rounded-full ${statusColors[t.status]}`} />
                                       <span>{t.name}</span>
                                     </div>
-                                    <div className="flex items-center gap-6 text-sm">
+                                    <div className="flex flex-wrap items-center gap-2 sm:gap-6 text-xs sm:text-sm">
                                       <span className="text-muted-foreground">{(t.metadata?.responsavel_nome as string) || t.assignee_name || 'Sem responsável'}</span>
                                       <span className="text-muted-foreground">{t.due_date ? new Date(t.due_date).toLocaleDateString() : 'Sem prazo'}</span>
                                       <span className={`px-2 py-0.5 rounded text-xs capitalize ${priorityColors[t.priority || 'media']}`}>{t.priority || 'media'}</span>
@@ -1262,7 +1308,7 @@ export default function ProjectManagementV3() {
                                           title="Imprimir Roteiro"
                                         >
                                           <span className="text-xs">📄</span>
-                                          Roteiro
+                                          <span className="hidden sm:inline"> Roteiro</span>
                                         </Button>
                                       )}
                                     </div>

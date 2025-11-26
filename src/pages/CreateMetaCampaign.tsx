@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCreativeLibrary } from "@/hooks/useCreativeLibrary";
+import { supabase } from "@/lib/supabaseClient";
 
 
 interface PMTask {
@@ -125,6 +126,11 @@ export default function CreateMetaCampaign() {
     const [pickerContext, setPickerContext] = useState<{ adSetId: string; adId: string } | null>(null);
     const [pickerSearch, setPickerSearch] = useState("");
     const [mirroring, setMirroring] = useState<string | null>(null);
+    const [driveSelectedUrl, setDriveSelectedUrl] = useState("");
+    const [creatingAsset, setCreatingAsset] = useState(false);
+    const [driveFolderId, setDriveFolderId] = useState("1jLxEPxk84F_UiyuEZpVJ7aoLG7kYMmhk");
+    const [driveFiles, setDriveFiles] = useState<any[]>([]);
+    const [loadingDrive, setLoadingDrive] = useState(false);
 
     // Form State
     const [campaign, setCampaign] = useState({
@@ -489,60 +495,64 @@ export default function CreateMetaCampaign() {
     const handleSubmit = async () => {
         setIsLoading(true);
         try {
-            if (campaign.objective === 'OUTCOME_TRAFFIC') {
-                const missingDest = adSets.filter(s => !s.destination_type);
-                if (missingDest.length > 0) {
-                    toast({
-                        title: "Defina o Local da Conversão",
-                        description: "Selecione Site, App, Mensagens, Instagram/Facebook ou Ligações em todos os conjuntos.",
-                        variant: "destructive",
-                    });
-                    setIsLoading(false);
-                    return;
-                }
-                const missingSub = adSets.some(s => s.destination_type === 'MESSAGES_DESTINATIONS' && !s.destination_subtype);
-                if (missingSub) {
-                    toast({
-                        title: "Selecione o Canal de Mensagem",
-                        description: "Escolha WhatsApp, Messenger ou Instagram Direct para todos os conjuntos com destino Mensagens.",
-                        variant: "destructive",
-                    });
-                    setIsLoading(false);
-                    return;
-                }
-                // Para Instagram/Facebook usamos as plataformas de publicação (checkboxes)
-                const instagramOnlySets = adSets.filter(s => String(s.destination_type) === 'INSTAGRAM_OR_FACEBOOK' && Array.isArray(s.publisher_platforms) && s.publisher_platforms.includes('instagram') && !s.publisher_platforms.includes('facebook'));
-                const missingIgCreative = instagramOnlySets.some(s => (s.ads || []).some(ad => !ad.creative_asset_id));
-                if (campaign.objective === 'OUTCOME_ENGAGEMENT' && missingIgCreative) {
-                    toast({
-                        title: "Selecione um criativo para Instagram",
-                        description: "Para publicar somente no Instagram, escolha um vídeo/imagem no Drive para cada anúncio.",
-                        variant: "destructive",
-                    });
-                    setIsLoading(false);
-                    return;
-                }
-                const missingEvent = adSets.some(s => s.destination_type === 'WEBSITE' && !s.conversion_event);
-                if (missingEvent) {
-                    toast({
-                        title: "Selecione o Evento de Conversão",
-                        description: "Defina o evento (ex.: Compra, Lead, Page View) para conjuntos com destino Site.",
-                        variant: "destructive",
-                    });
-                    setIsLoading(false);
-                    return;
-                }
-                const needsPage = adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK'].includes(String(s.destination_type)));
-                if (needsPage && !pageId) {
-                    // Tenta resolver automaticamente, mas não bloqueia: backend possui fallback (META_PAGE_ID/credenciais)
-                    try {
-                        const resp = await fetch(`${API_BASE}/api/integrations/meta/page-info/${WORKSPACE_ID}`);
-                        const data = await resp.json();
-                        if (data?.success && data?.data?.page_id) {
-                            setPageId(data.data.page_id);
-                        }
-                    } catch { void 0; }
-                }
+            // Validações e resolução de PageId para todos os objetivos
+            const obj = String(campaign.objective || '').toUpperCase();
+            const missingDest = adSets.filter(s => !s.destination_type);
+            if (obj === 'OUTCOME_TRAFFIC' && missingDest.length > 0) {
+                toast({
+                    title: "Defina o Local da Conversão",
+                    description: "Selecione Site, App, Mensagens, Instagram/Facebook ou Ligações em todos os conjuntos.",
+                    variant: "destructive",
+                });
+                setIsLoading(false);
+                return;
+            }
+            const missingSub = adSets.some(s => s.destination_type === 'MESSAGES_DESTINATIONS' && !s.destination_subtype);
+            if (missingSub) {
+                toast({
+                    title: "Selecione o Canal de Mensagem",
+                    description: "Escolha WhatsApp, Messenger ou Instagram Direct para conjuntos com destino Mensagens.",
+                    variant: "destructive",
+                });
+                setIsLoading(false);
+                return;
+            }
+            // Para Instagram/Facebook usamos as plataformas de publicação
+            const instagramOnlySets = adSets.filter(s => String(s.destination_type) === 'INSTAGRAM_OR_FACEBOOK' && Array.isArray(s.publisher_platforms) && s.publisher_platforms.includes('instagram') && !s.publisher_platforms.includes('facebook'));
+            const missingIgCreative = instagramOnlySets.some(s => (s.ads || []).some(ad => !ad.creative_asset_id));
+            if (obj === 'OUTCOME_ENGAGEMENT' && missingIgCreative) {
+                toast({
+                    title: "Selecione um criativo para Instagram",
+                    description: "Para publicar somente no Instagram, escolha um vídeo/imagem no Drive para cada anúncio.",
+                    variant: "destructive",
+                });
+                setIsLoading(false);
+                return;
+            }
+            const missingEvent = adSets.some(s => s.destination_type === 'WEBSITE' && !s.conversion_event);
+            if (missingEvent) {
+                toast({
+                    title: "Selecione o Evento de Conversão",
+                    description: "Defina o evento (ex.: Compra, Lead, Page View) para conjuntos com destino Site.",
+                    variant: "destructive",
+                });
+                setIsLoading(false);
+                return;
+            }
+            // Precisa de PageId: Engajamento, Reconhecimento, ou destinos de mensagens/IG/FB
+            const requiresPageId = (
+                obj === 'OUTCOME_ENGAGEMENT' ||
+                obj === 'OUTCOME_AWARENESS' ||
+                adSets.some(s => ['MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'WHATSAPP', 'MESSENGER'].includes(String(s.destination_type)))
+            );
+            if (requiresPageId && !pageId) {
+                try {
+                    const resp = await fetch(`${API_BASE}/api/integrations/meta/page-info/${WORKSPACE_ID}`);
+                    const data = await resp.json();
+                    if (data?.success && data?.data?.page_id) {
+                        setPageId(data.data.page_id);
+                    }
+                } catch { /* ignore */ }
             }
             const response = await fetch(`${API_BASE}/api/integrations/meta/create-campaign`, {
                 method: "POST",
@@ -642,7 +652,13 @@ export default function CreateMetaCampaign() {
         setAdSets(prev => {
             const next = prev.map(adSet => {
                 if (adSet.id !== id) return adSet;
-                const updated: AdSet = { ...adSet, [field]: value };
+                let updated: AdSet = { ...adSet, [field]: value };
+                if (field === 'destination_type') {
+                    const v = String(value || '').toUpperCase();
+                    if (v === 'WHATSAPP' || v === 'MESSENGER') {
+                        updated = { ...updated, optimization_goal: 'CONVERSATIONS' };
+                    }
+                }
                 if (field === 'destination_type') {
                     updated.destination_subtype = '';
                     updated.destination_platform = undefined;
@@ -1402,10 +1418,137 @@ export default function CreateMetaCampaign() {
                         <DialogTitle>Selecionar criativo do Drive</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3">
-                        <Input value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Buscar por nome" />
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center">
+                          <Input value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Buscar por nome" />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setPickerSearch("");
+                            }}
+                          >Limpar</Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                          <Input value={driveFolderId} onChange={(e) => setDriveFolderId(e.target.value)} placeholder="URL ou ID da pasta do Google Drive" />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={loadingDrive}
+                            onClick={async () => {
+                              try {
+                                setLoadingDrive(true);
+                                const raw = String(driveFolderId || '').trim();
+                                const match = raw.match(/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)/);
+                                const id = match ? match[1] : raw.split('?')[0];
+                                const resp = await fetch(`${API_BASE}/api/drive/list/${id}`);
+                                const json = await resp.json();
+                                setDriveFiles(Array.isArray(json?.files) ? json.files : []);
+                              } finally { setLoadingDrive(false); }
+                            }}
+                          >Carregar pasta</Button>
+                          <Button variant="ghost" size="sm" onClick={() => setDriveFiles([])}>Limpar pasta</Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                          <Input
+                            type="url"
+                            placeholder="Cole a URL do arquivo do Google Drive"
+                            value={driveSelectedUrl}
+                            onChange={(e) => setDriveSelectedUrl(e.target.value)}
+                            className="h-9"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={creatingAsset || !driveSelectedUrl.trim() || !pickerContext}
+                            onClick={async () => {
+                              if (!pickerContext || !WORKSPACE_ID || !supabase) return;
+                              try {
+                                setCreatingAsset(true);
+                                const { data, error } = await supabase
+                                  .from("creative_assets")
+                                  .insert({
+                                    workspace_id: WORKSPACE_ID,
+                                    type: "video",
+                                    name: driveSelectedUrl.split("/").pop() || "Criativo do Drive",
+                                    storage_url: driveSelectedUrl.trim(),
+                                    status: "active",
+                                  })
+                                  .select("id")
+                                  .limit(1)
+                                  .single();
+                                if (error) throw error;
+                                const assetId = String(data?.id || "");
+                                if (!assetId) throw new Error("Falha ao criar asset");
+                                const resp = await fetch(`${API_BASE}/api/creatives/mirror/${WORKSPACE_ID}/${assetId}`, { method: "POST" });
+                                const json = await resp.json();
+                                if (!json?.success) throw new Error(String(json?.error || "Falha ao espelhar"));
+                                setAdSets(prev => prev.map(s => s.id === pickerContext.adSetId ? {
+                                  ...s,
+                                  ads: s.ads.map(a => a.id === pickerContext.adId ? { ...a, creative_asset_id: assetId } : a)
+                                } : s));
+                                setPickerOpen(false);
+                                setDriveSelectedUrl("");
+                              } catch (err) {
+                                console.error(err);
+                              } finally {
+                                setCreatingAsset(false);
+                              }
+                            }}
+                            className="h-9"
+                          >Usar URL do Drive</Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => setDriveSelectedUrl("")}
+                            className="h-9"
+                          >Fechar URL</Button>
+                        </div>
                         <ScrollArea className="h-[420px]">
                             <div className="grid grid-cols-2 gap-3">
+                                {(driveFiles || [])
+                                  .filter((f: any) => !pickerSearch || String(f.name || '').toLowerCase().includes(pickerSearch.toLowerCase()))
+                                  .map((f: any) => (
+                                    <Card key={`drive-${f.id}`} onClick={async () => {
+                                      if (!pickerContext || !WORKSPACE_ID || !supabase) return;
+                                      const url = f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`;
+                                      try {
+                                        setCreatingAsset(true);
+                                        const type = /video\//.test(String(f.mimeType || '')) ? 'video' : 'image';
+                                        const { data, error } = await supabase
+                                          .from("creative_assets")
+                                          .insert({ workspace_id: WORKSPACE_ID, type, name: f.name || 'Arquivo do Drive', storage_url: url, status: "active" })
+                                          .select("id")
+                                          .limit(1)
+                                          .single();
+                                        if (error) throw error;
+                                        const assetId = String(data?.id || '');
+                                        const resp = await fetch(`${API_BASE}/api/creatives/mirror/${WORKSPACE_ID}/${assetId}`, { method: "POST" });
+                                        const json = await resp.json();
+                                        if (!json?.success) throw new Error(String(json?.error || 'Falha ao espelhar'));
+                                        setAdSets(prev => prev.map(s => s.id === pickerContext.adSetId ? {
+                                          ...s,
+                                          ads: s.ads.map(a => a.id === pickerContext.adId ? { ...a, creative_asset_id: assetId } : a)
+                                        } : s));
+                                        setPickerOpen(false);
+                                        setDriveSelectedUrl("");
+                                      } catch (err) {
+                                        console.error(err);
+                                      } finally { setCreatingAsset(false); }
+                                    }} className="cursor-pointer">
+                                      <CardContent className="p-3 space-y-2">
+                                        <div className="aspect-video rounded bg-muted overflow-hidden">
+                                          {f.thumbnailLink ? (
+                                            <img src={f.thumbnailLink} alt={f.name} className="w-full h-full object-cover" />
+                                          ) : (
+                                            <div className="w-full h-full" />
+                                          )}
+                                        </div>
+                                        <div className="text-xs truncate">{f.name}</div>
+                                      </CardContent>
+                                    </Card>
+                                  ))}
                                 {(driveCreatives || [])
+                                    .filter((c: any) => /drive\.google\.com/.test(String(c.storageUrl || '')))
                                     .filter((c: any) => !pickerSearch || String(c.name || '').toLowerCase().includes(pickerSearch.toLowerCase()))
                                     .map((c: any) => (
                                         <Card key={c.id} onClick={() => {

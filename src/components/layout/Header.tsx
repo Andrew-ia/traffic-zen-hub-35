@@ -67,7 +67,13 @@ export function Header({ onMenuClick }: HeaderProps) {
           variant="ghost"
           size="icon"
           className="lg:hidden relative z-50"
-          onClick={onMenuClick}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onMenuClick();
+          }}
+          aria-label="Abrir menu"
+          type="button"
         >
           <Menu className="h-5 w-5" />
           <span className="sr-only">Abrir menu</span>

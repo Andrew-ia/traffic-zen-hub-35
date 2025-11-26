@@ -286,6 +286,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
     }
     campaignPayload.daily_budget = String(Math.max(100, Math.floor(campaignDailyBudgetCents))); // cents
     // Removido: budget_rebalance_flag (deprecated em Graph API v7.0+) para evitar erro (#12)
+    const hasCampaignBudget = !!campaignPayload.daily_budget;
 
     // ENGAGEMENT: apenas engagement_type na campanha (sem promoted_object)
     if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
@@ -416,7 +417,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
       // In CBO, ad set budget must be omitted. Only include if provided/valid.
       const rawDailyBudget = (adSet as any).daily_budget;
-      if (rawDailyBudget !== undefined && rawDailyBudget !== null && String(rawDailyBudget).trim() !== '' && String(rawDailyBudget).toLowerCase() !== 'undefined') {
+      if (!hasCampaignBudget && rawDailyBudget !== undefined && rawDailyBudget !== null && String(rawDailyBudget).trim() !== '' && String(rawDailyBudget).toLowerCase() !== 'undefined') {
         adSetPayload.daily_budget = typeof rawDailyBudget === 'string' ? rawDailyBudget : String(rawDailyBudget);
       }
 
@@ -478,7 +479,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
       }
 
       // B) Campanhas de Conversão/Leads/Tráfego
-      else if (['OUTCOME_SALES', 'OUTCOME_LEADS', 'OUTCOME_TRAFFIC', 'CONVERSIONS'].includes(objUpper)) {
+      else if (['OUTCOME_SALES', 'OUTCOME_LEADS', 'OUTCOME_TRAFFIC', 'CONVERSIONS', 'MESSAGES'].includes(objUpper)) {
         adSetPayload.billing_event = 'IMPRESSIONS';
 
         if (objUpper === 'OUTCOME_LEADS') {
@@ -507,8 +508,13 @@ export async function createMetaCampaign(req: Request, res: Response) {
           } else if (destUpper === 'APP') {
             adSetPayload.destination_type = 'APP';
             adSetPayload.optimization_goal = 'LINK_CLICKS';
+          } else if (destUpper === 'WHATSAPP') {
+            // Tráfego para WhatsApp: usar LINK_CLICKS
+            adSetPayload.destination_type = 'WHATSAPP';
+            adSetPayload.optimization_goal = 'LINK_CLICKS';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
           } else if (destUpper === 'MESSAGES_DESTINATIONS') {
-            // Trafego para destinos de mensagens: usa ON_AD + page_id para evitar erro de parâmetro
+            // Trafego para destinos de mensagens: usa ON_AD + page_id
             adSetPayload.destination_type = 'ON_AD';
             adSetPayload.optimization_goal = 'LINK_CLICKS';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
@@ -541,6 +547,24 @@ export async function createMetaCampaign(req: Request, res: Response) {
           adSetPayload.destination_type = 'ON_POST';
           adSetPayload.optimization_goal = 'REACH';
           if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+        } else if (objUpper === 'MESSAGES') {
+          // Objetivo Mensagens: otimização para conversas e destino conforme escolha
+          adSetPayload.optimization_goal = 'CONVERSATIONS';
+          if (destUpper === 'WHATSAPP') {
+            adSetPayload.destination_type = 'WHATSAPP';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'MESSENGER') {
+            adSetPayload.destination_type = 'MESSENGER';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
+            // Para IG Direct/Messenger combinados, usar ON_POST com page_id
+            adSetPayload.destination_type = 'ON_POST';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else {
+            // Fallback para ON_AD
+            adSetPayload.destination_type = 'ON_AD';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          }
         } else {
           adSetPayload.destination_type = 'WEBSITE';
         }
@@ -601,6 +625,28 @@ export async function createMetaCampaign(req: Request, res: Response) {
               failedAdSets.push({ name: adSet.name, error: msg3(e3) });
               continue;
             }
+          }
+        } else if (objUpper === 'OUTCOME_TRAFFIC' && (adSetPayload.destination_type === 'WHATSAPP')) {
+          // Fallback: se WhatsApp não for suportado, tenta Messenger com LINK_CLICKS
+          adSetPayload.destination_type = 'MESSENGER';
+          adSetPayload.optimization_goal = 'LINK_CLICKS';
+          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          try {
+            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+          } catch (e2: any) {
+            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
+            continue;
+          }
+        } else if (objUpper === 'MESSAGES' && (adSetPayload.destination_type === 'WHATSAPP')) {
+          // Fallback para objetivo Mensagens
+          adSetPayload.destination_type = 'MESSENGER';
+          adSetPayload.optimization_goal = 'CONVERSATIONS';
+          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          try {
+            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+          } catch (e2: any) {
+            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
+            continue;
           }
         } else {
           failedAdSets.push({ name: adSet.name, error: msgRaw });
@@ -697,17 +743,39 @@ export async function createMetaCampaign(req: Request, res: Response) {
           }
 
           // Se não houver creative_id, tentar criar via asset do Drive (vídeo)
-          if ((!creativeId || String(creativeId).trim() === '') && (ad as any).creative_asset_id) {
+          if ((!creativeId || String(creativeId).trim() === '') && ((ad as any).creative_asset_id || (ad as any).drive_url || (ad as any).storage_url)) {
             try {
-              const assetId = String((ad as any).creative_asset_id);
-              const assetRow = await pool.query(
-                `SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
-                [assetId, workspaceId]
-              );
-              if (assetRow.rows.length > 0) {
-                const asset = assetRow.rows[0];
-                if (String(asset.type || '').toLowerCase() === 'video') {
-                  const ensured = await ensurePublicUrlFromAsset(asset, workspaceId);
+              let assetId = String((ad as any).creative_asset_id || '');
+              let asset: any | null = null;
+              if (!assetId && ((ad as any).drive_url || (ad as any).storage_url)) {
+                const srcUrl = String((ad as any).drive_url || (ad as any).storage_url);
+                const name = (ad as any).name || ad.name || 'Criativo do Drive';
+                const isVideo = /\.mp4(\?|$)/i.test(srcUrl);
+                const inserted = await pool.query(
+                  `INSERT INTO creative_assets (workspace_id, name, type, storage_url, status, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, 'active', now(), now())
+                   RETURNING id, name, type, storage_url`,
+                  [workspaceId, name, isVideo ? 'video' : 'image', srcUrl]
+                );
+                asset = inserted.rows[0];
+                assetId = asset.id;
+              }
+              if (!asset && assetId) {
+                const assetRow = await pool.query(
+                  `SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
+                  [assetId, workspaceId]
+                );
+                asset = assetRow.rows.length > 0 ? assetRow.rows[0] : null;
+              }
+              if (asset) {
+                let ensured: { url: string; mime?: string };
+                try {
+                  ensured = await ensurePublicUrlFromAsset(asset, workspaceId);
+                } catch (_mirrorErr) {
+                  ensured = { url: String(asset.storage_url || ''), mime: undefined };
+                }
+                const typeLower = String(asset.type || '').toLowerCase();
+                if (typeLower === 'video') {
                   // 4.1 Upload video (Page videos API)
                   // Prefer upload to Page videos with page access token
                   const uploadToken = pageAccessToken || accessToken;
@@ -758,8 +826,45 @@ export async function createMetaCampaign(req: Request, res: Response) {
                   });
                   creativeId = creativeResp.id;
                   console.log(`[Meta API] Created video adcreative: ${creativeId} from asset ${assetId}`);
+                } else if (typeLower === 'image') {
+                  const usesInstagram = Array.isArray((adSet as any)?.targeting?.publisher_platforms)
+                    ? ((adSet as any).targeting.publisher_platforms as string[]).includes('instagram')
+                    : (Array.isArray((adSet as any)?.publisher_platforms) ? ((adSet as any).publisher_platforms as string[]).includes('instagram') : false);
+                  const destUpperForCreative = String((adSet as any)?.destination_type || '').toUpperCase();
+                  if (destUpperForCreative === 'WHATSAPP') {
+                    const objectStorySpec: any = { page_id: pageId };
+                    if (usesInstagram && igActorId) {
+                      objectStorySpec.instagram_actor_id = igActorId;
+                    }
+                    const assetFeedSpec: any = {
+                      images: [{ url: ensured.url }],
+                      bodies: [{ text: (ad as any).primary_text || '' }],
+                      titles: [{ text: (ad as any).headline || ad.name }],
+                      ad_formats: ['SINGLE_IMAGE'],
+                      call_to_action_types: ['WHATSAPP_MESSAGE'],
+                      message_extensions: [{ type: 'whatsapp' }]
+                    };
+                    const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_spec: objectStorySpec, asset_feed_spec: assetFeedSpec });
+                    creativeId = creativeResp.id;
+                    console.log(`[Meta API] Created WhatsApp image adcreative: ${creativeId} from asset ${assetId}`);
+                  } else {
+                    const uploadToken = pageAccessToken || accessToken;
+                    const pUrl = `${GRAPH_URL}/${pageId}/photos?access_token=${uploadToken}`;
+                    const form = new URLSearchParams();
+                    form.append('url', ensured.url);
+                    form.append('published', 'false');
+                    const pResp = await fetch(pUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+                    const pData = await pResp.json();
+                    if (pData.error) {
+                      throw new Error(`Meta API Error: ${pData.error.message} (Code: ${pData.error.code}, Subcode: ${pData.error.error_subcode})`);
+                    }
+                    const objectStorySpec: any = { page_id: pageId, image_data: { image_hash: pData.id, caption: (ad as any).primary_text || '' } };
+                    const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_spec: objectStorySpec });
+                    creativeId = creativeResp.id;
+                    console.log(`[Meta API] Created image adcreative: ${creativeId} from asset ${assetId}`);
+                  }
                 } else {
-                  throw new Error('Creative asset is not a video or missing storage_url');
+                  throw new Error('Creative asset type not supported');
                 }
               } else {
                 throw new Error('Creative asset not found');
