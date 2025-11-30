@@ -64,7 +64,8 @@ function mapWorkspaceRoleToAppRole(workspaceRole?: string | null): 'adm' | 'basi
 
 
 export async function login(req: Request, res: Response) {
-  const client = new Client({ connectionString: getDatabaseUrl() });
+  // Use getPool() to ensure correct SSL/connection settings for the environment
+  const pool = getPool();
 
   try {
     const { email, username, password } = req.body || {};
@@ -76,11 +77,9 @@ export async function login(req: Request, res: Response) {
 
     const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
 
-    await client.connect();
-
     // Validate password using pgcrypto's crypt() against stored hash
     // Allow login with either email or full_name (username)
-    const { rows } = await client.query(
+    const { rows } = await pool.query(
       `SELECT u.id, u.email, u.full_name,
               wm.role as workspace_role
          FROM users u
@@ -93,7 +92,6 @@ export async function login(req: Request, res: Response) {
     );
 
     if (!rows.length) {
-      await client.end();
       return res.status(401).json({ success: false, error: 'invalid_login' });
     }
 
@@ -107,7 +105,6 @@ export async function login(req: Request, res: Response) {
     };
     const token = signToken(payload);
 
-    await client.end();
     res.json({
       success: true,
       token,
@@ -121,11 +118,6 @@ export async function login(req: Request, res: Response) {
     });
   } catch (err) {
     console.error('Login error', err);
-    try {
-      await client.end();
-    } catch (endErr) {
-      // Ignore end errors
-    }
     res.status(500).json({ success: false, error: 'server_error' });
   }
 }

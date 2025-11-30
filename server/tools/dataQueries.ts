@@ -51,6 +51,11 @@ export interface MetricsSummary {
   avg_roas: number;
 }
 
+export interface CampaignCounts {
+  active_campaigns: number;
+  total_campaigns: number;
+}
+
 export interface CampaignDetailsOptions {
   days?: number;
   dateRange?: {
@@ -58,6 +63,75 @@ export interface CampaignDetailsOptions {
     endDate: string;
   };
 }
+
+const BASE_METRICS_CTE = `
+  with pm_dedup as (
+    select * from (
+      select
+        pm.workspace_id,
+        pm.platform_account_id,
+        pm.campaign_id,
+        pm.ad_set_id,
+        pm.ad_id,
+        pm.metric_date,
+        pm.spend,
+        pm.reach,
+        pm.impressions,
+        pm.clicks,
+        pm.conversions,
+        pm.extra_metrics,
+        pm.synced_at,
+        row_number() over (
+          partition by pm.platform_account_id, pm.campaign_id, pm.ad_set_id, pm.ad_id, pm.metric_date
+          order by pm.synced_at desc nulls last
+        ) as rn
+      from performance_metrics pm
+      where pm.workspace_id = $1
+        and pm.metric_date >= current_date - $2::int
+        and pm.metric_date < current_date
+        and pm.granularity = 'day'
+    ) t
+    where rn = 1
+  ),
+  pm_campaign as (
+    select
+      campaign_id,
+      sum(spend)::float8 as spend,
+      sum(impressions)::float8 as impressions,
+      sum(clicks)::float8 as clicks,
+      sum(reach)::float8 as reach,
+      sum(conversions)::float8 as conversions,
+      sum((coalesce(pm.extra_metrics ->> 'purchase_value', '0'))::numeric)::float8 as purchase_value
+    from pm_dedup pm
+    where pm.ad_set_id is null and pm.ad_id is null
+    group by campaign_id
+  ),
+  kpi_raw as (
+    select
+      kpi.campaign_id,
+      kpi.metric_date,
+      kpi.spend,
+      kpi.result_value,
+      kpi.revenue,
+      kpi.roas
+    from v_campaign_kpi kpi
+    where kpi.workspace_id = $1
+      and kpi.metric_date >= current_date - $2::int
+      and kpi.metric_date < current_date
+      and kpi.ad_set_id is null
+      and kpi.ad_id is null
+  ),
+  kpi_campaign as (
+    select
+      campaign_id,
+      sum(result_value)::float8 as result_value,
+      sum(revenue)::float8 as revenue,
+      sum(spend)::float8 as spend,
+      sum(coalesce(roas, 0) * coalesce(spend, 0))::float8 as roas_weighted
+    from kpi_raw
+    group by campaign_id
+  )
+`;
 
 /**
  * Get top performing campaigns by a metric
@@ -68,45 +142,44 @@ export async function getTopCampaigns(
   limit: number = 10,
   orderBy: 'spend' | 'clicks' | 'conversions' | 'roas' = 'spend'
 ): Promise<CampaignData[]> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
   const query = `
-    SELECT
-      c.id,
-      c.name,
-      c.status,
-      c.objective,
-      COALESCE(SUM(pm.spend), 0) as spend,
-      COALESCE(SUM(pm.impressions), 0) as impressions,
-      COALESCE(SUM(pm.clicks), 0) as clicks,
-      CASE
-        WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100
-        ELSE 0
-      END as ctr,
-      CASE
-        WHEN SUM(pm.clicks) > 0 THEN SUM(pm.spend) / SUM(pm.clicks)
-        ELSE 0
-      END as cpc,
-      COALESCE(SUM(pm.conversions), 0) as conversions,
-      CASE
-        WHEN SUM(pm.spend) > 0 THEN
-          (COALESCE(SUM((pm.extra_metrics->>'purchase_value')::numeric), 0) / SUM(pm.spend))
-        ELSE 0
-      END as roas
-    FROM campaigns c
-    LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-    WHERE c.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-    GROUP BY c.id, c.name, c.status, c.objective
-    ORDER BY ${orderBy} DESC
-    LIMIT $3
+    ${BASE_METRICS_CTE},
+    agg as (
+      select
+        c.id,
+        c.name,
+        c.status,
+        c.objective,
+        coalesce(pm_campaign.spend, 0) as spend,
+        coalesce(pm_campaign.impressions, 0) as impressions,
+        coalesce(pm_campaign.clicks, 0) as clicks,
+        coalesce(pm_campaign.conversions, 0) as raw_conversions,
+        coalesce(kpi_campaign.result_value, 0) as conversions,
+        coalesce(kpi_campaign.revenue, 0) as revenue,
+        coalesce(kpi_campaign.spend, pm_campaign.spend, 0) as kpi_spend
+      from campaigns c
+      left join pm_campaign on pm_campaign.campaign_id = c.id
+      left join kpi_campaign on kpi_campaign.campaign_id = c.id
+      where c.workspace_id = $1
+    )
+    select
+      id,
+      name,
+      status,
+      objective,
+      spend,
+      impressions,
+      clicks,
+      case when impressions > 0 then (clicks / impressions) * 100 else 0 end as ctr,
+      case when clicks > 0 then spend / clicks else 0 end as cpc,
+      conversions,
+      case when spend > 0 then coalesce(revenue, 0) / spend else 0 end as roas
+    from agg
+    order by ${orderBy} desc nulls last
+    limit $3
   `;
 
-  const result = await pool.query(query, [workspaceId, startDate.toISOString().split('T')[0], limit]);
+  const result = await pool.query(query, [workspaceId, days, limit]);
   return result.rows;
 }
 
@@ -118,44 +191,43 @@ export async function getUnderperformingCampaigns(
   days: number = 7,
   ctrThreshold: number = 1.0 // CTR below 1%
 ): Promise<CampaignData[]> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
   const query = `
-    SELECT
+    ${BASE_METRICS_CTE}
+    select
       c.id,
       c.name,
       c.status,
       c.objective,
-      COALESCE(SUM(pm.spend), 0) as spend,
-      COALESCE(SUM(pm.impressions), 0) as impressions,
-      COALESCE(SUM(pm.clicks), 0) as clicks,
-      CASE
-        WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100
-        ELSE 0
-      END as ctr,
-      CASE
-        WHEN SUM(pm.clicks) > 0 THEN SUM(pm.spend) / SUM(pm.clicks)
-        ELSE 0
-      END as cpc,
-      COALESCE(SUM(pm.conversions), 0) as conversions
-    FROM campaigns c
-    LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-    WHERE c.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-      AND c.status = 'ACTIVE'
-    GROUP BY c.id, c.name, c.status, c.objective
-    HAVING
-      SUM(pm.impressions) > 1000 AND
-      (SUM(pm.clicks)::float / NULLIF(SUM(pm.impressions), 0)) * 100 < $3
-    ORDER BY ctr ASC
-    LIMIT 20
+      coalesce(pm_campaign.spend, 0) as spend,
+      coalesce(pm_campaign.impressions, 0) as impressions,
+      coalesce(pm_campaign.clicks, 0) as clicks,
+      case
+        when coalesce(pm_campaign.impressions, 0) > 0 then (coalesce(pm_campaign.clicks, 0) / coalesce(pm_campaign.impressions, 0)) * 100
+        else 0
+      end as ctr,
+      case
+        when coalesce(pm_campaign.clicks, 0) > 0 then coalesce(pm_campaign.spend, 0) / coalesce(pm_campaign.clicks, 0)
+        else 0
+      end as cpc,
+      coalesce(kpi_campaign.result_value, 0) as conversions
+    from campaigns c
+    left join pm_campaign on pm_campaign.campaign_id = c.id
+    left join kpi_campaign on kpi_campaign.campaign_id = c.id
+    where c.workspace_id = $1
+      and c.status = 'ACTIVE'
+    having
+      coalesce(pm_campaign.impressions, 0) > 1000
+      and (
+        case
+          when coalesce(pm_campaign.impressions, 0) > 0 then (coalesce(pm_campaign.clicks, 0) / coalesce(pm_campaign.impressions, 0)) * 100
+          else 0
+        end
+      ) < $3
+    order by ctr asc
+    limit 20
   `;
 
-  const result = await pool.query(query, [workspaceId, startDate.toISOString().split('T')[0], ctrThreshold]);
+  const result = await pool.query(query, [workspaceId, days, ctrThreshold]);
   return result.rows;
 }
 
@@ -167,45 +239,37 @@ export async function getMetricsSummary(
   days: number = 7,
   platform?: 'meta' | 'google' | 'instagram'
 ): Promise<MetricsSummary> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
-  let platformFilter = '';
-  const params: any[] = [workspaceId, startDate.toISOString().split('T')[0]];
-
-  if (platform) {
-    platformFilter = 'AND pa.platform_key = $3';
-    params.push(platform);
-  }
-
   const query = `
-    SELECT
-      COALESCE(SUM(pm.spend), 0) as total_spend,
-      COALESCE(SUM(pm.impressions), 0) as total_impressions,
-      COALESCE(SUM(pm.clicks), 0) as total_clicks,
-      COALESCE(SUM(pm.conversions), 0) as total_conversions,
-      CASE
-        WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100
-        ELSE 0
-      END as avg_ctr,
-      CASE
-        WHEN SUM(pm.clicks) > 0 THEN SUM(pm.spend) / SUM(pm.clicks)
-        ELSE 0
-      END as avg_cpc,
-      CASE
-        WHEN SUM(pm.spend) > 0 THEN
-          (COALESCE(SUM((pm.extra_metrics->>'purchase_value')::numeric), 0) / SUM(pm.spend))
-        ELSE 0
-      END as avg_roas
-    FROM performance_metrics pm
-    LEFT JOIN platform_accounts pa ON pm.platform_account_id = pa.id
-    WHERE pm.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-      ${platformFilter}
+    ${BASE_METRICS_CTE}
+    select
+      coalesce(sum(pm_campaign.spend), 0) as total_spend,
+      coalesce(sum(pm_campaign.impressions), 0) as total_impressions,
+      coalesce(sum(pm_campaign.clicks), 0) as total_clicks,
+      coalesce(sum(kpi_campaign.result_value), 0) as total_conversions,
+      case
+        when sum(pm_campaign.impressions) > 0 then (sum(pm_campaign.clicks)::float / sum(pm_campaign.impressions)) * 100
+        else 0
+      end as avg_ctr,
+      case
+        when sum(pm_campaign.clicks) > 0 then sum(pm_campaign.spend) / sum(pm_campaign.clicks)
+        else 0
+      end as avg_cpc,
+      case
+        when sum(pm_campaign.spend) > 0 then
+          (
+            coalesce(sum(kpi_campaign.revenue), 0) /
+            nullif(sum(pm_campaign.spend), 0)
+          )
+        else 0
+      end as avg_roas
+    from pm_campaign
+    left join kpi_campaign on kpi_campaign.campaign_id = pm_campaign.campaign_id
+    ${platform ? 'join campaigns c on c.id = pm_campaign.campaign_id' : ''}
+    ${platform ? 'join platform_accounts pa on pa.id = c.platform_account_id and pa.platform_key = $3' : ''}
   `;
+
+  const params: any[] = [workspaceId, days];
+  if (platform) params.push(platform);
 
   const result = await pool.query(query, params);
   return result.rows[0] || {
@@ -219,6 +283,25 @@ export async function getMetricsSummary(
   };
 }
 
+export async function getCampaignCounts(
+  workspaceId: string
+): Promise<CampaignCounts> {
+  const query = `
+    select
+      count(*) filter (where upper(status) = 'ACTIVE') as active_campaigns,
+      count(*) as total_campaigns
+    from campaigns
+    where workspace_id = $1
+  `;
+
+  const result = await pool.query(query, [workspaceId]);
+  const row = result.rows[0] || { active_campaigns: 0, total_campaigns: 0 };
+  return {
+    active_campaigns: Number(row.active_campaigns || 0),
+    total_campaigns: Number(row.total_campaigns || 0),
+  };
+}
+
 /**
  * Compare performance between platforms
  */
@@ -226,41 +309,45 @@ export async function comparePlatforms(
   workspaceId: string,
   days: number = 7
 ): Promise<Array<MetricsSummary & { platform: string }>> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
   const query = `
-    SELECT
+    ${BASE_METRICS_CTE},
+    pm_platform as (
+      select
+        platform_account_id,
+        sum(spend)::float8 as spend,
+        sum(impressions)::float8 as impressions,
+        sum(clicks)::float8 as clicks,
+        sum(conversions)::float8 as conversions,
+        sum((coalesce(pm.extra_metrics ->> 'purchase_value', '0'))::numeric)::float8 as purchase_value
+      from pm_dedup pm
+      where pm.ad_set_id is null and pm.ad_id is null
+      group by platform_account_id
+    ),
+    kpi_platform as (
+      select
+        platform_account_id,
+        sum(result_value)::float8 as result_value,
+        sum(revenue)::float8 as revenue,
+        sum(spend)::float8 as spend
+      from kpi_raw
+      group by platform_account_id
+    )
+    select
       pa.platform_key as platform,
-      COALESCE(SUM(pm.spend), 0) as total_spend,
-      COALESCE(SUM(pm.impressions), 0) as total_impressions,
-      COALESCE(SUM(pm.clicks), 0) as total_clicks,
-      COALESCE(SUM(pm.conversions), 0) as total_conversions,
-      CASE
-        WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100
-        ELSE 0
-      END as avg_ctr,
-      CASE
-        WHEN SUM(pm.clicks) > 0 THEN SUM(pm.spend) / SUM(pm.clicks)
-        ELSE 0
-      END as avg_cpc,
-      CASE
-        WHEN SUM(pm.spend) > 0 THEN
-          (COALESCE(SUM((pm.extra_metrics->>'purchase_value')::numeric), 0) / SUM(pm.spend))
-        ELSE 0
-      END as avg_roas
-    FROM performance_metrics pm
-    LEFT JOIN platform_accounts pa ON pm.platform_account_id = pa.id
-    WHERE pm.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-    GROUP BY pa.platform_key
-    ORDER BY total_spend DESC
+      coalesce(pm_platform.spend, 0) as total_spend,
+      coalesce(pm_platform.impressions, 0) as total_impressions,
+      coalesce(pm_platform.clicks, 0) as total_clicks,
+      coalesce(kpi_platform.result_value, 0) as total_conversions,
+      case when pm_platform.impressions > 0 then (pm_platform.clicks / pm_platform.impressions) * 100 else 0 end as avg_ctr,
+      case when pm_platform.clicks > 0 then pm_platform.spend / pm_platform.clicks else 0 end as avg_cpc,
+      case when pm_platform.spend > 0 then coalesce(kpi_platform.revenue, 0) / pm_platform.spend else 0 end as avg_roas
+    from pm_platform
+    left join kpi_platform on kpi_platform.platform_account_id = pm_platform.platform_account_id
+    left join platform_accounts pa on pa.id = pm_platform.platform_account_id
+    order by total_spend desc nulls last
   `;
 
-  const result = await pool.query(query, [workspaceId, startDate.toISOString().split('T')[0]]);
+  const result = await pool.query(query, [workspaceId, days]);
   return result.rows;
 }
 
@@ -271,42 +358,36 @@ export async function getPerformanceByObjective(
   workspaceId: string,
   days: number = 7
 ): Promise<Array<MetricsSummary & { objective: string; campaign_count: number }>> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
   const query = `
-    SELECT
+    ${BASE_METRICS_CTE}
+    select
       c.objective,
-      COUNT(DISTINCT c.id) as campaign_count,
-      COALESCE(SUM(pm.spend), 0) as total_spend,
-      COALESCE(SUM(pm.impressions), 0) as total_impressions,
-      COALESCE(SUM(pm.clicks), 0) as total_clicks,
-      COALESCE(SUM(pm.conversions), 0) as total_conversions,
-      CASE
-        WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100
-        ELSE 0
-      END as avg_ctr,
-      CASE
-        WHEN SUM(pm.clicks) > 0 THEN SUM(pm.spend) / SUM(pm.clicks)
-        ELSE 0
-      END as avg_cpc,
-      CASE
-        WHEN SUM(pm.spend) > 0 THEN
-          (COALESCE(SUM((pm.extra_metrics->>'purchase_value')::numeric), 0) / SUM(pm.spend))
-        ELSE 0
-      END as avg_roas
-    FROM campaigns c
-    LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-    WHERE c.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-    GROUP BY c.objective
-    ORDER BY total_spend DESC
+      count(distinct c.id) as campaign_count,
+      coalesce(sum(pm_campaign.spend), 0) as total_spend,
+      coalesce(sum(pm_campaign.impressions), 0) as total_impressions,
+      coalesce(sum(pm_campaign.clicks), 0) as total_clicks,
+      coalesce(sum(kpi_campaign.result_value), 0) as total_conversions,
+      case
+        when sum(pm_campaign.impressions) > 0 then (sum(pm_campaign.clicks)::float / sum(pm_campaign.impressions)) * 100
+        else 0
+      end as avg_ctr,
+      case
+        when sum(pm_campaign.clicks) > 0 then sum(pm_campaign.spend) / sum(pm_campaign.clicks)
+        else 0
+      end as avg_cpc,
+      case
+        when sum(pm_campaign.spend) > 0 then coalesce(sum(kpi_campaign.revenue), 0) / sum(pm_campaign.spend)
+        else 0
+      end as avg_roas
+    from campaigns c
+    left join pm_campaign on pm_campaign.campaign_id = c.id
+    left join kpi_campaign on kpi_campaign.campaign_id = c.id
+    where c.workspace_id = $1
+    group by c.objective
+    order by total_spend desc nulls last
   `;
 
-  const result = await pool.query(query, [workspaceId, startDate.toISOString().split('T')[0]]);
+  const result = await pool.query(query, [workspaceId, days]);
   return result.rows;
 }
 
@@ -318,28 +399,82 @@ export async function getMetricsTrend(
   days: number = 7,
   metric: 'spend' | 'clicks' | 'conversions' | 'ctr' = 'spend'
 ): Promise<Array<{ date: string; value: number }>> {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
-
-  const metricExpression = metric === 'ctr'
-    ? `CASE WHEN SUM(pm.impressions) > 0 THEN (SUM(pm.clicks)::float / SUM(pm.impressions)) * 100 ELSE 0 END`
-    : `SUM(pm.${metric})`;
+  const metricExpression = (() => {
+    switch (metric) {
+      case 'ctr':
+        return `CASE WHEN coalesce(SUM(pm_daily.impressions), 0) > 0 THEN (SUM(pm_daily.clicks)::float / SUM(pm_daily.impressions)) * 100 ELSE 0 END`;
+      case 'conversions':
+        return `COALESCE(SUM(kpi_daily.result_value), 0)`;
+      case 'spend':
+        return `COALESCE(SUM(kpi_daily.spend), SUM(pm_daily.spend), 0)`;
+      default:
+        return `COALESCE(SUM(pm_daily.${metric}), 0)`;
+    }
+  })();
 
   const query = `
-    SELECT
-      pm.metric_date as date,
+    with pm_dedup as (
+      select * from (
+        select
+          pm.workspace_id,
+          pm.platform_account_id,
+          pm.campaign_id,
+          pm.ad_set_id,
+          pm.ad_id,
+          pm.metric_date,
+          pm.spend,
+          pm.reach,
+          pm.impressions,
+          pm.clicks,
+          pm.conversions,
+          pm.extra_metrics,
+          pm.synced_at,
+          row_number() over (
+            partition by pm.platform_account_id, pm.campaign_id, pm.ad_set_id, pm.ad_id, pm.metric_date
+            order by pm.synced_at desc nulls last
+          ) as rn
+        from performance_metrics pm
+        where pm.workspace_id = $1
+          and pm.metric_date >= current_date - $2::int
+          and pm.metric_date < current_date
+          and pm.granularity = 'day'
+          and pm.ad_set_id is null
+          and pm.ad_id is null
+      ) t
+      where rn = 1
+    ),
+    pm_daily as (
+      select
+        metric_date,
+        sum(spend)::float8 as spend,
+        sum(impressions)::float8 as impressions,
+        sum(clicks)::float8 as clicks
+      from pm_dedup
+      group by metric_date
+    ),
+    kpi_daily as (
+      select
+        metric_date,
+        sum(result_value)::float8 as result_value,
+        sum(revenue)::float8 as revenue,
+        sum(spend)::float8 as spend
+      from v_campaign_kpi kpi
+      where kpi.workspace_id = $1
+        and kpi.metric_date >= current_date - $2::int
+        and kpi.metric_date < current_date
+        and kpi.ad_set_id is null
+        and kpi.ad_id is null
+      group by metric_date
+    )
+    select
+      coalesce(pm_daily.metric_date::text, kpi_daily.metric_date::text) as date,
       ${metricExpression} as value
-    FROM performance_metrics pm
-    WHERE pm.workspace_id = $1
-      AND pm.metric_date >= $2
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
-    GROUP BY pm.metric_date
-    ORDER BY pm.metric_date ASC
+    from pm_daily
+    full join kpi_daily on kpi_daily.metric_date = pm_daily.metric_date
+    order by date
   `;
 
-  const result = await pool.query(query, [workspaceId, startDate.toISOString().split('T')[0]]);
+  const result = await pool.query(query, [workspaceId, days]);
   return result.rows;
 }
 
@@ -405,6 +540,31 @@ export async function getCampaignDetails(
   const endParamIndex = startParamIndex + 1;
 
   const query = `
+    with pm_dedup as (
+      select * from (
+        select
+          pm.workspace_id,
+          pm.campaign_id,
+          pm.metric_date,
+          pm.spend,
+          pm.impressions,
+          pm.clicks,
+          pm.conversions,
+          pm.extra_metrics,
+          pm.synced_at,
+          row_number() over (
+            partition by pm.platform_account_id, pm.campaign_id, pm.metric_date
+            order by pm.synced_at desc nulls last
+          ) as rn
+        from performance_metrics pm
+        where pm.workspace_id = $1
+          and pm.metric_date >= $${startParamIndex}
+          and pm.metric_date <= $${endParamIndex}
+          and pm.granularity = 'day'
+          and pm.ad_set_id is null
+          and pm.ad_id is null
+      ) t where rn = 1
+    )
     SELECT
       c.id,
       c.name,
@@ -428,12 +588,7 @@ export async function getCampaignDetails(
         ELSE 0
       END as roas
     FROM campaigns c
-    LEFT JOIN performance_metrics pm ON c.id = pm.campaign_id
-      AND pm.metric_date >= $${startParamIndex}
-      AND pm.metric_date <= $${endParamIndex}
-      AND pm.granularity = 'day'
-      AND pm.ad_set_id IS NULL
-      AND pm.ad_id IS NULL
+    LEFT JOIN pm_dedup pm ON c.id = pm.campaign_id
     WHERE c.workspace_id = $1
       AND (${wordConditions})
     GROUP BY c.id, c.name, c.status, c.objective
@@ -463,6 +618,36 @@ export async function getCampaignDetails(
 
   // Fetch ad copies with performance data for this campaign
   const copiesQuery = `
+    with pm_ads as (
+      select * from (
+        select
+          pm.ad_id,
+          pm.campaign_id,
+          pm.metric_date,
+          pm.impressions,
+          pm.clicks,
+          pm.spend,
+          pm.synced_at,
+          row_number() over (
+            partition by pm.ad_id, pm.metric_date
+            order by pm.synced_at desc nulls last
+          ) as rn
+        from performance_metrics pm
+        where pm.granularity = 'day'
+          and pm.metric_date between $2 and $3
+          and pm.ad_id is not null
+          and pm.campaign_id = $1
+      ) t where rn = 1
+    ),
+    pm_sum as (
+      select
+        ad_id,
+        sum(impressions) as impressions,
+        sum(clicks) as clicks,
+        sum(spend) as spend
+      from pm_ads
+      group by ad_id
+    )
     SELECT
       a.id as ad_id,
       a.name as ad_name,
@@ -481,17 +666,7 @@ export async function getCampaignDetails(
       CASE WHEN pm.impressions > 0 THEN (pm.clicks::float / pm.impressions) * 100 ELSE 0 END as ctr
     FROM ads a
     JOIN creative_assets ca ON a.creative_asset_id = ca.id
-    LEFT JOIN (
-      SELECT
-        ad_id,
-        SUM(impressions) as impressions,
-        SUM(clicks) as clicks,
-        SUM(spend) as spend
-      FROM performance_metrics
-      WHERE granularity = 'day'
-        AND metric_date BETWEEN $2 AND $3
-      GROUP BY ad_id
-    ) pm ON a.id = pm.ad_id
+    LEFT JOIN pm_sum pm ON a.id = pm.ad_id
     WHERE a.ad_set_id IN (
       SELECT id FROM ad_sets WHERE campaign_id = $1
     )

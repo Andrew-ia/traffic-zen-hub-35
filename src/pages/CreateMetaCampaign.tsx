@@ -437,7 +437,7 @@ export default function CreateMetaCampaign() {
                         : obj === 'OUTCOME_LEADS'
                             ? ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_OR_FACEBOOK', 'WEBSITE']
                             : obj === 'OUTCOME_SALES'
-                                ? ['WEBSITE']
+                                ? ['WHATSAPP', 'WEBSITE', 'MESSAGES_DESTINATIONS']
                                 : obj === 'OUTCOME_TRAFFIC'
                                     ? ['WEBSITE', 'APP', 'MESSAGES_DESTINATIONS', 'INSTAGRAM_OR_FACEBOOK', 'CALLS']
                                     : obj === 'OUTCOME_AWARENESS'
@@ -445,11 +445,14 @@ export default function CreateMetaCampaign() {
                                         : ['WEBSITE'];
                     if (src && allowed.includes(src)) return src;
                     if (obj === 'OUTCOME_TRAFFIC') return undefined;
-                    if (obj === 'OUTCOME_SALES') return 'WEBSITE';
+                    if (obj === 'OUTCOME_SALES') return 'WHATSAPP';
                     if (obj === 'OUTCOME_LEADS') return 'WHATSAPP';
                     if (obj === 'OUTCOME_ENGAGEMENT') return 'INSTAGRAM_OR_FACEBOOK';
-                    return undefined;
+                    return allowed[0];
                 })(),
+                destination_subtype: (importedAdSet as any)?.destinationSubtype || undefined,
+                destination_platform: (importedAdSet as any)?.destinationPlatform || undefined,
+                conversion_event: (importedAdSet as any)?.conversionEvent || undefined,
                 start_time: toIsoStart(data.startDate),
                 end_time: toIsoEnd(data.endDate),
                 targeting: {

@@ -8,6 +8,7 @@ import {
   getPerformanceByObjective,
   getMetricsTrend,
   getCampaignDetails,
+  getCampaignCounts,
 } from '../tools/dataQueries.js';
 
 // Initialize Gemini client lazily to ensure env vars are loaded
@@ -425,13 +426,28 @@ function detectDataNeed(userMessage: string, history: AIMessage[]): DetectedTool
     normalized.includes('resumo') ||
     normalized.includes('overview') ||
     (normalized.includes('total') && normalized.includes('gasto')) ||
-    normalized.includes('quanto gast')
+    normalized.includes('quanto gast') ||
+    normalized.includes('investimento') ||
+    normalized.includes('investir') ||
+    normalized.includes('valor usado')
   ) {
     const periodDays = extractDays(message) ?? 7;
     return {
       name: 'getMetricsSummary',
       params: { days: periodDays },
       context: { tool: 'getMetricsSummary', days: periodDays },
+    };
+  }
+
+  if (
+    (normalized.includes('quantas') || normalized.includes('quantos') || normalized.includes('numero') || normalized.includes('número') || normalized.includes('quantidade') || normalized.includes('qtd')) &&
+    normalized.includes('campanh') &&
+    (normalized.includes('ativ') || normalized.includes('online') || normalized.includes('rodando') || normalized.includes('ligada'))
+  ) {
+    return {
+      name: 'getCampaignCounts',
+      params: {},
+      context: { tool: 'getCampaignCounts' },
     };
   }
 
@@ -644,6 +660,9 @@ async function executeTool(tool: DetectedToolCall, workspaceId: string): Promise
         dateRange: tool.params.dateRange,
       });
 
+    case 'getCampaignCounts':
+      return await getCampaignCounts(workspaceId);
+
     default:
       return null;
   }
@@ -688,6 +707,9 @@ function formatDataContext(toolName: string, data: any, context?: ConversationCo
 - **CTR Médio**: ${parseFloat(data.avg_ctr || 0).toFixed(2)}%
 - **CPC Médio**: R$ ${parseFloat(data.avg_cpc || 0).toFixed(2)}
 ${parseFloat(data.avg_roas || 0) > 0 ? `- **ROAS Médio**: ${parseFloat(data.avg_roas).toFixed(2)}x` : ''}`;
+
+    case 'getCampaignCounts':
+      return `### Contagem de Campanhas\n\n- **Ativas**: ${parseInt((data?.active_campaigns) || 0)}\n- **Total**: ${parseInt((data?.total_campaigns) || 0)}`;
 
     case 'comparePlatforms':
       return `### Comparação entre Plataformas\n\n${data.map((p: any) =>

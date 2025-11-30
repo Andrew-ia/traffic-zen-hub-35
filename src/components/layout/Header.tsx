@@ -60,8 +60,8 @@ export function Header({ onMenuClick }: HeaderProps) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 h-12 border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-full items-center gap-2 px-2 sm:px-3">
+    <header className="sticky top-0 z-30 h-10 border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
+      <div className="flex h-full items-center gap-1 px-2 sm:px-3">
         {/* Menu Button for Mobile/Tablet */}
         <Button
           variant="ghost"
@@ -79,14 +79,14 @@ export function Header({ onMenuClick }: HeaderProps) {
           <span className="sr-only">Abrir menu</span>
         </Button>
 
-        <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
           {/* Search Input - Responsive */}
           <div className="relative w-full max-w-xs sm:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchInputRef}
               placeholder={isMobile ? "Buscar..." : "Buscar campanhas, relatórios..."}
-              className="pl-10 pr-8 sm:pr-16 text-sm w-full transition-all duration-300 focus:w-full"
+              className="pl-10 pr-8 sm:pr-16 text-sm w-full transition-all duration-300 focus:w-full h-8"
             />
             {!isMobile && (
               <span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">

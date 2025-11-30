@@ -48,6 +48,7 @@ interface UsePlatformMetricsParams {
   objective?: string;
 }
 const API_BASE = resolveApiBase();
+const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 async function fetchPlatformMetrics({
   platform,
@@ -60,6 +61,10 @@ async function fetchPlatformMetrics({
     platform,
     days: dateRange.toString(),
   });
+
+  if (WORKSPACE_ID) {
+    params.append("workspaceId", WORKSPACE_ID);
+  }
 
   if (accountId && accountId !== "all") {
     params.append("accountId", accountId);
@@ -147,6 +152,10 @@ async function fetchTimeSeries({
     metric,
   });
 
+  if (WORKSPACE_ID) {
+    params.append("workspaceId", WORKSPACE_ID);
+  }
+
   if (accountId && accountId !== "all") {
     params.append("accountId", accountId);
   }
@@ -207,6 +216,10 @@ async function fetchDemographics({
     days: dateRange.toString(),
   });
 
+  if (WORKSPACE_ID) {
+    params.append("workspaceId", WORKSPACE_ID);
+  }
+
   if (accountId && accountId !== "all") {
     params.append("accountId", accountId);
   }
@@ -265,6 +278,10 @@ async function fetchMetricsByObjective({
     platform,
     days: dateRange.toString(),
   });
+
+  if (WORKSPACE_ID) {
+    params.append("workspaceId", WORKSPACE_ID);
+  }
 
   if (accountId && accountId !== "all") {
     params.append("accountId", accountId);

@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Pro - Gestão de Tráfego Baseada em Dados</title>
+    <meta name="description"
+        content="Aumente suas vendas e escale com dados reais. Gestão de tráfego profissional com rastreamento avançado e infraestrutura técnica.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #FFFFFF;
+            /* Pure white for text */
+            --secondary: #B8BDC6;
+            /* Lighter gray */
+            --accent: #4285F4;
+            /* Vibrant Google Blue */
+            --accent-green: #34A853;
+            /* Google Green */
+            --accent-yellow: #FBBC04;
+            /* Google Yellow */
+            --accent-red: #EA4335;
+            /* Google Red */
+            --accent-hover: #1A73E8;
+            --bg-color: transparent;
+            /* Transparent to show canvas */
+            --bg-alt: rgba(66, 133, 244, 0.05);
+            /* Subtle blue tint */
+            --border: rgba(66, 133, 244, 0.2);
+            /* Brighter border */
+            --text-light: #202124;
+            --card-bg: rgba(20, 25, 45, 0.7);
+            /* Lighter card background */
+            --radius: 24px;
+            --shadow: 0 4px 24px rgba(66, 133, 244, 0.15);
+            --shadow-hover: 0 12px 40px rgba(66, 133, 244, 0.3);
+            --glow: 0 0 20px rgba(66, 133, 244, 0.4);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--primary);
+            background-color: #0a0e27;
+            /* Lighter dark blue */
+            line-height: 1.5;
+            overflow-x: hidden;
+            position: relative;
+            padding-top: 60px; /* Compensação para header fixo */
+        }
+
+        #bg-particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: radial-gradient(circle at top, #1a2847, #0a0e27);
+            /* Brighter gradient */
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        ul {
+            list-style: none;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 36px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 50px;
+            /* Pill shape */
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background: #FFFFFF;
+            color: #202124;
+        }
+
+        .btn-primary:hover {
+            background: #F8F9FA;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.4);
+        }
+
+        .btn-accent {
+            background: #FFFFFF;
+            color: #202124;
+        }
+
+        .btn-accent:hover {
+            background: #F8F9FA;
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        /* Header */
+        header {
+            padding: 20px 0;
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+            background: rgba(10, 14, 39, 0.95);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        header.header-hidden {
+            transform: translateY(-100%);
+        }
+
+        .nav-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--primary);
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 20px 0 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Removed old particles CSS as we use Canvas now */
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            margin-bottom: 24px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.1;
+            background: linear-gradient(135deg, #fff 0%, #B8C5D6 50%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradientShift 8s ease infinite;
+        }
+
+        @keyframes gradientShift {
+
+            0%,
+            100% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--secondary);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            font-weight: 400;
+        }
+
+        /* Section Styles */
+        section {
+            padding: 80px 0;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .section-title h2 {
+            font-size: 36px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            letter-spacing: -0.5px;
+        }
+
+        .section-title p {
+            color: var(--secondary);
+            font-size: 18px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Problem Section */
+        .problem-section {
+            background-color: transparent;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 32px;
+            border-radius: var(--radius);
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: var(--radius);
+            padding: 2px;
+            background: linear-gradient(135deg, var(--accent), #1A73E8, #5EA3F5);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: var(--shadow-hover), var(--glow);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.15), rgba(26, 115, 232, 0.25));
+            color: var(--accent);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover .card-icon {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 8px 16px rgba(66, 133, 244, 0.3);
+        }
+
+        .card-icon svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .card h3 {
+            font-size: 22px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .card p {
+            color: var(--secondary);
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        /* Solution Section */
+        .solution-section {
+            position: relative;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+        }
+
+        .feature-content h2 {
+            font-size: 36px;
+            margin-bottom: 24px;
+            line-height: 1.2;
+        }
+
+        .feature-content p {
+            color: var(--secondary);
+            font-size: 18px;
+            margin-bottom: 32px;
+        }
+
+        .check-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+            font-size: 16px;
+            color: var(--primary);
+        }
+
+        .check-icon {
+            color: var(--accent);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .feature-visual {
+            background: var(--bg-alt);
+            border-radius: var(--radius);
+            padding: 40px;
+            position: relative;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(5px);
+        }
+
+        /* Simulated Dashboard Graphic */
+        .dashboard-mockup {
+            background: rgba(32, 33, 36, 0.8);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .mock-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .mock-line {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .mock-chart {
+            height: 120px;
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            justify-content: space-between;
+        }
+
+        .mock-bar {
+            width: 100%;
+            background: rgba(138, 180, 248, 0.2);
+            border-radius: 4px 4px 0 0;
+            transition: height 1s ease;
+        }
+
+        .mock-bar:nth-child(even) {
+            background: var(--accent);
+            opacity: 0.8;
+        }
+
+        /* Process Section */
+        .process-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+            counter-reset: step;
+        }
+
+        .step-card {
+            text-align: left;
+            position: relative;
+            padding-top: 20px;
+        }
+
+        .step-card::before {
+            counter-increment: step;
+            content: "0" counter(step);
+            font-size: 48px;
+            font-weight: 700;
+            color: rgba(138, 180, 248, 0.1);
+            position: absolute;
+            top: -20px;
+            left: 0;
+            z-index: -1;
+        }
+
+        .step-card h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .step-card p {
+            font-size: 14px;
+            color: var(--secondary);
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, var(--accent), #1557B0);
+            color: #fff;
+            text-align: center;
+            border-radius: var(--radius);
+            margin: 80px 24px;
+            padding: 80px 24px;
+            box-shadow: 0 20px 40px rgba(26, 115, 232, 0.3);
+        }
+
+        .cta-section h2 {
+            font-size: 36px;
+            margin-bottom: 16px;
+        }
+
+        .cta-section p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 18px;
+            margin-bottom: 32px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .btn-white {
+            background-color: #fff;
+            color: #1A73E8;
+            font-weight: 600;
+        }
+
+        .btn-white:hover {
+            background-color: #F8F9FA;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Form Section */
+        .form-section {
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--primary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+            background: rgba(0, 0, 0, 0.2);
+            color: #fff;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.2);
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 60px 0 24px;
+            margin-top: 80px;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+
+        .copyright {
+            text-align: center;
+            color: var(--secondary);
+            font-size: 14px;
+        }
+
+        /* Floating Icons Section */
+        .floating-icons {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .float-icon {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: rgba(20, 25, 45, 0.8);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            animation: float 6s ease-in-out infinite;
+            box-shadow: 0 8px 16px rgba(66, 133, 244, 0.2);
+        }
+
+        .float-icon svg {
+            width: 30px;
+            height: 30px;
+            color: var(--accent);
+        }
+
+        .float-icon:nth-child(1) {
+            top: 15%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .float-icon:nth-child(2) {
+            top: 25%;
+            right: 15%;
+            animation-delay: 1s;
+        }
+
+        .float-icon:nth-child(3) {
+            top: 45%;
+            left: 8%;
+            animation-delay: 2s;
+        }
+
+        .float-icon:nth-child(4) {
+            top: 60%;
+            right: 12%;
+            animation-delay: 1.5s;
+        }
+
+        .float-icon:nth-child(5) {
+            top: 75%;
+            left: 15%;
+            animation-delay: 0.5s;
+        }
+
+        .float-icon:nth-child(6) {
+            top: 35%;
+            right: 8%;
+            animation-delay: 2.5s;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0px) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-20px) rotate(5deg);
+            }
+        }
+
+        /* Scroll-Snapping Showcase Section */
+        .showcase-section {
+            height: 500vh;
+            position: relative;
+        }
+
+        .showcase-sticky {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .showcase-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .showcase-text {
+            opacity: 0;
+            transform: translateX(-50px);
+            transition: all 0.6s ease;
+        }
+
+        .showcase-text.active {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .showcase-text h2 {
+            font-size: 42px;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .showcase-text p {
+            font-size: 18px;
+            color: var(--secondary);
+            line-height: 1.8;
+        }
+
+        .showcase-image {
+            position: relative;
+            opacity: 0;
+            transform: translateX(50px) scale(0.9);
+            transition: all 0.6s ease;
+        }
+
+        .showcase-image.active {
+            opacity: 1;
+            transform: translateX(0) scale(1);
+        }
+
+        .showcase-image img {
+            width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(66, 133, 244, 0.3);
+            border: 2px solid var(--border);
+        }
+
+        /* Pricing Section */
+        .pricing-section {
+            background: linear-gradient(180deg, transparent, rgba(66, 133, 244, 0.03));
+            padding: 100px 0;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .pricing-card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 40px;
+            border: 2px solid var(--border);
+            backdrop-filter: blur(10px);
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pricing-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+            transform: scaleX(0);
+            transition: transform 0.4s ease;
+        }
+
+        .pricing-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .pricing-card.popular {
+            border-color: var(--accent);
+            box-shadow: 0 0 40px rgba(66, 133, 244, 0.3);
+            transform: scale(1.05);
+        }
+
+        .pricing-card.popular::before {
+            transform: scaleX(1);
+        }
+
+        .pricing-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent), #1A73E8);
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+
+        .pricing-card h3 {
+            font-size: 28px;
+            margin-bottom: 12px;
+            color: #fff;
+        }
+
+        .pricing-price {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .pricing-price span {
+            font-size: 18px;
+            color: var(--secondary);
+            font-weight: 400;
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin: 32px 0;
+        }
+
+        .pricing-features li {
+            padding: 12px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .pricing-features li:last-child {
+            border-bottom: none;
+        }
+
+        .pricing-features svg {
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 60px rgba(66, 133, 244, 0.4);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .hero {
+                padding: 15px 0 30px;
+            }
+            
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-wrapper .btn {
+                display: none;
+                /* Hide header CTA on mobile if needed */
+            }
+
+            .float-icon {
+                display: none;
+            }
+
+            .showcase-content {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .showcase-section {
+                height: auto;
+            }
+
+            .showcase-sticky {
+                position: relative;
+                height: auto;
+                padding: 60px 0;
+            }
+
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .pricing-card.popular {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="bg-particles"></canvas>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="container nav-wrapper">
+            <a href="#" class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M2 17L12 22L22 17" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M2 12L12 17L22 12" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+                Traffic<span>Pro</span>
+            </a>
+            <a href="#contato" class="btn btn-primary">Falar com Especialista</a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="particles" id="particles">
+            <!-- Particles generated by JS -->
+        </div>
+
+        <!-- Floating Icons -->
+        <div class="floating-icons">
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+            </div>
+        </div>
+
+        <div class="container">
+            <h1>Seu negócio não cresce porque seus dados estão errados.</h1>
+            <p>Entenda seus dados, corrija os erros e comece a crescer.</p>
+            <a href="#contato" class="btn btn-primary">Quero meu diagnóstico</a>
+        </div>
+    </section>
+
+    <!-- Problem Section -->
+    <section class="problem-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Você provavelmente já passou por isso:</h2>
+            </div>
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path
+                                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                            </path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                    </div>
+                    <h3>Já rodou anúncio e não entendeu o resultado</h3>
+                    <p>Gastou dinheiro, viu números na tela, mas não conseguiu saber se deu certo ou não.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                    </div>
+                    <h3>Já pagou alguém para 'gerenciar' e não teve retorno</h3>
+                    <p>Contratou uma agência ou freelancer que prometeu resultado mas só queimou verba.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                    </div>
+                    <h3>Já tentou aprender tráfego sozinho e se perdeu</h3>
+                    <p>Viu mil cursos, tentou seguir, mas ficou mais confuso ainda com tanto termo técnico.</p>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 40px; max-width: 600px; margin-left: auto; margin-right: auto;">
+                <p style="font-size: 18px; color: var(--secondary); margin-bottom: 16px;">O problema quase nunca é falta de tentativa.</p>
+                <p style="font-size: 20px; font-weight: 600; color: var(--primary);">O problema é falta de Dados.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solution Section -->
+    <section class="solution-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>O que você recebe no Diagnóstico Estratégico</h2>
+            </div>
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Análise das campanhas</h3>
+                    <p>Revisão completa das suas campanhas atuais e identificação de desperdício de verba.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Análise do funil</h3>
+                    <p>Mapeamento do seu funil de vendas e pontos de vazamento.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Diagnóstico técnico de pixel e eventos</h3>
+                    <p>Verificação se seus dados estão sendo coletados corretamente.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Identificação de gargalos</h3>
+                    <p>Descoberta dos verdadeiros problemas que impedem seu crescimento.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Recomendações práticas</h3>
+                    <p>Sugestões específicas para o seu negócio, não receita de bolo.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3>PDF completo personalizado</h3>
+                    <p>Relatório detalhado com todos os achados e recomendações.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Instagram Simulation Section -->
+    <section style="padding: 80px 0; text-align: center;">
+        <div class="container">
+            <h2 style="font-size: 42px; font-weight: 700; margin-bottom: 16px; color: var(--primary);">Você também recebe uma simulação profissional do seu Instagram!</h2>
+            <p style="font-size: 20px; color: var(--secondary); max-width: 700px; margin: 0 auto; line-height: 1.6;">Analisamos seu perfil atual e geramos uma simulação visual de como seu Instagram poderia parecer profissionalmente posicionado.</p>
+        </div>
+    </section>
+
+    <!-- Authority Section -->
+    <section style="padding: 100px 0; background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(26, 115, 232, 0.05)); position: relative; overflow: hidden;">
+        <!-- Background Decoration -->
+        <div style="position: absolute; top: -50px; right: -100px; width: 300px; height: 300px; border-radius: 50%; background: linear-gradient(45deg, rgba(66, 133, 244, 0.1), transparent); filter: blur(60px);"></div>
+        
+        <div class="container">
+            <div style="max-width: 900px; margin: 0 auto; text-align: center;">
+                <div style="display: inline-block; padding: 12px 24px; background: rgba(66, 133, 244, 0.1); border-radius: 50px; margin-bottom: 32px;">
+                    <span style="color: var(--accent); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Metodologia</span>
+                </div>
+                
+                <h2 style="font-size: 48px; font-weight: 700; margin-bottom: 24px; background: linear-gradient(135deg, #fff, #B8C5D6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.2;">
+                    Não é achismo.<br>É método.
+                </h2>
+                
+                <p style="font-size: 24px; color: var(--secondary); margin-bottom: 48px; line-height: 1.6; max-width: 700px; margin-left: auto; margin-right: auto;">
+                    Não usamos fórmulas mágicas. Usamos dados, análise e processo real.
+                </p>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 60px; align-items: center;">
+                    <div style="text-align: left;">
+                        <div style="display: flex; align-items: center; margin-bottom: 24px;">
+                            <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent), #1A73E8); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-right: 20px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <path d="M9 11H1l8-8 8 8"/>
+                                    <path d="M9 11v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V11"/>
+                                    <path d="M20 11a9 9 0 0 1-9 9"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 style="font-size: 20px; margin: 0; color: var(--primary);">Metodologia testada</h3>
+                                <p style="margin: 4px 0 0 0; color: var(--secondary); font-size: 16px;">Processo validado</p>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center;">
+                            <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent), #1A73E8); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-right: 20px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 style="font-size: 20px; margin: 0; color: var(--primary);">Análise personalizada</h3>
+                                <p style="margin: 4px 0 0 0; color: var(--secondary); font-size: 16px;">Para seu negócio específico</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="text-align: center; position: relative;">
+                        <div style="width: 200px; height: 200px; border-radius: 50%; background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(26, 115, 232, 0.1)); display: flex; align-items: center; justify-content: center; margin: 0 auto; position: relative;">
+                            <div style="width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #1A73E8); display: flex; align-items: center; justify-content: center;">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <path d="M20 6L9 17l-5-5"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <p style="margin-top: 24px; font-size: 16px; color: var(--secondary); font-style: italic;">
+                            "Cada negócio é único e merece uma estratégia personalizada."
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Form Section -->
+    <section id="contato">
+        <div class="container">
+            <div class="section-title">
+                <h2>Solicite seu Diagnóstico Estratégico</h2>
+                <p>Preencha o formulário abaixo para entendermos seu negócio.</p>
+            </div>
+            <div class="form-section">
+                <form id="leadForm" onsubmit="submitLead(event)">
+                    <div class="form-group">
+                        <label class="form-label">Nome Completo</label>
+                        <input type="text" name="name" class="form-input" placeholder="Seu nome" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">WhatsApp</label>
+                        <input type="tel" name="whatsapp" class="form-input" placeholder="(00) 00000-0000" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nome da Empresa</label>
+                        <input type="text" name="company" class="form-input" placeholder="Sua empresa" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Faturamento Mensal (Opcional)</label>
+                        <select name="revenue_range" class="form-input">
+                            <option value="">Selecione...</option>
+                            <option value="ate-10k">Até R$ 10k</option>
+                            <option value="10k-50k">R$ 10k a R$ 50k</option>
+                            <option value="50k-100k">R$ 50k a R$ 100k</option>
+                            <option value="acima-100k">Acima de R$ 100k</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;" id="submitBtn">Quero minha análise</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="logo">Traffic<span>Pro</span></div>
+                <div style="color: var(--secondary); font-size: 14px;">
+                    "Diagnósticos precisos, resultados reais."
+                </div>
+            </div>
+            <div class="copyright">
+                &copy; 2024 Traffic Pro. Todos os direitos reservados.
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        (function () {
+            const canvas = document.getElementById('bg-particles');
+            const ctx = canvas.getContext('2d');
+            let w, h;
+            let particles = [];
+
+            // Mouse state
+            let mouse = {
+                x: null,
+                y: null,
+                radius: 150
+            };
+
+            function init() {
+                resize();
+                window.addEventListener('resize', resize);
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseout', handleMouseOut);
+                createParticles();
+                animate();
+            }
+
+            function handleMouseMove(e) {
+                mouse.x = e.x;
+                mouse.y = e.y;
+            }
+
+            function handleMouseOut() {
+                mouse.x = null;
+                mouse.y = null;
+            }
+
+            function resize() {
+                w = canvas.width = window.innerWidth;
+                h = canvas.height = window.innerHeight;
+                createParticles();
+            }
+
+            function createParticles() {
+                const isMobile = w < 768;
+                const count = isMobile ? 50 : 150;
+                particles = [];
+                for (let i = 0; i < count; i++) {
+                    particles.push({
+                        x: Math.random() * w,
+                        y: Math.random() * h,
+                        vx: (Math.random() - 0.5) * (isMobile ? 0.5 : 1),
+                        vy: (Math.random() - 0.5) * (isMobile ? 0.5 : 1),
+                        size: Math.random() * 2 + 1
+                    });
+                }
+            }
+
+            function animate() {
+                ctx.clearRect(0, 0, w, h);
+
+                // Draw particles and lines
+                ctx.fillStyle = 'rgba(138, 180, 248, 0.5)';
+                ctx.strokeStyle = 'rgba(138, 180, 248, 0.15)';
+
+                // Connect to mouse
+                if (mouse.x != null) {
+                    for (let i = 0; i < particles.length; i++) {
+                        let p = particles[i];
+                        let dx = mouse.x - p.x;
+                        let dy = mouse.y - p.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < mouse.radius) {
+                            ctx.beginPath();
+                            ctx.strokeStyle = `rgba(138, 180, 248, ${0.4 - dist / mouse.radius * 0.4})`; // Fade out
+                            ctx.lineWidth = 1;
+                            ctx.moveTo(mouse.x, mouse.y);
+                            ctx.lineTo(p.x, p.y);
+                            ctx.stroke();
+
+                            // Optional: Slight attraction/repulsion could go here
+                            // For now, just the visual connection requested
+                        }
+                    }
+                }
+
+                ctx.strokeStyle = 'rgba(138, 180, 248, 0.15)'; // Reset for particle-particle connections
+
+                for (let i = 0; i < particles.length; i++) {
+                    let p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+
+                    if (p.x < 0 || p.x > w) p.vx *= -1;
+                    if (p.y < 0 || p.y > h) p.vy *= -1;
+
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Lines between particles
+                    for (let j = i + 1; j < particles.length; j++) {
+                        let p2 = particles[j];
+                        let dx = p.x - p2.x;
+                        let dy = p.y - p2.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < 150) {
+                            ctx.beginPath();
+                            ctx.strokeStyle = `rgba(138, 180, 248, ${0.15 - dist / 150 * 0.15})`;
+                            ctx.moveTo(p.x, p.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+
+            init();
+        })();
+    </script>
+
+    <script>
+        // Showcase Scroll-Snapping Effect
+        (function () {
+            const showcaseSection = document.querySelector('.showcase-section');
+            if (!showcaseSection) return;
+
+            const showcaseData = [
+                {
+                    title: 'Dashboard Completo',
+                    description: 'Visualize todos os seus dados de tráfego em um único lugar. Métricas de Meta Ads, Google Ads e Google Analytics integradas em tempo real.',
+                    image: 'https://placehold.co/600x400/1a2847/4285F4?text=Dashboard+Traffic+Pro'
+                },
+                {
+                    title: 'Análise de Campanhas',
+                    description: 'Acompanhe o desempenho de cada campanha com métricas detalhadas. Identifique rapidamente o que está funcionando e o que precisa ser otimizado.',
+                    image: 'https://placehold.co/600x400/1a2847/34A853?text=Campanhas+Analytics'
+                },
+                {
+                    title: 'Relatórios com IA',
+                    description: 'Receba insights automáticos gerados por inteligência artificial. Descubra padrões e oportunidades que você não veria manualmente.',
+                    image: 'https://placehold.co/600x400/1a2847/FBBC04?text=IA+Reports'
+                },
+                {
+                    title: 'Gestão de Criativos',
+                    description: 'Organize e analise o desempenho de todos os seus criativos. Saiba exatamente quais imagens e vídeos geram mais resultados.',
+                    image: 'https://placehold.co/600x400/1a2847/EA4335?text=Creative+Manager'
+                }
+            ];
+
+            let currentIndex = 0;
+            const textEl = document.querySelector('.showcase-text');
+            const imageEl = document.querySelector('.showcase-image');
+
+            function updateShowcase(index) {
+                const data = showcaseData[index];
+
+                // Fade out
+                textEl.classList.remove('active');
+                imageEl.classList.remove('active');
+
+                setTimeout(() => {
+                    textEl.querySelector('h2').textContent = data.title;
+                    textEl.querySelector('p').textContent = data.description;
+                    imageEl.querySelector('img').src = data.image;
+
+                    // Fade in
+                    textEl.classList.add('active');
+                    imageEl.classList.add('active');
+                }, 300);
+            }
+
+            function handleScroll() {
+                const rect = showcaseSection.getBoundingClientRect();
+                const sectionHeight = showcaseSection.offsetHeight;
+                const viewportHeight = window.innerHeight;
+
+                // Calculate scroll progress through the section
+                const scrollProgress = Math.max(0, Math.min(1, -rect.top / (sectionHeight - viewportHeight)));
+
+                // Determine which showcase to show based on scroll progress
+                const newIndex = Math.min(
+                    showcaseData.length - 1,
+                    Math.floor(scrollProgress * showcaseData.length)
+                );
+
+                if (newIndex !== currentIndex) {
+                    currentIndex = newIndex;
+                    updateShowcase(currentIndex);
+                }
+            }
+
+            // Initialize
+            updateShowcase(0);
+            setTimeout(() => {
+                textEl.classList.add('active');
+                imageEl.classList.add('active');
+            }, 100);
+
+            // Listen to scroll
+            window.addEventListener('scroll', handleScroll);
+        })();
+    </script>
+
+    <script>
+        // Header Hide/Show on Scroll
+        (function() {
+            const header = document.getElementById('header');
+            let lastScrollTop = 0;
+            let scrollThreshold = 100; // Scroll mínimo para ativar o efeito
+            
+            function handleScroll() {
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                
+                if (scrollTop > scrollThreshold) {
+                    if (scrollTop > lastScrollTop) {
+                        // Scrolling down - hide header
+                        header.classList.add('header-hidden');
+                    } else {
+                        // Scrolling up - show header
+                        header.classList.remove('header-hidden');
+                    }
+                } else {
+                    // Near top - always show header
+                    header.classList.remove('header-hidden');
+                }
+                
+                lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+            }
+            
+            window.addEventListener('scroll', handleScroll, { passive: true });
+        })();
+    </script>
+
+    <script>
+        async function submitLead(event) {
+            event.preventDefault();
+            const form = event.target;
+            const btn = document.getElementById('submitBtn');
+            const originalText = btn.innerText;
+
+            const formData = {
+                name: form.name.value,
+                whatsapp: form.whatsapp.value,
+                company: form.company.value,
+                revenue_range: form.revenue_range.value
+            };
+
+            try {
+                btn.innerText = 'Enviando...';
+                btn.disabled = true;
+
+                const response = await fetch('/api/leads', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    window.location.href = 'obrigado.html';
+                } else {
+                    alert('Erro ao enviar solicitação: ' + (result.error || 'Tente novamente.'));
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Erro de conexão. Verifique sua internet.');
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // Header Scroll Effect
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('header');
+            if (window.scrollY > 50) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
+
+        // Simple Particle Generator
+        const particlesContainer = document.getElementById('particles');
+        const particleCount = 20;
+
+        for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement('div');
+            particle.classList.add('particle');
+
+            // Random size
+            const size = Math.random() * 10 + 5;
+            particle.style.width = `${size}px`;
+            particle.style.height = `${size}px`;
+
+            // Random position
+            particle.style.left = `${Math.random() * 100}%`;
+            particle.style.top = `${Math.random() * 100}%`;
+
+            // Random animation delay
+            particle.style.animationDelay = `${Math.random() * 5}s`;
+            particle.style.animationDuration = `${15 + Math.random() * 10}s`;
+
+            // Random color opacity
+            particle.style.opacity = Math.random() * 0.2;
+
+            particlesContainer.appendChild(particle);
+        }
+    </script>
+</body>
+
+</html>

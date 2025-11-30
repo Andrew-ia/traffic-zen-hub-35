@@ -125,6 +125,7 @@ import {
   getUserPreferences,
   updateUserPreferences,
 } from './api/user-preferences.js';
+import leadsRouter from './api/leads.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -174,6 +175,9 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Public landing leads capture
+app.use('/api/leads', leadsRouter);
 
 // API Routes
 
@@ -404,6 +408,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../dist');
 app.use(express.static(distPath));
+// Serve landing page explicitly
+app.get('/landing', (req, res) => {
+  res.sendFile(path.join(distPath, 'landing.html'));
+});
+
+app.get('/obrigado', (req, res) => {
+  res.sendFile(path.join(distPath, 'obrigado.html'));
+});
+
 // SPA fallback: send index.html for non-API routes
 app.get(/^\/(?!api\/).*$/, (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));

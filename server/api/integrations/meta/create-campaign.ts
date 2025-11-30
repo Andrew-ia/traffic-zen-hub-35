@@ -532,16 +532,11 @@ export async function createMetaCampaign(req: Request, res: Response) {
             adSetPayload.optimization_goal = 'LINK_CLICKS';
           }
         } else if (objUpper === 'OUTCOME_SALES') {
-          if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = destUpper; // usar valor aceito diretamente
-            adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else {
-            adSetPayload.destination_type = 'WEBSITE';
-            adSetPayload.optimization_goal = 'OFFSITE_CONVERSIONS';
-            if (pixelId) {
-              adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
-            }
+          // Meta não suporta Sales com mensagens; manter WEBSITE/OFFSITE_CONVERSIONS
+          adSetPayload.destination_type = 'WEBSITE';
+          adSetPayload.optimization_goal = 'OFFSITE_CONVERSIONS';
+          if (pixelId) {
+            adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
           }
         } else if (objUpper === 'OUTCOME_AWARENESS') {
           adSetPayload.destination_type = 'ON_POST';
@@ -552,7 +547,7 @@ export async function createMetaCampaign(req: Request, res: Response) {
           adSetPayload.optimization_goal = 'CONVERSATIONS';
           if (destUpper === 'WHATSAPP') {
             adSetPayload.destination_type = 'WHATSAPP';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId, messaging_app_ids: ['whatsapp'] };
           } else if (destUpper === 'MESSENGER') {
             adSetPayload.destination_type = 'MESSENGER';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
@@ -560,6 +555,10 @@ export async function createMetaCampaign(req: Request, res: Response) {
             // Para IG Direct/Messenger combinados, usar ON_POST com page_id
             adSetPayload.destination_type = 'ON_POST';
             if (pageId) adSetPayload.promoted_object = { page_id: pageId };
+          } else if (destUpper === 'MESSAGES_DESTINATIONS') {
+            // Default para WhatsApp quando for mensagens genérico
+            adSetPayload.destination_type = 'WHATSAPP';
+            if (pageId) adSetPayload.promoted_object = { page_id: pageId, messaging_app_ids: ['whatsapp'] };
           } else {
             // Fallback para ON_AD
             adSetPayload.destination_type = 'ON_AD';

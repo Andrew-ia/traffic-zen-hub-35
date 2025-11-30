@@ -829,27 +829,6 @@ export function CreateItemModal({
       setDocName('');
       setDocContent('');
       setDocFile(null);
-    } else if (activeTab === 'reminder' && onCreateReminder) {
-      if (!reminderName.trim() || !reminderDueDate) return;
-      onCreateReminder({
-        name: reminderName,
-        description: reminderDescription,
-        dueDate: reminderDueDate,
-        notifyVia: reminderNotifyVia,
-        email: reminderEmail || undefined,
-        phone: reminderPhone || undefined,
-        telegram_chat_id: reminderTelegram || undefined,
-        assignee_id: reminderAssigneeId || undefined,
-      });
-      // Reset reminder fields
-      setReminderName('');
-      setReminderDescription('');
-      setReminderDueDate('');
-      setReminderNotifyVia('email');
-      setReminderEmail('');
-      setReminderPhone('');
-      setReminderTelegram('');
-      setReminderAssigneeId('__none__');
     } else if (activeTab === 'templates') {
       // Monta os dados de tarefa a partir do template
       const nomeCampanha = templateValues['nome_da_campanha'] || 'Nova Campanha';
@@ -915,14 +894,10 @@ export function CreateItemModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 gap-2">
+          <TabsList className="grid w-full grid-cols-2 gap-2">
             <TabsTrigger value="task" className="flex items-center gap-2">
               <CheckSquare className="h-4 w-4" />
               Tarefa
-            </TabsTrigger>
-            <TabsTrigger value="reminder" className="flex items-center gap-2">
-              <Bell className="h-4 w-4" />
-              Lembrete
             </TabsTrigger>
             <TabsTrigger value="campaign" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
@@ -1034,118 +1009,6 @@ export function CreateItemModal({
             </div>
           </TabsContent>
 
-          {/* REMINDER TAB */}
-          <TabsContent value="reminder" className="space-y-4 mt-4">
-            <div>
-              <Label htmlFor="reminder-name">Nome do Lembrete *</Label>
-              <Input
-                id="reminder-name"
-                value={reminderName}
-                onChange={(e) => setReminderName(e.target.value)}
-                placeholder="Nome do lembrete"
-                autoFocus
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="reminder-description">Descrição</Label>
-              <Textarea
-                id="reminder-description"
-                value={reminderDescription}
-                onChange={(e) => setReminderDescription(e.target.value)}
-                placeholder="Adicione detalhes do lembrete..."
-                rows={4}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="reminder-due">Data de Vencimento *</Label>
-              <Input
-                id="reminder-due"
-                type="datetime-local"
-                value={reminderDueDate}
-                onChange={(e) => setReminderDueDate(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <Label>Responsável</Label>
-              <Select value={reminderAssigneeId} onValueChange={(v) => setReminderAssigneeId(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={isMembersLoading ? 'Carregando...' : 'Selecione um responsável'} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Sem responsável</SelectItem>
-                  {members.map(m => (
-                    <SelectItem key={m.userId} value={m.userId}>
-                      {m.name || m.email || m.userId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="notify-via">Enviar Notificação Por</Label>
-              <Select value={reminderNotifyVia} onValueChange={(v) => setReminderNotifyVia(v as ReminderNotifyVia)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="email">📧 E-mail</SelectItem>
-                  <SelectItem value="whatsapp">📱 WhatsApp</SelectItem>
-                  <SelectItem value="telegram">✈️ Telegram</SelectItem>
-                  <SelectItem value="all">📣 Todos os canais</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {(reminderNotifyVia === 'email' || reminderNotifyVia === 'all') && (
-              <div>
-                <Label htmlFor="reminder-email">E-mail {reminderNotifyVia === 'email' ? '*' : ''}</Label>
-                <Input
-                  id="reminder-email"
-                  type="email"
-                  value={reminderEmail}
-                  onChange={(e) => setReminderEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                />
-              </div>
-            )}
-
-            {(reminderNotifyVia === 'whatsapp' || reminderNotifyVia === 'all') && (
-              <div>
-                <Label htmlFor="reminder-phone">WhatsApp {reminderNotifyVia === 'whatsapp' ? '*' : ''}</Label>
-                <Input
-                  id="reminder-phone"
-                  type="tel"
-                  value={reminderPhone}
-                  onChange={(e) => setReminderPhone(e.target.value)}
-                  placeholder="+55 11 99999-9999"
-                />
-              </div>
-            )}
-
-            {(reminderNotifyVia === 'telegram' || reminderNotifyVia === 'all') && (
-              <div>
-                <Label htmlFor="reminder-telegram">Telegram Chat ID {reminderNotifyVia === 'telegram' ? '*' : ''}</Label>
-                <Input
-                  id="reminder-telegram"
-                  type="text"
-                  value={reminderTelegram}
-                  onChange={(e) => setReminderTelegram(e.target.value)}
-                  placeholder="123456789"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Inicie uma conversa com o bot e obtenha seu Chat ID
-                </p>
-              </div>
-            )}
-
-            <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-              🔔 Lembretes enviam notificações na data e hora especificadas
-            </div>
-          </TabsContent>
 
           {/* CAMPAIGN TAB */}
           <TabsContent value="campaign" className="space-y-4 mt-4">
@@ -1197,7 +1060,7 @@ export function CreateItemModal({
           </Button>
           {activeTab !== 'campaign' && (
             <Button onClick={handleSubmit}>
-              Criar {activeTab === 'task' ? 'Tarefa' : 'Lembrete'}
+              Criar Tarefa
             </Button>
           )}
         </DialogFooter>

@@ -40,7 +40,7 @@ export default function Dashboard() {
       {/* Header Section - Responsive */}
       <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight h-20 flex items-center">Dashboard</h1>
           <p className="text-sm sm:text-base text-muted-foreground">
             Visão geral das suas campanhas e performance
           </p>

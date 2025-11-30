@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obrigado - Traffic Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #202124;
+            --accent: #1A73E8;
+            --bg-color: #FFFFFF;
+            --text-light: #FFFFFF;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--primary);
+            background-color: var(--bg-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+        }
+
+        h1 {
+            font-size: 36px;
+            margin-bottom: 16px;
+        }
+
+        p {
+            font-size: 18px;
+            color: #5F6368;
+            margin-bottom: 32px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 32px;
+            font-size: 16px;
+            font-weight: 500;
+            border-radius: 50px;
+            background-color: var(--accent);
+            color: var(--text-light);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            box-shadow: 0 4px 12px rgba(26, 115, 232, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .icon {
+            width: 64px;
+            height: 64px;
+            color: #34A853;
+            /* Google Green */
+            margin-bottom: 24px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <h1>Solicitação Recebida!</h1>
+        <p>Obrigado pelo interesse. Nossa equipe de especialistas analisará seus dados e entrará em contato pelo
+            WhatsApp em breve.</p>
+        <a href="landing.html" class="btn">Voltar ao Início</a>
+    </div>
+</body>
+
+</html>

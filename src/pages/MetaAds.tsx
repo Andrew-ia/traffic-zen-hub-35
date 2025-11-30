@@ -194,11 +194,7 @@ export default function MetaAds() {
   };
 
   // Calcular KPIs a partir de métricas ou campanhas
-  const totalSpend = (
-    objectiveFilter === "all" && metricsByObjective && metricsByObjective.length > 0
-      ? metricsByObjective.reduce((sum, o) => sum + (o.totalSpend ?? 0), 0)
-      : metrics?.totalSpend ?? campaigns.reduce((sum, c) => sum + (c.spend ?? 0), 0)
-  );
+  const totalSpend = metrics?.totalSpend ?? campaigns.reduce((sum, c) => sum + (c.spend ?? 0), 0);
   const totalResults = metrics?.totalResults ?? campaigns.reduce((sum, c) => sum + (c.resultValue ?? 0), 0);
   const avgRoas = metrics?.avgRoas ?? 0;
   const avgCostPerResult = metrics?.avgCostPerResult ?? 0;

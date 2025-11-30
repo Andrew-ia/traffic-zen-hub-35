@@ -19,6 +19,14 @@
       "destination": "/api/index.ts"
     },
     {
+      "source": "/landing",
+      "destination": "/landing.html"
+    },
+    {
+      "source": "/obrigado",
+      "destination": "/obrigado.html"
+    },
+    {
       "source": "/((?!api/|.*\\..*).*)",
       "destination": "/index.html"
     }

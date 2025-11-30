@@ -8,11 +8,56 @@ import { randomUUID } from 'crypto';
 const router = Router();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
+function getWorkspaceEnvId(): string {
+  const wid =
+    process.env.META_WORKSPACE_ID ||
+    process.env.WORKSPACE_ID ||
+    process.env.SUPABASE_WORKSPACE_ID ||
+    process.env.VITE_WORKSPACE_ID;
+  if (!wid) {
+    throw new Error('Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID');
+  }
+  return wid.trim();
+}
+
 async function buildContext(workspaceId: string): Promise<string> {
   const pool = getPool();
 
+  const baseCte = `
+    with pm_dedup as (
+      select * from (
+        select
+          pm.workspace_id,
+          pm.platform_account_id,
+          pm.campaign_id,
+          pm.ad_set_id,
+          pm.ad_id,
+          pm.metric_date,
+          pm.spend,
+          pm.reach,
+          pm.impressions,
+          pm.clicks,
+          pm.conversions,
+          pm.conversion_value,
+          pm.extra_metrics,
+          pm.synced_at,
+          row_number() over (
+            partition by pm.platform_account_id, pm.campaign_id, pm.ad_set_id, pm.ad_id, pm.metric_date
+            order by pm.synced_at desc nulls last
+          ) as rn
+        from performance_metrics pm
+        where pm.workspace_id = $1
+          and pm.metric_date >= current_date - 30
+          and pm.metric_date < current_date
+          and pm.granularity = 'day'
+      ) t
+      where rn = 1
+    )
+  `;
+
   // 1. Platform-specific Summary (Last 30 Days)
   const platformSummaryQuery = `
+    ${baseCte}
     SELECT 
       pa.platform_key,
       COALESCE(SUM(m.spend), 0) as spend,
@@ -26,20 +71,19 @@ async function buildContext(workspaceId: string): Promise<string> {
       COALESCE(SUM((m.extra_metrics->>'unique_clicks')::float), 0) as unique_clicks,
       COALESCE(SUM((m.extra_metrics->>'inline_link_clicks')::float), 0) as inline_link_clicks,
       COALESCE(SUM((m.extra_metrics->>'inline_post_engagement')::float), 0) as inline_post_engagement
-    FROM performance_metrics m
-    JOIN campaigns c ON m.campaign_id = c.id
-    JOIN platform_accounts pa ON c.account_id = pa.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    FROM pm_dedup m
+    LEFT JOIN campaigns c ON m.campaign_id = c.id
+    JOIN platform_accounts pa ON m.platform_account_id = pa.id
     GROUP BY pa.platform_key
     ORDER BY spend DESC
   `;
 
   // 2. Top 10 Campaigns (with platform and ROAS)
   const campaignsQuery = `
+    ${baseCte}
     SELECT 
-      c.name, 
-      c.status,
+      COALESCE(c.name, 'Unknown Campaign (' || m.campaign_id || ')') as name, 
+      COALESCE(c.status, 'UNKNOWN') as status,
       pa.platform_key,
       SUM(m.spend) as spend, 
       SUM(m.conversions) as conversions,
@@ -47,18 +91,17 @@ async function buildContext(workspaceId: string): Promise<string> {
       SUM(m.impressions) as impressions,
       SUM(m.clicks) as clicks,
       CASE WHEN SUM(m.spend) > 0 THEN SUM(m.conversion_value) / SUM(m.spend) ELSE 0 END as roas
-    FROM campaigns c
-    JOIN platform_accounts pa ON c.account_id = pa.id
-    JOIN performance_metrics m ON c.id = m.campaign_id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
-    GROUP BY c.name, c.status, pa.platform_key
+    FROM pm_dedup m
+    LEFT JOIN campaigns c ON m.campaign_id = c.id
+    JOIN platform_accounts pa ON m.platform_account_id = pa.id
+    GROUP BY m.campaign_id, c.name, c.status, pa.platform_key
     ORDER BY spend DESC
     LIMIT 10
   `;
 
   // 3. Top 10 Creatives by Performance
   const creativesQuery = `
+    ${baseCte}
     SELECT 
       ca.name,
       ca.type,
@@ -70,11 +113,7 @@ async function buildContext(workspaceId: string): Promise<string> {
       CASE WHEN SUM(m.conversions) > 0 THEN SUM(m.spend) / SUM(m.conversions) ELSE 0 END as cpa
     FROM creative_assets ca
     JOIN ads a ON ca.id = a.creative_asset_id
-    JOIN performance_metrics m ON a.id = m.ad_id
-    JOIN ad_sets adset ON a.ad_set_id = adset.id
-    JOIN campaigns c ON adset.campaign_id = c.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    JOIN pm_dedup m ON a.id = m.ad_id
     GROUP BY ca.name, ca.type
     ORDER BY conversions DESC
     LIMIT 10
@@ -82,26 +121,23 @@ async function buildContext(workspaceId: string): Promise<string> {
 
   // 4. Week-over-Week Trends
   const trendsQuery = `
+    ${baseCte}
     SELECT 
       'Last 7 Days' as period,
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.conversions), 0) as conversions,
       COALESCE(SUM(m.clicks), 0) as clicks
-    FROM performance_metrics m
-    JOIN campaigns c ON m.campaign_id = c.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '7 days'
+    FROM pm_dedup m
+    WHERE m.metric_date >= current_date - 7
     UNION ALL
     SELECT 
       'Previous 7 Days' as period,
       COALESCE(SUM(m.spend), 0) as spend,
       COALESCE(SUM(m.conversions), 0) as conversions,
       COALESCE(SUM(m.clicks), 0) as clicks
-    FROM performance_metrics m
-    JOIN campaigns c ON m.campaign_id = c.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '14 days'
-      AND m.metric_date < NOW() - INTERVAL '7 days'
+    FROM pm_dedup m
+    WHERE m.metric_date >= current_date - 14
+      AND m.metric_date < current_date - 7
   `;
 
   // 5. Campaign Status Distribution
@@ -116,16 +152,15 @@ async function buildContext(workspaceId: string): Promise<string> {
 
   // 6. Top 5 Ad Sets by Conversions
   const adSetsQuery = `
+    ${baseCte}
     SELECT 
-      a.name,
+      COALESCE(a.name, 'Unknown Ad Set') as name,
       SUM(m.spend) as spend,
       SUM(m.conversions) as conversions,
       CASE WHEN SUM(m.conversions) > 0 THEN SUM(m.spend) / SUM(m.conversions) ELSE 0 END as cpa
-    FROM ad_sets a
-    JOIN campaigns c ON a.campaign_id = c.id
-    JOIN performance_metrics m ON m.ad_set_id = a.id
-    WHERE c.workspace_id = $1
-      AND m.metric_date >= NOW() - INTERVAL '30 days'
+    FROM pm_dedup m
+    LEFT JOIN ad_sets a ON m.ad_set_id = a.id
+    WHERE m.ad_set_id IS NOT NULL AND m.ad_id IS NULL
     GROUP BY a.name
     ORDER BY conversions DESC
     LIMIT 5
@@ -180,7 +215,7 @@ BREAKDOWN BY PLATFORM:
     // Add platform-specific data
     platformData.forEach((p: any) => {
       const platformName = p.platform_key === 'meta' ? 'Meta Ads (Facebook/Instagram)' :
-        p.platform_key === 'google' ? 'Google Ads' : p.platform_key;
+        (p.platform_key === 'google' || p.platform_key === 'google_ads') ? 'Google Ads' : p.platform_key;
       const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : '0.00';
       const cpc = p.clicks > 0 ? (p.spend / p.clicks).toFixed(2) : '0.00';
       const cpa = p.conversions > 0 ? (p.spend / p.conversions).toFixed(2) : '0.00';
@@ -385,7 +420,149 @@ router.post('/', async (req: Request, res: Response) => {
       [randomUUID(), activeConversationId, message]
     );
 
-    // Build Context
+    const normalized = (String(message || '')).toLowerCase().normalize('NFD').replace(/[^\w\s]/g, '').replace(/[\u0300-\u036f]/g, '');
+
+    const asksActiveCount = (
+      (normalized.includes('quantas') || normalized.includes('quantos') || normalized.includes('numero') || normalized.includes('número') || normalized.includes('quantidade') || normalized.includes('qtd')) &&
+      normalized.includes('campanh') &&
+      (normalized.includes('ativ') || normalized.includes('online') || normalized.includes('rodando') || normalized.includes('ligada'))
+    );
+
+    if (asksActiveCount) {
+      const countRes = await pool.query(
+        `select
+           count(*) filter (where upper(status) = 'ACTIVE') as active_campaigns,
+           count(*) as total_campaigns
+         from campaigns
+         where workspace_id = $1`,
+        [workspaceId]
+      );
+
+      const row = countRes.rows[0] || { active_campaigns: 0, total_campaigns: 0 };
+      const reply = `Tem ${Number(row.active_campaigns || 0)} campanhas ativas de ${Number(row.total_campaigns || 0)} no total.`;
+
+      const aiMsgId = randomUUID();
+      await pool.query(
+        `INSERT INTO chat_messages (id, conversation_id, role, content)
+         VALUES ($1, $2, 'assistant', $3) RETURNING *`,
+        [aiMsgId, activeConversationId, reply]
+      );
+
+      return res.status(200).json({
+        success: true,
+        conversationId: activeConversationId,
+        message: {
+          id: aiMsgId,
+          conversation_id: activeConversationId,
+          role: 'assistant',
+          content: reply,
+          created_at: new Date().toISOString()
+        }
+      });
+    }
+
+    const asksInvestment = (
+      normalized.includes('invest') || normalized.includes('gasto') || normalized.includes('valor usado') || normalized.includes('quanto gast')
+    );
+
+    if (asksInvestment) {
+      let days = 30;
+      if (normalized.includes('7 dias') || normalized.includes('semana')) days = 7;
+      else if (normalized.includes('14 dias')) days = 14;
+      else if (normalized.includes('60 dias')) days = 60;
+      else if (normalized.includes('90 dias')) days = 90;
+
+      const wantsGoogle = normalized.includes('google');
+      const wantsMeta = normalized.includes('meta') || normalized.includes('facebook') || normalized.includes('instagram');
+      const workspaceDbId = workspaceId || getWorkspaceEnvId();
+
+      async function calcSpendFor(platformKey: 'meta' | 'google_ads'): Promise<number> {
+        const r = await pool.query(
+          `with account_ids as (
+             select id from platform_accounts
+             where workspace_id = $1 and platform_key = $2
+               and coalesce(name, '') not ilike '%demo%'
+           ),
+           pm_dedup as (
+             select * from (
+               select
+                 pm.workspace_id,
+                 pm.platform_account_id,
+                 pm.campaign_id,
+                 pm.metric_date,
+                 pm.spend,
+                 pm.reach,
+                 pm.impressions,
+                 pm.clicks,
+                 pm.synced_at,
+                 row_number() over (
+                   partition by pm.platform_account_id, pm.campaign_id, pm.metric_date
+                   order by pm.synced_at desc nulls last
+                 ) as rn
+               from performance_metrics pm
+               where pm.workspace_id = $1
+                 and pm.platform_account_id = any (select id from account_ids)
+                 and pm.granularity = 'day'
+                 and pm.ad_set_id is null
+                 and pm.ad_id is null
+                 and pm.metric_date >= current_date - $3::int
+                 and pm.metric_date < current_date
+             ) t where rn = 1
+           ),
+           pm_agg as (
+             select
+               workspace_id,
+               campaign_id,
+               metric_date,
+               sum(impressions)::float8 as impressions,
+               sum(clicks)::float8 as clicks,
+               sum(reach)::float8 as reach,
+               sum(spend)::float8 as spend
+             from pm_dedup
+             group by workspace_id, campaign_id, metric_date
+           )
+           select coalesce(sum(pm_agg.spend), 0) as total_spend from pm_agg`,
+          [workspaceDbId, platformKey, days]
+        );
+        return Number(r.rows[0]?.total_spend || 0);
+      }
+
+      let reply: string;
+      if (wantsGoogle && !wantsMeta) {
+        const totalSpend = await calcSpendFor('google_ads');
+        reply = `Investimento dos últimos ${days} dias (Google): R$ ${totalSpend.toFixed(2)}`;
+      } else if (wantsMeta && !wantsGoogle) {
+        const totalSpend = await calcSpendFor('meta');
+        reply = `Investimento dos últimos ${days} dias (Meta): R$ ${totalSpend.toFixed(2)}`;
+      } else {
+        const [metaSpend, googleSpend] = await Promise.all([
+          calcSpendFor('meta'),
+          calcSpendFor('google_ads')
+        ]);
+        const total = metaSpend + googleSpend;
+        reply = `Investimento dos últimos ${days} dias (Total): R$ ${total.toFixed(2)} | Meta: R$ ${metaSpend.toFixed(2)} | Google: R$ ${googleSpend.toFixed(2)}`;
+      }
+
+      const aiMsgId = randomUUID();
+      await pool.query(
+        `INSERT INTO chat_messages (id, conversation_id, role, content)
+         VALUES ($1, $2, 'assistant', $3) RETURNING *`,
+        [aiMsgId, activeConversationId, reply]
+      );
+
+      return res.status(200).json({
+        success: true,
+        conversationId: activeConversationId,
+        message: {
+          id: aiMsgId,
+          conversation_id: activeConversationId,
+          role: 'assistant',
+          content: reply,
+          created_at: new Date().toISOString()
+        }
+      });
+    }
+
     const context = await buildContext(workspaceId);
 
     // Fetch History (Last 10 messages)

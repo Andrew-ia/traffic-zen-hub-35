@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
 
-function getWorkspaceId(): string {
+function getWorkspaceId(req: Request): string {
+  const fromQuery = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : undefined;
   const wid =
+    (fromQuery && fromQuery.trim()) ||
     process.env.META_WORKSPACE_ID ||
     process.env.WORKSPACE_ID ||
     process.env.SUPABASE_WORKSPACE_ID ||
@@ -12,7 +14,7 @@ function getWorkspaceId(): string {
   if (!wid) {
     // Provide a clearer error to aid local dev troubleshooting.
     throw new Error(
-      'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
+      'Missing workspace id (query param or env). Provide ?workspaceId=... or set META_WORKSPACE_ID / WORKSPACE_ID / VITE_WORKSPACE_ID'
     );
   }
   return wid.trim();
@@ -54,7 +56,7 @@ async function resolveAccountIds(pool: any, workspaceId: string, platform: strin
 export async function getAggregateMetrics(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId();
+    const workspaceId = getWorkspaceId(req);
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
@@ -138,6 +140,8 @@ export async function getAggregateMetrics(req: Request, res: Response) {
             and pm.ad_id is null
             and pm.metric_date >= current_date - $3::int
             and pm.metric_date < current_date
+            and pm.campaign_id is not null
+            and pm.campaign_id is not null
         ) t where rn = 1
       ),
       pm_agg as (
@@ -150,13 +154,13 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           sum(reach)::float8 as reach,
           sum(spend)::float8 as spend
         from pm_dedup
-        where exists (
-          select 1 from campaigns c
-          where c.id = campaign_id
-            and (
-              $5::text[] is not null and upper(c.objective) = any($5::text[])
-              or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
-            )
+        where (
+          $5::text[] is null
+          or exists (
+            select 1 from campaigns c
+            where c.id = campaign_id
+              and upper(c.objective) = any($5::text[])
+          )
         )
         group by workspace_id, campaign_id, metric_date
       ),
@@ -269,6 +273,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           and kpi.platform_account_id = any($2::uuid[])
           and kpi.metric_date >= current_date - $3::int
           and kpi.metric_date < current_date
+          and kpi.campaign_id is not null
           and kpi.ad_set_id is null
           and kpi.ad_id is null
           and (
@@ -278,13 +283,13 @@ export async function getAggregateMetrics(req: Request, res: Response) {
               where c.id = kpi.campaign_id and c.status = $4
             )
           )
-          and exists (
-            select 1 from campaigns c
-            where c.id = kpi.campaign_id
-              and (
-                $5::text[] is not null and upper(c.objective) = any($5::text[])
-                or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
-              )
+          and (
+            $5::text[] is null
+            or exists (
+              select 1 from campaigns c
+              where c.id = kpi.campaign_id
+                and upper(c.objective) = any($5::text[])
+            )
           )
       ),
       kpi_data as (
@@ -321,12 +326,12 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       from kpi_data
       left join pm_agg on pm_agg.workspace_id = $1 and pm_agg.campaign_id = kpi_data.campaign_id and pm_agg.metric_date = kpi_data.metric_date
       left join pm_steps on pm_steps.workspace_id = $1 and pm_steps.campaign_id = kpi_data.campaign_id and pm_steps.metric_date = kpi_data.metric_date
-      join campaigns c on c.id = kpi_data.campaign_id
+      left join campaigns c on c.id = kpi_data.campaign_id
       where (
         $4::text is null or c.status = $4
       ) and (
-        $5::text[] is not null and upper(c.objective) = any($5::text[])
-        or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
+        $5::text[] is null
+        or (c.id is not null and upper(c.objective) = any($5::text[]))
       )
       `,
       [workspaceId, accountIds, days, status && status !== 'all' ? status : null, objectiveAliases]
@@ -394,7 +399,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
 export async function getTimeSeriesMetrics(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId();
+    const workspaceId = getWorkspaceId(req);
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
@@ -456,8 +461,8 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
           select 1 from campaigns c
           where c.id = campaign_id
             and (
-              $5::text[] is not null and upper(c.objective) = any($5::text[])
-              or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
+              $5::text[] is null
+              or upper(c.objective) = any($5::text[])
             )
         )
         group by workspace_id, campaign_id, metric_date
@@ -474,6 +479,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
           and kpi.platform_account_id = any($2::uuid[])
           and kpi.metric_date >= current_date - $3::int
           and kpi.metric_date < current_date
+          and kpi.campaign_id is not null
           and (
             $4::text is null
             or exists (
@@ -487,7 +493,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
               where c.id = kpi.campaign_id
                 and (
                   $5::text[] is not null and upper(c.objective) = any($5::text[])
-                  or $5::text[] is null and upper(c.objective) <> 'UNKNOWN'
+                  or $5::text[] is null
                 )
             )
           )
@@ -546,7 +552,7 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
 export async function getAggregateMetricsByObjective(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId();
+    const workspaceId = getWorkspaceId(req);
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
@@ -580,6 +586,7 @@ export async function getAggregateMetricsByObjective(req: Request, res: Response
           and kpi.platform_account_id = any($2::uuid[])
           and kpi.metric_date >= current_date - $3::int
           and kpi.metric_date < current_date
+          and kpi.campaign_id is not null
           and kpi.ad_set_id is null
           and kpi.ad_id is null
         group by kpi.campaign_id, objective, result_label
@@ -592,7 +599,7 @@ export async function getAggregateMetricsByObjective(req: Request, res: Response
         sum(k.result_value)::float8 as total_results,
         sum(k.revenue)::float8 as total_revenue
       from kpi k
-      join campaigns c on c.id = k.campaign_id
+      left join campaigns c on c.id = k.campaign_id
       where (${status && status !== 'all' ? 'c.status = $4 and ' : ''}1=1)
       group by k.objective, k.result_label
       order by total_spend desc nulls last
@@ -602,7 +609,7 @@ export async function getAggregateMetricsByObjective(req: Request, res: Response
         : [workspaceId, accountIds, days]
     );
 
-    const data = rows.map((r) => {
+    const data = rows.map((r: any) => {
       const totalSpend = Number(r.total_spend || 0);
       const totalResults = Number(r.total_results || 0);
       const totalRevenue = Number(r.total_revenue || 0);
