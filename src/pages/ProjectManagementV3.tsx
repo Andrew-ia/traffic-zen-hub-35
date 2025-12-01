@@ -102,6 +102,14 @@ export default function ProjectManagementV3() {
   const [collapsedFoldersOverview, setCollapsedFoldersOverview] = useState<Set<string>>(new Set());
   const [collapsedListsOverview, setCollapsedListsOverview] = useState<Set<string>>(new Set());
 
+  // Initialize all folders as collapsed (closed) on first load
+  useEffect(() => {
+    if (hierarchyData?.data?.folders && collapsedFoldersOverview.size === 0) {
+      const allFolderIds = hierarchyData.data.folders.map((f: any) => f.id);
+      setCollapsedFoldersOverview(new Set(allFolderIds));
+    }
+  }, [hierarchyData?.data?.folders]);
+
   // Removido: criação automática do exemplo Black Friday
 
   // Task detail modal state
@@ -1276,12 +1284,21 @@ export default function ProjectManagementV3() {
                                 <div className="px-3 py-2 text-sm text-muted-foreground">Nenhuma tarefa</div>
                               ) : (
                                 list.tasks.map((t) => (
-                                  <button
+                                  <div
                                     key={t.id}
+                                    role="button"
+                                    tabIndex={0}
                                     className="w-full text-left px-3 py-2 hover:bg-muted/30 flex items-center justify-between"
                                     onClick={() => {
                                       setSelectedTask(t);
                                       setTaskModalOpen(true);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setSelectedTask(t);
+                                        setTaskModalOpen(true);
+                                      }
                                     }}
                                   >
                                     <div className="flex items-center gap-2">
@@ -1312,7 +1329,7 @@ export default function ProjectManagementV3() {
                                         </Button>
                                       )}
                                     </div>
-                                  </button>
+                                  </div>
                                 ))
                               )}
                             </div>

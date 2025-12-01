@@ -36,15 +36,15 @@ interface CampaignQueryRow {
   updated_at: string | null;
   // Supabase relationship select may return a single object or an array depending on FK setup
   platform_accounts:
-    | {
-        name: string | null;
-        platform_key: string | null;
-      }
-    | {
-        name: string | null;
-        platform_key: string | null;
-      }[]
-    | null;
+  | {
+    name: string | null;
+    platform_key: string | null;
+  }
+  | {
+    name: string | null;
+    platform_key: string | null;
+  }[]
+  | null;
 }
 
 export interface CampaignQueryResult {
@@ -52,13 +52,7 @@ export interface CampaignQueryResult {
   total: number;
 }
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
-export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult<CampaignQueryResult> {
+export function useCampaigns(workspaceId: string | null, options: CampaignQueryOptions = {}): UseQueryResult<CampaignQueryResult> {
   const {
     status = "all",
     search = "",
@@ -74,8 +68,12 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
   const normalizedAccountId = accountId && accountId !== "all" ? accountId : "all";
 
   return useQuery({
-    queryKey: ["campaigns", platform, status, search, page, pageSize, objective, normalizedDateRange, normalizedAccountId],
+    queryKey: ["campaigns", workspaceId, platform, status, search, page, pageSize, objective, normalizedDateRange, normalizedAccountId],
+    enabled: !!workspaceId,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
     queryFn: async (): Promise<CampaignQueryResult> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       let query = supabase
         .from("campaigns")
         .select(
@@ -93,7 +91,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
           `,
           { count: "exact" },
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("source", "synced");
 
       if (status !== "all") {
@@ -117,7 +115,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         const { data: platformAccounts } = await supabase
           .from("platform_accounts")
           .select("id,name")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .eq("platform_key", platform);
 
         const accountIds = (platformAccounts || [])
@@ -126,7 +124,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         if (accountIds.length > 0) {
           query = query.in("platform_account_id", accountIds);
         } // Caso não existam contas da plataforma, não aplicar filtro por platform_account_id;
-          // continuaremos a filtrar pelo platformKey após o mapeamento
+        // continuaremos a filtrar pelo platformKey após o mapeamento
       }
 
       query = query.order("status", { ascending: true }).order("updated_at", { ascending: false });
@@ -156,7 +154,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         let kpiQuery = supabase
           .from('v_campaign_kpi')
           .select('campaign_id')
-          .eq('workspace_id', WORKSPACE_ID)
+          .eq('workspace_id', workspaceId)
           .gte('metric_date', fromDate)
           .lte('metric_date', toDate);
 
@@ -195,7 +193,7 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
             `,
             { count: 'exact' }
           )
-          .eq('workspace_id', WORKSPACE_ID)
+          .eq('workspace_id', workspaceId)
           .eq('source', 'synced');
 
         if (status !== 'all') {
@@ -238,14 +236,14 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
         // Split campaign IDs into chunks to avoid URL length limits
         const chunkSize = 10;
         const allKpiData: CampaignKPIRow[] = [];
-        
+
         for (let i = 0; i < campaignIds.length; i += chunkSize) {
           const chunk = campaignIds.slice(i, i + chunkSize);
-          
+
           let kpiQueryBuilder = supabase
             .from('v_campaign_kpi')
             .select('campaign_id, result_label, result_value, cost_per_result, spend, roas')
-            .eq('workspace_id', WORKSPACE_ID)
+            .eq('workspace_id', workspaceId)
             .is('ad_set_id', null)
             .is('ad_id', null)
             .in('campaign_id', chunk)
@@ -257,12 +255,12 @@ export function useCampaigns(options: CampaignQueryOptions = {}): UseQueryResult
           }
 
           const { data: chunkData, error: chunkError } = await kpiQueryBuilder;
-          
+
           if (!chunkError && chunkData) {
             allKpiData.push(...(chunkData as CampaignKPIRow[]));
           }
         }
-        
+
         kpiData = allKpiData;
       }
 

@@ -4,21 +4,10 @@ import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 import { getPool } from '../../config/database.js';
 import { randomUUID } from 'crypto';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 const router = Router();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
-
-function getWorkspaceEnvId(): string {
-  const wid =
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    process.env.VITE_WORKSPACE_ID;
-  if (!wid) {
-    throw new Error('Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID');
-  }
-  return wid.trim();
-}
 
 async function buildContext(workspaceId: string): Promise<string> {
   const pool = getPool();
@@ -380,14 +369,16 @@ TOP CAMPAIGNS BY ROI:
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { message, conversationId, workspaceId } = req.body;
+    const { id: resolvedWorkspaceId } = resolveWorkspaceId(req);
+    const currentWorkspaceId = (workspaceId as string | undefined) || resolvedWorkspaceId;
     const userId = (req as any).user?.id || 'system'; // Fallback to 'system' if no auth
 
     if (!message) {
       return res.status(400).json({ success: false, error: 'Message is required' });
     }
 
-    if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
+    if (!currentWorkspaceId) {
+      return res.status(400).json({ success: false, error: 'Workspace ID is required. Send workspaceId in body/query/header.' });
     }
 
     // Check for API key
@@ -408,7 +399,7 @@ router.post('/', async (req: Request, res: Response) => {
       const newConv = await pool.query(
         `INSERT INTO chat_conversations (id, workspace_id, user_id, title) 
          VALUES ($1, $2, $3, $4) RETURNING id`,
-        [randomUUID(), workspaceId, userId, title]
+        [randomUUID(), currentWorkspaceId, userId, title]
       );
       activeConversationId = newConv.rows[0].id;
     }
@@ -435,7 +426,7 @@ router.post('/', async (req: Request, res: Response) => {
            count(*) as total_campaigns
          from campaigns
          where workspace_id = $1`,
-        [workspaceId]
+        [currentWorkspaceId]
       );
 
       const row = countRes.rows[0] || { active_campaigns: 0, total_campaigns: 0 };
@@ -474,7 +465,7 @@ router.post('/', async (req: Request, res: Response) => {
 
       const wantsGoogle = normalized.includes('google');
       const wantsMeta = normalized.includes('meta') || normalized.includes('facebook') || normalized.includes('instagram');
-      const workspaceDbId = workspaceId || getWorkspaceEnvId();
+      const workspaceDbId = currentWorkspaceId;
 
       async function calcSpendFor(platformKey: 'meta' | 'google_ads'): Promise<number> {
         const r = await pool.query(
@@ -563,7 +554,7 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const context = await buildContext(workspaceId);
+    const context = await buildContext(currentWorkspaceId);
 
     // Fetch History (Last 10 messages)
     const historyRes = await pool.query(
@@ -577,33 +568,30 @@ router.post('/', async (req: Request, res: Response) => {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are an expert Digital Marketing Analyst and Strategist for the "Traffic Zen Hub" platform.
+        content: `You are an expert Digital Marketing Analyst for "Traffic Zen Hub" with FULL ACCESS to real campaign data.
+
+🚨 CRITICAL: You MUST ALWAYS use the specific data below. NEVER say "I dont have access" or give generic advice.
 
 YOUR ROLE:
-- Analyze campaign performance data and provide actionable insights
-- Identify trends, anomalies, and optimization opportunities
-- Suggest specific actions to improve ROAS, reduce CPA, and increase conversions
-- Compare platforms (Meta vs Google) and recommend budget allocation
-- Highlight underperforming campaigns/creatives that need attention
+- Analyze ACTUAL campaign performance from the data provided
+- Give SPECIFIC recommendations using REAL campaign names and numbers
+- When asked about pausing campaigns, check the data and recommend SPECIFIC ones by name
 
-ANALYSIS APPROACH:
-1. Always provide context and reasoning for your insights
-2. Use specific numbers from the data to support your recommendations
-3. Prioritize actionable advice over generic observations
-4. When comparing, explain WHY one option is better
-5. Identify both quick wins and long-term strategies
+ANALYSIS RULES:
+1. ALWAYS reference specific campaign names and numbers
+2. When asked "should I pause?", give YES/NO with specific campaign names and their CPAs
+3. Use EXACT campaign names from the data
 
-RESPONSE STYLE:
-- Be concise but comprehensive
-- Use bullet points for clarity
-- Format monetary values as R$ (BRL)
-- Highlight critical issues with emphasis
-- End with clear next steps when appropriate
+RESPONSE FORMAT:
+- Start with direct answers using real data
+- Example: "SIM, pause estas campanhas: [Campaign X] (CPA: R$Y)"
+- Use bullet points with SPECIFIC names and metrics
+- NEVER give generic advice - always cite specific numbers
 
 AVAILABLE DATA (Last 30 Days):
 ${context}
 
-If the user asks about something not in the data, politely explain what data you DO have access to and offer to analyze that instead.`
+🎯 YOU HAVE ALL THIS DATA. USE IT! Reference specific campaigns, numbers, and metrics in EVERY response.`
       }
     ];
 
