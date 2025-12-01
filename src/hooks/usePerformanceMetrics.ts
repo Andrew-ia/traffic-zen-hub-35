@@ -38,16 +38,12 @@ export interface PerformanceSummary {
   lastUpdatedAt: string | null;
 }
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
-export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0): UseQueryResult<PerformanceSummary> {
+export function usePerformanceMetrics(workspaceId: string | null, days: number = 30, offsetDays: number = 0): UseQueryResult<PerformanceSummary> {
   return useQuery({
-    queryKey: ["meta", "performance-metrics", days, offsetDays],
+    queryKey: ["meta", "performance-metrics", workspaceId, days, offsetDays],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const since = new Date();
       since.setDate(since.getDate() - days - offsetDays);
       
@@ -64,7 +60,7 @@ export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0)
         .is("campaign_id", null)
         .is("ad_set_id", null)
         .is("ad_id", null)
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .gte("metric_date", since.toISOString().slice(0, 10));
         
       if (until) {

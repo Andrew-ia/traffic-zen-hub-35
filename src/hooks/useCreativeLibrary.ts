@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface CreativeMetrics {
   spend: number;
   impressions: number;
@@ -91,13 +85,16 @@ function parseNumber(value: string | number | null | undefined): number {
 }
 
 export function useCreativeLibrary(
+  workspaceId: string | null,
   options: UseCreativeLibraryOptions = {},
 ): UseQueryResult<CreativeOverview[]> {
   const { days = 30, platformKey, onlyType, includeAssociations = true, limit = 200 } = options;
 
   return useQuery({
-    queryKey: ["creatives", { days, platformKey }],
+    queryKey: ["creatives", workspaceId, { days, platformKey }],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<CreativeOverview[]> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const end = new Date();
       end.setHours(0, 0, 0, 0);
       const start = new Date(end);
@@ -134,7 +131,7 @@ export function useCreativeLibrary(
       const creativeQuery = supabase
         .from("creative_assets")
         .select(includeAssociations ? baseSelect + assocSelect : baseSelect)
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(limit);
 
@@ -145,7 +142,7 @@ export function useCreativeLibrary(
       const performanceQuery = supabase
         .from("v_creative_performance")
         .select("creative_id, metric_date, platform_key, spend, impressions, clicks, conversions, revenue")
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .gte("metric_date", fromDate)
         .lte("metric_date", toDate);
 

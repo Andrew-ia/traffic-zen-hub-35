@@ -7,12 +7,6 @@ import {
   type MetaExtraMetrics,
 } from "@/lib/conversionMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface AdMetricPoint {
   date: string;
   impressions: number;
@@ -53,18 +47,21 @@ export interface AdMetricsOptions {
   granularity?: "day" | "week" | "month" | "lifetime";
 }
 
-export function useAdMetrics(options: AdMetricsOptions = {}): UseQueryResult<AdMetricsSummary> {
+export function useAdMetrics(workspaceId: string | null, options: AdMetricsOptions = {}): UseQueryResult<AdMetricsSummary> {
   const { adId, startDate, endDate, granularity = "day" } = options;
   const startKey = startDate instanceof Date ? startDate.toISOString() : startDate ?? "auto";
   const endKey = endDate instanceof Date ? endDate.toISOString() : endDate ?? "auto";
   const hasCustomStart = Boolean(startDate);
 
   return useQuery({
-    queryKey: ["ad", adId, "metrics", granularity, startKey, endKey],
-    enabled: Boolean(adId),
+    queryKey: ["ad", workspaceId, adId, "metrics", granularity, startKey, endKey],
+    enabled: Boolean(adId && workspaceId),
     queryFn: async (): Promise<AdMetricsSummary> => {
       if (!adId) {
         throw new Error("Missing ad id");
+      }
+      if (!workspaceId) {
+        throw new Error("Workspace não selecionado");
       }
 
       const resolvedEnd = endDate ? new Date(endDate) : new Date();
@@ -95,7 +92,7 @@ export function useAdMetrics(options: AdMetricsOptions = {}): UseQueryResult<AdM
             extra_metrics
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("ad_id", adId)
         .eq("granularity", granularity)
         .gte("metric_date", startIso)

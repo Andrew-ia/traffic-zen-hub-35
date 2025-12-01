@@ -13,14 +13,17 @@ import { FunnelCard, type FunnelType } from "@/components/platform/FunnelCard";
 import { ObjectiveKPICard, ObjectiveKPIGrid } from "@/components/platform/ObjectiveKPICard";
 import { usePlatformMetrics, useTimeSeries, useDemographics, useMetricsByObjective } from "@/hooks/usePlatformMetrics";
 import { useIntegrationOverview } from "@/hooks/useIntegrationOverview";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useWorkspace } from "@/hooks/useWorkspace";
 
 const PAGE_SIZE = 10;
 
 export default function MetaAds() {
   const navigate = useNavigate();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
   const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -65,7 +68,7 @@ export default function MetaAds() {
   );
 
   // Carregar contas da integração (dashboard) para alinhar com filtro de contas
-  const { data: integrationOverview } = useIntegrationOverview();
+  const { data: integrationOverview } = useIntegrationOverview(workspaceId);
   const metaAccounts = (integrationOverview?.platformAccounts ?? [])
     .filter((acc) => acc.platform_key === "meta" && !/\bdemo\b/i.test(String(acc.name || "")))
     .map((acc) => ({ id: acc.id, name: acc.name ?? acc.id }));
@@ -90,8 +93,7 @@ export default function MetaAds() {
   const effectiveObjectiveFilter =
     objectiveFilter === "all" ? funnelTypeObjectiveMap[funnelType] : objectiveFilter;
 
-
-  const { data, isLoading, error } = useCampaigns({
+  const { data, isLoading, error } = useCampaigns(workspaceId, {
     status: statusFilter,
     search: debouncedSearch,
     page,
@@ -103,7 +105,7 @@ export default function MetaAds() {
   });
 
   // Buscar métricas agregadas
-  const { data: metrics, isLoading: metricsLoading } = usePlatformMetrics({
+  const { data: metrics, isLoading: metricsLoading } = usePlatformMetrics(workspaceId, {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
@@ -112,7 +114,7 @@ export default function MetaAds() {
   });
 
   // Buscar dados de série temporal
-  const { data: timeSeriesData } = useTimeSeries({
+  const { data: timeSeriesData } = useTimeSeries(workspaceId, {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
@@ -122,7 +124,7 @@ export default function MetaAds() {
   });
 
   // Buscar dados demográficos
-  const { data: demographics, isLoading: demographicsLoading } = useDemographics({
+  const { data: demographics, isLoading: demographicsLoading } = useDemographics(workspaceId, {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
@@ -130,12 +132,21 @@ export default function MetaAds() {
   });
 
   // Buscar métricas por objetivo (só quando filtro = "all")
-  const { data: metricsByObjective, isLoading: objectiveMetricsLoading } = useMetricsByObjective({
+  const { data: metricsByObjective, isLoading: objectiveMetricsLoading } = useMetricsByObjective(workspaceId, {
     platform: "meta",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
   });
+
+  if (!workspaceId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Meta Ads</h1>
+        <p className="text-muted-foreground">Selecione um workspace no topo para ver os dados.</p>
+      </div>
+    );
+  }
 
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
@@ -158,7 +169,7 @@ export default function MetaAds() {
           return 0;
       }
     }
-    
+
     // Para filtros específicos, mapear totalResults para a métrica correta
     switch (funnelType) {
       case 'leads':
@@ -181,7 +192,7 @@ export default function MetaAds() {
     impressions: metrics?.impressions ?? 0,
     clicks: metrics?.clicks ?? 0,
     linkClicks: metrics?.linkClicks ?? metrics?.clicks ?? 0,
-    
+
     // Métricas específicas por tipo de funil
     landingPageViews: getMetricByObjective('landingPageViews'),
     conversationsStarted: getMetricByObjective('conversationsStarted'),
@@ -200,16 +211,16 @@ export default function MetaAds() {
   const avgCostPerResult = metrics?.avgCostPerResult ?? 0;
 
   return (
-    <div className="space-y-3 pb-4">
+    <div className="space-y-6 pb-4">
       {/* Header Compacto */}
-      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Meta Ads</h1>
-          <p className="text-xs text-muted-foreground">
+      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight flex items-center">Meta Ads</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             Dashboard Facebook e Instagram
           </p>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 lg:max-w-4xl">
           <PlatformFilters
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -242,38 +253,38 @@ export default function MetaAds() {
       </div>
 
       {/* Indicador de filtro ativo */}
-          {objectiveFilter !== "all" && (
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
-              <Target className="h-4 w-4 text-blue-600" />
-              <span className="text-sm text-blue-900 dark:text-blue-100">
-                Filtrando por: <strong>{(() => {
-                  const opt = [
-                    { value: "OUTCOME_LEADS", label: "Leads" },
-                    { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
-                    { value: "MESSAGES", label: "Conversas" },
-                    { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
-                    { value: "OUTCOME_SALES", label: "Vendas" },
-                    { value: "OUTCOME_AWARENESS", label: "Reconhecimento" },
-                  ].find(o => o.value === objectiveFilter);
-                  return opt?.label || objectiveFilter;
-                })()}</strong>
-              </span>
-              <button
-                onClick={() => setObjectiveFilter("all")}
-                className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
-              >
-                Limpar filtro
-              </button>
-            </div>
-          )}
+      {objectiveFilter !== "all" && (
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
+          <Target className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-900 dark:text-blue-100">
+            Filtrando por: <strong>{(() => {
+              const opt = [
+                { value: "OUTCOME_LEADS", label: "Leads" },
+                { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                { value: "MESSAGES", label: "Conversas" },
+                { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                { value: "OUTCOME_SALES", label: "Vendas" },
+                { value: "OUTCOME_AWARENESS", label: "Reconhecimento" },
+              ].find(o => o.value === objectiveFilter);
+              return opt?.label || objectiveFilter;
+            })()}</strong>
+          </span>
+          <button
+            onClick={() => setObjectiveFilter("all")}
+            className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
+          >
+            Limpar filtro
+          </button>
+        </div>
+      )}
 
       {/* Loading State - Skeleton Animado */}
       {isLoading && metricsLoading && (
-        <div className="space-y-3">
+        <div className="space-y-6">
           {/* KPIs Skeleton */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-6">
             {[...Array(2)].map((_, i) => (
-              <Card key={i}>
+              <Card key={i} className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-3 w-20 mb-2" />
                   <Skeleton className="h-6 w-16" />
@@ -285,9 +296,9 @@ export default function MetaAds() {
           {/* Objectives Skeleton */}
           <div className="space-y-2">
             <Skeleton className="h-4 w-48" />
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               {[...Array(5)].map((_, i) => (
-                <Card key={i}>
+                <Card key={i} className="border-border/50 shadow-sm">
                   <CardContent className="p-3">
                     <Skeleton className="h-3 w-16 mb-2" />
                     <Skeleton className="h-5 w-20 mb-1" />
@@ -300,11 +311,11 @@ export default function MetaAds() {
           </div>
 
           {/* Layout 3 Colunas Skeleton */}
-          <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
             {/* Coluna Esquerda (40%) */}
-            <div className="lg:col-span-4 space-y-3">
+            <div className="lg:col-span-4 space-y-6">
               {/* Performance Chart Skeleton */}
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-32 mb-4" />
                   <Skeleton className="h-48 w-full" />
@@ -312,7 +323,7 @@ export default function MetaAds() {
               </Card>
 
               {/* Campanhas Table Skeleton */}
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-5 w-24 mb-4" />
                   <div className="space-y-3">
@@ -325,9 +336,9 @@ export default function MetaAds() {
             </div>
 
             {/* Coluna Central (35%) */}
-            <div className="lg:col-span-3 space-y-3">
+            <div className="lg:col-span-3 space-y-6">
               {/* Demographics Skeleton */}
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-32 mb-4" />
                   <div className="space-y-3">
@@ -339,9 +350,9 @@ export default function MetaAds() {
             </div>
 
             {/* Coluna Direita (25%) */}
-            <div className="lg:col-span-3 space-y-3">
+            <div className="lg:col-span-3 space-y-6">
               {/* Funnel Skeleton */}
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-24 mb-4" />
                   <div className="space-y-2">
@@ -356,7 +367,7 @@ export default function MetaAds() {
               </Card>
 
               {/* Metrics Grid Skeleton */}
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <div className="grid grid-cols-2 gap-3">
                     {[...Array(4)].map((_, i) => (
@@ -376,182 +387,191 @@ export default function MetaAds() {
 
       {/* KPIs Compactos */}
       {!(isLoading && metricsLoading) && (
-      <div className="grid grid-cols-2 gap-3">
-        <CompactKPICard
-          title="Investimento"
-          value={new Intl.NumberFormat("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-            maximumFractionDigits: 0,
-          }).format(totalSpend)}
-          icon={DollarSign}
-          loading={metricsLoading}
-        />
-        <CompactKPICard
-          title="Campanhas"
-          value={(metrics?.activeCampaigns ?? total).toString()}
-          icon={Wallet}
-          loading={metricsLoading || isLoading}
-        />
-      </div>
+        <div className="grid grid-cols-2 gap-6">
+          <CompactKPICard
+            title="Investimento"
+            value={new Intl.NumberFormat("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+              maximumFractionDigits: 0,
+            }).format(totalSpend)}
+            icon={DollarSign}
+            loading={metricsLoading}
+          />
+          <CompactKPICard
+            title="Campanhas"
+            value={(metrics?.activeCampaigns ?? total).toString()}
+            icon={Wallet}
+            loading={metricsLoading || isLoading}
+          />
+        </div>
       )}
 
       {/* KPIs por Objetivo */}
       {!(isLoading && metricsLoading) && (
-      <>
-      {metricsByObjective && metricsByObjective.length > 0 && objectiveFilter === "all" && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted-foreground">
-            Desempenho por Objetivo
-          </h2>
-          <ObjectiveKPIGrid>
-            {metricsByObjective
-              .filter((objective) => objective.objective !== 'UNKNOWN' && objective.resultLabel !== 'Resultados' && objective.campaignCount > 0)
-              .map((objective) => (
-              <ObjectiveKPICard
-                key={objective.objective}
-                data={objective}
-                loading={objectiveMetricsLoading}
-              />
-            ))}
-          </ObjectiveKPIGrid>
-        </div>
-      )}
-
-      {/* Métricas Rápidas - 6 cards horizontais */}
-      {!(isLoading && metricsLoading) && (
-        <Card>
-          <CardContent className="p-3">
-            <h3 className="text-sm font-semibold mb-2">Métricas</h3>
-            <div className="grid grid-cols-6 gap-2">
-              <MetricCard
-                label="CTR"
-                value={(() => {
-                  const v = metrics?.ctr ?? 0;
-                  return v ? `${v.toFixed(2)}%` : "-";
-                })()}
-                loading={metricsLoading}
-              />
-              <MetricCard
-                label="CPC"
-                value={(() => {
-                  const v = metrics?.cpc ?? 0;
-                  return v
-                    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
-                    : "-";
-                })()}
-                loading={metricsLoading}
-              />
-              <MetricCard
-                label="CPM"
-                value={(() => {
-                  const v = metrics?.cpm ?? 0;
-                  return v
-                    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
-                    : "-";
-                })()}
-                loading={metricsLoading}
-              />
-              <MetricCard
-                label="Impressões"
-                value={metrics?.impressions ? new Intl.NumberFormat("pt-BR").format(metrics.impressions) : "-"}
-                loading={metricsLoading}
-              />
-              <MetricCard
-                label="Alcance"
-                value={metrics?.reach ? new Intl.NumberFormat("pt-BR").format(metrics.reach) : "-"}
-                loading={metricsLoading}
-              />
-              <MetricCard
-                label="Cliques"
-                value={metrics?.clicks ? new Intl.NumberFormat("pt-BR").format(metrics.clicks) : "-"}
-                loading={metricsLoading}
-              />
+        <>
+          {metricsByObjective && metricsByObjective.length > 0 && objectiveFilter === "all" && (
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold text-foreground">
+                Desempenho por Objetivo
+              </h2>
+              <ObjectiveKPIGrid>
+                {metricsByObjective
+                  .filter((objective) => objective.objective !== 'UNKNOWN' && objective.resultLabel !== 'Resultados' && objective.campaignCount > 0)
+                  .map((objective) => (
+                    <ObjectiveKPICard
+                      key={objective.objective}
+                      data={objective}
+                      loading={objectiveMetricsLoading}
+                    />
+                  ))}
+              </ObjectiveKPIGrid>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {/* Erro */}
-      {error && (
-        <Card className="border-destructive">
-          <CardContent className="py-8">
-            <div className="text-center">
-              <p className="text-destructive font-medium mb-2">
-                Erro ao carregar campanhas
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Não foi possível carregar as campanhas. Verifique suas permissões no Supabase.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          {/* Métricas Rápidas - 6 cards horizontais */}
+          {!(isLoading && metricsLoading) && (
+            <Card className="border-border/50 shadow-sm">
+              <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+                <CardTitle className="text-base font-semibold">Métricas Gerais</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <MetricCard
+                    label="CTR"
+                    value={(() => {
+                      const v = metrics?.ctr ?? 0;
+                      return v ? `${v.toFixed(2)}%` : "-";
+                    })()}
+                    loading={metricsLoading}
+                  />
+                  <MetricCard
+                    label="CPC"
+                    value={(() => {
+                      const v = metrics?.cpc ?? 0;
+                      return v
+                        ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
+                        : "-";
+                    })()}
+                    loading={metricsLoading}
+                  />
+                  <MetricCard
+                    label="CPM"
+                    value={(() => {
+                      const v = metrics?.cpm ?? 0;
+                      return v
+                        ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
+                        : "-";
+                    })()}
+                    loading={metricsLoading}
+                  />
+                  <MetricCard
+                    label="Impressões"
+                    value={metrics?.impressions ? new Intl.NumberFormat("pt-BR").format(metrics.impressions) : "-"}
+                    loading={metricsLoading}
+                  />
+                  <MetricCard
+                    label="Alcance"
+                    value={metrics?.reach ? new Intl.NumberFormat("pt-BR").format(metrics.reach) : "-"}
+                    loading={metricsLoading}
+                  />
+                  <MetricCard
+                    label="Cliques"
+                    value={metrics?.clicks ? new Intl.NumberFormat("pt-BR").format(metrics.clicks) : "-"}
+                    loading={metricsLoading}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Estado Vazio */}
-      {!isLoading && !error && campaigns.length === 0 && (
-        <Card>
-          <CardContent className="py-12">
-            <div className="text-center">
-              <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Nenhuma campanha encontrada</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {search
-                  ? `Não encontramos campanhas que correspondam a "${search}"`
-                  : "Não há campanhas Meta Ads para exibir no momento"}
-              </p>
-              {search && (
-                <button
-                  onClick={() => setSearch("")}
-                  className="text-sm text-primary hover:underline"
-                >
-                  Limpar busca
-                </button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          {/* Erro */}
+          {error && (
+            <Card className="border-destructive/50 bg-destructive/5 shadow-sm">
+              <CardContent className="py-8">
+                <div className="text-center">
+                  <p className="text-destructive font-semibold mb-2 text-lg">
+                    Erro ao carregar campanhas
+                  </p>
+                  <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                    Não foi possível carregar as campanhas. Verifique suas permissões no Supabase ou tente novamente mais tarde.
+                  </p>
+                  <Button variant="outline" className="mt-4 border-destructive/30 hover:bg-destructive/10" onClick={() => window.location.reload()}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Layout Principal - Mostrar apenas se houver campanhas */}
-      {!error && !isLoading && campaigns.length > 0 && (
-        <div className="space-y-3">
-          {/* Linha 1: Funil, Demografia (Faixa Etária) e Gênero - 3 cards horizontais */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {/* Funil */}
-            <FunnelCard
-              title="Funil"
-              funnelType={funnelType}
-              metrics={funnelMetrics}
-              loading={metricsLoading}
-              subtitle={objectiveFilter !== "all" ? `Baseado em: ${(() => {
-                const opt = [
-                  { value: "OUTCOME_LEADS", label: "Leads" },
-                  { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
-                  { value: "MESSAGES", label: "Conversas" },
-                  { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
-                  { value: "OUTCOME_SALES", label: "Vendas" },
-                ].find(o => o.value === objectiveFilter);
-                return opt?.label || objectiveFilter;
-              })()}` : undefined}
-            />
+          {/* Estado Vazio */}
+          {!isLoading && !error && campaigns.length === 0 && (
+            <Card className="border-border/50 shadow-sm border-dashed">
+              <CardContent className="py-16">
+                <div className="text-center">
+                  <div className="h-16 w-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Target className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2">Nenhuma campanha encontrada</h3>
+                  <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                    {search
+                      ? `Não encontramos campanhas que correspondam a "${search}"`
+                      : "Não há campanhas Meta Ads para exibir no momento. Crie sua primeira campanha para começar."}
+                  </p>
+                  {search ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setSearch("")}
+                    >
+                      Limpar busca
+                    </Button>
+                  ) : (
+                    <Button onClick={() => navigate("/campaigns/new/meta")} className="shadow-md hover:shadow-lg transition-all">
+                      Criar Campanha
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-            {/* Demografia - Faixa Etária */}
-            <AgeChart
-              ageData={demographics?.ageData ?? []}
-              loading={demographicsLoading}
-            />
+          {/* Layout Principal - Mostrar apenas se houver campanhas */}
+          {!error && !isLoading && campaigns.length > 0 && (
+            <div className="space-y-6">
+              {/* Linha 1: Funil, Demografia (Faixa Etária) e Gênero - 3 cards horizontais */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Funil */}
+                <FunnelCard
+                  title="Funil"
+                  funnelType={funnelType}
+                  metrics={funnelMetrics}
+                  loading={metricsLoading}
+                  subtitle={objectiveFilter !== "all" ? `Baseado em: ${(() => {
+                    const opt = [
+                      { value: "OUTCOME_LEADS", label: "Leads" },
+                      { value: "OUTCOME_ENGAGEMENT", label: "Engajamentos" },
+                      { value: "MESSAGES", label: "Conversas" },
+                      { value: "LINK_CLICKS", label: "Cliques/Tráfego" },
+                      { value: "OUTCOME_SALES", label: "Vendas" },
+                    ].find(o => o.value === objectiveFilter);
+                    return opt?.label || objectiveFilter;
+                  })()}` : undefined}
+                />
 
-            {/* Gênero */}
-            <GenderChart
-              genderData={demographics?.genderData ?? []}
-              loading={demographicsLoading}
-            />
-          </div>
+                {/* Demografia - Faixa Etária */}
+                <AgeChart
+                  ageData={demographics?.ageData ?? []}
+                  loading={demographicsLoading}
+                />
 
-          {/* Linha 2: Tabela de Campanhas - largura total */}
-          <Card className="overflow-hidden">
-            <div className="max-h-[650px] overflow-y-auto">
+                {/* Gênero */}
+                <GenderChart
+                  genderData={demographics?.genderData ?? []}
+                  loading={demographicsLoading}
+                />
+              </div>
+
+              {/* Linha 2: Tabela de Campanhas - largura total */}
               <CampaignsTable
                 title="Campanhas"
                 campaigns={campaigns}
@@ -561,13 +581,11 @@ export default function MetaAds() {
                 total={total}
                 onPageChange={setPage}
                 showCreateButton={false}
-                headerActions={<Button onClick={() => navigate("/campaigns/new/meta")}>Nova Campanha</Button>}
+                headerActions={<Button onClick={() => navigate("/campaigns/new/meta")} className="shadow-sm">Nova Campanha</Button>}
               />
             </div>
-          </Card>
-        </div>
-      )}
-      </>
+          )}
+        </>
       )}
     </div>
   );

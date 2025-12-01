@@ -23,6 +23,7 @@ interface GoogleAdsSyncButtonProps {
     size?: "default" | "sm" | "lg" | "icon";
     className?: string;
     days?: number;
+    workspaceId?: string | null;
 }
 
 export default function GoogleAdsSyncButton({
@@ -30,6 +31,7 @@ export default function GoogleAdsSyncButton({
     size = "default",
     className = "",
     days = 7,
+    workspaceId,
 }: GoogleAdsSyncButtonProps) {
     const [syncing, setSyncing] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -46,12 +48,12 @@ export default function GoogleAdsSyncButton({
 
     const handleGoogleSync = async () => {
         if (syncing) return;
-        const workspaceId = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+        const resolvedWorkspace = workspaceId || (import.meta.env.VITE_WORKSPACE_ID as string | undefined);
 
-        if (!workspaceId) {
+        if (!resolvedWorkspace) {
             toast({
                 title: "Configuração ausente",
-                description: "Defina VITE_WORKSPACE_ID para usar a sincronização.",
+                description: "Selecione um workspace ou defina VITE_WORKSPACE_ID para usar a sincronização.",
                 variant: "destructive",
             });
             return;
@@ -66,7 +68,7 @@ export default function GoogleAdsSyncButton({
             const response = await fetch(`${API_BASE}/api/google-ads/sync`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Accept: "application/json" },
-                body: JSON.stringify({ workspaceId, days }),
+                body: JSON.stringify({ workspaceId: resolvedWorkspace, days }),
             });
 
             setCurrentStage(1);

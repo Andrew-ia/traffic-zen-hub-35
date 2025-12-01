@@ -7,12 +7,6 @@ import {
   type MetaExtraMetrics,
 } from "@/lib/conversionMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface ReportSummary {
   current: {
     impressions: number;
@@ -144,10 +138,12 @@ function calculateRatios({
   return { ctr, cpa, roas };
 }
 
-export function useReportsData(days = 30): UseQueryResult<ReportsData> {
+export function useReportsData(workspaceId: string | null, days = 30): UseQueryResult<ReportsData> {
   return useQuery({
-    queryKey: ["reports", "overview", WORKSPACE_ID, days],
+    queryKey: ["reports", "overview", workspaceId, days],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const now = new Date();
       now.setHours(0, 0, 0, 0);
 
@@ -169,7 +165,7 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         supabase
           .from("performance_metrics")
           .select("platform_account_id, metric_date, impressions, clicks, conversions, spend, conversion_value, extra_metrics")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .is("campaign_id", null)
           .is("ad_set_id", null)
           .is("ad_id", null)
@@ -178,13 +174,13 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         supabase
           .from("platform_accounts")
           .select("id, name, platform_key")
-          .eq("workspace_id", WORKSPACE_ID),
+          .eq("workspace_id", workspaceId),
         supabase
           .from("performance_metrics")
           .select(
             "campaign_id, ad_set_id, ad_id, creative_asset_id, platform_account_id, metric_date, impressions, clicks, spend, extra_metrics",
           )
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .not("ad_set_id", "is", null)
           .gte("metric_date", sinceIso)
           .lte("metric_date", untilIso)
@@ -192,17 +188,17 @@ export function useReportsData(days = 30): UseQueryResult<ReportsData> {
         supabase
           .from("campaigns")
           .select("id, name, objective, status")
-          .eq("workspace_id", WORKSPACE_ID),
+          .eq("workspace_id", workspaceId),
         supabase
           .from("creative_assets")
           .select("id, name, type, status")
-          .eq("workspace_id", WORKSPACE_ID),
+          .eq("workspace_id", workspaceId),
         supabase
           .from("ads_spend_google")
           .select(
             "campaign_id_google, campaign_name, campaign_status, metric_date, impressions, clicks, cost_micros, conversions, conversions_value, platform_account_id",
           )
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .gte("metric_date", sinceIso)
           .lte("metric_date", untilIso),
       ]);

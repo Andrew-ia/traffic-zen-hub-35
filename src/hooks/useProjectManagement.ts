@@ -15,7 +15,6 @@ import type {
 
 const API_BASE = resolveApiBase();
 const PM_API = `${API_BASE}/api/pm`;
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
 // ========================================
 // HIERARCHY
@@ -41,10 +40,12 @@ export interface PMHierarchyResponse {
   };
 }
 
-export function usePMHierarchy(workspaceId: string = WORKSPACE_ID || '') {
+export function usePMHierarchy(workspaceId: string | null) {
   return useQuery<PMHierarchyResponse>({
     queryKey: ['pm-hierarchy', workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       const response = await fetch(`${PM_API}/hierarchy/${workspaceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch hierarchy');
@@ -67,10 +68,12 @@ export interface PMFoldersResponse {
   data: PMFolder[];
 }
 
-export function usePMFolders(workspaceId: string = WORKSPACE_ID || '') {
+export function usePMFolders(workspaceId: string | null) {
   return useQuery<PMFoldersResponse>({
     queryKey: ['pm-folders', workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       const response = await fetch(`${PM_API}/folders/${workspaceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch folders');
@@ -80,10 +83,12 @@ export function usePMFolders(workspaceId: string = WORKSPACE_ID || '') {
   });
 }
 
-export function usePMFolder(workspaceId: string, folderId: string) {
+export function usePMFolder(workspaceId: string | null, folderId: string) {
   return useQuery<{ success: boolean; data: PMFolder }>({
     queryKey: ['pm-folder', workspaceId, folderId],
+    enabled: !!workspaceId && !!folderId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       const response = await fetch(`${PM_API}/folders/${workspaceId}/${folderId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch folder');

@@ -14,6 +14,7 @@ import {
   ChartLine,
   Folder,
   Bot,
+  Users,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -25,6 +26,7 @@ export interface NavigationItem {
 
 export const mainNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
+  { name: "Leads", href: "/leads", icon: Users, keywords: ["leads", "crm", "clientes", "contatos"] },
 
   { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },

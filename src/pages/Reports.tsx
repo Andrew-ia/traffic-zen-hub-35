@@ -9,6 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OptimizationInsights } from "@/components/insights/OptimizationInsights";
 import { useReportsData } from "@/hooks/useReportsData";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { getResultLabel } from "@/lib/kpiCalculations";
 
 function formatCurrency(value: number) {
@@ -62,12 +63,23 @@ function getSeverityVariant(severity: "low" | "medium" | "high") {
 
 export default function Reports() {
   const [days, setDays] = useState<7 | 15 | 30>(30);
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
   const {
     data: reports,
     isLoading,
     error,
-  } = useReportsData(days);
-  const { data: performance, isLoading: isLoadingPerf } = usePerformanceMetrics(days);
+  } = useReportsData(workspaceId, days);
+  const { data: performance, isLoading: isLoadingPerf } = usePerformanceMetrics(workspaceId, days);
+
+  if (!workspaceId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold">Relatórios</h1>
+        <p className="text-muted-foreground">Selecione um workspace no topo para ver os relatórios do cliente.</p>
+      </div>
+    );
+  }
 
   function exportReportsCsv() {
     try {

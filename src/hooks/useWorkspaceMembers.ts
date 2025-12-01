@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface WorkspaceMember {
   userId: string;
   name: string | null;
@@ -15,10 +9,12 @@ export interface WorkspaceMember {
   invitationStatus: string | null;
 }
 
-export function useWorkspaceMembers(): UseQueryResult<WorkspaceMember[]> {
+export function useWorkspaceMembers(workspaceId: string | null): UseQueryResult<WorkspaceMember[]> {
   return useQuery({
-    queryKey: ["workspace-members", WORKSPACE_ID],
+    queryKey: ["workspace-members", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const { data, error } = await supabase
         .from("workspace_members")
         .select(
@@ -33,7 +29,7 @@ export function useWorkspaceMembers(): UseQueryResult<WorkspaceMember[]> {
             )
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID as string)
+        .eq("workspace_id", workspaceId)
         .order("role", { ascending: true });
 
       if (error) {

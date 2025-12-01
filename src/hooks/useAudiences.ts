@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface AudienceRow {
   id: string;
   name: string;
@@ -37,12 +31,14 @@ export interface AudienceQueryParams {
   search?: string;
 }
 
-export function useAudiences(params: AudienceQueryParams = {}): UseQueryResult<AudienceResponse> {
+export function useAudiences(workspaceId: string | null, params: AudienceQueryParams = {}): UseQueryResult<AudienceResponse> {
   const { search = "" } = params;
 
   return useQuery({
-    queryKey: ["audiences", WORKSPACE_ID, search],
+    queryKey: ["audiences", workspaceId, search],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       let query = supabase
         .from("audiences")
         .select(
@@ -62,7 +58,7 @@ export function useAudiences(params: AudienceQueryParams = {}): UseQueryResult<A
             )
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("updated_at", { ascending: false });
 
       if (search) {

@@ -17,11 +17,15 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import FullscreenLoader from "@/components/ui/fullscreen-loader";
 import { resolveApiBase } from "@/lib/apiBase";
+import { useWorkspace } from "@/hooks/useWorkspace";
+
 
 const PAGE_SIZE = 10;
 
 export default function GoogleAds() {
   const API_BASE = resolveApiBase();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
   const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -43,7 +47,7 @@ export default function GoogleAds() {
     "Finalizando sincronização",
   ];
 
-  const { data: integrationOverview } = useIntegrationOverview();
+  const { data: integrationOverview } = useIntegrationOverview(workspaceId);
   const googleAccounts = (integrationOverview?.platformAccounts ?? [])
     .filter((acc) => acc.platform_key === "google_ads")
     .map((acc) => ({ id: acc.id, name: acc.name ?? acc.id }));
@@ -59,12 +63,12 @@ export default function GoogleAds() {
 
   const handleGoogleSync = async () => {
     if (syncing) return;
-    const workspaceId = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+    const wid = workspaceId;
     const days = Number(dateRange) || 7;
-    if (!workspaceId) {
+    if (!wid) {
       toast({
         title: "Configuração ausente",
-        description: "Defina VITE_WORKSPACE_ID para usar a sincronização.",
+        description: "Selecione um workspace para usar a sincronização.",
         variant: "destructive",
       });
       return;
@@ -79,7 +83,7 @@ export default function GoogleAds() {
       const response = await fetch(`${API_BASE}/api/google-ads/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ workspaceId, days }),
+        body: JSON.stringify({ workspaceId: wid, days }),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -110,7 +114,7 @@ export default function GoogleAds() {
     }
   };
 
-  const { data, isLoading, error } = useCampaigns({
+  const { data, isLoading, error } = useCampaigns(workspaceId, {
     status: statusFilter,
     search: debouncedSearch,
     page,
@@ -120,7 +124,7 @@ export default function GoogleAds() {
     accountId: accountFilter,
   });
 
-  const { data: metrics, isLoading: metricsLoading } = usePlatformMetrics({
+  const { data: metrics, isLoading: metricsLoading } = usePlatformMetrics(workspaceId, {
     platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
@@ -128,7 +132,7 @@ export default function GoogleAds() {
     objective: "all",
   });
 
-  const { data: timeSeriesData } = useTimeSeries({
+  const { data: timeSeriesData } = useTimeSeries(workspaceId, {
     platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
@@ -137,19 +141,28 @@ export default function GoogleAds() {
     objective: "all",
   });
 
-  const { data: demographics, isLoading: demographicsLoading } = useDemographics({
+  const { data: demographics, isLoading: demographicsLoading } = useDemographics(workspaceId, {
     platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     objective: "all",
   });
 
-  const { data: metricsByObjective } = useMetricsByObjective({
+  const { data: metricsByObjective } = useMetricsByObjective(workspaceId, {
     platform: "google_ads",
     dateRange: Number(dateRange),
     accountId: accountFilter,
     status: statusFilter,
   });
+
+  if (!workspaceId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold">Google Ads</h1>
+        <p className="text-sm text-muted-foreground">Selecione um workspace no topo para ver os dados.</p>
+      </div>
+    );
+  }
 
   const campaigns = data?.campaigns ?? [];
   const total = data?.total ?? campaigns.length;
@@ -178,13 +191,13 @@ export default function GoogleAds() {
   const avgCostPerResult = metrics?.avgCostPerResult ?? 0;
 
   return (
-    <div className="space-y-3 pb-4">
-      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Google Ads</h1>
-          <p className="text-xs text-muted-foreground">Dashboard campanhas Google</p>
+    <div className="space-y-6 pb-4">
+      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight flex items-center">Google Ads</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Dashboard campanhas Google</p>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 lg:max-w-4xl">
           <PlatformFilters
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -207,7 +220,7 @@ export default function GoogleAds() {
               currentStage={currentStage}
             />
           )}
-          <Button variant="outline" size="sm" onClick={handleGoogleSync} disabled={syncing}>
+          <Button variant="outline" size="sm" onClick={handleGoogleSync} disabled={syncing} className="shadow-sm">
             {syncing ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -224,10 +237,10 @@ export default function GoogleAds() {
       </div>
 
       {isLoading && metricsLoading && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
             {[...Array(2)].map((_, i) => (
-              <Card key={i}>
+              <Card key={i} className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-3 w-20 mb-2" />
                   <Skeleton className="h-6 w-16" />
@@ -236,15 +249,15 @@ export default function GoogleAds() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
-            <div className="lg:col-span-4 space-y-3">
-              <Card>
+          <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
+            <div className="lg:col-span-4 space-y-6">
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-32 mb-4" />
                   <Skeleton className="h-48 w-full" />
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-5 w-24 mb-4" />
                   <div className="space-y-3">
@@ -256,8 +269,8 @@ export default function GoogleAds() {
               </Card>
             </div>
 
-            <div className="lg:col-span-3 space-y-3">
-              <Card>
+            <div className="lg:col-span-3 space-y-6">
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-32 mb-4" />
                   <div className="space-y-3">
@@ -268,8 +281,8 @@ export default function GoogleAds() {
               </Card>
             </div>
 
-            <div className="lg:col-span-3 space-y-3">
-              <Card>
+            <div className="lg:col-span-3 space-y-6">
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <Skeleton className="h-4 w-24 mb-4" />
                   <div className="space-y-2">
@@ -283,7 +296,7 @@ export default function GoogleAds() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-border/50 shadow-sm">
                 <CardContent className="p-4">
                   <div className="grid grid-cols-2 gap-3">
                     {[...Array(4)].map((_, i) => (
@@ -302,7 +315,7 @@ export default function GoogleAds() {
       )}
 
       {!(isLoading && metricsLoading) && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-6">
           <CompactKPICard
             title="Investimento"
             value={new Intl.NumberFormat("pt-BR", {
@@ -323,10 +336,10 @@ export default function GoogleAds() {
       )}
 
       {!(isLoading && metricsLoading) && (
-        <Card>
-          <CardContent className="p-3">
-            <h3 className="text-sm font-semibold mb-2">Métricas</h3>
-            <div className="grid grid-cols-6 gap-2">
+        <Card className="border-border/50 shadow-sm">
+          <CardContent className="p-4">
+            <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider">Métricas Gerais</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <MetricCard
                 label="CTR"
                 value={(() => {
@@ -361,6 +374,11 @@ export default function GoogleAds() {
                 loading={metricsLoading}
               />
               <MetricCard
+                label="Alcance"
+                value={metrics?.reach ? new Intl.NumberFormat("pt-BR").format(metrics.reach) : "-"}
+                loading={metricsLoading}
+              />
+              <MetricCard
                 label="Cliques"
                 value={metrics?.clicks ? new Intl.NumberFormat("pt-BR").format(metrics.clicks) : "-"}
                 loading={metricsLoading}
@@ -371,27 +389,29 @@ export default function GoogleAds() {
       )}
 
       {error && (
-        <Card className="border-destructive">
+        <Card className="border-destructive/50 bg-destructive/5 shadow-sm">
           <CardContent className="py-8">
             <div className="text-center">
-              <p className="text-destructive font-medium mb-2">Erro ao carregar campanhas</p>
-              <p className="text-sm text-muted-foreground">Não foi possível carregar as campanhas. Verifique suas permissões no Supabase.</p>
+              <p className="text-destructive font-semibold mb-2 text-lg">Erro ao carregar campanhas</p>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">Não foi possível carregar as campanhas. Verifique suas permissões no Supabase.</p>
             </div>
           </CardContent>
         </Card>
       )}
 
       {!isLoading && !error && campaigns.length === 0 && (
-        <Card>
-          <CardContent className="py-12">
+        <Card className="border-border/50 shadow-sm border-dashed">
+          <CardContent className="py-16">
             <div className="text-center">
-              <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Nenhuma campanha encontrada</h3>
-              <p className="text-sm text-muted-foreground mb-4">
+              <div className="h-16 w-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Target className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-xl font-semibold mb-2">Nenhuma campanha encontrada</h3>
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
                 {search ? `Não encontramos campanhas que correspondam a "${search}"` : "Não há campanhas Google Ads para exibir no momento"}
               </p>
               {search && (
-                <button onClick={() => setSearch("")} className="text-sm text-primary hover:underline">Limpar busca</button>
+                <Button variant="outline" onClick={() => setSearch("")}>Limpar busca</Button>
               )}
             </div>
           </CardContent>
@@ -399,27 +419,23 @@ export default function GoogleAds() {
       )}
 
       {!error && !isLoading && campaigns.length > 0 && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <FunnelCard title="Funil" funnelType={"traffic"} metrics={funnelMetrics} loading={metricsLoading} />
             <AgeChart ageData={demographics?.ageData ?? []} loading={demographicsLoading} />
             <GenderChart genderData={demographics?.genderData ?? []} loading={demographicsLoading} />
           </div>
 
-          <Card className="overflow-hidden">
-            <div className="max-h-[650px] overflow-y-auto">
-              <CampaignsTable
-                title="Campanhas"
-                campaigns={campaigns}
-                isLoading={isLoading}
-                page={page}
-                pageSize={PAGE_SIZE}
-                total={total}
-                onPageChange={setPage}
-                showCreateButton={false}
-              />
-            </div>
-          </Card>
+          <CampaignsTable
+            title="Campanhas"
+            campaigns={campaigns}
+            isLoading={isLoading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onPageChange={setPage}
+            showCreateButton={false}
+          />
 
           <PerformanceChart
             data={(timeSeriesData ?? []).map((d) => ({ ...d, value: chartMetric === "spend" ? d.spend : chartMetric === "results" ? d.results : d.revenue })) as any}

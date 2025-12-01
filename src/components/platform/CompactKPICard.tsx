@@ -14,33 +14,34 @@ export function CompactKPICard({ title, value, icon: Icon, trend, trendUp, loadi
   // Mapear cores baseadas no nome do ícone
   const getIconColorClass = (icon: LucideIcon) => {
     const name = icon.name;
-    const colorMap: Record<string, { border: string; bg: string; text: string }> = {
-      DollarSign: { border: "border-l-blue-500", bg: "bg-gradient-to-br from-blue-50 to-transparent dark:from-blue-950/20", text: "text-blue-500" },
-      Target: { border: "border-l-green-500", bg: "bg-gradient-to-br from-green-50 to-transparent dark:from-green-950/20", text: "text-green-500" },
-      TrendingUp: { border: "border-l-purple-500", bg: "bg-gradient-to-br from-purple-50 to-transparent dark:from-purple-950/20", text: "text-purple-500" },
-      ShoppingCart: { border: "border-l-orange-500", bg: "bg-gradient-to-br from-orange-50 to-transparent dark:from-orange-950/20", text: "text-orange-500" },
-      Wallet: { border: "border-l-pink-500", bg: "bg-gradient-to-br from-pink-50 to-transparent dark:from-pink-950/20", text: "text-pink-500" },
+    const colorMap: Record<string, { bg: string; text: string }> = {
+      DollarSign: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-600 dark:text-blue-400" },
+      Target: { bg: "bg-green-100 dark:bg-green-900/30", text: "text-green-600 dark:text-green-400" },
+      TrendingUp: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-600 dark:text-purple-400" },
+      ShoppingCart: { bg: "bg-orange-100 dark:bg-orange-900/30", text: "text-orange-600 dark:text-orange-400" },
+      Wallet: { bg: "bg-pink-100 dark:bg-pink-900/30", text: "text-pink-600 dark:text-pink-400" },
     };
-    return colorMap[name] || { border: "border-l-primary", bg: "", text: "text-primary" };
+    return colorMap[name] || { bg: "bg-primary/10", text: "text-primary" };
   };
 
   const colors = getIconColorClass(Icon);
 
   return (
-    <Card className={`border-l-4 ${colors.border} ${colors.bg} hover:shadow-md transition-all overflow-hidden`}>
-      <CardContent className="p-4">
+    <Card className="border-border/50 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+      <CardContent className="p-4 flex items-center justify-between">
         {loading ? (
-          <div className="space-y-2">
-            <div className="h-3 bg-muted animate-pulse rounded w-16" />
+          <div className="space-y-2 w-full">
+            <div className="flex justify-between">
+              <div className="h-3 bg-muted animate-pulse rounded w-16" />
+              <div className="h-8 w-8 bg-muted animate-pulse rounded-full" />
+            </div>
             <div className="h-7 bg-muted animate-pulse rounded w-24" />
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="text-xs text-muted-foreground font-medium mb-1 truncate">
-                {title}
-              </div>
-              <div className="text-xl font-bold truncate mb-0.5">{value}</div>
+          <>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">{title}</p>
+              <div className="text-2xl font-bold tracking-tight">{value}</div>
               {trend && (
                 <div className={`text-xs font-medium flex items-center gap-1 ${trendUp ? "text-green-600" : "text-red-600"}`}>
                   <span>{trendUp ? "↑" : "↓"}</span>
@@ -48,10 +49,10 @@ export function CompactKPICard({ title, value, icon: Icon, trend, trendUp, loadi
                 </div>
               )}
             </div>
-            <div className={`flex-shrink-0 opacity-20`}>
-              <Icon className={`h-10 w-10 ${colors.text}`} />
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${colors.bg} ${colors.text}`}>
+              <Icon className="h-5 w-5" />
             </div>
-          </div>
+          </>
         )}
       </CardContent>
     </Card>

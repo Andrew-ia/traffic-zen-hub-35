@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { google } from 'googleapis';
+import { resolveWorkspaceId } from '../../../utils/workspace.js';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -9,6 +10,10 @@ const GOOGLE_ADS_SCOPES = ['https://www.googleapis.com/auth/adwords'];
 
 export async function initiateGoogleAdsAuth(req: Request, res: Response) {
   try {
+    const { id: workspaceIdFromResolver } = resolveWorkspaceId(req);
+    const workspaceIdFromQuery = typeof req.query.workspaceId === 'string' ? req.query.workspaceId.trim() : '';
+    const workspaceId = workspaceIdFromQuery || workspaceIdFromResolver || '';
+
     if (!CLIENT_ID || !CLIENT_SECRET) {
       return res.status(500).json({
         success: false,
@@ -33,7 +38,7 @@ export async function initiateGoogleAdsAuth(req: Request, res: Response) {
       access_type: 'offline',
       scope: GOOGLE_ADS_SCOPES,
       prompt: 'consent', // Force consent to get refresh token
-      state: 'google-ads-auth' // Optional state parameter for security
+      state: workspaceId || 'google-ads-auth' // carry workspace when available
     });
 
     console.log('Generated Google Ads auth URL:', authUrl);

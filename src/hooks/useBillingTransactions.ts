@@ -1,12 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface BillingTransaction {
   id: string;
   externalId: string;
@@ -34,10 +28,12 @@ interface UseBillingTransactionsParams {
   endDate?: string;
 }
 
-export function useBillingTransactions({ accountId, startDate, endDate }: UseBillingTransactionsParams) {
+export function useBillingTransactions(workspaceId: string | null, { accountId, startDate, endDate }: UseBillingTransactionsParams) {
   return useQuery({
-    queryKey: ["billing-transactions", accountId ?? "all", startDate ?? "all", endDate ?? "all"],
+    queryKey: ["billing-transactions", workspaceId, accountId ?? "all", startDate ?? "all", endDate ?? "all"],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       let query = supabase
         .from("billing_transactions")
         .select(
@@ -55,7 +51,7 @@ export function useBillingTransactions({ accountId, startDate, endDate }: UseBil
             raw_payload
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("transaction_time", { ascending: false })
         .limit(500);
 

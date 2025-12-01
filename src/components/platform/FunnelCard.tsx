@@ -92,11 +92,11 @@ export function FunnelCard({
 
   if (loading) {
     return (
-      <Card>
+      <Card className="border-border/50 shadow-sm h-full">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">{title}</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-center h-48">
+        <CardContent className="flex items-center justify-center h-64">
           <div className="animate-pulse text-muted-foreground text-xs">Carregando...</div>
         </CardContent>
       </Card>
@@ -109,72 +109,71 @@ export function FunnelCard({
   const conversionRate = firstValue > 0 ? (lastValue / firstValue) * 100 : 0;
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-2">
+    <Card className="border-border/50 shadow-sm h-full overflow-hidden flex flex-col">
+      <CardHeader className="pb-4 border-b border-border/50 bg-muted/20">
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Icon className={`h-4 w-4 ${typeConfig.color}`} />
+            <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+              <div className={`p-1.5 rounded-md bg-blue-100 dark:bg-blue-900/30 ${typeConfig.color}`}>
+                <Icon className="h-4 w-4" />
+              </div>
               {title}
             </CardTitle>
             {subtitle && (
-              <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+              <p className="text-xs text-muted-foreground mt-1 ml-9">{subtitle}</p>
             )}
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 pb-4">
-        {/* Funil visual com forma trapezoidal real */}
-        <div className="relative flex flex-col items-center space-y-0 pt-4 pb-2">
+      <CardContent className="flex-1 p-6 space-y-6">
+        <div className="space-y-6 relative">
+          {/* Linha vertical de conexão (opcional, para dar ideia de fluxo) */}
+          <div className="absolute left-[15px] top-4 bottom-4 w-0.5 bg-border/50 -z-10" />
+
           {steps.map((step, idx) => {
             const percentage = firstValue > 0 ? (step.value / firstValue) * 100 : 0;
-            // Larguras decrescentes para criar efeito de funil
-            const topWidth = idx === 0 ? 100 : Math.max(40, 100 - (idx * 20));
-            const bottomWidth = Math.max(40, 100 - ((idx + 1) * 20));
-
-            const colors = [
-              { bg: "from-blue-500 to-blue-600", border: "border-blue-600", shadow: "shadow-blue-500/30" },
-              { bg: "from-cyan-500 to-cyan-600", border: "border-cyan-600", shadow: "shadow-cyan-500/30" },
-              { bg: "from-teal-500 to-teal-600", border: "border-teal-600", shadow: "shadow-teal-500/30" },
-              { bg: "from-indigo-500 to-indigo-600", border: "border-indigo-600", shadow: "shadow-indigo-500/30" },
-              { bg: "from-purple-500 to-purple-600", border: "border-purple-600", shadow: "shadow-purple-500/30" },
-            ];
-            const color = colors[idx % colors.length];
+            const prevValue = idx > 0 ? steps[idx - 1].value : step.value;
+            const dropOff = idx > 0 ? ((step.value / prevValue) * 100) : 100;
 
             return (
-              <div key={step.label} className="w-full relative" style={{ marginTop: idx > 0 ? '8px' : '0' }}>
-                {/* Badge de percentual - movido para cima */}
-                {idx > 0 && (
-                  <div className="flex justify-center mb-1">
-                    <div className="bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-md">
-                      {percentage.toFixed(1)}%
-                    </div>
+              <div key={step.label} className="relative">
+                <div className="flex items-start gap-4">
+                  {/* Indicador de Passo */}
+                  <div className={`
+                    flex items-center justify-center w-8 h-8 rounded-full border-2 z-10 bg-background
+                    ${idx === 0 ? 'border-blue-500 text-blue-500' :
+                      idx === steps.length - 1 ? 'border-green-500 text-green-500' : 'border-muted-foreground/30 text-muted-foreground'}
+                  `}>
+                    <span className="text-xs font-bold">{idx + 1}</span>
                   </div>
-                )}
 
-                {/* Forma trapezoidal usando clip-path */}
-                <div className="flex justify-center">
-                  <div
-                    className={`relative bg-gradient-to-br ${color.bg} shadow-lg ${color.shadow} transition-all hover:scale-[1.02] hover:shadow-xl`}
-                    style={{
-                      width: `${topWidth}%`,
-                      height: '70px',
-                      clipPath: `polygon(
-                        ${(100 - topWidth) / 2}% 0%,
-                        ${100 - (100 - topWidth) / 2}% 0%,
-                        ${100 - (100 - bottomWidth) / 2}% 100%,
-                        ${(100 - bottomWidth) / 2}% 100%
-                      )`,
-                      marginTop: idx === 0 ? '0' : '-2px'
-                    }}
-                  >
-                    {/* Gradiente de brilho */}
-                    <div className="absolute inset-0 bg-gradient-to-b from-white/20 via-transparent to-black/10" />
+                  {/* Conteúdo do Passo */}
+                  <div className="flex-1 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-muted-foreground">{step.label}</span>
+                      <span className="text-sm font-bold text-foreground">{step.value.toLocaleString("pt-BR")}</span>
+                    </div>
 
-                    {/* Conteúdo */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-white px-4">
-                      <span className="text-xs font-semibold mb-0.5">{step.label}</span>
-                      <span className="text-lg font-bold">{step.value.toLocaleString("pt-BR")}</span>
+                    {/* Barra de Progresso */}
+                    <div className="h-2.5 w-full bg-muted/50 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ease-out ${idx === 0 ? 'bg-blue-500' :
+                            idx === steps.length - 1 ? 'bg-green-500' : 'bg-blue-400/70'
+                          }`}
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+
+                    {/* Detalhes de Conversão */}
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-muted-foreground">
+                        {idx === 0 ? 'Total' : `${percentage.toFixed(1)}% do total`}
+                      </span>
+                      {idx > 0 && (
+                        <span className={`font-medium ${dropOff >= 50 ? 'text-green-600' : 'text-amber-600'}`}>
+                          {dropOff.toFixed(1)}% do passo anterior
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -183,13 +182,11 @@ export function FunnelCard({
           })}
         </div>
 
-        {/* Taxa de Conversão Total */}
-        <div className="mt-4 p-3 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 rounded-lg border border-emerald-200 dark:border-emerald-800">
-          <div className="text-center">
-            <div className="text-xs text-muted-foreground font-medium mb-1">Taxa de Conversão Total</div>
-            <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-              {conversionRate.toFixed(2)}%
-            </div>
+        {/* Resumo Final */}
+        <div className="mt-6 pt-4 border-t border-border/50 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">Taxa de Conversão Global</div>
+          <div className="text-xl font-bold text-blue-600 dark:text-blue-400">
+            {conversionRate.toFixed(2)}%
           </div>
         </div>
       </CardContent>

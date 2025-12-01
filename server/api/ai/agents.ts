@@ -2,26 +2,13 @@ import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
 import { analyzeCampaignPerformance } from '../../agents/campaignPerformanceAnalyzer.js';
 import { analyzeCreativePerformance } from '../../agents/creativeOptimizer.js';
-
-function getWorkspaceId(): string {
-  const wid =
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    process.env.VITE_WORKSPACE_ID;
-
-  if (!wid) {
-    throw new Error(
-      'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
-    );
-  }
-  return wid.trim();
-}
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 // GET /api/ai/agents - Listar todos os agentes
 export async function getAgents(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { status } = req.query;
@@ -55,7 +42,8 @@ export async function getAgents(req: Request, res: Response) {
 export async function getAgentById(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(
@@ -77,7 +65,8 @@ export async function getAgentById(req: Request, res: Response) {
 // POST /api/ai/agents - Criar novo agente
 export async function createAgent(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { agent_type, name, description, schedule_frequency, config } = req.body;
@@ -104,7 +93,8 @@ export async function createAgent(req: Request, res: Response) {
 export async function updateAgent(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { name, description, status, schedule_frequency, config } = req.body;
@@ -137,7 +127,8 @@ export async function updateAgent(req: Request, res: Response) {
 export async function deleteAgent(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(
@@ -160,7 +151,8 @@ export async function deleteAgent(req: Request, res: Response) {
 export async function runAgent(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
     const { prompt } = (req.body || {}) as { prompt?: string };
 
@@ -299,7 +291,8 @@ export async function runAgent(req: Request, res: Response) {
 export async function pauseAgent(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(
@@ -325,7 +318,8 @@ export async function pauseAgent(req: Request, res: Response) {
 export async function resumeAgent(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(
@@ -351,7 +345,8 @@ export async function resumeAgent(req: Request, res: Response) {
 export async function getAgentExecutions(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { limit = 20, offset = 0 } = req.query;
@@ -383,7 +378,8 @@ export async function getAgentExecutions(req: Request, res: Response) {
 export async function getExecutionById(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(

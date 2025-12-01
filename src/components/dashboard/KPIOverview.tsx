@@ -49,21 +49,23 @@ function KPICard({ title, value, previousValue, trend, trendPercentage, icon, lo
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden border-border/50 shadow-sm hover:shadow-md transition-all duration-300">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className="h-4 w-4 text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
           {icon}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-3xl font-bold tracking-tight">{value}</div>
         {trendPercentage !== undefined && (
-          <div className={`flex items-center gap-1 text-xs ${getTrendColor(trend)}`}>
-            {getTrendIcon(trend)}
-            <span>{Math.abs(trendPercentage).toFixed(1)}%</span>
+          <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${getTrendColor(trend)}`}>
+            <span className={`flex items-center ${trend === 'up' ? 'bg-green-100 dark:bg-green-900/30' : trend === 'down' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-gray-100 dark:bg-gray-800'} px-1.5 py-0.5 rounded-full`}>
+              {getTrendIcon(trend)}
+              <span className="ml-1">{Math.abs(trendPercentage).toFixed(1)}%</span>
+            </span>
             {previousValue && (
-              <span className="text-muted-foreground">vs período anterior</span>
+              <span className="text-muted-foreground ml-1">vs anterior</span>
             )}
           </div>
         )}
@@ -108,13 +110,14 @@ function calculateTrend(current: number, previous: number): {
 
 interface KPIOverviewProps {
   days: number;
+  workspaceId: string | null;
   onRefresh?: () => void;
   refreshing?: boolean;
 }
 
-export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
-  const { data: currentData, isLoading: currentLoading } = usePerformanceMetrics(days);
-  const { data: previousData, isLoading: previousLoading } = usePerformanceMetrics(days, days);
+export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOverviewProps) {
+  const { data: currentData, isLoading: currentLoading } = usePerformanceMetrics(workspaceId, days);
+  const { data: previousData, isLoading: previousLoading } = usePerformanceMetrics(workspaceId, days, days);
 
   const isLoading = currentLoading || previousLoading || refreshing;
 

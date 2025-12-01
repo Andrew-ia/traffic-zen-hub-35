@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 interface CampaignBudgetRow {
   platform_account_id: string | null;
   daily_budget: number | null;
@@ -43,10 +37,12 @@ export interface BudgetOverview {
   }[];
 }
 
-export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
+export function useBudgetOverview(workspaceId: string | null): UseQueryResult<BudgetOverview> {
   return useQuery({
-    queryKey: ["budget", "overview"],
+    queryKey: ["budget", "overview", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const sinceIso = since.toISOString().slice(0, 10);
@@ -62,7 +58,7 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
               platform_accounts ( name )
             `,
           )
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .eq("source", "synced"),
         supabase
           .from("performance_metrics")
@@ -70,12 +66,12 @@ export function useBudgetOverview(): UseQueryResult<BudgetOverview> {
           .is("campaign_id", null)
           .is("ad_set_id", null)
           .is("ad_id", null)
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .gte("metric_date", sinceIso),
         supabase
           .from("platform_accounts")
           .select("id, name")
-          .eq("workspace_id", WORKSPACE_ID),
+          .eq("workspace_id", workspaceId),
       ]);
 
       if (campaignRes.error) {

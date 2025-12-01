@@ -17,6 +17,7 @@ import {
 import { useCampaignDetails } from "@/hooks/useCampaignDetails";
 import { useCampaignMetrics } from "@/hooks/useCampaignMetrics";
 import { useCampaignBreakdowns } from "@/hooks/useCampaignBreakdowns";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { getResultLabel, computePrimaryKpi, calculateRoas } from "@/lib/kpiCalculations";
 import { PerformanceChart } from "@/components/dashboard/PerformanceChart";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -183,12 +184,16 @@ export default function CampaignDetails() {
     [breakdownKey],
   );
 
-  const { data: details, isLoading, error } = useCampaignDetails(campaignId);
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
+  const navigate = useNavigate();
+
+  const { data: details, isLoading, error } = useCampaignDetails(workspaceId, campaignId);
   const {
     data: metrics,
     isLoading: isLoadingMetrics,
     error: metricsError,
-  } = useCampaignMetrics({
+  } = useCampaignMetrics(workspaceId, {
     campaignId,
     startDate: dateRange?.from,
     endDate: dateRange?.to,
@@ -198,7 +203,7 @@ export default function CampaignDetails() {
     data: breakdownData,
     isLoading: isLoadingBreakdown,
     error: breakdownError,
-  } = useCampaignBreakdowns({
+  } = useCampaignBreakdowns(workspaceId, {
     campaignId,
     breakdownKey,
     startDate: dateRange?.from,
@@ -228,8 +233,6 @@ export default function CampaignDetails() {
     return diff === days;
   };
 
-  const navigate = useNavigate();
-
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -237,6 +240,15 @@ export default function CampaignDetails() {
           <Clock className="h-4 w-4" />
           Carregando dados da campanha...
         </div>
+      </div>
+    );
+  }
+
+  if (!workspaceId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Campanha</h1>
+        <p className="text-muted-foreground">Selecione um workspace no topo para ver os dados da campanha.</p>
       </div>
     );
   }

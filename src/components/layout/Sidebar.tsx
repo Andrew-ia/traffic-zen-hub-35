@@ -43,7 +43,7 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
         <div className="flex items-center justify-between px-4 py-4 border-b border-border">
           {!isCollapsed && (
             <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-              Vermezzo Hub
+              Traffic Pro
             </span>
           )}
           <Button

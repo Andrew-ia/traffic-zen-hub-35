@@ -1,12 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID for financial dashboard queries.");
-}
-
 type NumericString = string | number | null;
 
 const asNumber = (value: NumericString): number | null => {
@@ -118,10 +112,12 @@ export interface FinancialDashboardPayload {
   notes: FinancialSheetNote[];
 }
 
-export function useFinancialDashboardData() {
+export function useFinancialDashboardData(workspaceId: string | null) {
   return useQuery<FinancialDashboardPayload>({
-    queryKey: ["financial-dashboard", WORKSPACE_ID],
+    queryKey: ["financial-dashboard", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const [
         entriesRes,
         monthlyRes,
@@ -135,23 +131,23 @@ export function useFinancialDashboardData() {
         supabase
           .from("financial_cashflow_entries")
           .select("*")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .order("entry_date", { ascending: false }),
         supabase
           .from("financial_cashflow_monthly")
           .select("*")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .order("year", { ascending: true })
           .order("month", { ascending: true }),
         supabase
           .from("financial_cashflow_daily")
           .select("*")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .order("reference_date", { ascending: true }),
         supabase
           .from("financial_results_monthly")
           .select("*")
-          .eq("workspace_id", WORKSPACE_ID)
+          .eq("workspace_id", workspaceId)
           .order("row_position", { ascending: true }),
         supabase
           .from("financial_plan_accounts")

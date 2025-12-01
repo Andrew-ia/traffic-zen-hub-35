@@ -24,6 +24,8 @@ import { createMetaCampaign, getMetaCustomAudiences, getMetaPageInfo, mirrorCrea
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
+import { initiateGoogleAdsAuth } from './api/integrations/google-ads/auth.js';
+import { handleGoogleAdsCallback } from './api/integrations/google-ads/callback.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
@@ -126,6 +128,7 @@ import {
   updateUserPreferences,
 } from './api/user-preferences.js';
 import leadsRouter from './api/leads.js';
+import workspacesRouter from './api/workspaces.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -178,6 +181,7 @@ app.get('/health', (req, res) => {
 
 // Public landing leads capture
 app.use('/api/leads', leadsRouter);
+app.use('/api/workspaces', workspacesRouter);
 
 // API Routes
 
@@ -206,6 +210,8 @@ app.get('/api/integrations/meta/custom-audiences/:workspaceId', getMetaCustomAud
 app.get('/api/integrations/meta/page-info/:workspaceId', getMetaPageInfo);
 app.get('/api/integrations/meta/pages/:workspaceId', listMetaPages);
 app.post('/api/creatives/mirror/:workspaceId/:assetId', mirrorCreativeAsset);
+app.get('/api/integrations/google-ads/auth', initiateGoogleAdsAuth);
+app.get('/api/integrations/google-ads/callback', handleGoogleAdsCallback);
 
 app.get('/api/drive/list/:folderId', async (req, res) => {
   try {
@@ -547,8 +553,10 @@ export default app;
 
 // Auto-start only in non-serverless environments
 if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  start();
+  start().catch((err) => {
+    console.error('Failed to start server', err);
+    process.exit(1);
+  });
 }
 
 // Graceful shutdown

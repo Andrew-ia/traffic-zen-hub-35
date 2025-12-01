@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import xlsx from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 type Row = Array<string | number | Date | null>;
 
@@ -18,16 +19,6 @@ const MONTHS = [
   'novembro',
   'dezembro',
 ];
-
-function getWorkspaceId(): string {
-  const wid =
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    process.env.VITE_WORKSPACE_ID;
-  if (!wid) throw new Error('Missing workspace id env. Set WORKSPACE_ID (or VITE_WORKSPACE_ID)');
-  return wid;
-}
 
 function getSupabase(): any {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -530,7 +521,8 @@ async function replaceTable(supabase: any, workspaceId: string, table: string, r
 
 export async function importCashflowXlsx(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) throw new Error('Missing workspace id. Send workspaceId in query/body/header.');
     const { fileData } = req.body as { fileData?: string };
     if (!fileData) {
       return res.status(400).json({ error: 'Envie fileData (base64 ou data URL) no corpo' });

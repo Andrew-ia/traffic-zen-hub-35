@@ -1,25 +1,12 @@
 import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
-
-function getWorkspaceId(): string {
-  const wid =
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    process.env.VITE_WORKSPACE_ID;
-
-  if (!wid) {
-    throw new Error(
-      'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
-    );
-  }
-  return wid;
-}
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 // GET /api/ai/insights - Listar insights com filtros
 export async function getInsights(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const {
@@ -127,7 +114,8 @@ export async function getInsights(req: Request, res: Response) {
 export async function getInsightById(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const result = await pool.query(
@@ -159,7 +147,8 @@ export async function getInsightById(req: Request, res: Response) {
 export async function updateInsightStatus(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { status, action_taken, actioned_by } = req.body;
@@ -194,7 +183,8 @@ export async function updateInsightStatus(req: Request, res: Response) {
 export async function applyInsightAction(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     const { action_id, actioned_by } = req.body;
@@ -243,7 +233,8 @@ export async function applyInsightAction(req: Request, res: Response) {
 // GET /api/ai/insights/stats - Estatísticas de insights
 export async function getInsightsStats(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     // Total de insights por status
@@ -309,7 +300,8 @@ export async function getInsightsStats(req: Request, res: Response) {
 // GET /api/ai/dashboard - Dashboard geral de IA
 export async function getAIDashboard(req: Request, res: Response) {
   try {
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     const pool = getPool();
 
     // Total de agentes ativos

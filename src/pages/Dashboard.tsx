@@ -7,13 +7,25 @@ import { DashboardLoadingSkeleton, ErrorDashboardState } from "@/components/dash
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useWorkspace } from "@/hooks/useWorkspace";
 
 export default function Dashboard() {
   const [periodDays, setPeriodDays] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
 
-  const { data: performance, isLoading: isLoadingMetrics, error } = usePerformanceMetrics(periodDays);
+  const { data: performance, isLoading: isLoadingMetrics, error } = usePerformanceMetrics(workspaceId, periodDays);
+
+  if (!workspaceId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground">Selecione um workspace no topo para ver os dados do cliente.</p>
+      </div>
+    );
+  }
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -76,12 +88,13 @@ export default function Dashboard() {
       {/* KPI Overview Section */}
       <KPIOverview 
         days={periodDays} 
+        workspaceId={workspaceId}
         onRefresh={handleRefresh}
         refreshing={refreshing}
       />
 
       {/* Objective Performance Section */}
-      <ObjectivePerformanceSection days={periodDays} />
+      <ObjectivePerformanceSection workspaceId={workspaceId} days={periodDays} />
     </div>
   );
 }

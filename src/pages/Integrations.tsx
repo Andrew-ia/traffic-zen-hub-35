@@ -28,9 +28,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useWorkspace } from "@/hooks/useWorkspace";
 
 export default function Integrations() {
-  const { data: overview, isLoading } = useIntegrationOverview();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
+  const { data: overview, isLoading } = useIntegrationOverview(workspaceId);
   const [metaDays, setMetaDays] = useState<number>(7);
   const [googleAdsDays, setGoogleAdsDays] = useState<number>(7);
 
@@ -77,6 +80,14 @@ export default function Integrations() {
     return "Sincronização pendente";
   }, [googleAdsIntegration]);
 
+  const handleRenewGoogleAdsToken = () => {
+    if (!workspaceId) {
+      alert("Selecione um workspace para renovar o token do Google Ads.");
+      return;
+    }
+    window.location.href = `/api/integrations/google-ads/auth?workspaceId=${workspaceId}`;
+  };
+
 
 
   const adsPlatforms = useMemo(() => {
@@ -110,6 +121,9 @@ export default function Integrations() {
         <p className="text-muted-foreground mt-1">
           Conecte suas plataformas de anúncios, analytics e CRM
         </p>
+        {!workspaceId && (
+          <p className="text-red-500 text-sm mt-2">Selecione um workspace no topo para ver as integrações.</p>
+        )}
       </div>
 
       <ClientConfigurationCard />
@@ -200,7 +214,7 @@ export default function Integrations() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <MetaSyncButton size="sm" days={metaDays} />
+                      <MetaSyncButton size="sm" days={metaDays} workspaceId={workspaceId ?? undefined} />
                       <MetaCredentialsDialog />
                     </div>
                   ) : platform.id === 2 ? (
@@ -219,7 +233,11 @@ export default function Integrations() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <GoogleAdsSyncButton size="sm" days={googleAdsDays} />
+                      <GoogleAdsSyncButton size="sm" days={googleAdsDays} workspaceId={workspaceId ?? undefined} />
+                      <Button variant="secondary" size="sm" onClick={handleRenewGoogleAdsToken}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Renovar token
+                      </Button>
                       <GoogleAdsCredentialsDialog />
                     </div>
                   ) : platform.connected ? (

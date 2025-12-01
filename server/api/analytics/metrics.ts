@@ -1,24 +1,6 @@
 import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
-
-function getWorkspaceId(req: Request): string {
-  const fromQuery = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : undefined;
-  const wid =
-    (fromQuery && fromQuery.trim()) ||
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    // Frontend often sets only VITE_WORKSPACE_ID; use it as a backend fallback.
-    process.env.VITE_WORKSPACE_ID;
-
-  if (!wid) {
-    // Provide a clearer error to aid local dev troubleshooting.
-    throw new Error(
-      'Missing workspace id (query param or env). Provide ?workspaceId=... or set META_WORKSPACE_ID / WORKSPACE_ID / VITE_WORKSPACE_ID'
-    );
-  }
-  return wid.trim();
-}
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 function parseDaysParam(days?: unknown): number {
   const value = Array.isArray(days) ? days[0] : days;
@@ -56,7 +38,10 @@ async function resolveAccountIds(pool: any, workspaceId: string, platform: strin
 export async function getAggregateMetrics(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId(req);
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
+    }
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
@@ -399,7 +384,10 @@ export async function getAggregateMetrics(req: Request, res: Response) {
 export async function getTimeSeriesMetrics(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId(req);
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
+    }
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;
@@ -552,7 +540,10 @@ export async function getTimeSeriesMetrics(req: Request, res: Response) {
 export async function getAggregateMetricsByObjective(req: Request, res: Response) {
   try {
     const pool = getPool();
-    const workspaceId = getWorkspaceId(req);
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
+    }
     const platform = (req.query.platform as string) || 'meta';
     const days = parseDaysParam(req.query.days);
     const accountId = req.query.accountId as string | undefined;

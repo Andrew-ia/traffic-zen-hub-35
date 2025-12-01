@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { GoogleAdsApi } from 'google-ads-api';
 import { getPool } from '../../config/database.js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 interface GoogleAdsCredentials {
   refreshToken: string;
@@ -281,11 +282,11 @@ async function upsertGoogleCampaigns(
 
 export async function syncGoogleAdsData(req: Request, res: Response) {
   try {
-    const workspaceId = (req.body.workspaceId || process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
     const days = parseInt(req.body.days || '7', 10);
 
     if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Missing workspace ID' });
+      return res.status(400).json({ success: false, error: 'Missing workspace ID. Send workspaceId in body/query/header.' });
     }
 
     console.log(`Syncing Google Ads data for workspace: ${workspaceId}, days: ${days}`);

@@ -7,12 +7,6 @@ import {
   type MetaExtraMetrics,
 } from "@/lib/conversionMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 const DEFAULT_DAYS = 30;
 const DATA_LAG_SAFETY_DAYS = 7;
 
@@ -337,10 +331,12 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
   };
 }
 
-export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryResult<ObjectivePerformanceSummary> {
+export function useObjectivePerformanceSummary(workspaceId: string | null, days = DEFAULT_DAYS): UseQueryResult<ObjectivePerformanceSummary> {
   return useQuery({
-    queryKey: ["dashboard", "objective-summary", WORKSPACE_ID, days],
+    queryKey: ["dashboard", "objective-summary", workspaceId, days],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const end = new Date();
       end.setHours(0, 0, 0, 0);
       const start = new Date(end);
@@ -354,7 +350,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         .select(
           "ad_set_id, campaign_id, platform_account_id, metric_date, impressions, clicks, ctr, spend, cpc, cpm, reach, extra_metrics, synced_at",
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("granularity", "day")
         .not("ad_set_id", "is", null)
         .gte("metric_date", fromIso)
@@ -370,7 +366,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const { data: accountsData, error: accountsError } = await supabase
         .from("platform_accounts")
         .select("id, name")
-        .eq("workspace_id", WORKSPACE_ID);
+        .eq("workspace_id", workspaceId);
 
       if (accountsError) {
         console.error("Failed to load platform accounts for objective summary", accountsError.message);

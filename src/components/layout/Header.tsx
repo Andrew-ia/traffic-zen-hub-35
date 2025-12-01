@@ -16,6 +16,7 @@ import { useResponsive } from "@/hooks/use-responsive";
 import { useAuth } from "@/hooks/useAuth";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { AvatarSelector } from "@/components/user/AvatarSelector";
+import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -110,6 +111,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               </span>
             </Button>
           )}
+        </div>
+
+        <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+          <WorkspaceSwitcher />
         </div>
 
         {/* Action Buttons */}

@@ -223,8 +223,8 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
   );
 }
 
-export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
-  const { data, isLoading, error } = useObjectivePerformanceSummary(days);
+export function ObjectivePerformanceSection({ workspaceId, days = 30 }: { workspaceId: string | null; days?: number }) {
+  const { data, isLoading, error } = useObjectivePerformanceSummary(workspaceId, days);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     engagement: false,
     traffic: false,
