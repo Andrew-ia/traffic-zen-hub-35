@@ -20,7 +20,8 @@ import {
 } from './api/integrations/simpleSync.js';
 import { directInstagramSync } from './api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
-import { createMetaCampaign, getMetaCustomAudiences, getMetaPageInfo, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
+import { createMetaCampaign, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
+import { getMetaCustomAudiences, getMetaPageInfo, getEngagementRate } from './api/integrations/meta/stubs.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
@@ -475,22 +476,11 @@ async function start() {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Server running on: http://localhost:${PORT}`);
 
-      // Worker local apenas para desenvolvimento - não funciona no Vercel (serverless)
-      if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-        try {
-          const id: any = startSimpleWorker();
-          workerIntervalId = id || null;
-          console.log(`🔧 Worker local ativado: polling de jobs em background`);
-          console.log(`   → Ambiente: desenvolvimento local`);
-        } catch (error) {
-          console.log(`🔧 Worker indisponível: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
-          console.log(`   → Sincronização funcionará apenas sob demanda via API`);
-        }
-      } else {
-        console.log(`🔧 Worker local desabilitado: ambiente serverless detectado`);
-        console.log(`   → Plataforma: ${process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : 'AWS Lambda'}`);
-        console.log(`   → Sincronização via API endpoints diretos`);
-      }
+      // Worker local desabilitado - usa Supabase Edge Functions para sincronização
+      console.log(`🔧 Worker local desabilitado: usando Supabase Edge Functions`);
+      console.log(`   → Sincronização via Edge Functions e API endpoints diretos`);
+      console.log(`   → Evita problemas de conexão desnecessários`);
+      workerIntervalId = null;
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');
@@ -513,8 +503,8 @@ async function ensureAdminUser() {
     const fullName = process.env.ADMIN_NAME || 'Founder TrafficPro';
     const workspaceId = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
 
-    if (!email || !password) {
-      console.warn('ADMIN_EMAIL/ADMIN_PASSWORD not set; using defaults for development.');
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+      console.warn('⚠️ ADMIN_EMAIL/ADMIN_PASSWORD not set. Using insecure defaults for development access.');
     }
 
     const pool = getPool();

@@ -26,15 +26,19 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 export const CONVERSION_PRIMARY_ACTIONS = [
-  CONVERSATION_STARTED_ACTION,
-  CONVERSATION_CONNECTION_ACTION,
+  CONVERSATION_STARTED_ACTION,                    // Apenas conversas INICIADAS
   "onsite_conversion.messaging_first_reply",
   "offsite_conversion.fb_pixel_lead",
   "lead",
   "omni_purchase",
 ];
 
-export const CONVERSION_FALLBACK_ACTIONS = ["action.conversion", "lead_generation", "onsite_conversion.lead"];
+export const CONVERSION_FALLBACK_ACTIONS = [
+  CONVERSATION_CONNECTION_ACTION,                 // Conexões movidas para fallback (evitar duplicação)
+  "action.conversion", 
+  "lead_generation", 
+  "onsite_conversion.lead"
+];
 
 export function getActionValueForType(
   extraMetrics: MetaExtraMetrics | null | undefined,

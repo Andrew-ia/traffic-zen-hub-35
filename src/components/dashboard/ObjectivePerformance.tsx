@@ -310,7 +310,9 @@ export function ObjectivePerformanceSection({ workspaceId, days = 30 }: { worksp
   const hasLeads =
     data.leads.whatsappConversations > 0 || data.leads.formLeads > 0 || data.leads.conversationsByPlatform.length > 0;
 
-  const hasSales = data.sales.purchases > 0 || data.sales.value > 0 || data.sales.breakdown.length > 0;
+  // Mostrar seção de vendas se houver compras OU se houver gasto em campanhas de vendas
+  // Isso permite visualizar campanhas de vendas ativas mesmo sem conversões ainda
+  const hasSales = data.sales.purchases > 0 || data.sales.value > 0 || data.sales.spend > 0 || data.sales.breakdown.length > 0;
   const hasRecognition = data.recognition.reach > 0 || data.recognition.breakdown.length > 0;
   const hasApp = data.app.installs > 0 || data.app.appEngagements > 0 || data.app.breakdown.length > 0;
   const hasExtras = data.extras.totalSpend > 0 || data.extras.totalValue > 0 || data.extras.trend.length > 0;
@@ -504,7 +506,8 @@ export function ObjectivePerformanceSection({ workspaceId, days = 30 }: { worksp
                 entries={[
                   { label: "Compras", value: data.sales.purchases },
                   { label: "Valor total", value: data.sales.value, format: "currency" },
-                  { label: "ROAS", value: data.sales.roas, format: "number" },
+                  { label: "Gasto", value: data.sales.spend, format: "currency" },
+                  { label: "ROAS", value: data.sales.roas, format: "number", hideIfZero: true },
                   {
                     label: "Custo por compra",
                     value: data.sales.costPerPurchase,

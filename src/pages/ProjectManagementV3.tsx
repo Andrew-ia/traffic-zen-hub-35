@@ -108,7 +108,7 @@ export default function ProjectManagementV3() {
       const allFolderIds = hierarchyData.data.folders.map((f: any) => f.id);
       setCollapsedFoldersOverview(new Set(allFolderIds));
     }
-  }, [hierarchyData?.data?.folders]);
+  }, [hierarchyData?.data?.folders, collapsedFoldersOverview.size]);
 
   // Removido: criação automática do exemplo Black Friday
 

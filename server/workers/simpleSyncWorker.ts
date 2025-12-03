@@ -310,14 +310,15 @@ async function pollForJobs() {
       error instanceof Error && 
       (error.message.includes('ENOTFOUND') || 
        error.message.includes('ECONNREFUSED') || 
-       error.message.includes('timeout'));
+       error.message.includes('timeout') ||
+       error.message.includes('EHOSTUNREACH') ||
+       error.message.includes('ETIMEDOUT') ||
+       error.message.includes('Connection terminated'));
     
     if (isConnectionError && consecutiveErrors <= maxConsecutiveErrors) {
-      // Log connection errors only occasionally to avoid spam
-      if (consecutiveErrors === 1 || consecutiveErrors % 3 === 0) {
-        console.warn(`⚠️  Connection issue (${consecutiveErrors}/${maxConsecutiveErrors}):`, error.message);
-      }
-    } else {
+      // Suppress connection error logs - these are network issues, not code bugs
+      return;
+    } else if (!isConnectionError) {
       console.error('Error polling for jobs:', error);
     }
     

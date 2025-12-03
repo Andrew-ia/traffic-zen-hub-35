@@ -217,8 +217,8 @@ export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOve
       {current && (
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">
-            CPM: {current.spend > 0 && current.conversions > 0
-              ? formatCurrency(current.spend / current.conversions)
+            CPM: {current.spend > 0 && current.impressions > 0
+              ? formatCurrency((current.spend / current.impressions) * 1000)
               : "N/A"}
           </Badge>
           <Badge variant="outline">

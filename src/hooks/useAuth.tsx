@@ -71,34 +71,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (authChecked) return; // Prevent multiple checks
 
-    console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
+    if (import.meta.env.DEV) console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
 
     if (token && !user) {
-      console.log('🔑 Token exists, validating...');
+      if (import.meta.env.DEV) console.log('🔑 Token exists, validating...');
 
       fetch(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}`, 'x-workspace-id': getWorkspaceId() || '' },
         signal: AbortSignal.timeout(10000)
       })
         .then(async (r) => {
-          console.log('🔍 Auth validation response:', r.status, r.ok);
+          if (import.meta.env.DEV) console.log('🔍 Auth validation response:', r.status, r.ok);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         })
         .then((data) => {
-          console.log('✅ Auth validation successful:', data);
+          if (import.meta.env.DEV) console.log('✅ Auth validation successful:', data);
           if (data?.success && data?.user) {
             setUser(data.user);
-            console.log('👤 User set:', data.user);
+            if (import.meta.env.DEV) console.log('👤 User set:', data.user);
           } else {
-            console.log('⚠️ Invalid response from auth endpoint');
+            console.warn('Invalid response from auth endpoint');
             throw new Error('Invalid auth response');
           }
           setIsLoading(false);
           setAuthChecked(true);
         })
         .catch((error) => {
-          console.log('❌ Auth validation failed, clearing session:', error.message);
+          console.warn('Auth validation failed, clearing session:', error.message);
           window.localStorage.removeItem(STORAGE_KEY);
           setToken(null);
           setUser(null);

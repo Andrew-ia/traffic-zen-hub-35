@@ -95,7 +95,6 @@ export function usePMFolder(workspaceId: string | null, folderId: string) {
       }
       return response.json();
     },
-    enabled: !!folderId,
   });
 }
 

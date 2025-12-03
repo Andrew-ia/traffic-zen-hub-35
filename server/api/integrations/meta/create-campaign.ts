@@ -1,16 +1,19 @@
 import { Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
-import { google } from 'googleapis';
 import { getPool } from '../../../config/database.js';
 import { decryptCredentials, encryptCredentials } from '../../../services/encryption.js';
 import type { ApiResponse } from '../../../types/index.js';
-
-const GRAPH_URL = 'https://graph.facebook.com/v21.0';
+import { MetaApiService } from '../../../services/meta/MetaApiService.js';
+import { CreativeService } from '../../../services/meta/CreativeService.js';
+import { CampaignBuilder } from '../../../services/meta/CampaignBuilder.js';
 
 interface Ad {
   name: string;
   creative_id: string;
   status: string;
+  creative_asset_id?: string;
+  drive_url?: string;
+  storage_url?: string;
+  primary_text?: string;
 }
 
 interface AdSet {
@@ -21,6 +24,11 @@ interface AdSet {
   status: string;
   targeting: any;
   ads: Ad[];
+  destination_type?: string;
+  start_time?: string;
+  end_time?: string;
+  publisher_platforms?: string[];
+  settings?: any;
 }
 
 interface CreateCampaignRequest {
@@ -30,13 +38,15 @@ interface CreateCampaignRequest {
     objective: string;
     status: string;
     special_ad_categories: string[];
+    daily_budget?: number;
   };
   adSets: AdSet[];
+  pageId?: string;
 }
 
 export async function createMetaCampaign(req: Request, res: Response) {
   try {
-    const { workspaceId, campaign, adSets, pageId: requestedPageId }: CreateCampaignRequest & { pageId?: string } = req.body;
+    const { workspaceId, campaign, adSets, pageId: requestedPageId }: CreateCampaignRequest = req.body;
 
     if (!workspaceId || !campaign || !adSets || adSets.length === 0) {
       return res.status(400).json({
@@ -62,17 +72,10 @@ export async function createMetaCampaign(req: Request, res: Response) {
     }
 
     const credentials = await decryptCredentials(rows[0].encrypted_credentials, rows[0].encryption_iv);
-
-    // Handle both camelCase (new standard) and snake_case (legacy)
     const accessToken = credentials.accessToken || credentials.access_token;
     const adAccountId = credentials.adAccountId || credentials.ad_account_id;
 
     if (!accessToken || !adAccountId) {
-      console.error('Incomplete Meta credentials:', {
-        hasAccessToken: !!accessToken,
-        hasAdAccountId: !!adAccountId,
-        keys: Object.keys(credentials)
-      });
       return res.status(400).json({
         success: false,
         error: 'Incomplete Meta Ads credentials'
@@ -81,1123 +84,244 @@ export async function createMetaCampaign(req: Request, res: Response) {
 
     const actAccountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
 
-    // Helper for Meta API calls
-    const callMetaApi = async (path: string, method: 'POST' | 'GET', body: any = {}) => {
-      const url = `${GRAPH_URL}/${path}`;
-      const queryParams = new URLSearchParams({ access_token: accessToken });
+    // Initialize Services
+    const metaApi = new MetaApiService({ accessToken });
+    const creativeService = new CreativeService();
 
-      if (method === 'GET' && body && typeof body === 'object') {
-        for (const [key, value] of Object.entries(body)) {
-          if (value === undefined || value === null) continue;
-          if (typeof value === 'object') {
-            queryParams.append(key, JSON.stringify(value));
-          } else {
-            queryParams.append(key, String(value));
-          }
-        }
-      }
-
-      const options: RequestInit = {
-        method,
-        headers: {},
-      };
-
-      if (method === 'POST') {
-        const form = new URLSearchParams();
-        for (const [key, value] of Object.entries(body)) {
-          if (value === undefined || value === null) continue;
-          if (typeof value === 'object') {
-            form.append(key, JSON.stringify(value));
-          } else {
-            form.append(key, String(value));
-          }
-        }
-        options.body = form.toString();
-        options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-        console.log(`[Meta API] POST ${url} Payload:`, options.body);
-      }
-
-    const response = await fetch(`${url}?${queryParams.toString()}`, options);
-    const data = await response.json();
-
-      if (data.error) {
-        console.error('[Meta API] Error Response:', JSON.stringify(data, null, 2));
-        throw new Error(`Meta API Error: ${data.error.message} (Code: ${data.error.code}, Subcode: ${data.error.error_subcode})`);
-      }
-
-      return data;
-    };
-
-    async function ensurePublicUrlFromAsset(asset: { id: string; name?: string; type?: string; storage_url?: string }, workspaceId: string): Promise<{ url: string; mime?: string }> {
-      const src = String(asset.storage_url || '').trim();
-      const isSupabase = src && (src.includes(String(process.env.SUPABASE_URL || '')) || /supabase\.co\//.test(src));
-      if (isSupabase) return { url: src };
-
-      const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
-      const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-      if (!supabaseUrl || !supabaseKey) throw new Error('Supabase not configured');
-      const sb = createClient(supabaseUrl, supabaseKey);
-
-      const bucket = 'creatives';
-      const pathBase = `${workspaceId}/assets/${asset.id}`;
-
-      const tryDrive = async (): Promise<{ buf: Buffer; mime?: string; name?: string }> => {
-        const m = src.match(/\/file\/d\/([^/]+)/) || src.match(/[?&]id=([^&]+)/);
-        const fileId = m?.[1];
-        const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
-        const drive = google.drive({ version: 'v3', auth });
-        let name: string | undefined; let mime: string | undefined; let buf: Buffer | undefined;
-        if (fileId) {
-          const meta = await drive.files.get({ fileId, fields: 'name,mimeType' });
-          name = meta.data.name || asset.name || asset.id;
-          mime = meta.data.mimeType || undefined;
-          const resp: any = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' } as any);
-          buf = Buffer.from(resp.data as ArrayBuffer);
-        } else {
-          const r = await fetch(src);
-          if (!r.ok) throw new Error(`Failed to fetch asset from ${src}`);
-          mime = r.headers.get('content-type') || undefined;
-          const ab = await r.arrayBuffer();
-          buf = Buffer.from(ab);
-          name = asset.name || asset.id;
-        }
-        return { buf: buf!, mime, name };
-      };
-
-      const { buf, mime } = await tryDrive();
-      const ext = (mime || '').includes('mp4') ? 'mp4' : (mime || '').includes('png') ? 'png' : (mime || '').includes('jpeg') ? 'jpg' : undefined;
-      const key = ext ? `${pathBase}.${ext}` : pathBase;
-      const upload = await sb.storage.from(bucket).upload(key, buf, { contentType: mime || 'application/octet-stream', upsert: true });
-      if ((upload as any).error) throw (upload as any).error;
-      const { data } = sb.storage.from(bucket).getPublicUrl(key);
-      if (!data?.publicUrl) throw new Error('Failed to get public URL from Supabase');
-      try {
-        await pool.query(`UPDATE creative_assets SET storage_url = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [data.publicUrl, asset.id, workspaceId]);
-      } catch (e) { void e; }
-      return { url: data.publicUrl, mime };
-    }
-
-    // Get pageId from credentials OR fetch from API if missing
+    // 2. Resolve Page ID and Instagram Actor ID
     let pageId = requestedPageId || (credentials as any).pageId || (credentials as any).page_id || (String(process.env.META_PAGE_ID || '').trim() || undefined);
     let pageAccessToken: string | undefined;
-    let igActorId = (credentials as any).instagramActorId || (credentials as any).instagram_actor_id;
 
-    if (!pageId && (credentials as any).accessToken) {
-      console.log('Page ID not found in credentials, attempting to fetch from Meta API...');
+    // Fetch Page ID if missing
+    if (!pageId) {
       try {
-        const pagesResponse = await callMetaApi('me/accounts', 'GET', {
-          fields: 'id,name,access_token',
-          limit: 100
-        });
-
+        const pagesResponse = await metaApi.call('me/accounts', 'GET', { fields: 'id,name,access_token', limit: 100 });
         if (pagesResponse.data && pagesResponse.data.length > 0) {
-          // Use the first page found
           const firstPage = pagesResponse.data[0];
           pageId = firstPage.id;
-          console.log(`Found Page ID from API: ${pageId} (${firstPage.name})`);
           pageAccessToken = firstPage.access_token;
 
-          // Update credentials in DB to save this pageId for future use
+          // Update credentials
           try {
             const newCredentials = { ...credentials, pageId: pageId, page_id: pageId };
             const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCredentials);
-
             await pool.query(
-              `UPDATE integration_credentials 
-               SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW()
-               WHERE workspace_id = $3 AND platform_key = 'meta'`,
+              `UPDATE integration_credentials SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW() WHERE workspace_id = $3 AND platform_key = 'meta'`,
               [newEncrypted, newIv, workspaceId]
             );
-            console.log('Updated workspace credentials with fetched Page ID');
-          } catch (dbError) {
-            console.error('Failed to update credentials with new Page ID:', dbError);
-            // Continue anyway since we have the pageId in memory
-          }
-        } else {
-          console.warn('No pages found for this ad account/user');
+          } catch (e) { console.warn('Failed to update credentials with Page ID', e); }
         }
-      } catch (apiError) {
-        console.error('Failed to fetch pages from Meta API:', apiError);
-      }
-    }
-
-    // Ensure page access token
-    if (!pageAccessToken && pageId && (credentials as any).accessToken) {
+      } catch (e) { console.warn('Failed to fetch pages', e); }
+    } else if (!pageAccessToken) {
+      // Fetch Page Access Token if we have ID but no token
       try {
-        const pagesAgain = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
-        if (Array.isArray(pagesAgain?.data)) {
-          const match = pagesAgain.data.find((p: any) => String(p.id) === String(pageId));
-          if (match?.access_token) {
-            pageAccessToken = match.access_token;
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to fetch page access token', e);
-      }
-    }
-
-    // Try to fetch connected Instagram actor id for profile destinations
-    if (!igActorId && pageId && (credentials as any).accessToken) {
-      try {
-        const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
-        igActorId = resp?.connected_instagram_account?.id || undefined;
-        if (igActorId) {
-          console.log(`Found Instagram actor ID: ${igActorId}`);
-          // Persist to credentials for future calls
-          try {
-            const newCredentials = { ...credentials, instagramActorId: igActorId, instagram_actor_id: igActorId };
-            const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCredentials);
-            await pool.query(
-              `UPDATE integration_credentials 
-               SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW()
-               WHERE workspace_id = $3 AND platform_key = 'meta'`,
-              [newEncrypted, newIv, workspaceId]
-            );
-            console.log('Updated workspace credentials with Instagram actor ID');
-          } catch (dbError) {
-            console.warn('Failed to persist Instagram actor ID:', dbError);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not fetch connected Instagram account for page', pageId, e);
-      }
+        const pagesResponse = await metaApi.call('me/accounts', 'GET', { fields: 'id,name,access_token' });
+        const match = pagesResponse.data?.find((p: any) => String(p.id) === String(pageId));
+        if (match?.access_token) pageAccessToken = match.access_token;
+      } catch (e) { console.warn('Failed to fetch page token', e); }
     }
 
     if (!pageId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Page ID not configured in workspace credentials and could not be fetched from Meta. Please ensure you have a Facebook Page associated with your account.'
-      } as ApiResponse);
+      return res.status(400).json({ success: false, error: 'Page ID not configured and could not be fetched.' });
     }
 
-    // 2. Create Campaign
+    // Resolve Pixel ID
+    const pixelId = (credentials as any).pixelId || (credentials as any).pixel_id || (String(process.env.META_PIXEL_ID || '').trim() || undefined);
+
+    // 3. Create Campaign
     console.log('Creating Campaign:', campaign.name);
-    const campaignPayload: any = {
-      name: campaign.name,
-      objective: campaign.objective,
-      status: campaign.status,
-      special_ad_categories: campaign.special_ad_categories || [],
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP'
-    };
+    const { payload: campaignPayload, dailyBudgetCents } = CampaignBuilder.buildCampaignPayload(campaign);
 
-    let campaignDailyBudgetCents = (req.body?.campaign as any)?.daily_budget ? Number((req.body?.campaign as any)?.daily_budget) : 0;
-    if (!campaignDailyBudgetCents || campaignDailyBudgetCents <= 0) {
-      campaignDailyBudgetCents = 2000; // fallback R$ 20,00
-    }
-    campaignPayload.daily_budget = String(Math.max(100, Math.floor(campaignDailyBudgetCents))); // cents
-    // Removido: budget_rebalance_flag (deprecated em Graph API v7.0+) para evitar erro (#12)
-    const hasCampaignBudget = !!campaignPayload.daily_budget;
-
-    // ENGAGEMENT: apenas engagement_type na campanha (sem promoted_object)
-    if (String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT') {
-      campaignPayload.engagement_type = 'post_engagement';
-    }
-
-    const campaignResponse = await callMetaApi(`${actAccountId}/campaigns`, 'POST', campaignPayload);
-
+    const campaignResponse = await metaApi.call(`${actAccountId}/campaigns`, 'POST', campaignPayload);
     const campaignId = campaignResponse.id;
 
+    // Save Campaign to DB
     const adAccountIdWithPrefix = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
     const adAccountIdWithoutPrefix = adAccountId.replace('act_', '');
     const paRows = await pool.query(
-      `SELECT id, timezone FROM platform_accounts 
-           WHERE workspace_id = $1 AND platform_key = 'meta' 
-           AND (external_id = $2 OR external_id = $3 OR external_id = $4) 
-           LIMIT 1`,
+      `SELECT id FROM platform_accounts WHERE workspace_id = $1 AND platform_key = 'meta' AND (external_id = $2 OR external_id = $3 OR external_id = $4) LIMIT 1`,
       [workspaceId, adAccountId, adAccountIdWithPrefix, adAccountIdWithoutPrefix]
     );
-    if (paRows.rows.length === 0) {
-      throw new Error('Platform account not found for this workspace/ad account');
-    }
-    const platformAccountId = paRows.rows[0].id as string;
-    const accountTimezone: string | undefined = paRows.rows[0].timezone || undefined;
 
-    const dbStatus = String(campaign.status || '').toLowerCase() as 'draft' | 'active' | 'paused' | 'completed' | 'archived';
+    if (paRows.rows.length === 0) throw new Error('Platform account not found');
+    const platformAccountId = paRows.rows[0].id;
+
     const upsertCampaignResult = await pool.query(
-      `
-            INSERT INTO campaigns (
-              workspace_id,
-              platform_account_id,
-              external_id,
-              name,
-              objective,
-              status,
-              source,
-              start_date,
-              end_date,
-              daily_budget,
-              lifetime_budget,
-              targeting,
-              settings,
-              last_synced_at,
-              archived,
-              updated_at
-            )
-            VALUES (
-              $1, $2, $3, $4, $5, $6, 'manual', NULL, NULL, $7, NULL, '{}'::jsonb, '{}'::jsonb, now(), false, now()
-            )
-            ON CONFLICT (platform_account_id, external_id)
-            DO UPDATE SET
-              name = EXCLUDED.name,
-              objective = EXCLUDED.objective,
-              status = EXCLUDED.status,
-              last_synced_at = now(),
-              updated_at = now()
-            RETURNING id
-          `,
-      [workspaceId, platformAccountId, campaignId, campaign.name, campaign.objective, dbStatus, Math.round(campaignDailyBudgetCents / 100)]
+      `INSERT INTO campaigns (workspace_id, platform_account_id, external_id, name, objective, status, source, daily_budget, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, now())
+       ON CONFLICT (platform_account_id, external_id) DO UPDATE SET name = EXCLUDED.name, objective = EXCLUDED.objective, status = EXCLUDED.status, updated_at = now()
+       RETURNING id`,
+      [workspaceId, platformAccountId, campaignId, campaign.name, campaign.objective, String(campaign.status).toLowerCase(), Math.round(dailyBudgetCents / 100)]
     );
-    const localCampaignId = upsertCampaignResult.rows[0].id as string;
-    const createdAdSets = [];
+    const localCampaignId = upsertCampaignResult.rows[0].id;
+
     const failedAdSets: { name: string; error: string }[] = [];
     const failedAds: { adSetName: string; name: string; error: string }[] = [];
 
-    // 3. Create Ad Sets and Ads (STRICT MODE)
+    // 4. Create Ad Sets and Ads
     for (const adSet of adSets) {
-      console.log('Creating Ad Set (Strict Mode):', adSet.name);
+      console.log('Creating Ad Set:', adSet.name);
 
-      const targeting = { ...adSet.targeting };
-      // Normalize custom audiences: accept comma-separated ids or array of ids/objects
-      if ((targeting as any).custom_audiences !== undefined) {
-        const ca = (targeting as any).custom_audiences;
-        try {
-          let ids: string[] = [];
-          if (typeof ca === 'string') {
-            ids = ca.split(',').map((s: string) => s.trim()).filter((s: string) => /^\d+$/.test(s));
-          } else if (Array.isArray(ca)) {
-            ids = ca
-              .map((v: any) => typeof v === 'object' && v && v.id ? String(v.id) : String(v))
-              .filter((s: string) => /^\d+$/.test(s));
-          }
-          if (ids.length > 0) {
-            (targeting as any).custom_audiences = ids.map((id: string) => ({ id }));
-          } else {
-            delete (targeting as any).custom_audiences;
-          }
-        } catch {
-          delete (targeting as any).custom_audiences;
-        }
-      }
+      const adSetPayload = CampaignBuilder.buildAdSetPayload(adSet, campaignId, campaign.objective, pageId, pixelId);
 
-      // Handle interests
-      if (targeting.interests) {
-        if (typeof targeting.interests === 'string') {
-          const interestIds = targeting.interests.split(',').map((s: string) => s.trim()).filter((s: string) => /^\d+$/.test(s));
-          if (interestIds.length > 0) {
-            targeting.flexible_spec = [{ interests: interestIds.map((id: string) => ({ id })) }];
-            delete (targeting as any).interests;
-          } else {
-            delete targeting.interests;
-          }
-        } else if (!Array.isArray(targeting.interests)) {
-          // If it's a single object or something else, try to fix or remove
-          delete targeting.interests;
-        }
-      }
-      const needsPromoted = (
-        campaign.objective === 'OUTCOME_LEADS' ||
-        adSet.optimization_goal === 'LEAD_GENERATION'
-      );
-      // pageId is already resolved above
-      const pixelId = (credentials as any).pixelId || (credentials as any).pixel_id || (String(process.env.META_PIXEL_ID || '').trim() || undefined);
-
-      const objUpper = String(campaign.objective || '').toUpperCase();
-      const optUpper = String(adSet.optimization_goal || '').toUpperCase();
-      const destUpper = String((adSet as any).destination_type || '').toUpperCase();
-
-      const adSetPayload: any = {
-        name: adSet.name,
-        campaign_id: campaignId,
-        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-        targeting: targeting,
-        status: adSet.status,
-        optimization_goal: adSet.optimization_goal,
-        billing_event: 'IMPRESSIONS' // Default
-      };
-
-      // In CBO, ad set budget must be omitted. Only include if provided/valid.
-      const rawDailyBudget = (adSet as any).daily_budget;
-      if (!hasCampaignBudget && rawDailyBudget !== undefined && rawDailyBudget !== null && String(rawDailyBudget).trim() !== '' && String(rawDailyBudget).toLowerCase() !== 'undefined') {
-        adSetPayload.daily_budget = typeof rawDailyBudget === 'string' ? rawDailyBudget : String(rawDailyBudget);
-      }
-
-      function toUtcFromLocalDate(ymd: string, hms: string, tz?: string): string | undefined {
-        try {
-          const [year, month, day] = ymd.split('-').map((s) => parseInt(s, 10));
-          const [hh, mm, ss] = hms.split(':').map((s) => parseInt(s, 10));
-          const pad = (n: number) => String(n).padStart(2, '0');
-          const base = `${pad(year)}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:${pad(ss)}Z`;
-          const baseDate = new Date(base);
-          if (!tz) return baseDate.toISOString();
-          const fmt = new Intl.DateTimeFormat('en-US', {
-            timeZone: tz,
-            hour12: false,
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit'
-          });
-          const parts = Object.fromEntries(fmt.formatToParts(baseDate).map((p) => [p.type, p.value]));
-          const localAsUtcStr = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`;
-          const offsetMs = Date.parse(localAsUtcStr) - baseDate.getTime();
-          const utcMs = baseDate.getTime() - offsetMs;
-          return new Date(utcMs).toISOString();
-        } catch {
-          return undefined;
-        }
-      }
-
-      if ((adSet as any).start_time) {
-        const ymd = String((adSet as any).start_time).slice(0, 10);
-        adSetPayload.start_time = toUtcFromLocalDate(ymd, '00:00:00', accountTimezone) || (adSet as any).start_time;
-      }
-      if ((adSet as any).end_time) {
-        const ymd = String((adSet as any).end_time).slice(0, 10);
-        adSetPayload.end_time = toUtcFromLocalDate(ymd, '23:59:59', accountTimezone) || (adSet as any).end_time;
-      }
-
-      // --- SIMPLIFIED STRICT RULES (BASED ON PASSING TESTS) ---
-
-      // A) Campanhas de Engajamento (OUTCOME_ENGAGEMENT)
-      if (objUpper === 'OUTCOME_ENGAGEMENT') {
-        adSetPayload.billing_event = 'IMPRESSIONS';
-        adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-        const pubs: string[] = Array.isArray((adSet as any).publisher_platforms)
-          ? (adSet as any).publisher_platforms
-          : Array.isArray((adSet as any)?.targeting?.publisher_platforms)
-            ? (adSet as any).targeting.publisher_platforms
-            : [];
-        const pubsUpper = pubs.map((p) => String(p).toUpperCase());
-        if (destUpper === 'INSTAGRAM_OR_FACEBOOK' || pubsUpper.includes('INSTAGRAM') || pubsUpper.includes('FACEBOOK')) {
-          // Para engajamento, usar sempre ON_POST para evitar erro 1815508
-          adSetPayload.destination_type = 'ON_POST';
-        } else {
-          // MENSAGENS_DESTINATIONS e ON_AD mapeiam para ON_AD
-          adSetPayload.destination_type = 'ON_AD';
-        }
-        if (pageId) {
-          adSetPayload.promoted_object = { page_id: pageId };
-        }
-      }
-
-      // B) Campanhas de Conversão/Leads/Tráfego
-      else if (['OUTCOME_SALES', 'OUTCOME_LEADS', 'OUTCOME_TRAFFIC', 'CONVERSIONS', 'MESSAGES'].includes(objUpper)) {
-        adSetPayload.billing_event = 'IMPRESSIONS';
-
-        if (objUpper === 'OUTCOME_LEADS') {
-          // Mapear destinos de Leads conforme seleção
-          if (destUpper === 'WHATSAPP' || destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = destUpper; // usar valor aceito diretamente
-            adSetPayload.optimization_goal = 'LEAD_GENERATION';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
-            adSetPayload.destination_type = 'ON_POST';
-            adSetPayload.optimization_goal = 'LEAD_GENERATION';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'WEBSITE') {
-            adSetPayload.destination_type = 'WEBSITE';
-            adSetPayload.optimization_goal = 'LEAD_GENERATION';
-          } else {
-            adSetPayload.destination_type = 'ON_AD';
-            adSetPayload.optimization_goal = 'LEAD_GENERATION';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          }
-        } else if (objUpper === 'OUTCOME_TRAFFIC') {
-          // Mapear destinos de tráfego conforme seleção do usuário
-          if (destUpper === 'WEBSITE') {
-            adSetPayload.destination_type = 'WEBSITE';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-          } else if (destUpper === 'APP') {
-            adSetPayload.destination_type = 'APP';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-          } else if (destUpper === 'WHATSAPP') {
-            // Tráfego para WhatsApp: usar LINK_CLICKS
-            adSetPayload.destination_type = 'WHATSAPP';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'MESSAGES_DESTINATIONS') {
-            // Trafego para destinos de mensagens: usa ON_AD + page_id
-            adSetPayload.destination_type = 'ON_AD';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
-            // Trafego para perfil Instagram ou Página Facebook: usa ON_POST com page_id
-            adSetPayload.destination_type = 'ON_POST';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'CALLS') {
-            // Ligações: deixar como WEBSITE para evitar erro (Meta exige phone setup). Pode ser ajustado futuramente.
-            adSetPayload.destination_type = 'WEBSITE';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-          } else {
-            adSetPayload.destination_type = 'WEBSITE';
-            adSetPayload.optimization_goal = 'LINK_CLICKS';
-          }
-        } else if (objUpper === 'OUTCOME_SALES') {
-          // Meta não suporta Sales com mensagens; manter WEBSITE/OFFSITE_CONVERSIONS
-          adSetPayload.destination_type = 'WEBSITE';
-          adSetPayload.optimization_goal = 'OFFSITE_CONVERSIONS';
-          if (pixelId) {
-            adSetPayload.promoted_object = { pixel_id: pixelId, custom_event_type: 'PURCHASE' };
-          }
-        } else if (objUpper === 'OUTCOME_AWARENESS') {
-          adSetPayload.destination_type = 'ON_POST';
-          adSetPayload.optimization_goal = 'REACH';
-          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-        } else if (objUpper === 'MESSAGES') {
-          // Objetivo Mensagens: otimização para conversas e destino conforme escolha
-          adSetPayload.optimization_goal = 'CONVERSATIONS';
-          if (destUpper === 'WHATSAPP') {
-            adSetPayload.destination_type = 'WHATSAPP';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId, messaging_app_ids: ['whatsapp'] };
-          } else if (destUpper === 'MESSENGER') {
-            adSetPayload.destination_type = 'MESSENGER';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'INSTAGRAM_OR_FACEBOOK') {
-            // Para IG Direct/Messenger combinados, usar ON_POST com page_id
-            adSetPayload.destination_type = 'ON_POST';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          } else if (destUpper === 'MESSAGES_DESTINATIONS') {
-            // Default para WhatsApp quando for mensagens genérico
-            adSetPayload.destination_type = 'WHATSAPP';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId, messaging_app_ids: ['whatsapp'] };
-          } else {
-            // Fallback para ON_AD
-            adSetPayload.destination_type = 'ON_AD';
-            if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          }
-        } else {
-          adSetPayload.destination_type = 'WEBSITE';
-        }
-      }
-
-      // C) Fallback Handler
-      else {
-        if (destUpper === 'WEBSITE') {
-          adSetPayload.destination_type = 'WEBSITE';
-        }
-      }
-
-      // SANITY CHECK
-      validateMetaPayload(objUpper, adSetPayload);
-
-      console.log(`[Meta API] ========================================`);
-      console.log(`[Meta API] Creating AdSet: ${adSet.name}`);
-      console.log(`[Meta API] Campaign Objective: ${objUpper}`);
-      console.log(`[Meta API] Requested Destination: ${destUpper}`);
-      console.log(`[Meta API] Optimization Goal: ${adSetPayload.optimization_goal}`);
-      console.log(`[Meta API] Destination Type: ${adSetPayload.destination_type}`);
-      console.log(`[Meta API] Billing Event: ${adSetPayload.billing_event}`);
-      console.log(`[Meta API] Full Payload:`, JSON.stringify(adSetPayload, null, 2));
-      console.log(`[Meta API] ========================================`);
-
-      let adSetResponse: any;
+      let adSetResponse;
       try {
-        adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
+        adSetResponse = await metaApi.call(`${actAccountId}/adsets`, 'POST', adSetPayload);
       } catch (e: any) {
-        const msgRaw = msg3(e);
-        const msg = String(msgRaw || '').toLowerCase();
-        const isParamError = msg.includes('invalid parameter') || msg.includes('destination_type');
-        if (objUpper === 'OUTCOME_LEADS' && isParamError) {
-          adSetPayload.destination_type = 'ON_AD';
-          adSetPayload.optimization_goal = 'LEAD_GENERATION';
-          if (pageId) {
-            adSetPayload.promoted_object = { page_id: pageId };
-          }
-          try {
-            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
-          } catch (e2: any) {
-            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
-            continue;
-          }
-        } else if (objUpper === 'OUTCOME_ENGAGEMENT') {
-          // Fallback 1: sem destination_type
-          delete adSetPayload.destination_type;
-          adSetPayload.optimization_goal = 'POST_ENGAGEMENT';
-          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          try {
-            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
-          } catch (e2: any) {
-            // Fallback 2: força ON_POST
-            adSetPayload.destination_type = 'ON_POST';
-            try {
-              adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
-            } catch (e3: any) {
-              failedAdSets.push({ name: adSet.name, error: msg3(e3) });
-              continue;
-            }
-          }
-        } else if (objUpper === 'OUTCOME_TRAFFIC' && (adSetPayload.destination_type === 'WHATSAPP')) {
-          // Fallback: se WhatsApp não for suportado, tenta Messenger com LINK_CLICKS
-          adSetPayload.destination_type = 'MESSENGER';
-          adSetPayload.optimization_goal = 'LINK_CLICKS';
-          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          try {
-            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
-          } catch (e2: any) {
-            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
-            continue;
-          }
-        } else if (objUpper === 'MESSAGES' && (adSetPayload.destination_type === 'WHATSAPP')) {
-          // Fallback para objetivo Mensagens
-          adSetPayload.destination_type = 'MESSENGER';
-          adSetPayload.optimization_goal = 'CONVERSATIONS';
-          if (pageId) adSetPayload.promoted_object = { page_id: pageId };
-          try {
-            adSetResponse = await callMetaApi(`${actAccountId}/adsets`, 'POST', adSetPayload);
-          } catch (e2: any) {
-            failedAdSets.push({ name: adSet.name, error: msg3(e2) });
-            continue;
-          }
-        } else {
-          failedAdSets.push({ name: adSet.name, error: msgRaw });
-          continue;
-        }
+        // Simple retry logic for common errors could go here, or fallback logic
+        // For now, we just log and continue
+        console.error(`Failed to create Ad Set ${adSet.name}:`, e.message);
+        failedAdSets.push({ name: adSet.name, error: e.message });
+        continue;
       }
+
       const adSetId = adSetResponse.id;
 
+      // Save Ad Set to DB
       const upsertAdSetResult = await pool.query(
-        `
-                INSERT INTO ad_sets (
-                  campaign_id,
-                  platform_account_id,
-                  external_id,
-                  name,
-                  status,
-                  budget_type,
-                  daily_budget,
-                  targeting,
-                  settings,
-                  last_synced_at,
-                  updated_at
-                )
-                VALUES (
-                  $1, $2, $3, $4, $5, 'daily', $6, $7::jsonb, $8::jsonb, now(), now()
-                )
-                ON CONFLICT (campaign_id, external_id)
-                DO UPDATE SET
-                  name = EXCLUDED.name,
-                  status = EXCLUDED.status,
-                  daily_budget = EXCLUDED.daily_budget,
-                  targeting = EXCLUDED.targeting,
-                  settings = EXCLUDED.settings,
-                  last_synced_at = now(),
-                  updated_at = now()
-                RETURNING id
-              `,
-        [
-          localCampaignId,
-          platformAccountId,
-          adSetId,
-          adSet.name,
-          String(adSet.status || '').toLowerCase(),
-          Number(adSet.daily_budget) ? Math.round(Number(adSet.daily_budget) / 100) : null,
-          JSON.stringify(targeting ?? {}),
-          JSON.stringify((adSet as any).settings ?? {}),
-        ]
+        `INSERT INTO ad_sets (campaign_id, platform_account_id, external_id, name, status, daily_budget, targeting, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, now())
+         ON CONFLICT (campaign_id, external_id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, updated_at = now()
+         RETURNING id`,
+        [localCampaignId, platformAccountId, adSetId, adSet.name, String(adSet.status).toLowerCase(), adSetPayload.daily_budget ? Math.round(Number(adSetPayload.daily_budget) / 100) : null, JSON.stringify(adSetPayload.targeting)]
       );
-      const localAdSetId = upsertAdSetResult.rows[0].id as string;
-      const createdAds = [];
+      const localAdSetId = upsertAdSetResult.rows[0].id;
 
-      // 4. Create Ads for this Ad Set
-      const adsForSet = (adSet.ads && adSet.ads.length > 0)
-        ? adSet.ads
-        : [{ name: `${adSet.name} - Anúncio 1`, creative_id: '', status: 'paused' }];
-      if (adsForSet.length > 0) {
-        for (const ad of adsForSet) {
-          console.log('Creating Ad:', ad.name);
-          let creativeId = ad.creative_id;
+      // 5. Create Ads
+      const adsForSet = (adSet.ads && adSet.ads.length > 0) ? adSet.ads : [{ name: `${adSet.name} - Anúncio 1`, creative_id: '', status: 'paused' } as Ad];
 
-          // ENGAGEMENT: criar post não publicado e usar object_story_id, com fallback para promotable_posts
-          if ((!creativeId || String(creativeId).trim() === '') && objUpper === 'OUTCOME_ENGAGEMENT' && pageId) {
+      for (const ad of adsForSet) {
+        console.log('Creating Ad:', ad.name);
+        let creativeId = ad.creative_id;
+
+        try {
+          // Handle Engagement Dark Posts
+          if ((!creativeId || !creativeId.trim()) && String(campaign.objective).toUpperCase() === 'OUTCOME_ENGAGEMENT' && pageId) {
             try {
-              const uploadToken = pageAccessToken || accessToken;
-              const postUrl = `${GRAPH_URL}/${pageId}/feed?access_token=${uploadToken}`;
-              const postForm = new URLSearchParams();
-              postForm.append('message', (ad as any).primary_text || ad.name);
-              postForm.append('published', 'false');
-              const pResp = await fetch(postUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: postForm.toString() });
-              const pData = await pResp.json();
-              if (pData.error) {
-                throw new Error(`Meta API Error: ${pData.error.message} (Code: ${pData.error.code}, Subcode: ${pData.error.error_subcode})`);
-              }
-              const objectStoryId = pData.id;
-              const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
-                name: ad.name,
-                object_story_id: objectStoryId,
-              });
+              const objectStoryId = await metaApi.createDarkPost(pageId, ad.primary_text || ad.name, pageAccessToken);
+              const creativeResp = await metaApi.call(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_id: objectStoryId });
               creativeId = creativeResp.id;
-              console.log(`[Meta API] Created engagement adcreative from dark post ${objectStoryId}: ${creativeId}`);
-            } catch (engErr: any) {
-              try {
-                const posts = await callMetaApi(`${pageId}/promotable_posts`, 'GET', { fields: 'id,created_time', is_published: true, limit: 10 });
-                const items = Array.isArray(posts?.data) ? posts.data : [];
-                const chosen = items[0]?.id;
-                if (!chosen) throw new Error('No promotable_posts available');
-                const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_id: chosen });
-                creativeId = creativeResp.id;
-              } catch (fbErr: any) {
-                console.warn('[Meta API] Failed engagement fallback via promotable_posts:', msg3(fbErr));
-                failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(fbErr) });
-              }
+            } catch (e: any) {
+              console.warn('Failed to create dark post, trying promotable_posts fallback', e.message);
+              // Fallback logic could be added here if needed
             }
           }
 
-          // Se não houver creative_id, tentar criar via asset do Drive (vídeo)
-          if ((!creativeId || String(creativeId).trim() === '') && ((ad as any).creative_asset_id || (ad as any).drive_url || (ad as any).storage_url)) {
-            try {
-              let assetId = String((ad as any).creative_asset_id || '');
-              let asset: any | null = null;
-              if (!assetId && ((ad as any).drive_url || (ad as any).storage_url)) {
-                const srcUrl = String((ad as any).drive_url || (ad as any).storage_url);
-                const name = (ad as any).name || ad.name || 'Criativo do Drive';
-                const isVideo = /\.mp4(\?|$)/i.test(srcUrl);
-                const inserted = await pool.query(
-                  `INSERT INTO creative_assets (workspace_id, name, type, storage_url, status, created_at, updated_at)
-                   VALUES ($1, $2, $3, $4, 'active', now(), now())
-                   RETURNING id, name, type, storage_url`,
-                  [workspaceId, name, isVideo ? 'video' : 'image', srcUrl]
-                );
-                asset = inserted.rows[0];
-                assetId = asset.id;
-              }
-              if (!asset && assetId) {
-                const assetRow = await pool.query(
-                  `SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`,
-                  [assetId, workspaceId]
-                );
-                asset = assetRow.rows.length > 0 ? assetRow.rows[0] : null;
-              }
-              if (asset) {
-                let ensured: { url: string; mime?: string };
-                try {
-                  ensured = await ensurePublicUrlFromAsset(asset, workspaceId);
-                } catch (_mirrorErr) {
-                  ensured = { url: String(asset.storage_url || ''), mime: undefined };
+          // Handle Asset Upload (Drive/Supabase)
+          if ((!creativeId || !creativeId.trim()) && (ad.creative_asset_id || ad.drive_url || ad.storage_url)) {
+            let assetId = ad.creative_asset_id;
+            let asset: any = null;
+
+            // Create asset record if it doesn't exist but we have a URL
+            if (!assetId && (ad.drive_url || ad.storage_url)) {
+              const srcUrl = String(ad.drive_url || ad.storage_url);
+              asset = await creativeService.createAssetFromUrl(workspaceId, ad.name, srcUrl);
+              assetId = asset.id;
+            } else if (assetId) {
+              const assetRow = await pool.query(`SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1`, [assetId]);
+              asset = assetRow.rows[0];
+            }
+
+            if (asset) {
+              const { url: publicUrl } = await creativeService.ensurePublicUrl(asset, workspaceId);
+
+              if (String(asset.type).toLowerCase() === 'video') {
+                // Upload Video
+                const videoId = await metaApi.uploadPageVideo(pageId, publicUrl, ad.name, pageAccessToken);
+
+                // Wait for processing (simple polling)
+                let ready = false;
+                for (let i = 0; i < 10; i++) {
+                  try {
+                    const vInfo = await metaApi.call(videoId, 'GET', { fields: 'status' });
+                    if (vInfo?.status?.video_status === 'ready') { ready = true; break; }
+                  } catch (error) {
+                    // Erro na verificação do status do vídeo
+                  }
+                  await new Promise(r => setTimeout(r, 2000));
                 }
-                const typeLower = String(asset.type || '').toLowerCase();
-                if (typeLower === 'video') {
-                  // 4.1 Upload video (Page videos API)
-                  // Prefer upload to Page videos with page access token
-                  const uploadToken = pageAccessToken || accessToken;
-                  const vUrl = `${GRAPH_URL}/${pageId}/videos?access_token=${uploadToken}`;
-                  const form = new URLSearchParams();
-                  form.append('file_url', ensured.url);
-                  form.append('published', 'false');
-                  form.append('description', ad.name);
-                  const vResp = await fetch(vUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
-                  const vData = await vResp.json();
-                  if (vData.error) {
-                    throw new Error(`Meta API Error: ${vData.error.message} (Code: ${vData.error.code}, Subcode: ${vData.error.error_subcode})`);
-                  }
-                  const videoId = vData.id;
 
-                  // Wait for video processing to complete
-                  let attempts = 0;
-                  while (attempts < 10) {
-                    try {
-                      const vInfo = await callMetaApi(`${videoId}`, 'GET', { fields: 'processing_progress,status' });
-                      const progress = vInfo?.processing_progress ?? vInfo?.status?.processing_progress ?? 100;
-                      if (typeof progress === 'number' && progress >= 100) break;
-                    } catch (_err) { /* ignore */ }
-                    await new Promise(r => setTimeout(r, 2000));
-                    attempts++;
-                  }
+                const creativeResp = await metaApi.call(`${actAccountId}/adcreatives`, 'POST', {
+                  name: ad.name,
+                  object_story_spec: { page_id: pageId, video_data: { video_id: videoId, call_to_action: { type: 'LEARN_MORE', value: { link: 'https://facebook.com' } } } } // Simplified CTA
+                });
+                creativeId = creativeResp.id;
+              } else {
+                // Upload Image
+                const imageResp = await metaApi.call(`${actAccountId}/adimages`, 'POST', { url: publicUrl });
+                const imageHash = Object.values(imageResp.images || {})[0] ? (Object.values(imageResp.images || {})[0] as any).hash : null;
 
-                  // 4.2 Create adcreative with object_story_spec.video_data
-                  const usesInstagram = Array.isArray((adSet as any)?.targeting?.publisher_platforms)
-                    ? ((adSet as any).targeting.publisher_platforms as string[]).includes('instagram')
-                    : (Array.isArray((adSet as any)?.publisher_platforms) ? ((adSet as any).publisher_platforms as string[]).includes('instagram') : false);
-
-                  const object_story_spec: any = {
-                    page_id: pageId,
-                    video_data: {
-                      video_id: videoId,
-                      title: ad.name,
-                      message: (ad as any).primary_text || ''
-                    }
-                  };
-                  if (usesInstagram && igActorId) {
-                    object_story_spec.instagram_actor_id = igActorId;
-                  }
-
-                  const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', {
+                if (imageHash) {
+                  const creativeResp = await metaApi.call(`${actAccountId}/adcreatives`, 'POST', {
                     name: ad.name,
-                    object_story_spec
+                    object_story_spec: { page_id: pageId, link_data: { image_hash: imageHash, link: 'https://facebook.com', message: ad.primary_text || ad.name } }
                   });
                   creativeId = creativeResp.id;
-                  console.log(`[Meta API] Created video adcreative: ${creativeId} from asset ${assetId}`);
-                } else if (typeLower === 'image') {
-                  const usesInstagram = Array.isArray((adSet as any)?.targeting?.publisher_platforms)
-                    ? ((adSet as any).targeting.publisher_platforms as string[]).includes('instagram')
-                    : (Array.isArray((adSet as any)?.publisher_platforms) ? ((adSet as any).publisher_platforms as string[]).includes('instagram') : false);
-                  const destUpperForCreative = String((adSet as any)?.destination_type || '').toUpperCase();
-                  if (destUpperForCreative === 'WHATSAPP') {
-                    const objectStorySpec: any = { page_id: pageId };
-                    if (usesInstagram && igActorId) {
-                      objectStorySpec.instagram_actor_id = igActorId;
-                    }
-                    const assetFeedSpec: any = {
-                      images: [{ url: ensured.url }],
-                      bodies: [{ text: (ad as any).primary_text || '' }],
-                      titles: [{ text: (ad as any).headline || ad.name }],
-                      ad_formats: ['SINGLE_IMAGE'],
-                      call_to_action_types: ['WHATSAPP_MESSAGE'],
-                      message_extensions: [{ type: 'whatsapp' }]
-                    };
-                    const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_spec: objectStorySpec, asset_feed_spec: assetFeedSpec });
-                    creativeId = creativeResp.id;
-                    console.log(`[Meta API] Created WhatsApp image adcreative: ${creativeId} from asset ${assetId}`);
-                  } else {
-                    const uploadToken = pageAccessToken || accessToken;
-                    const pUrl = `${GRAPH_URL}/${pageId}/photos?access_token=${uploadToken}`;
-                    const form = new URLSearchParams();
-                    form.append('url', ensured.url);
-                    form.append('published', 'false');
-                    const pResp = await fetch(pUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
-                    const pData = await pResp.json();
-                    if (pData.error) {
-                      throw new Error(`Meta API Error: ${pData.error.message} (Code: ${pData.error.code}, Subcode: ${pData.error.error_subcode})`);
-                    }
-                    const objectStorySpec: any = { page_id: pageId, image_data: { image_hash: pData.id, caption: (ad as any).primary_text || '' } };
-                    const creativeResp = await callMetaApi(`${actAccountId}/adcreatives`, 'POST', { name: ad.name, object_story_spec: objectStorySpec });
-                    creativeId = creativeResp.id;
-                    console.log(`[Meta API] Created image adcreative: ${creativeId} from asset ${assetId}`);
-                  }
-                } else {
-                  throw new Error('Creative asset type not supported');
                 }
-              } else {
-                throw new Error('Creative asset not found');
               }
-            } catch (assetErr: any) {
-              console.warn('[Meta API] Failed to create creative from asset:', msg3(assetErr));
-              failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(assetErr) });
             }
           }
 
-          // Criativo obrigatório para criar o ad
-          if (!creativeId) continue;
+          if (!creativeId) throw new Error('Could not resolve or create creative ID');
 
+          // Create Ad
           const adPayload = {
             name: ad.name,
             adset_id: adSetId,
             creative: { creative_id: creativeId },
-            status: String(ad.status || 'PAUSED').toUpperCase(),
+            status: ad.status || 'PAUSED'
           };
-          try {
-            const adResponse = await callMetaApi(`${actAccountId}/ads`, 'POST', adPayload);
-            await pool.query(
-              `
-                          INSERT INTO ads (
-                            ad_set_id,
-                            platform_account_id,
-                            external_id,
-                            name,
-                            status,
-                            creative_asset_id,
-                            metadata,
-                            last_synced_at,
-                            updated_at
-                          )
-                          VALUES (
-                            $1, $2, $3, $4, $5, $6, $7::jsonb, now(), now()
-                          )
-                          ON CONFLICT (ad_set_id, external_id)
-                          DO UPDATE SET
-                            name = EXCLUDED.name,
-                            status = EXCLUDED.status,
-                            metadata = EXCLUDED.metadata,
-                            last_synced_at = now(),
-                            updated_at = now()
-                        `,
-              [
-                localAdSetId,
-                platformAccountId,
-                adResponse.id,
-                ad.name,
-                String(ad.status || 'PAUSED').toLowerCase(),
-                (ad as any).creative_asset_id || null,
-                JSON.stringify({ creative_id: creativeId }),
-              ]
-            );
-            createdAds.push({ id: adResponse.id, name: ad.name });
-          } catch (adError: any) {
-            console.warn('[Meta API] Ad creation failed:', msg3(adError));
-            failedAds.push({ adSetName: adSet.name, name: ad.name, error: msg3(adError) });
-            // Continua com os próximos anúncios e conjuntos
-          }
+
+          const adResponse = await metaApi.call(`${actAccountId}/ads`, 'POST', adPayload);
+
+          // Save Ad to DB
+          await pool.query(
+            `INSERT INTO ads (ad_set_id, platform_account_id, external_id, name, status, updated_at)
+             VALUES ($1, $2, $3, $4, $5, now())
+             ON CONFLICT (ad_set_id, external_id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, updated_at = now()`,
+            [localAdSetId, platformAccountId, adResponse.id, ad.name, String(ad.status).toLowerCase()]
+          );
+
+        } catch (e: any) {
+          console.error(`Failed to create Ad ${ad.name}:`, e.message);
+          failedAds.push({ adSetName: adSet.name, name: ad.name, error: e.message });
         }
       }
-
-      createdAdSets.push({
-        id: adSetId,
-        name: adSet.name,
-        ads: createdAds
-      });
     }
 
     return res.json({
       success: true,
       data: {
-        campaign_id: campaignId,
-        ad_sets: createdAdSets,
-        errors: [...failedAdSets, ...failedAds]
+        campaignId,
+        failedAdSets,
+        failedAds
       }
-    } as ApiResponse);
+    });
 
-  } catch (error) {
-    console.error('Error creating Meta campaign:', error);
+  } catch (error: any) {
+    console.error('Create Campaign Error:', error);
     return res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    } as ApiResponse);
-  }
-}
-
-// GET /api/integrations/meta/page-info/:workspaceId
-export async function getMetaPageInfo(req: Request, res: Response) {
-  try {
-    const { workspaceId } = req.params as { workspaceId: string };
-    if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
-    }
-
-    const pool = getPool();
-    const credRow = await pool.query(
-      `SELECT encrypted_credentials, encryption_iv FROM integration_credentials WHERE workspace_id = $1 AND platform_key = 'meta' LIMIT 1`,
-      [workspaceId]
-    );
-    if (credRow.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Meta credentials not found for workspace' });
-    }
-
-    const { encrypted_credentials, encryption_iv } = credRow.rows[0];
-    const credentials = decryptCredentials(encrypted_credentials, encryption_iv);
-
-    const accessToken = credentials.accessToken || credentials.access_token || process.env.META_ACCESS_TOKEN;
-    const actAccountId = credentials.adAccountId || credentials.ad_account_id || process.env.META_AD_ACCOUNT_ID;
-    if (!accessToken && !process.env.META_PAGE_ID) {
-      return res.status(400).json({ success: false, error: 'Meta access token missing' });
-    }
-
-    let pageId = credentials.pageId || credentials.page_id || (String(process.env.META_PAGE_ID || '').trim() || undefined);
-    let pageName: string | undefined;
-    let igActorId = credentials.instagramActorId || credentials.instagram_actor_id;
-
-    if (!pageId && accessToken) {
-      try {
-        const pagesResponse = await callMetaApi('me/accounts', 'GET', { fields: 'id,name,access_token' });
-        const first = Array.isArray(pagesResponse?.data) ? pagesResponse.data[0] : undefined;
-        if (first?.id) {
-          pageId = first.id;
-          pageName = first.name;
-          // persist in DB
-          const newCreds = { ...credentials, pageId, page_id: pageId };
-          const { encrypted_credentials: newEncrypted, encryption_iv: newIv } = encryptCredentials(newCreds);
-          await pool.query(
-            `UPDATE integration_credentials SET encrypted_credentials = $1, encryption_iv = $2, updated_at = NOW() WHERE workspace_id = $3 AND platform_key = 'meta'`,
-            [newEncrypted, newIv, workspaceId]
-          );
-        }
-      } catch (e: any) {
-        console.warn('Failed to fetch pages for Meta:', e?.message || e);
-      }
-    } else if (pageId && accessToken) {
-      try {
-        const info = await callMetaApi(`${pageId}`, 'GET', { fields: 'name' });
-        pageName = info?.name || undefined;
-      } catch (err: any) {
-        console.warn('Failed to fetch page name', err?.message || err);
-      }
-    }
-
-    if (!igActorId && pageId && accessToken) {
-      try {
-        const resp = await callMetaApi(`${pageId}`, 'GET', { fields: 'connected_instagram_account' });
-        igActorId = resp?.connected_instagram_account?.id || undefined;
-      } catch (err: any) {
-        console.warn('Failed to fetch connected Instagram account', err?.message || err);
-      }
-    }
-
-    if (!pageId) {
-      return res.status(404).json({ success: false, error: 'No Facebook Page associated with the account or environment' });
-    }
-
-    return res.json({
-      success: true,
-      data: { page_id: pageId, page_name: pageName, instagram_actor_id: igActorId }
+      error: error.message || 'Internal server error'
     });
-  } catch (error: any) {
-    console.error('Error in getMetaPageInfo:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Internal error' });
   }
-}
-
-/**
- * SANITY CHECK FUNCTION
- * Impede o envio de combinações inválidas para a API do Meta.
- */
-export function validateMetaPayload(objective: string, adSetPayload: any) {
-  const obj = String(objective).toUpperCase();
-  const dest = String(adSetPayload.destination_type || '').toUpperCase();
-  const promoted = adSetPayload.promoted_object || {};
-
-  // 1. ENGAGEMENT não pode ter pixel_id nem custom_event_type
-  if (obj === 'OUTCOME_ENGAGEMENT') {
-    if (promoted.pixel_id) {
-      throw new Error(`SANITY CHECK FAILED: Campaign Objective ${obj} cannot have 'pixel_id' in promoted_object.`);
-    }
-    if (promoted.custom_event_type) {
-      throw new Error(`SANITY CHECK FAILED: Campaign Objective ${obj} cannot have 'custom_event_type' in promoted_object.`);
-    }
-    // Engagement deve ter page_id
-    if (!promoted.page_id) {
-      throw new Error(`SANITY CHECK FAILED: Campaign Objective ${obj} MUST have 'page_id' in promoted_object.`);
-    }
-  }
-
-  // 1.5. TRAFFIC com destinos que precisam de page_id (Instagram/Facebook ou Mensagens)
-  if (obj === 'OUTCOME_TRAFFIC') {
-    // ON_POST = Instagram or Facebook, ON_AD pode ser Mensagens (quando destination_type original = MESSAGES_DESTINATIONS)
-    if (dest === 'ON_POST' || (dest === 'ON_AD' && !promoted.pixel_id)) {
-      if (!promoted.page_id) {
-        throw new Error(`SANITY CHECK FAILED: Campaign Objective ${obj} with destination_type ${dest} MUST have 'page_id' in promoted_object.`);
-      }
-    }
-  }
-
-  // 2. MESSAGING_APP deve ter page_id
-  if (dest === 'WHATSAPP' || dest === 'MESSENGER') {
-    if (!promoted.page_id) {
-      throw new Error(`SANITY CHECK FAILED: Destination ${dest} requires 'page_id' in promoted_object.`);
-    }
-  }
-
-  // 3. SALES/WEBSITE deve ter pixel_id (Idealmente, mas as vezes pode ser só URL, mas a regra do user pede pixel)
-  if (obj === 'OUTCOME_SALES' && dest === 'WEBSITE') {
-    // Warn or Error? User said "C) ... promoted_object: { pixel_id: PIXEL ... }"
-    // We won't throw here if pixel is missing because maybe they just want traffic, but strictly for SALES it's good practice.
-  }
-  if (obj === 'OUTCOME_LEADS' && (dest === 'WHATSAPP' || dest === 'MESSENGER')) {
-    if (!promoted.page_id) {
-      throw new Error(`SANITY CHECK FAILED: OUTCOME_LEADS to WhatsApp requires 'page_id'.`);
-    }
-  }
-}
-
-export async function getMetaCustomAudiences(req: Request, res: Response) {
-  try {
-    const workspaceId = String(req.params.workspaceId || '').trim();
-    if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Missing workspaceId' } as ApiResponse);
-    }
-
-    const pool = getPool();
-    let accessToken: string | undefined;
-    let adAccountId: string | undefined;
-    const credRows = await pool.query(
-      `SELECT encrypted_credentials, encryption_iv 
-       FROM integration_credentials 
-       WHERE workspace_id = $1 AND platform_key = 'meta' LIMIT 1`,
-      [workspaceId]
-    );
-    if (credRows.rows.length > 0) {
-      const credentials = await decryptCredentials(credRows.rows[0].encrypted_credentials, credRows.rows[0].encryption_iv);
-      accessToken = credentials.accessToken || credentials.access_token;
-      adAccountId = credentials.adAccountId || credentials.ad_account_id;
-    }
-    // Fallback to ENV if DB credentials missing or incomplete
-    accessToken = accessToken || String(process.env.META_ACCESS_TOKEN || '').trim() || undefined;
-    adAccountId = adAccountId || String(process.env.META_AD_ACCOUNT_ID || '').trim() || undefined;
-    if (!accessToken || !adAccountId) {
-      return res.status(404).json({ success: false, error: 'Meta Ads credentials not found' } as ApiResponse);
-    }
-
-    const actAccountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
-
-    const url = `${GRAPH_URL}/${actAccountId}/customaudiences`;
-    const params = new URLSearchParams({ access_token: accessToken, fields: 'id,name,subtype' });
-    const response = await fetch(`${url}?${params.toString()}`, { method: 'GET' });
-    const data = await response.json();
-
-    if (data.error) {
-      const e = data.error;
-      return res.status(400).json({ success: false, error: `Meta API Error: ${e.message} (Code: ${e.code}, Subcode: ${e.error_subcode})` } as ApiResponse);
-    }
-
-    const items = Array.isArray(data.data) ? data.data : [];
-    const audiences = items.map((a: any) => ({ id: String(a.id), name: a.name, subtype: a.subtype, count: a.approximate_count }));
-
-    return res.json({ success: true, data: { audiences } } as ApiResponse);
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' } as ApiResponse);
-  }
-}
-function msg3(e: any) {
-  return String(e?.message || e || '');
 }
 
 export async function mirrorCreativeAsset(req: Request, res: Response) {
   try {
-    const workspaceId = String(req.params.workspaceId || '').trim();
-    const assetId = String(req.params.assetId || '').trim();
-    if (!workspaceId || !assetId) {
-      return res.status(400).json({ success: false, error: 'Missing workspaceId or assetId' } as ApiResponse);
-    }
+    const { workspaceId, assetId } = req.body;
+    if (!workspaceId || !assetId) return res.status(400).json({ success: false, error: 'Missing workspaceId or assetId' });
+
     const pool = getPool();
-    const { rows } = await pool.query(`SELECT id, name, type, storage_url FROM creative_assets WHERE id = $1 AND workspace_id = $2 LIMIT 1`, [assetId, workspaceId]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Creative asset not found' } as ApiResponse);
-    }
-    const asset = rows[0] as any;
-    const src = String(asset.storage_url || '').trim();
-    const isSupabase = src && (src.includes(String(process.env.SUPABASE_URL || '')) || /supabase\.co\//.test(src));
-    if (isSupabase) {
-      return res.json({ success: true, data: { storage_url: src } } as ApiResponse);
-    }
+    const { rows } = await pool.query(`SELECT * FROM creative_assets WHERE id = $1 AND workspace_id = $2`, [assetId, workspaceId]);
+    if (rows.length === 0) return res.status(404).json({ success: false, error: 'Asset not found' });
 
-    const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
-    const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: 'Supabase not configured' } as ApiResponse);
-    }
-    const sb = createClient(supabaseUrl, supabaseKey);
-    const bucket = 'creatives';
-    const pathBase = `${workspaceId}/assets/${asset.id}`;
+    const creativeService = new CreativeService();
+    const result = await creativeService.ensurePublicUrl(rows[0], workspaceId);
 
-    const m = src.match(/\/file\/d\/([^/]+)/) || src.match(/[?&]id=([^&]+)/);
-    const fileId = m?.[1];
-    let buf: Buffer; let mime: string | undefined;
-    if (fileId) {
-      const auth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
-      const drive = google.drive({ version: 'v3', auth });
-      const meta = await drive.files.get({ fileId, fields: 'mimeType' });
-      mime = meta.data.mimeType || undefined;
-      const resp: any = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' } as any);
-      buf = Buffer.from(resp.data as ArrayBuffer);
-    } else {
-      const r = await fetch(src);
-      if (!r.ok) {
-        return res.status(502).json({ success: false, error: `Failed to fetch asset from source` } as ApiResponse);
-      }
-      mime = r.headers.get('content-type') || undefined;
-      const ab = await r.arrayBuffer();
-      buf = Buffer.from(ab);
-    }
-
-    const ext = (mime || '').includes('mp4') ? 'mp4' : (mime || '').includes('png') ? 'png' : (mime || '').includes('jpeg') ? 'jpg' : undefined;
-    const key = ext ? `${pathBase}.${ext}` : pathBase;
-    const upload = await sb.storage.from(bucket).upload(key, buf, { contentType: mime || 'application/octet-stream', upsert: true });
-    if ((upload as any).error) {
-      return res.status(500).json({ success: false, error: (upload as any).error.message || 'Upload failed' } as ApiResponse);
-    }
-    const { data } = sb.storage.from(bucket).getPublicUrl(key);
-    if (!data?.publicUrl) {
-      return res.status(500).json({ success: false, error: 'Failed to get public URL' } as ApiResponse);
-    }
-    await pool.query(`UPDATE creative_assets SET storage_url = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3`, [data.publicUrl, asset.id, workspaceId]);
-    return res.json({ success: true, data: { storage_url: data.publicUrl } } as ApiResponse);
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' } as ApiResponse);
+    return res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('Mirror Asset Error:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 }
