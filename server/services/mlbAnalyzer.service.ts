@@ -293,8 +293,11 @@ export class MLBAnalyzerService {
             };
             
         } catch (error: any) {
-            console.error('Erro ao buscar dados do produto:', error);
-            throw new Error(`Não foi possível analisar o produto ${mlbId}: ${error.message}`);
+            const status = error?.response?.status;
+            const msg = (error?.response?.data && (error.response.data.message || error.response.data.error)) || error?.message || 'Erro desconhecido';
+            const e: any = new Error(`Não foi possível analisar o produto ${mlbId}: ${msg}`);
+            e.status = status;
+            throw e;
         }
     }
     

@@ -1855,8 +1855,37 @@ router.post("/analyze", async (req, res) => {
 
         console.log(`[MLB Analyzer] Iniciando análise do produto ${mlbId}`);
 
-        // 1. Buscar dados completos do produto
-        const productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+        let productData;
+        try {
+            productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+        } catch (err: any) {
+            const status = err?.status || err?.response?.status;
+            if (status === 401 && credentials?.refreshToken) {
+                try {
+                    const refreshed = await refreshAccessToken(String(workspaceId));
+                    const newToken = refreshed?.accessToken;
+                    productData = await mlbAnalyzerService.getProductData(mlbId, newToken);
+                } catch (retryErr: any) {
+                    return res.status(401).json({
+                        error: "Conexão Mercado Livre inválida",
+                        details: retryErr?.message || "Unauthorized",
+                        mlb_id: mlbId
+                    });
+                }
+            } else if (status === 404) {
+                return res.status(404).json({
+                    error: "Produto não encontrado",
+                    details: err?.message || "Not Found",
+                    mlb_id: mlbId
+                });
+            } else {
+                return res.status(502).json({
+                    error: "Falha ao consultar API do Mercado Livre",
+                    details: err?.message || "Bad Gateway",
+                    mlb_id: mlbId
+                });
+            }
+        }
 
         // 2. Calcular score de qualidade
         const qualityScore = mlbAnalyzerService.calculateQualityScore(productData);
