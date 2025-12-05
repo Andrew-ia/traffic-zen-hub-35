@@ -63,17 +63,6 @@ export interface LeadsSummary {
 
 export interface SalesSummary {
   purchases: number;
-  conversations: number; // Adicionado para rastrear conversas em campanhas de vendas
-  value: number;
-  roas: number;
-  costPerPurchase: number;
-  spend: number;
-  trend: TrendPoint[];
-  breakdown: Array<{ platform: PlatformKey; value: number }>;
-}
-
-export interface SalesSummary {
-  purchases: number;
   conversations: number;
   value: number;
   roas: number;
@@ -344,7 +333,7 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
       trend: [],
       conversationsByPlatform: [],
     },
-    sales: { purchases: 0, value: 0, roas: 0, costPerPurchase: 0, spend: 0, trend: [], breakdown: [] },
+    sales: { purchases: 0, conversations: 0, value: 0, roas: 0, costPerPurchase: 0, spend: 0, trend: [], breakdown: [] },
     recognition: { reach: 0, frequency: 0, cpm: 0, costPerReach: 0, trend: [], breakdown: [] },
     app: { installs: 0, cpi: 0, appEngagements: 0, costPerEngagement: 0, trend: [], breakdown: [] },
     extras: { totalSpend: 0, totalValue: 0, roi: 0, trend: [] },
@@ -354,7 +343,7 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
 
 export function useObjectivePerformanceSummary(workspaceId: string | null, days = DEFAULT_DAYS): UseQueryResult<ObjectivePerformanceSummary> {
   return useQuery({
-    queryKey: ["dashboard", "objective-summary", workspaceId, days],
+    queryKey: ["dashboard", "objective-summary", "v2", workspaceId, days],
     enabled: !!workspaceId,
     queryFn: async () => {
       if (!workspaceId) throw new Error("Workspace não selecionado");
@@ -380,7 +369,8 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
         .is("ad_set_id", null)
         .is("ad_id", null)
         .gte("metric_date", fromIso)
-        .lte("metric_date", toIso);
+        .lte("metric_date", toIso)
+        .order("synced_at", { ascending: false }); // Mais recente primeiro para de-duplicação
 
       if (metricsError) {
         console.error("Failed to load performance metrics for objective summary", metricsError.message);
@@ -500,6 +490,7 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
 
         const existing = aggregatedMap.get(key);
         if (!existing) {
+          // Primeiro registro para esta chave (mais recente devido ao ORDER BY synced_at DESC)
           aggregatedMap.set(key, {
             campaign_id: row.campaign_id,
             metric_date: row.metric_date,
@@ -531,34 +522,8 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
             synced_at: syncedAt,
           });
         } else {
-          if (syncedAt >= existing.synced_at) {
-            existing.impressions = Number(row.impressions ?? 0);
-            existing.clicks = Number(row.clicks ?? 0);
-            existing.ctr = Number(row.ctr ?? 0);
-            existing.spend = Number(row.spend ?? 0);
-            existing.cpc = Number(row.cpc ?? 0);
-            existing.cpm = Number(row.cpm ?? 0);
-            existing.reach = Number(reachSource ?? 0);
-            existing.synced_at = syncedAt;
-          }
-          existing.conversationsStarted = Math.max(existing.conversationsStarted, conversationsStarted);
-          existing.messagingConnections = Math.max(existing.messagingConnections, messagingConnections);
-          existing.pageEngagements = Math.max(existing.pageEngagements, pageEngagements);
-          existing.inlinePostEngagement = Math.max(existing.inlinePostEngagement, inlinePostEngagement);
-          existing.profileVisits = Math.max(existing.profileVisits, profileVisits);
-          existing.likes = Math.max(existing.likes, likes);
-          existing.comments = Math.max(existing.comments, comments);
-          existing.shares = Math.max(existing.shares, shares);
-          existing.saves = Math.max(existing.saves, saves);
-          existing.videoViews = Math.max(existing.videoViews, videoViews);
-          existing.linkClicks = Math.max(existing.linkClicks, linkClicks);
-          existing.inlineLinkClicks = Math.max(existing.inlineLinkClicks, inlineLinkClicks);
-          existing.landingPageViews = Math.max(existing.landingPageViews, landingPageViews);
-          existing.formLeads = Math.max(existing.formLeads, formLeads);
-          existing.purchases = Math.max(existing.purchases, purchases);
-          existing.purchaseValue = Math.max(existing.purchaseValue, purchaseValue);
-          existing.installs = Math.max(existing.installs, installs);
-          existing.appEngagements = Math.max(existing.appEngagements, appEngagements);
+          // Duplicação detectada - pulando registro mais antigo
+          console.log(`⚠️ Duplicação ignorada: ${key}, spend antigo: ${existing.spend}, spend novo: ${row.spend}`);
         }
       }
 
@@ -642,6 +607,7 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
       const salesTrend = new Map<string, number>();
       const salesPlatform = new Map<PlatformKey, number>();
       let salesPurchases = 0;
+      let salesConversations = 0;
       let salesValue = 0;
       let salesSpend = 0;
 
@@ -736,10 +702,12 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
           case "SALES": {
             const purchases = row.purchases ?? 0;
             salesPurchases += purchases;
+            salesConversations += conversationsStarted;
             salesValue += purchaseValue;
             salesSpend += spend;
-            incrementMap(salesPlatform, platform, purchases);
-            addTrend(salesTrend, date, purchases);
+            // Usar conversas para o gráfico se não houver compras
+            incrementMap(salesPlatform, platform, purchases > 0 ? purchases : conversationsStarted);
+            addTrend(salesTrend, date, purchases > 0 ? purchases : conversationsStarted);
             break;
           }
           case "RECOGNITION": {
@@ -813,6 +781,7 @@ export function useObjectivePerformanceSummary(workspaceId: string | null, days 
 
       const salesSummary: SalesSummary = {
         purchases: salesPurchases,
+        conversations: salesConversations,
         value: salesValue,
         roas: salesRoas,
         costPerPurchase: salesPurchases > 0 ? salesSpend / salesPurchases : 0,

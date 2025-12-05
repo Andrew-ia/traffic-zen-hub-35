@@ -15,6 +15,9 @@ import {
   Folder,
   Bot,
   Users,
+  ShoppingBag,
+  Package,
+  RefreshCw,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -34,7 +37,11 @@ export const mainNavigation: NavigationItem[] = [
 
   { name: "Criativos Drive", href: "/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
   { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
+  { name: "Mercado Livre", href: "/mercado-livre", icon: ShoppingBag, keywords: ["mercado livre", "ecommerce", "vendas", "marketplace"] },
+  { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
 
+  { name: "Produtos", href: "/products", icon: Package, keywords: ["produtos", "catalogo", "estoque", "ml"] },
+  { name: "Sincronização", href: "/sync", icon: RefreshCw, keywords: ["sync", "sincronizar", "mercado livre", "conflitos"] },
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
   { name: "AI Assistant", href: "/ai-assistant", icon: Bot, keywords: ["ai", "chat", "assistente", "inteligencia"] },

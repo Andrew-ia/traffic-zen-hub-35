@@ -6,6 +6,7 @@ import campaignsRoutes from './campaigns.routes';
 import creativesRoutes from './creatives.routes';
 import aiRoutes from './ai.routes';
 import pmRoutes from './pm.routes';
+import productsRoutes from '../api/products';
 
 export function registerRoutes(app: Express) {
     // Auth routes
@@ -28,4 +29,7 @@ export function registerRoutes(app: Express) {
 
     // Project Management routes
     app.use('/api/pm', pmRoutes);
+
+    // Products routes
+    app.use('/api/products', productsRoutes);
 }

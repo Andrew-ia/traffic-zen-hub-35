@@ -53,9 +53,16 @@ export default function Dashboard() {
       <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight h-20 flex items-center">Dashboard</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Visão geral das suas campanhas e performance
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <p className="text-sm sm:text-base text-muted-foreground">
+              Visão geral das suas campanhas e performance
+            </p>
+            {performance && (
+              <div className="text-xs text-muted-foreground bg-gray-50 px-2 py-1 rounded">
+                📊 {performance.points?.length || 0} dias com dados
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-2 flex-col sm:flex-row">
@@ -75,11 +82,36 @@ export default function Dashboard() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="7">Últimos 7 dias</SelectItem>
-              <SelectItem value="14">Últimos 14 dias</SelectItem>
-              <SelectItem value="30">Últimos 30 dias</SelectItem>
-              <SelectItem value="60">Últimos 60 dias</SelectItem>
-              <SelectItem value="90">Últimos 90 dias</SelectItem>
+              <SelectItem value="7">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  Últimos 7 dias
+                </div>
+              </SelectItem>
+              <SelectItem value="14">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  Últimos 14 dias
+                </div>
+              </SelectItem>
+              <SelectItem value="30">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  Últimos 30 dias
+                </div>
+              </SelectItem>
+              <SelectItem value="60">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                  Últimos 60 dias
+                </div>
+              </SelectItem>
+              <SelectItem value="90">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  Últimos 90 dias
+                </div>
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>

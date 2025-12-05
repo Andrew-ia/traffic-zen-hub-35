@@ -32,6 +32,11 @@ import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
+import MercadoLivre from "./pages/MercadoLivre";
+import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
+import MercadoLivreCallback from "./pages/MercadoLivreCallback";
+import Products from "./pages/Products";
+import ProductSync from "./pages/ProductSync";
 import { AuthProvider } from "./hooks/useAuth";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { WorkspaceProvider } from "./hooks/useWorkspace";
@@ -100,6 +105,11 @@ const App = () => (
                 <Route path="/ai-assistant" element={<RequireAuth><AIChat /></RequireAuth>} />
 
                 <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
+                <Route path="/mercado-livre" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
+                <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
+                <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
+                <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
+                <Route path="/sync" element={<RequireAuth><ProductSync /></RequireAuth>} />
 
                 <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 

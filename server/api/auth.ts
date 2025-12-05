@@ -7,7 +7,12 @@ import { resolveWorkspaceId } from '../utils/workspace.js';
 /**
  * Simple HMAC-based token utilities (no external deps)
  */
-const AUTH_SECRET = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || 'dev-secret-change-me';
+const AUTH_SECRET = (() => {
+  const v = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || '';
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!v && isProd) throw new Error('AUTH_SECRET not configured');
+  return v || 'dev-secret-change-me';
+})();
 let pagePermsTableEnsured = false;
 
 interface TokenPayload {

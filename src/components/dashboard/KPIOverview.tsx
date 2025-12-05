@@ -187,7 +187,7 @@ export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOve
         />
 
         <KPICard
-          title="Conversões"
+          title="Conversas Iniciadas"
           value={current ? formatNumber(current.conversions) : "0"}
           trend={conversionsTrend?.trend}
           trendPercentage={conversionsTrend?.percentage}
@@ -205,8 +205,13 @@ export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOve
         />
 
         <KPICard
-          title="ROAS"
-          value={current ? `${current.roas.toFixed(2)}x` : "0x"}
+          title={current && current.conversionValue > 0 ? "ROAS" : "Custo por Conversa"}
+          value={current && current.conversionValue > 0 
+            ? `${current.roas.toFixed(2)}x` 
+            : current && current.conversions > 0 
+              ? formatCurrency(current.spend / current.conversions)
+              : "N/A"
+          }
           trend={roasTrend?.trend}
           trendPercentage={roasTrend?.percentage}
           icon={<TrendingUp className="h-4 w-4" />}
@@ -215,21 +220,27 @@ export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOve
       </div>
 
       {current && (
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">
-            CPM: {current.spend > 0 && current.impressions > 0
-              ? formatCurrency((current.spend / current.impressions) * 1000)
-              : "N/A"}
-          </Badge>
-          <Badge variant="outline">
-            CPC: {current.spend > 0 && current.clicks > 0
-              ? formatCurrency(current.spend / current.clicks)
-              : "N/A"}
-          </Badge>
-          {current.conversionValue > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {current.conversionValue > 0 ? (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                💰 Valor Total: {formatCurrency(current.conversionValue)}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                💬 {formatNumber(current.conversationsStarted)} conversas • {formatNumber(current.messagingConnections)} conexões
+              </Badge>
+            )}
             <Badge variant="outline">
-              Valor Total: {formatCurrency(current.conversionValue)}
+              CPM: {current.spend > 0 && current.impressions > 0
+                ? formatCurrency((current.spend / current.impressions) * 1000)
+                : "N/A"}
             </Badge>
+          </div>
+          {current.conversionValue === 0 && (
+            <div className="text-sm text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-3">
+              💡 <strong>Dica:</strong> Configure o Pixel do Meta para trackear vendas e calcular ROAS real.
+            </div>
           )}
         </div>
       )}

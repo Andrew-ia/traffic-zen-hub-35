@@ -125,13 +125,12 @@ export async function getAggregateMetrics(req: Request, res: Response) {
             and pm.ad_id is null
             and pm.metric_date >= current_date - $3::int
             and pm.metric_date < current_date
-            and pm.campaign_id is not null
-            and pm.campaign_id is not null
         ) t where rn = 1
       ),
       pm_agg as (
         select
           workspace_id,
+          platform_account_id,
           campaign_id,
           metric_date,
           sum(impressions)::float8 as impressions,
@@ -147,7 +146,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
               and upper(c.objective) = any($5::text[])
           )
         )
-        group by workspace_id, campaign_id, metric_date
+        group by workspace_id, platform_account_id, campaign_id, metric_date
       ),
       pm_actions as (
         select
@@ -210,6 +209,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       pm_steps as (
         select
           pm.workspace_id,
+          pm.platform_account_id,
           pm.campaign_id,
           pm.metric_date,
           (
@@ -258,11 +258,11 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           and kpi.platform_account_id = any($2::uuid[])
           and kpi.metric_date >= current_date - $3::int
           and kpi.metric_date < current_date
-          and kpi.campaign_id is not null
           and kpi.ad_set_id is null
           and kpi.ad_id is null
           and (
             $4::text is null
+            or kpi.campaign_id is null
             or exists (
               select 1 from campaigns c
               where c.id = kpi.campaign_id and c.status = $4
@@ -270,6 +270,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           )
           and (
             $5::text[] is null
+            or kpi.campaign_id is null
             or exists (
               select 1 from campaigns c
               where c.id = kpi.campaign_id
@@ -278,7 +279,8 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           )
       ),
       kpi_data as (
-        select distinct on (campaign_id, metric_date)
+        select distinct on (platform_account_id, campaign_id, metric_date)
+          platform_account_id,
           campaign_id,
           metric_date,
           spend,
@@ -286,7 +288,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
           revenue,
           roas
         from kpi_raw
-        order by campaign_id, metric_date, spend desc nulls last
+        order by platform_account_id, campaign_id, metric_date, spend desc nulls last
       )
       select
         sum(pm_agg.spend)::float8 as spend,
@@ -309,13 +311,14 @@ export async function getAggregateMetrics(req: Request, res: Response) {
         count(distinct case when c.id is not null and pm_agg.spend > 0 then c.id end) as active_campaigns,
         count(distinct c.id) as total_campaigns
       from kpi_data
-      left join pm_agg on pm_agg.workspace_id = $1 and pm_agg.campaign_id = kpi_data.campaign_id and pm_agg.metric_date = kpi_data.metric_date
-      left join pm_steps on pm_steps.workspace_id = $1 and pm_steps.campaign_id = kpi_data.campaign_id and pm_steps.metric_date = kpi_data.metric_date
+      left join pm_agg on pm_agg.workspace_id = $1 and pm_agg.platform_account_id = kpi_data.platform_account_id and pm_agg.campaign_id IS NOT DISTINCT FROM kpi_data.campaign_id and pm_agg.metric_date = kpi_data.metric_date
+      left join pm_steps on pm_steps.workspace_id = $1 and pm_steps.platform_account_id = kpi_data.platform_account_id and pm_steps.campaign_id IS NOT DISTINCT FROM kpi_data.campaign_id and pm_steps.metric_date = kpi_data.metric_date
       left join campaigns c on c.id = kpi_data.campaign_id
       where (
-        $4::text is null or c.status = $4
+        $4::text is null or kpi_data.campaign_id is null or c.status = $4
       ) and (
         $5::text[] is null
+        or kpi_data.campaign_id is null
         or (c.id is not null and upper(c.objective) = any($5::text[]))
       )
       `,

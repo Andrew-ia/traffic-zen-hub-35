@@ -20,9 +20,14 @@ import {
     directInstagramSync,
     getEngagementRate
 } from '../api/integrations/instagram';
+import mercadoLivreRouter from '../api/integrations/mercadolivre';
 
 const router = Router();
 
+// Mercado Livre routes (public OAuth callback)
+router.use('/mercadolivre', mercadoLivreRouter);
+
+// Apply auth middleware to other routes
 router.use(authMiddleware);
 
 // Meta Ads
@@ -45,5 +50,7 @@ router.post('/instagram/sync', optimizedInstagramSync);
 router.post('/instagram/sync/simple', simpleInstagramSync);
 router.post('/instagram/sync/direct', directInstagramSync);
 router.get('/instagram/engagement', getEngagementRate);
+
+// Mercado Livre routes already registered above
 
 export default router;

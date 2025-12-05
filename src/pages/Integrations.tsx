@@ -26,9 +26,11 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  ShoppingBag,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 
 export default function Integrations() {
   const { currentWorkspace } = useWorkspace();
@@ -258,6 +260,29 @@ export default function Integrations() {
       </div>
 
       <div>
+        <h2 className="text-2xl font-bold mb-4">E-commerce</h2>
+        <Card>
+          <CardContent className="flex items-center justify-between p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                <ShoppingBag className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div>
+                <p className="font-semibold">Mercado Livre</p>
+                <p className="text-sm text-muted-foreground">Marketplace líder da América Latina</p>
+                <div className="flex gap-2 mt-2">
+                  <Badge variant="secondary">Clique para conectar</Badge>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <MercadoLivreConnectButton size="sm" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
         <h2 className="text-2xl font-bold mb-4">Outras Integrações</h2>
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
           {overview?.integrations.length === 0 ? (
@@ -372,18 +397,18 @@ function MetaCredentialsDialog() {
   useEffect(() => {
     let base = defaultCredentials();
     try {
-        const stored = localStorage.getItem(META_CREDENTIALS_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as MetaCredentials;
-          base = {
-            appId: parsed.appId || base.appId,
-            appSecret: parsed.appSecret || base.appSecret,
-            accessToken: parsed.accessToken || base.accessToken,
-            adAccountId: parsed.adAccountId || base.adAccountId,
-            workspaceId: parsed.workspaceId || base.workspaceId,
-            pageId: parsed.pageId || base.pageId,
-          };
-        }
+      const stored = localStorage.getItem(META_CREDENTIALS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as MetaCredentials;
+        base = {
+          appId: parsed.appId || base.appId,
+          appSecret: parsed.appSecret || base.appSecret,
+          accessToken: parsed.accessToken || base.accessToken,
+          adAccountId: parsed.adAccountId || base.adAccountId,
+          workspaceId: parsed.workspaceId || base.workspaceId,
+          pageId: parsed.pageId || base.pageId,
+        };
+      }
       setCredentials(base);
     } catch (error) {
       console.warn("Failed to load stored Meta credentials", error);
@@ -519,27 +544,27 @@ function MetaCredentialsDialog() {
               placeholder="Access token de longa duração"
             />
           </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="meta-ad-account">Ad Account ID</Label>
-            <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="meta-ad-account">Ad Account ID</Label>
+              <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
+            </div>
+            <div>
+              <Label htmlFor="meta-workspace">Workspace ID</Label>
+              <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
+              </p>
+            </div>
           </div>
-          <div>
-            <Label htmlFor="meta-workspace">Workspace ID</Label>
-            <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
-            <p className="mt-1 text-xs text-muted-foreground">
-              ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
-            </p>
-          </div>
-        </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="meta-page-id">Page ID (Facebook)</Label>
-            <Input id="meta-page-id" value={credentials.pageId || ""} onChange={handleChange("pageId")} placeholder="123456789012345" />
-            <p className="mt-1 text-xs text-muted-foreground">Use o ID da Página conectada à sua conta de anúncios.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="meta-page-id">Page ID (Facebook)</Label>
+              <Input id="meta-page-id" value={credentials.pageId || ""} onChange={handleChange("pageId")} placeholder="123456789012345" />
+              <p className="mt-1 text-xs text-muted-foreground">Use o ID da Página conectada à sua conta de anúncios.</p>
+            </div>
           </div>
-        </div>
 
           <div className="space-y-2">
             <Label>Snippet para .env.local</Label>
