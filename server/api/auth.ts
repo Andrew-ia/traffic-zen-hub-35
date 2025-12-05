@@ -2,11 +2,17 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { Client } from 'pg';
 import { getPool, getDatabaseUrl } from '../config/database.js';
+import { resolveWorkspaceId } from '../utils/workspace.js';
 
 /**
  * Simple HMAC-based token utilities (no external deps)
  */
-const AUTH_SECRET = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || 'dev-secret-change-me';
+const AUTH_SECRET = (() => {
+  const v = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || '';
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!v && isProd) throw new Error('AUTH_SECRET not configured');
+  return v || 'dev-secret-change-me';
+})();
 let pagePermsTableEnsured = false;
 
 interface TokenPayload {
@@ -75,7 +81,11 @@ export async function login(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'missing_credentials' });
     }
 
-    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    const WORKSPACE_ID = workspaceId || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    if (!WORKSPACE_ID) {
+      return res.status(400).json({ success: false, error: 'missing_workspace' });
+    }
 
     // Validate password using pgcrypto's crypt() against stored hash
     // Allow login with either email or full_name (username)
@@ -128,7 +138,8 @@ export async function me(req: Request, res: Response) {
 
   // We need to return the workspace_id here too. 
   // Ideally it should be in the token, but for now let's use the env var as the source of truth for the current context
-  const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+  const { id: workspaceId } = resolveWorkspaceId(req);
+  const WORKSPACE_ID = workspaceId || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
   res.json({
     success: true,
@@ -136,7 +147,7 @@ export async function me(req: Request, res: Response) {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
-      workspace_id: WORKSPACE_ID
+      workspace_id: WORKSPACE_ID || null
     }
   });
 }
@@ -173,7 +184,8 @@ export async function createUser(req: Request, res: Response) {
     const appRole: 'adm' | 'basico' | 'simples' = role;
     const workspaceRole = appRole === 'adm' ? 'admin' : appRole === 'basico' ? 'manager' : 'viewer';
 
-    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    const WORKSPACE_ID = workspaceId || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
     const pool = getPool();
     // Hash password using pgcrypto
@@ -190,7 +202,7 @@ export async function createUser(req: Request, res: Response) {
     }
 
     if (!WORKSPACE_ID) {
-      return res.status(500).json({ success: false, error: 'workspace_not_configured' });
+      return res.status(400).json({ success: false, error: 'workspace_not_configured' });
     }
     // Upsert membership
     await pool.query(
@@ -216,7 +228,8 @@ export async function getPagePermissions(req: Request, res: Response) {
     const payload = (req as any).user as TokenPayload | undefined;
     if (!payload) return res.status(401).json({ success: false, error: 'invalid_token' });
 
-    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    const WORKSPACE_ID = workspaceId || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
     const pool = getPool();
     await ensurePagePermissionsTable(pool);
@@ -253,7 +266,8 @@ export async function setPagePermissions(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'invalid_payload' });
     }
 
-    const WORKSPACE_ID = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    const WORKSPACE_ID = workspaceId || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
     if (!WORKSPACE_ID) return res.status(500).json({ success: false, error: 'workspace_not_configured' });
 

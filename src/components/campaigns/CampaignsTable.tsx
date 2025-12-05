@@ -140,12 +140,12 @@ export function CampaignsTable({
   const navigate = useNavigate();
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <CardTitle className="text-lg sm:text-xl">{title}</CardTitle>
+    <Card className="border-border/50 shadow-sm">
+      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 border-b border-border/50 bg-muted/20">
+        <CardTitle className="text-base font-semibold">{title}</CardTitle>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           {headerActions}
-          {showCreateButton && <Button className="w-full sm:w-auto">Nova Campanha</Button>}
+          {showCreateButton && <Button className="w-full sm:w-auto shadow-sm">Nova Campanha</Button>}
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
@@ -167,106 +167,106 @@ export function CampaignsTable({
                 <TableHead className="text-right w-[50px] px-2">Ações</TableHead>
               </TableRow>
             </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                  Carregando campanhas...
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && !hasData && (
-              <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
-                  Nenhuma campanha encontrada para esta conta.
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading &&
-              hasData &&
-              campaigns.map((campaign) => (
-                <TableRow
-                  key={campaign.id}
-                  onClick={() => navigate(`/campaigns/${campaign.id}`)}
-                  className="cursor-pointer transition hover:bg-muted/50"
-                >
-                  <TableCell className="px-2">
-                    <div className="font-medium text-xs truncate">{campaign.name}</div>
-                  </TableCell>
-                  <TableCell className="px-2">
-                    <div className="flex flex-col gap-0.5">
-                      <Badge
-                        variant={getPlatformBadgeVariant(campaign.platformKey)}
-                        className="text-[9px] px-1 py-0 w-fit"
-                      >
-                        {formatPlatform(campaign.platformKey)}
-                      </Badge>
-                      <span className="text-[10px] text-muted-foreground truncate">
-                        {campaign.platformAccount ?? "-"}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell px-2">
-                    <span className="text-[10px] truncate block">{getCampaignObjectiveLabel(campaign.objective) || "-"}</span>
-                  </TableCell>
-                  <TableCell className="px-2">
-                    <Badge
-                      variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}
-                      className="text-[9px] px-1 py-0"
-                    >
-                      {formatStatus(campaign.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell px-2">
-                    <span className="text-[10px] truncate block">{campaign.resultLabel ?? "Resultados"}</span>
-                  </TableCell>
-                  <TableCell className="text-right hidden md:table-cell px-2">
-                    <span className="text-[10px]">
-                      {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right hidden lg:table-cell px-2">
-                    <span className="text-[10px]">
-                      {campaign.instagramFollows != null && campaign.instagramFollows > 0
-                        ? new Intl.NumberFormat("pt-BR").format(campaign.instagramFollows)
-                        : "-"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right px-2">
-                    <span className="text-[11px] font-medium">{formatCurrency(campaign.spend)}</span>
-                  </TableCell>
-                  <TableCell className="text-right hidden lg:table-cell px-2">
-                    <span className="text-[10px]">{formatCurrency(campaign.costPerResult)}</span>
-                  </TableCell>
-                  <TableCell className="text-right hidden lg:table-cell px-2">
-                    <span className="text-[10px] font-medium">
-                      {campaign.roas != null ? `${campaign.roas.toFixed(2)}x` : "-"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right px-1" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-6 w-6 p-0">
-                          <span className="sr-only">Abrir menu</span>
-                          <MoreVertical className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => navigate(`/campaigns/${campaign.id}`)}>
-                          Ver detalhes
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>Editar</DropdownMenuItem>
-                        <DropdownMenuItem>Pausar</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
-                          Excluir
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                    Carregando campanhas...
                   </TableCell>
                 </TableRow>
-              ))}
-          </TableBody>
-        </Table>
+              )}
+              {!isLoading && !hasData && (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+                    Nenhuma campanha encontrada para esta conta.
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading &&
+                hasData &&
+                campaigns.map((campaign) => (
+                  <TableRow
+                    key={campaign.id}
+                    onClick={() => navigate(`/campaigns/${campaign.id}`)}
+                    className="cursor-pointer transition hover:bg-muted/50"
+                  >
+                    <TableCell className="px-2">
+                      <div className="font-medium text-xs truncate">{campaign.name}</div>
+                    </TableCell>
+                    <TableCell className="px-2">
+                      <div className="flex flex-col gap-0.5">
+                        <Badge
+                          variant={getPlatformBadgeVariant(campaign.platformKey)}
+                          className="text-[9px] px-1 py-0 w-fit"
+                        >
+                          {formatPlatform(campaign.platformKey)}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground truncate">
+                          {campaign.platformAccount ?? "-"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell px-2">
+                      <span className="text-[10px] truncate block">{getCampaignObjectiveLabel(campaign.objective) || "-"}</span>
+                    </TableCell>
+                    <TableCell className="px-2">
+                      <Badge
+                        variant={campaign.status.toLowerCase() === "active" ? "default" : "secondary"}
+                        className="text-[9px] px-1 py-0"
+                      >
+                        {formatStatus(campaign.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell px-2">
+                      <span className="text-[10px] truncate block">{campaign.resultLabel ?? "Resultados"}</span>
+                    </TableCell>
+                    <TableCell className="text-right hidden md:table-cell px-2">
+                      <span className="text-[10px]">
+                        {campaign.resultValue != null ? new Intl.NumberFormat("pt-BR").format(campaign.resultValue) : "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right hidden lg:table-cell px-2">
+                      <span className="text-[10px]">
+                        {campaign.instagramFollows != null && campaign.instagramFollows > 0
+                          ? new Intl.NumberFormat("pt-BR").format(campaign.instagramFollows)
+                          : "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right px-2">
+                      <span className="text-[11px] font-medium">{formatCurrency(campaign.spend)}</span>
+                    </TableCell>
+                    <TableCell className="text-right hidden lg:table-cell px-2">
+                      <span className="text-[10px]">{formatCurrency(campaign.costPerResult)}</span>
+                    </TableCell>
+                    <TableCell className="text-right hidden lg:table-cell px-2">
+                      <span className="text-[10px] font-medium">
+                        {campaign.roas != null ? `${campaign.roas.toFixed(2)}x` : "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right px-1" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-6 w-6 p-0">
+                            <span className="sr-only">Abrir menu</span>
+                            <MoreVertical className="h-3 w-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => navigate(`/campaigns/${campaign.id}`)}>
+                            Ver detalhes
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>Editar</DropdownMenuItem>
+                          <DropdownMenuItem>Pausar</DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive">
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
         </div>
 
         {hasPagination && (

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { google } from 'googleapis';
 import { getPool } from '../../../config/database.js';
 import { encryptCredentials } from '../../../services/encryption.js';
+import { resolveWorkspaceId } from '../../../utils/workspace.js';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -41,6 +42,17 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
     }
 
     console.log('Processing Google Ads OAuth callback with code:', typeof code === 'string' ? code.substring(0, 20) + '...' : code);
+    const { id: workspaceIdFromResolver } = resolveWorkspaceId(req);
+    const workspaceIdFromQuery = typeof req.query.workspaceId === 'string' ? req.query.workspaceId.trim() : '';
+    const stateValue = typeof state === 'string' ? state.trim() : '';
+    const workspaceIdFromState = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(stateValue)
+      ? stateValue
+      : '';
+    const targetWorkspaceId = workspaceIdFromQuery || workspaceIdFromState || workspaceIdFromResolver;
+    if (!targetWorkspaceId && !WORKSPACE_ID) {
+      return res.status(400).send('<html><body><h1>❌ Missing workspace</h1><p>Send workspaceId via state param or configure WORKSPACE_ID.</p></body></html>');
+    }
+    const workspaceId = targetWorkspaceId || WORKSPACE_ID || '';
 
     // Create OAuth2 client - use main domain
     const isVercel = req.get('host')?.includes('vercel.app');
@@ -111,14 +123,14 @@ export async function handleGoogleAdsCallback(req: Request, res: Response) {
     // Delete existing credentials
     await pool.query(
       'DELETE FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2',
-      [WORKSPACE_ID, 'google_ads']
+      [workspaceId, 'google_ads']
     );
 
     // Insert new credentials
     await pool.query(
       `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
        VALUES ($1, $2, $3, $4)`,
-      [WORKSPACE_ID, 'google_ads', encrypted_credentials, encryption_iv]
+      [workspaceId, 'google_ads', encrypted_credentials, encryption_iv]
     );
 
     console.log('Google Ads credentials saved successfully');

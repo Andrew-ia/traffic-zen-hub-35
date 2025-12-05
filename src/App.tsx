@@ -32,8 +32,14 @@ import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
+import MercadoLivre from "./pages/MercadoLivre";
+import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
+import MercadoLivreCallback from "./pages/MercadoLivreCallback";
+import Products from "./pages/Products";
+import ProductSync from "./pages/ProductSync";
 import { AuthProvider } from "./hooks/useAuth";
 import { RequireAuth } from "@/components/layout/RequireAuth";
+import { WorkspaceProvider } from "./hooks/useWorkspace";
 
 const queryClient = new QueryClient();
 
@@ -71,40 +77,47 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <MainLayout>
-            <PageViewTracker />
-            <Routes>
-              <Route path="/login" element={<Login />} />
+          <WorkspaceProvider>
+            <MainLayout>
+              <PageViewTracker />
+              <Routes>
+                <Route path="/login" element={<Login />} />
 
-              <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+                <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
 
-              <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
-              <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
-              <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
-              <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
-              <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
-              <Route path="/campaigns/new/meta" element={<RequireAuth><CreateMetaCampaign /></RequireAuth>} />
+                <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
+                <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
+                <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
+                <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
+                <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
+                <Route path="/campaigns/new/meta" element={<RequireAuth><CreateMetaCampaign /></RequireAuth>} />
 
-              <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
-              <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-              <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
-              <Route path="/creative-analysis/meta" element={<RequireAuth><MetaCreativeAnalysis /></RequireAuth>} />
-              <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
-              <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
-              <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
-              <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
-              <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
-              <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
-              <Route path="/ai-assistant" element={<RequireAuth><AIChat /></RequireAuth>} />
+                <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
+                <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
+                <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
+                <Route path="/creative-analysis/meta" element={<RequireAuth><MetaCreativeAnalysis /></RequireAuth>} />
+                <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
+                <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
+                <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
+                <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
+                <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
+                <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
+                <Route path="/ai-assistant" element={<RequireAuth><AIChat /></RequireAuth>} />
 
-              <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
+                <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
+                <Route path="/mercado-livre" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
+                <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
+                <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
+                <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
+                <Route path="/sync" element={<RequireAuth><ProductSync /></RequireAuth>} />
 
-              <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
+                <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </MainLayout>
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </MainLayout>
+          </WorkspaceProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

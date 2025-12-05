@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../../config/database.js';
 import { decryptCredentials, encryptCredentials } from '../../services/encryption.js';
 import { runWorkerIteration } from '../../workers/simpleSyncWorker.js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 import type {
   ApiResponse,
   SyncJobResponse,
@@ -19,8 +20,8 @@ import type {
 export async function startSync(req: Request, res: Response) {
   try {
     const { workspaceId, platformKey, days, type } = req.body;
-    const envWorkspaceId = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
-    const normalizedWorkspaceId = String(workspaceId || envWorkspaceId || '').trim();
+    const resolved = resolveWorkspaceId(req);
+    const normalizedWorkspaceId = String(workspaceId || resolved.id || '').trim();
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedWorkspaceId);
 

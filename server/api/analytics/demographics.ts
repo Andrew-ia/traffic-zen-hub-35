@@ -1,25 +1,14 @@
 import type { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
-
-function getWorkspaceId(): string {
-  const wid =
-    process.env.META_WORKSPACE_ID ||
-    process.env.WORKSPACE_ID ||
-    process.env.SUPABASE_WORKSPACE_ID ||
-    process.env.VITE_WORKSPACE_ID;
-
-  if (!wid) {
-    throw new Error(
-      'Missing workspace id env. Set META_WORKSPACE_ID or WORKSPACE_ID (or VITE_WORKSPACE_ID) in .env.local'
-    );
-  }
-  return wid.trim();
-}
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 export async function getDemographics(req: Request, res: Response) {
   try {
     const { days, accountId, objective } = req.query;
-    const workspaceId = getWorkspaceId();
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspace id. Send workspaceId in query/body/header.' });
+    }
     const pool = getPool();
 
     const daysNumber = Number(days || 7);

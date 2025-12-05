@@ -8,12 +8,6 @@ import {
 } from "@/lib/conversionMetrics";
 import { keepLatestBreakdownRows } from "@/lib/breakdownMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface CampaignBreakdownItem {
   key: string;
   label: string;
@@ -52,7 +46,7 @@ export interface CampaignBreakdownOptions {
   granularity?: "day" | "week" | "month" | "lifetime";
 }
 
-export function useCampaignBreakdowns(options: CampaignBreakdownOptions): UseQueryResult<CampaignBreakdownResult> {
+export function useCampaignBreakdowns(workspaceId: string | null, options: CampaignBreakdownOptions): UseQueryResult<CampaignBreakdownResult> {
   const { campaignId, breakdownKey, startDate, endDate, granularity = "day" } = options;
   const startKey = startDate instanceof Date ? startDate.toISOString() : startDate ?? "auto";
   const endKey = endDate instanceof Date ? endDate.toISOString() : endDate ?? "auto";
@@ -61,6 +55,7 @@ export function useCampaignBreakdowns(options: CampaignBreakdownOptions): UseQue
   return useQuery({
     queryKey: [
       "campaign",
+      workspaceId,
       campaignId,
       "breakdowns",
       breakdownKey,
@@ -68,10 +63,13 @@ export function useCampaignBreakdowns(options: CampaignBreakdownOptions): UseQue
       startKey,
       endKey,
     ],
-    enabled: Boolean(campaignId && breakdownKey),
+    enabled: Boolean(campaignId && breakdownKey && workspaceId),
     queryFn: async (): Promise<CampaignBreakdownResult> => {
       if (!campaignId) {
         throw new Error("Missing campaign id");
+      }
+      if (!workspaceId) {
+        throw new Error("Workspace não selecionado");
       }
 
       const resolvedEnd = endDate ? new Date(endDate) : new Date();
@@ -104,7 +102,7 @@ export function useCampaignBreakdowns(options: CampaignBreakdownOptions): UseQue
             extra_metrics
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("campaign_id", campaignId)
         .eq("breakdown_key", breakdownKey)
         .eq("granularity", granularity)

@@ -2,6 +2,9 @@
 import fetch from "node-fetch";
 import process from "node:process";
 import { Client } from "pg";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local" });
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -485,7 +488,7 @@ async function upsertMetrics(client, workspaceId, platformAccountId, rows, level
           $17::jsonb,
           now()
         )
-        ON CONFLICT (workspace_id, platform_account_id, campaign_id, ad_set_id, ad_id, granularity, metric_date)
+        ON CONFLICT (workspace_id, platform_account_id, COALESCE(campaign_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(ad_set_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(ad_id, '00000000-0000-0000-0000-000000000000'::uuid), granularity, metric_date)
         DO UPDATE SET
           impressions = EXCLUDED.impressions,
           clicks = EXCLUDED.clicks,

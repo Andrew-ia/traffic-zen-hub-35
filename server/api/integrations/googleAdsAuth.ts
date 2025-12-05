@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { google } from 'googleapis';
 import { getPool } from '../../config/database.js';
 import { encryptCredentials } from '../../services/encryption.js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 import fetch from 'node-fetch';
 
 function createOAuthClient() {
@@ -28,6 +29,8 @@ export async function googleAdsCallback(req: Request, res: Response) {
     if (!code) {
       return res.status(400).json({ success: false, error: 'Missing code' });
     }
+    const { id: workspaceIdFromResolver } = resolveWorkspaceId(req);
+    const workspaceId = (req.query.workspaceId as string | undefined)?.trim() || workspaceIdFromResolver || (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
 
     const oauth2 = createOAuthClient();
     const { tokens } = await oauth2.getToken(code);
@@ -36,9 +39,8 @@ export async function googleAdsCallback(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'No refresh_token returned' });
     }
 
-    const workspaceId = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
     if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Missing workspace id in env' });
+      return res.status(400).json({ success: false, error: 'Missing workspace id. Send workspaceId in query/body/header.' });
     }
 
     const customerId = (process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, '');
@@ -77,8 +79,8 @@ export async function googleAdsCallback(req: Request, res: Response) {
 
 export async function googleAdsTest(req: Request, res: Response) {
   try {
-    const workspaceId = (process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
-    if (!workspaceId) return res.status(400).json({ success: false, error: 'Missing workspace id in env' });
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ success: false, error: 'Missing workspace id. Send workspaceId in query/body/header.' });
 
     const pool = getPool();
     const row = await pool.query(

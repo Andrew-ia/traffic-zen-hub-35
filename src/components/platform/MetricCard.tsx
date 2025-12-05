@@ -58,28 +58,32 @@ export function MetricCard({ label, value, loading }: MetricCardProps) {
   const config = metricConfig[label] || defaultConfig;
   const Icon = config.icon;
 
+  // Extract base color name for background opacity
+  const colorClass = config.color.split('-')[1]; // e.g., "purple" from "text-purple-600"
+  const bgClass = `bg-${colorClass}-100 dark:bg-${colorClass}-900/30`;
+
   return (
-    <Card className={`border-l-4 ${config.borderColor} ${config.bgColor} hover:shadow-md transition-all overflow-hidden`}>
+    <Card className="border-border/50 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
       <CardContent className="p-3">
         {loading ? (
-          <div className="space-y-1.5">
-            <div className="h-2.5 bg-muted animate-pulse rounded w-12" />
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <div className="h-2.5 bg-muted animate-pulse rounded w-12" />
+              <div className="h-6 w-6 bg-muted animate-pulse rounded-full" />
+            </div>
             <div className="h-6 bg-muted animate-pulse rounded w-16" />
           </div>
         ) : (
-          <div className="space-y-1.5">
-            {/* Header com ícone e label */}
+          <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] text-muted-foreground font-medium">
+              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 {label}
-              </div>
-              <div className="opacity-40">
-                <Icon className={`h-4 w-4 ${config.color}`} />
+              </span>
+              <div className={`h-6 w-6 rounded-full flex items-center justify-center ${bgClass} ${config.color}`}>
+                <Icon className="h-3.5 w-3.5" />
               </div>
             </div>
-
-            {/* Valor principal */}
-            <div className="text-xl font-bold">
+            <div className="text-xl font-bold tracking-tight">
               {value}
             </div>
           </div>

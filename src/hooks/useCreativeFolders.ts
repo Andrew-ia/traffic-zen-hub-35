@@ -1,12 +1,6 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -118,14 +112,16 @@ export interface CreativeLibraryItem {
 /**
  * Fetch all folders with creative counts
  */
-export function useCreativeFolders(): UseQueryResult<CreativeFolder[]> {
+export function useCreativeFolders(workspaceId: string | null): UseQueryResult<CreativeFolder[]> {
   return useQuery({
-    queryKey: ["creative-folders", WORKSPACE_ID],
+    queryKey: ["creative-folders", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<CreativeFolder[]> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const { data, error } = await supabase
         .from("creative_folders")
         .select("*")
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("sort_order", { ascending: true });
 
       if (error) {
@@ -137,7 +133,7 @@ export function useCreativeFolders(): UseQueryResult<CreativeFolder[]> {
       const { data: countData, error: countError } = await supabase
         .from("creative_assets")
         .select("folder_id")
-        .eq("workspace_id", WORKSPACE_ID);
+        .eq("workspace_id", workspaceId);
 
       if (countError) {
         console.error("Failed to count creatives:", countError.message);
@@ -171,7 +167,7 @@ export function useCreativeFolders(): UseQueryResult<CreativeFolder[]> {
 /**
  * Create a new folder
  */
-export function useCreateFolder() {
+export function useCreateFolder(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -185,7 +181,7 @@ export function useCreateFolder() {
       const { data, error } = await supabase
         .from("creative_folders")
         .insert({
-          workspace_id: WORKSPACE_ID,
+          workspace_id: workspaceId,
           name: params.name,
           description: params.description || null,
           color: params.color || null,
@@ -199,7 +195,7 @@ export function useCreateFolder() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["creative-folders"] });
+      queryClient.invalidateQueries({ queryKey: ["creative-folders", workspaceId] });
     },
   });
 }
@@ -207,7 +203,7 @@ export function useCreateFolder() {
 /**
  * Delete a folder
  */
-export function useDeleteFolder() {
+export function useDeleteFolder(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -217,8 +213,8 @@ export function useDeleteFolder() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["creative-folders"] });
-      queryClient.invalidateQueries({ queryKey: ["creative-library"] });
+      queryClient.invalidateQueries({ queryKey: ["creative-folders", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["creatives"] });
     },
   });
 }
@@ -230,14 +226,16 @@ export function useDeleteFolder() {
 /**
  * Fetch all tags
  */
-export function useCreativeTags(): UseQueryResult<CreativeTag[]> {
+export function useCreativeTags(workspaceId: string | null): UseQueryResult<CreativeTag[]> {
   return useQuery({
-    queryKey: ["creative-tags", WORKSPACE_ID],
+    queryKey: ["creative-tags", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<CreativeTag[]> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const { data, error } = await supabase
         .from("creative_tags")
         .select("*")
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("name", { ascending: true });
 
       if (error) {
@@ -260,7 +258,7 @@ export function useCreativeTags(): UseQueryResult<CreativeTag[]> {
 /**
  * Create a new tag
  */
-export function useCreateTag() {
+export function useCreateTag(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -268,7 +266,7 @@ export function useCreateTag() {
       const { data, error } = await supabase
         .from("creative_tags")
         .insert({
-          workspace_id: WORKSPACE_ID,
+          workspace_id: workspaceId,
           name: params.name,
           color: params.color || null,
         })
@@ -279,7 +277,7 @@ export function useCreateTag() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["creative-tags"] });
+      queryClient.invalidateQueries({ queryKey: ["creative-tags", workspaceId] });
     },
   });
 }
@@ -291,21 +289,26 @@ export function useCreateTag() {
 /**
  * Fetch creative library with folders, tags, variants, and performance
  */
-export function useCreativeLibraryEnhanced(options: {
-  folderId?: string | null;
-  tagIds?: string[];
-  search?: string;
-  recommendation?: string;
-} = {}): UseQueryResult<CreativeLibraryItem[]> {
+export function useCreativeLibraryEnhanced(
+  workspaceId: string | null,
+  options: {
+    folderId?: string | null;
+    tagIds?: string[];
+    search?: string;
+    recommendation?: string;
+  } = {},
+): UseQueryResult<CreativeLibraryItem[]> {
   const { folderId, tagIds, search, recommendation } = options;
 
   return useQuery({
-    queryKey: ["creative-library-enhanced", WORKSPACE_ID, folderId, tagIds, search, recommendation],
+    queryKey: ["creative-library-enhanced", workspaceId, folderId, tagIds, search, recommendation],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<CreativeLibraryItem[]> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const { data, error } = await supabase
         .from("v_creative_library")
         .select("*")
-        .eq("workspace_id", WORKSPACE_ID);
+        .eq("workspace_id", workspaceId);
 
       if (error) {
         console.error("Failed to fetch creative library:", error.message);

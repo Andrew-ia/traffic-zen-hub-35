@@ -7,6 +7,7 @@
     <title>Traffic Pro - Gestão de Tráfego Baseada em Dados</title>
     <meta name="description"
         content="Aumente suas vendas e escale com dados reais. Gestão de tráfego profissional com rastreamento avançado e infraestrutura técnica.">
+    <link rel="icon" href="/traffic-pro-icon.svg" type="image/svg+xml">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,32 +16,32 @@
 
     <style>
         :root {
-            --primary: #FFFFFF;
-            /* Pure white for text */
-            --secondary: #B8BDC6;
-            /* Lighter gray */
-            --accent: #4285F4;
-            /* Vibrant Google Blue */
+            --primary: #202124;
+            /* Dark text for white bg */
+            --secondary: #5F6368;
+            /* Medium gray */
+            --accent: #1A73E8;
+            /* Google Blue */
             --accent-green: #34A853;
             /* Google Green */
             --accent-yellow: #FBBC04;
             /* Google Yellow */
             --accent-red: #EA4335;
             /* Google Red */
-            --accent-hover: #1A73E8;
-            --bg-color: transparent;
-            /* Transparent to show canvas */
-            --bg-alt: rgba(66, 133, 244, 0.05);
-            /* Subtle blue tint */
-            --border: rgba(66, 133, 244, 0.2);
-            /* Brighter border */
+            --accent-hover: #174EA6;
+            --bg-color: #FFFFFF;
+            /* Pure white background */
+            --bg-alt: #F8F9FA;
+            /* Light gray for alt sections */
+            --border: #DADCE0;
+            /* Light border */
             --text-light: #202124;
-            --card-bg: rgba(20, 25, 45, 0.7);
-            /* Lighter card background */
+            --card-bg: #FFFFFF;
+            /* White card background */
             --radius: 24px;
-            --shadow: 0 4px 24px rgba(66, 133, 244, 0.15);
-            --shadow-hover: 0 12px 40px rgba(66, 133, 244, 0.3);
-            --glow: 0 0 20px rgba(66, 133, 244, 0.4);
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
+            --shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(26, 115, 232, 0.2);
         }
 
         * {
@@ -52,12 +53,13 @@
         body {
             font-family: 'Inter', sans-serif;
             color: var(--primary);
-            background-color: #0a0e27;
-            /* Lighter dark blue */
+            background-color: var(--bg-color);
+            /* White background */
             line-height: 1.5;
             overflow-x: hidden;
             position: relative;
-            padding-top: 60px; /* Compensação para header fixo */
+            padding-top: 60px;
+            /* Compensação para header fixo */
         }
 
         #bg-particles {
@@ -67,8 +69,7 @@
             width: 100%;
             height: 100%;
             z-index: -1;
-            background: radial-gradient(circle at top, #1a2847, #0a0e27);
-            /* Brighter gradient */
+            /* White background is already set on body, canvas is transparent on top */
         }
 
         a {
@@ -81,7 +82,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 0 24px;
         }
@@ -102,14 +103,14 @@
         }
 
         .btn-primary {
-            background: #FFFFFF;
-            color: #202124;
+            background: var(--accent);
+            color: #FFFFFF;
         }
 
         .btn-primary:hover {
-            background: #F8F9FA;
+            background: var(--accent-hover);
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 20px rgba(26, 115, 232, 0.3);
         }
 
         .btn-accent {
@@ -125,13 +126,14 @@
 
         /* Header */
         header {
-            padding: 20px 0;
+            padding: 5px 0;
             position: fixed;
             width: 100%;
             top: 0;
             z-index: 1000;
-            background: rgba(10, 14, 39, 0.95);
+            background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
             transition: transform 0.3s ease-in-out;
         }
 
@@ -143,6 +145,24 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            height: 100%;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .nav-link {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--secondary);
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--primary);
         }
 
         .logo {
@@ -170,18 +190,123 @@
 
         .hero h1 {
             font-size: 56px;
-            font-weight: 700;
-            letter-spacing: -1px;
-            margin-bottom: 24px;
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
-            line-height: 1.1;
-            background: linear-gradient(135deg, #fff 0%, #B8C5D6 50%, var(--accent) 100%);
+            background: linear-gradient(135deg, #202124 0%, #3c4043 100%);
+            background-size: 200% 200%;
+            animation: gradientShift 8s ease infinite;
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: gradientShift 8s ease infinite;
+            font-size: clamp(42px, 4vw, 64px);
+            line-height: 1.1;
+            letter-spacing: -1.5px;
+            margin-bottom: 32px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+            word-spacing: 0.05em;
+        }
+
+        /* Ensure span inherits color properly */
+        .hero h1 span {
+            background: linear-gradient(135deg, #1A73E8 0%, #4285F4 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: clamp(32px, 7vw, 46px);
+                letter-spacing: -1px;
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 900px) {
+
+            /* Header stack */
+            .nav-wrapper {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 12px;
+                order: 2;
+            }
+
+            .nav-link {
+                font-size: 14px;
+            }
+
+            header .btn.btn-primary {
+                width: 100%;
+                justify-content: center;
+                order: 3;
+            }
+
+            /* MOBILE: Convert sticky scroll to simple cards */
+            .sticky-scroll-container {
+                padding: 40px 0 !important;
+                background: var(--bg-alt) !important;
+            }
+
+            .sticky-scroll-content {
+                display: block !important;
+                gap: 0 !important;
+            }
+
+            .scroll-text-column {
+                width: 100% !important;
+                gap: 0 !important;
+                padding-bottom: 0 !important;
+            }
+
+            .scroll-text-column>div:first-child {
+                text-align: center;
+                margin-bottom: 32px !important;
+            }
+
+            .scroll-text-column>div:first-child h2 {
+                font-size: 28px !important;
+            }
+
+            .diagnosis-subtitle {
+                font-size: 18px !important;
+                line-height: 1.4 !important;
+            }
+
+            .scroll-text-block {
+                min-height: auto !important;
+                opacity: 1 !important;
+                background: #fff;
+                border-radius: 16px;
+                padding: 24px;
+                margin-bottom: 20px;
+                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+                border: 1px solid var(--border);
+            }
+
+            .scroll-text-block h3 {
+                font-size: 20px !important;
+                margin-bottom: 12px;
+            }
+
+            .scroll-text-block p {
+                font-size: 15px !important;
+                line-height: 1.6;
+            }
+
+            /* Hide sticky image column on mobile */
+            .sticky-image-column {
+                display: none !important;
+            }
         }
 
         @keyframes gradientShift {
@@ -199,7 +324,8 @@
         .hero p {
             font-size: 20px;
             color: var(--secondary);
-            max-width: 600px;
+            max-width: 900px;
+            /* Expanded from 600px */
             margin: 0 auto 40px;
             font-weight: 400;
         }
@@ -228,85 +354,121 @@
             margin: 0 auto;
         }
 
-        /* Problem Section */
-        .problem-section {
-            background-color: transparent;
-        }
-
-        .grid-3 {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 32px;
-        }
-
-        .card {
-            background: var(--card-bg);
-            padding: 32px;
-            border-radius: var(--radius);
-            border: 2px solid transparent;
-            background-clip: padding-box;
+        /* Sticky Scroll Section Styles */
+        .sticky-scroll-container {
+            display: flex;
+            justify-content: center;
+            width: 100%;
             position: relative;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            backdrop-filter: blur(10px);
+            padding: 40px 0;
         }
 
-        .card::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: var(--radius);
-            padding: 2px;
-            background: linear-gradient(135deg, var(--accent), #1A73E8, #5EA3F5);
-            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
-            opacity: 0;
-            transition: opacity 0.4s ease;
+        .sticky-scroll-content {
+            display: flex;
+            gap: 80px;
+            /* Increased gap */
+            width: 100%;
+            max-width: 1400px;
+            /* Re-added constraint but wider (was 1200px) */
+            margin: 0 auto;
+            /* Center it */
+            position: relative;
         }
 
-        .card:hover {
-            transform: translateY(-8px) scale(1.02);
-            box-shadow: var(--shadow-hover), var(--glow);
+        .scroll-text-column {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            gap: 400px;
+            /* Space between text blocks */
+            padding-bottom: 400px;
+            /* Space at the end */
         }
 
-        .card:hover::before {
+        .diagnosis-subtitle {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 40px;
+            line-height: 1.3;
+            border-left: 4px solid var(--accent-red);
+            padding-left: 20px;
+        }
+
+        .ia-warning-box {
+            background: rgba(234, 67, 53, 0.1);
+            border: 1px solid var(--accent-red);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 16px;
+        }
+
+        .ia-warning-box strong {
+            color: var(--accent-red);
+            display: block;
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+
+        .scroll-text-block {
+            min-height: 50vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            opacity: 0.3;
+            transition: opacity 0.5s ease;
+        }
+
+        .scroll-text-block.active {
             opacity: 1;
         }
 
-        .card-icon {
-            width: 56px;
-            height: 56px;
-            background: linear-gradient(135deg, rgba(66, 133, 244, 0.15), rgba(26, 115, 232, 0.25));
-            color: var(--accent);
-            border-radius: 16px;
+        .scroll-text-block h3 {
+            font-size: 32px;
+            margin-bottom: 16px;
+            color: var(--primary);
+        }
+
+        .scroll-text-block p {
+            font-size: 18px;
+            color: var(--secondary);
+            line-height: 1.6;
+        }
+
+        .sticky-image-column {
+            width: 50%;
+            position: sticky;
+            top: 100px;
+            height: 600px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 24px;
-            transition: all 0.3s ease;
         }
 
-        .card:hover .card-icon {
-            transform: scale(1.1) rotate(5deg);
-            box-shadow: 0 8px 16px rgba(66, 133, 244, 0.3);
+        .sticky-image-card {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-alt);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            overflow: hidden;
+            position: relative;
+            box-shadow: var(--shadow);
         }
 
-        .card-icon svg {
-            width: 28px;
-            height: 28px;
+        .sticky-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.5s ease;
         }
 
-        .card h3 {
-            font-size: 22px;
-            margin-bottom: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-
-        .card p {
-            color: var(--secondary);
-            font-size: 16px;
-            line-height: 1.6;
+        .sticky-image.active {
+            opacity: 1;
         }
 
         /* Solution Section */
@@ -508,8 +670,10 @@
             font-size: 16px;
             font-family: inherit;
             transition: border-color 0.2s;
-            background: rgba(0, 0, 0, 0.2);
-            color: #fff;
+            background: #fff;
+            /* Changed from rgba(0,0,0,0.2) to white */
+            color: var(--primary);
+            /* Changed from #fff to dark */
         }
 
         .form-input:focus {
@@ -553,7 +717,7 @@
             position: absolute;
             width: 60px;
             height: 60px;
-            background: rgba(20, 25, 45, 0.8);
+            background: rgba(255, 255, 255, 0.9);
             border: 2px solid var(--border);
             border-radius: 16px;
             display: flex;
@@ -805,7 +969,7 @@
             .hero {
                 padding: 15px 0 30px;
             }
-            
+
             .hero h1 {
                 font-size: 36px;
             }
@@ -846,6 +1010,158 @@
                 transform: scale(1);
             }
         }
+
+        .methodology-card:hover {
+            background: rgba(255, 255, 255, 0.5);
+            transform: translateX(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        /* New Solution Section Styles */
+        .solution-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            /* Force 3 columns as requested */
+            gap: 32px;
+            margin-top: 40px;
+        }
+
+        @media (max-width: 1100px) {
+            .solution-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .solution-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .solution-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 40px;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+
+        .solution-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+            border-color: var(--accent);
+        }
+
+        .solution-icon-wrapper {
+            width: 64px;
+            height: 64px;
+            background: var(--bg-alt);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            transition: all 0.3s ease;
+            color: var(--accent);
+        }
+
+        .solution-card:hover .solution-icon-wrapper {
+            background: var(--accent);
+            color: white;
+            transform: scale(1.1) rotate(-5deg);
+            box-shadow: 0 10px 20px rgba(26, 115, 232, 0.3);
+        }
+
+        .solution-card h3 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--primary);
+        }
+
+        .solution-card p {
+            font-size: 16px;
+            color: var(--secondary);
+            line-height: 1.6;
+        }
+
+        /* Methodology 3D Tilt Section */
+        .methodology-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+            perspective: 1000px;
+            /* Essential for 3D effect */
+        }
+
+        .tilt-card {
+            background: #fff;
+            border-radius: 24px;
+            border: 1px solid var(--border);
+            padding: 0;
+            overflow: hidden;
+            transition: transform 0.1s ease, box-shadow 0.3s ease;
+            transform-style: preserve-3d;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tilt-card:hover {
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.12);
+        }
+
+        .tilt-visual {
+            height: 240px;
+            background: var(--bg-alt);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            transform: translateZ(20px);
+            /* Pop out effect */
+        }
+
+        .tilt-visual svg {
+            width: 80px;
+            height: 80px;
+            color: var(--accent);
+            filter: drop-shadow(0 10px 20px rgba(26, 115, 232, 0.3));
+            transition: transform 0.3s ease;
+        }
+
+        .tilt-card:hover .tilt-visual svg {
+            transform: scale(1.1) translateZ(30px);
+        }
+
+        .tilt-content {
+            padding: 40px;
+            transform: translateZ(30px);
+            /* Text floats above card */
+            background: #fff;
+            flex-grow: 1;
+        }
+
+        .tilt-content h3 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--primary);
+        }
+
+        .tilt-content p {
+            font-size: 18px;
+            color: var(--secondary);
+            line-height: 1.6;
+        }
     </style>
 </head>
 
@@ -866,16 +1182,20 @@
                 </svg>
                 Traffic<span>Pro</span>
             </a>
-            <a href="#contato" class="btn btn-primary">Falar com Especialista</a>
+
+            <nav class="nav-links">
+                <a href="#diagnostico" class="nav-link">Diagnóstico</a>
+                <a href="#metodologia" class="nav-link">Metodologia</a>
+                <a href="#contato" class="nav-link">Contato</a>
+            </nav>
+
+            <a href="#contato" class="btn btn-primary"
+                style="border-radius: 100px; padding: 10px 24px; font-size: 14px;">Quero parar de perder dinheiro</a>
         </div>
     </header>
 
     <!-- Hero Section -->
-    <section class="hero">
-        <div class="particles" id="particles">
-            <!-- Particles generated by JS -->
-        </div>
-
+    <section class="hero" style="text-align: center; padding: 120px 0 160px; position: relative;">
         <!-- Floating Icons -->
         <div class="floating-icons">
             <div class="float-icon">
@@ -901,6 +1221,12 @@
             <div class="float-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+            </div>
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 </svg>
             </div>
@@ -910,71 +1236,123 @@
                         d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </div>
-            <div class="float-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-            </div>
         </div>
 
-        <div class="container">
-            <h1>Seu negócio não cresce porque seus dados estão errados.</h1>
-            <p>Entenda seus dados, corrija os erros e comece a crescer.</p>
-            <a href="#contato" class="btn btn-primary">Quero meu diagnóstico</a>
+        <div class="container" style="max-width: 1200px; margin: 0 auto; position: relative; z-index: 2;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 24px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M2 17L12 22L22 17" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M2 12L12 17L22 12" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+                <span style="font-weight: 600; font-size: 20px; color: var(--text-light);">Traffic Pro</span>
+            </div>
+
+            <h1>
+                Seu negócio não cresce porque <span>você está investindo no lugar errado.</span>
+            </h1>
+
+            <p
+                style="font-size: 24px; max-width: 700px; margin: 0 auto 48px; color: var(--secondary); text-wrap: balance;">
+                Eu te mostro exatamente onde você está perdendo dinheiro e como virar isso em vendas.
+            </p>
+
+            <div style="display: flex; gap: 16px; justify-content: center;">
+                <a href="#contato" class="btn btn-primary"
+                    style="background: #1A73E8; color: #fff; padding: 16px 32px; border-radius: 100px; font-size: 16px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        style="margin-right: 8px;">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                    Quero Investir Certo
+                </a>
+            </div>
         </div>
     </section>
 
     <!-- Problem Section -->
-    <section class="problem-section">
-        <div class="container">
-            <div class="section-title">
-                <h2>Você provavelmente já passou por isso:</h2>
+    <!-- Diagnosis Section (Sticky Scroll) -->
+    <section class="sticky-scroll-container" id="diagnostico">
+        <div class="sticky-scroll-content">
+            <div class="scroll-text-column">
+                <div style="margin-bottom: 60px;">
+                    <h2 style="font-size: 42px; margin-bottom: 24px;">O que o Diagnóstico revela?</h2>
+                    <div class="diagnosis-subtitle"
+                        style="font-size: 28px; font-weight: 700; color: var(--primary); margin-bottom: 24px; line-height: 1.2;">
+                        Você não está perdendo dinheiro nos anúncios.<br>
+                        Você está perdendo porque não sabe o que está funcionando e o que está te fazendo perder
+                        dinheiro.
+                    </div>
+                    <p style="font-size: 20px; color: var(--secondary);">Uma análise profunda que vai muito além do
+                        "clique".</p>
+                </div>
+
+                <div class="scroll-text-block active" data-index="0">
+                    <h3>1. Onde seu dinheiro está indo embora</h3>
+                    <p>Eu analiso seus anúncios e te mostro:</p>
+                    <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
+                        <li>o que está funcionando</li>
+                        <li>o que está dando prejuízo</li>
+                        <li>onde você está jogando dinheiro fora sem perceber</li>
+                    </ul>
+                </div>
+
+                <div class="scroll-text-block" data-index="1">
+                    <h3>2. Por que seus clientes desistem no meio do caminho</h3>
+                    <p>Descobrimos por que as pessoas:</p>
+                    <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
+                        <li>clicam mas não compram</li>
+                        <li>entram no WhatsApp e somem</li>
+                        <li>somem depois de pedir preço</li>
+                    </ul>
+                </div>
+
+                <div class="scroll-text-block" data-index="2">
+                    <h3>3. Seu sistema está te enganando?</h3>
+                    <div class="ia-warning-box"
+                        style="background: #FFF3E0; border-left: 4px solid #FFB300; padding: 16px; border-radius: 4px; margin-bottom: 16px;">
+                        <strong>❗ Atenção</strong>
+                        <p style="color: var(--primary); font-weight: 500; margin-top: 8px;">Quando seus dados estão
+                            errados, a IA aprende errado e otimiza errado.</p>
+                    </div>
+                    <p style="margin-top: 16px;">Muitas empresas acham que vendem pouco porque o produto é caro. Na
+                        verdade:</p>
+                    <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
+                        <li>os dados estão errados</li>
+                        <li>os números mentem</li>
+                        <li>e você toma decisão errada achando que está tudo certo</li>
+                    </ul>
+                </div>
+
+                <div class="scroll-text-block" data-index="3">
+                    <h3>4. Um plano simples para ganhar mais e errar menos</h3>
+                    <p>Você recebe um plano claro com:</p>
+                    <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
+                        <li>o que parar de fazer</li>
+                        <li>o que ajustar</li>
+                        <li>onde focar</li>
+                        <li>onde investir</li>
+                    </ul>
+                    <p style="margin-top: 12px; color: var(--primary); font-weight: 600;">Sem achismo. Sem
+                        enrolação.</p>
+                </div>
             </div>
-            <div class="grid-3">
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path
-                                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
-                            </path>
-                            <line x1="12" y1="9" x2="12" y2="13"></line>
-                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                        </svg>
-                    </div>
-                    <h3>Já rodou anúncio e não entendeu o resultado</h3>
-                    <p>Gastou dinheiro, viu números na tela, mas não conseguiu saber se deu certo ou não.</p>
+
+            <div class="sticky-image-column">
+                <div class="sticky-image-card">
+                    <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+                        class="sticky-image active" data-index="0" alt="Onde seu dinheiro está indo embora">
+                    <img src="https://images.unsplash.com/photo-1556761175-5973dc0f32e7?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+                        class="sticky-image" data-index="1" alt="Por que seus clientes desistem">
+                    <img src="https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+                        class="sticky-image" data-index="2" alt="Seu sistema está te enganando">
+                    <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+                        class="sticky-image" data-index="3" alt="Um plano simples para ganhar mais">
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                    </div>
-                    <h3>Já pagou alguém para 'gerenciar' e não teve retorno</h3>
-                    <p>Contratou uma agência ou freelancer que prometeu resultado mas só queimou verba.</p>
-                </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="9" cy="7" r="4"></circle>
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                        </svg>
-                    </div>
-                    <h3>Já tentou aprender tráfego sozinho e se perdeu</h3>
-                    <p>Viu mil cursos, tentou seguir, mas ficou mais confuso ainda com tanto termo técnico.</p>
-                </div>
-            </div>
-            <div style="text-align: center; margin-top: 40px; max-width: 600px; margin-left: auto; margin-right: auto;">
-                <p style="font-size: 18px; color: var(--secondary); margin-bottom: 16px;">O problema quase nunca é falta de tentativa.</p>
-                <p style="font-size: 20px; font-weight: 600; color: var(--primary);">O problema é falta de Dados.</p>
             </div>
         </div>
     </section>
@@ -984,61 +1362,84 @@
         <div class="container">
             <div class="section-title">
                 <h2>O que você recebe no Diagnóstico Estratégico</h2>
+                <p>Uma entrega completa para transformar seus dados em resultado.</p>
             </div>
-            <div class="grid-3">
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+            <div class="solution-grid">
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                         </svg>
                     </div>
-                    <h3>Análise das campanhas</h3>
-                    <p>Revisão completa das suas campanhas atuais e identificação de desperdício de verba.</p>
+                    <h3>Onde seu dinheiro está indo embora</h3>
+                    <p>Identifico quais anúncios geram lucro, quais dão prejuízo e onde a verba está sendo desperdiçada.
+                    </p>
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                         </svg>
                     </div>
-                    <h3>Análise do funil</h3>
-                    <p>Mapeamento do seu funil de vendas e pontos de vazamento.</p>
+                    <h3>Por que os clientes desistem</h3>
+                    <p>Mostro em qual etapa as pessoas somem: depois do clique, no WhatsApp ou após pedir preço.</p>
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path
+                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                            </path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
                         </svg>
                     </div>
-                    <h3>Diagnóstico técnico de pixel e eventos</h3>
-                    <p>Verificação se seus dados estão sendo coletados corretamente.</p>
+                    <h3>Dados que não te enganam</h3>
+                    <p>Confiro se Pixel, API e eventos estão corretos para você decidir com números reais, não com
+                        suposições.</p>
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
                         </svg>
                     </div>
                     <h3>Identificação de gargalos</h3>
-                    <p>Descoberta dos verdadeiros problemas que impedem seu crescimento.</p>
+                    <p>Descoberta dos verdadeiros problemas que impedem seu crescimento. Não é só tráfego, é estratégia.
+                    </p>
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
                         </svg>
                     </div>
                     <h3>Recomendações práticas</h3>
-                    <p>Sugestões específicas para o seu negócio, não receita de bolo.</p>
+                    <p>Sugestões específicas para o seu negócio, não receita de bolo. O que você deve fazer amanhã para
+                        melhorar.</p>
                 </div>
-                <div class="card">
-                    <div class="card-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"></polyline>
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
                         </svg>
                     </div>
                     <h3>PDF completo personalizado</h3>
-                    <p>Relatório detalhado com todos os achados e recomendações.</p>
+                    <p>Relatório detalhado com todos os achados e recomendações. Um documento para guiar seu
+                        crescimento.</p>
                 </div>
             </div>
         </div>
@@ -1048,76 +1449,131 @@
     <!-- Instagram Simulation Section -->
     <section style="padding: 80px 0; text-align: center;">
         <div class="container">
-            <h2 style="font-size: 42px; font-weight: 700; margin-bottom: 16px; color: var(--primary);">Você também recebe uma simulação profissional do seu Instagram!</h2>
-            <p style="font-size: 20px; color: var(--secondary); max-width: 700px; margin: 0 auto; line-height: 1.6;">Analisamos seu perfil atual e geramos uma simulação visual de como seu Instagram poderia parecer profissionalmente posicionado.</p>
+            <h2 style="font-size: 42px; font-weight: 700; margin-bottom: 16px; color: var(--primary);">Você também
+                recebe uma simulação profissional do seu Instagram!</h2>
+            <p style="font-size: 20px; color: var(--secondary); max-width: 700px; margin: 0 auto; line-height: 1.6;">
+                Analisamos seu perfil atual e geramos uma simulação visual de como seu Instagram poderia parecer
+                profissionalmente posicionado.</p>
+            <p style="font-size: 16px; color: var(--accent); font-weight: 600; margin-top: 16px;">
+                ✨ Além do marketing, entregamos posicionamento visual profissional.
+            </p>
         </div>
     </section>
 
-    <!-- Authority Section -->
-    <section style="padding: 100px 0; background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(26, 115, 232, 0.05)); position: relative; overflow: hidden;">
-        <!-- Background Decoration -->
-        <div style="position: absolute; top: -50px; right: -100px; width: 300px; height: 300px; border-radius: 50%; background: linear-gradient(45deg, rgba(66, 133, 244, 0.1), transparent); filter: blur(60px);"></div>
-        
+    <!-- Methodology Section (3D Tilt) -->
+    <!-- Methodology Section (3D Tilt) -->
+    <section id="metodologia"
+        style="padding: 120px 0; background: linear-gradient(180deg, #fff 0%, var(--bg-alt) 100%);">
         <div class="container">
-            <div style="max-width: 900px; margin: 0 auto; text-align: center;">
-                <div style="display: inline-block; padding: 12px 24px; background: rgba(66, 133, 244, 0.1); border-radius: 50px; margin-bottom: 32px;">
-                    <span style="color: var(--accent); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Metodologia</span>
-                </div>
-                
-                <h2 style="font-size: 48px; font-weight: 700; margin-bottom: 24px; background: linear-gradient(135deg, #fff, #B8C5D6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.2;">
-                    Não é achismo.<br>É método.
+            <div class="section-title">
+                <h2
+                    style="font-size: 48px; font-weight: 700; margin-bottom: 24px; background: linear-gradient(135deg, #202124, #5F6368); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.2; text-wrap: balance;">
+                    Seu negócio precisa de organização para crescer
                 </h2>
-                
-                <p style="font-size: 24px; color: var(--secondary); margin-bottom: 48px; line-height: 1.6; max-width: 700px; margin-left: auto; margin-right: auto;">
-                    Não usamos fórmulas mágicas. Usamos dados, análise e processo real.
-                </p>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 60px; align-items: center;">
-                    <div style="text-align: left;">
-                        <div style="display: flex; align-items: center; margin-bottom: 24px;">
-                            <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent), #1A73E8); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-right: 20px;">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                                    <path d="M9 11H1l8-8 8 8"/>
-                                    <path d="M9 11v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V11"/>
-                                    <path d="M20 11a9 9 0 0 1-9 9"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 style="font-size: 20px; margin: 0; color: var(--primary);">Metodologia testada</h3>
-                                <p style="margin: 4px 0 0 0; color: var(--secondary); font-size: 16px;">Processo validado</p>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; align-items: center;">
-                            <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent), #1A73E8); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-right: 20px;">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                                    <circle cx="12" cy="12" r="10"/>
-                                    <polyline points="12 6 12 12 16 14"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 style="font-size: 20px; margin: 0; color: var(--primary);">Análise personalizada</h3>
-                                <p style="margin: 4px 0 0 0; color: var(--secondary); font-size: 16px;">Para seu negócio específico</p>
-                            </div>
-                        </div>
+            </div>
+
+            <div class="methodology-grid">
+                <!-- Card 1: Arquitetura de Dados -->
+                <div class="tilt-card">
+                    <div class="tilt-visual" style="padding: 0; background: #fff;">
+                        <img src="data_architecture_v2.png" alt="Organização dos dados"
+                            style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
-                    
-                    <div style="text-align: center; position: relative;">
-                        <div style="width: 200px; height: 200px; border-radius: 50%; background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(26, 115, 232, 0.1)); display: flex; align-items: center; justify-content: center; margin: 0 auto; position: relative;">
-                            <div style="width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #1A73E8); display: flex; align-items: center; justify-content: center;">
-                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                                    <path d="M20 6L9 17l-5-5"/>
-                                </svg>
-                            </div>
-                        </div>
-                        <p style="margin-top: 24px; font-size: 16px; color: var(--secondary); font-style: italic;">
-                            "Cada negócio é único e merece uma estratégia personalizada."
-                        </p>
+                    <div class="tilt-content">
+                        <h3>Organização dos seus dados</h3>
+                        <p>Centralizo e deixo seus números arrumados, sem jargão. Assim você enxerga o que acontece e
+                            toma decisão com confiança.</p>
+                    </div>
+                </div>
+
+                <!-- Card 2: Analytics Avançado -->
+                <div class="tilt-card">
+                    <div class="tilt-visual" style="padding: 0; background: #fff;">
+                        <img src="strategy_analytics_v2.png" alt="Analytics Avançado"
+                            style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                    <div class="tilt-content">
+                        <h3>Analytics Avançado</h3>
+                        <p>Dashboards em tempo real e relatórios preditivos. Transformamos números complexos em
+                            estratégias claras para escalar seu&nbsp;faturamento.</p>
+                    </div>
+                </div>
+
+                <!-- Card 3: Estúdio Criativo -->
+                <div class="tilt-card">
+                    <div class="tilt-visual" style="padding: 0; background: #fff;">
+                        <img src="creative_studio_v2.png" alt="Estúdio Criativo"
+                            style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                    <div class="tilt-content">
+                        <h3>Estúdio de Performance Criativa</h3>
+                        <p>Design e vídeos otimizados por dados. Produzimos criativos que não são apenas bonitos, mas
+                            que convertem e engajam seu público&nbsp;alvo.</p>
                     </div>
                 </div>
             </div>
         </div>
     </section>
+
+    <!-- Authority Section -->
+    <!-- Authority Section (Infinite Marquee) -->
+    <section
+        style="padding: 30px 0; background: #fff; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden;">
+        <div class="marquee-container" style="position: relative; width: 100%; overflow: hidden; white-space: nowrap;">
+            <div class="marquee-track" style="display: inline-block; animation: marquee 30s linear infinite;">
+                <!-- Logos (Repeated for seamless loop) -->
+                <span class="brand-logo">VERMEZZO</span>
+                <span class="brand-logo">WEBMOTORS</span>
+                <span class="brand-logo">DANONE</span>
+                <span class="brand-logo">GETNET</span>
+                <span class="brand-logo">SIM</span>
+                <span class="brand-logo">NESTLÉ</span>
+                <span class="brand-logo">SX NEGÓCIOS</span>
+                <span class="brand-logo">MIRAMAR SHOPPING</span>
+                <span class="brand-logo">OPEN CO</span>
+                <span class="brand-logo">STONE</span>
+                <!-- Duplicate for loop -->
+                <span class="brand-logo">VERMEZZO</span>
+                <span class="brand-logo">WEBMOTORS</span>
+                <span class="brand-logo">DANONE</span>
+                <span class="brand-logo">GETNET</span>
+                <span class="brand-logo">SIM</span>
+                <span class="brand-logo">NESTLÉ</span>
+                <span class="brand-logo">SX NEGÓCIOS</span>
+                <span class="brand-logo">MIRAMAR SHOPPING</span>
+                <span class="brand-logo">OPEN CO</span>
+                <span class="brand-logo">STONE</span>
+            </div>
+        </div>
+    </section>
+
+    <style>
+        .brand-logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ccc;
+            /* Light gray for inactive look */
+            margin: 0 40px;
+            display: inline-block;
+            transition: color 0.3s ease;
+            cursor: default;
+        }
+
+        .brand-logo:hover {
+            color: var(--primary);
+            /* Darker on hover */
+        }
+
+        @keyframes marquee {
+            0% {
+                transform: translateX(0);
+            }
+
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+    </style>
 
 
     <!-- Form Section -->
@@ -1142,6 +1598,25 @@
                         <input type="text" name="company" class="form-input" placeholder="Sua empresa" required>
                     </div>
                     <div class="form-group">
+                        <label class="form-label">Você já anuncia online?</label>
+                        <select name="announces_online" class="form-input" required>
+                            <option value="" disabled selected>Selecione...</option>
+                            <option value="sim">Sim, já anuncio</option>
+                            <option value="nao">Não, ainda não</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Quanto investe em tráfego hoje (mensal)?</label>
+                        <select name="traffic_investment" class="form-input" required>
+                            <option value="" disabled selected>Selecione...</option>
+                            <option value="0">Ainda não invisto</option>
+                            <option value="1k-5k">R$ 1.000 a R$ 5.000</option>
+                            <option value="5k-10k">R$ 5.000 a R$ 10.000</option>
+                            <option value="10k-50k">R$ 10.000 a R$ 50.000</option>
+                            <option value="50k+">Acima de R$ 50.000</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">Faturamento Mensal (Opcional)</label>
                         <select name="revenue_range" class="form-input">
                             <option value="">Selecione...</option>
@@ -1151,7 +1626,8 @@
                             <option value="acima-100k">Acima de R$ 100k</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;" id="submitBtn">Quero minha análise</button>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;" id="submitBtn">Quero parar de
+                        perder dinheiro</button>
                 </form>
             </div>
         </div>
@@ -1167,7 +1643,7 @@
                 </div>
             </div>
             <div class="copyright">
-                &copy; 2024 Traffic Pro. Todos os direitos reservados.
+                &copy; 2025 Traffic Pro. Todos os direitos reservados.
             </div>
         </div>
     </footer>
@@ -1229,9 +1705,9 @@
             function animate() {
                 ctx.clearRect(0, 0, w, h);
 
-                // Draw particles and lines
-                ctx.fillStyle = 'rgba(138, 180, 248, 0.5)';
-                ctx.strokeStyle = 'rgba(138, 180, 248, 0.15)';
+                // Draw particles and lines - Darker colors for White Theme
+                ctx.fillStyle = 'rgba(26, 115, 232, 0.6)'; // Darker Blue
+                ctx.strokeStyle = 'rgba(26, 115, 232, 0.15)'; // Faint Blue lines
 
                 // Connect to mouse
                 if (mouse.x != null) {
@@ -1243,7 +1719,7 @@
 
                         if (dist < mouse.radius) {
                             ctx.beginPath();
-                            ctx.strokeStyle = `rgba(138, 180, 248, ${0.4 - dist / mouse.radius * 0.4})`; // Fade out
+                            ctx.strokeStyle = `rgba(26, 115, 232, ${0.4 - dist / mouse.radius * 0.4})`; // Fade out darker blue
                             ctx.lineWidth = 1;
                             ctx.moveTo(mouse.x, mouse.y);
                             ctx.lineTo(p.x, p.y);
@@ -1255,7 +1731,7 @@
                     }
                 }
 
-                ctx.strokeStyle = 'rgba(138, 180, 248, 0.15)'; // Reset for particle-particle connections
+                ctx.strokeStyle = 'rgba(26, 115, 232, 0.15)'; // Reset for particle-particle connections
 
                 for (let i = 0; i < particles.length; i++) {
                     let p = particles[i];
@@ -1278,7 +1754,7 @@
 
                         if (dist < 150) {
                             ctx.beginPath();
-                            ctx.strokeStyle = `rgba(138, 180, 248, ${0.15 - dist / 150 * 0.15})`;
+                            ctx.strokeStyle = `rgba(26, 115, 232, ${0.15 - dist / 150 * 0.15})`;
                             ctx.moveTo(p.x, p.y);
                             ctx.lineTo(p2.x, p2.y);
                             ctx.stroke();
@@ -1377,14 +1853,14 @@
 
     <script>
         // Header Hide/Show on Scroll
-        (function() {
+        (function () {
             const header = document.getElementById('header');
             let lastScrollTop = 0;
             let scrollThreshold = 100; // Scroll mínimo para ativar o efeito
-            
+
             function handleScroll() {
                 const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                
+
                 if (scrollTop > scrollThreshold) {
                     if (scrollTop > lastScrollTop) {
                         // Scrolling down - hide header
@@ -1397,10 +1873,10 @@
                     // Near top - always show header
                     header.classList.remove('header-hidden');
                 }
-                
+
                 lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
             }
-            
+
             window.addEventListener('scroll', handleScroll, { passive: true });
         })();
     </script>
@@ -1416,7 +1892,9 @@
                 name: form.name.value,
                 whatsapp: form.whatsapp.value,
                 company: form.company.value,
-                revenue_range: form.revenue_range.value
+                revenue_range: form.revenue_range.value,
+                announces_online: form.announces_online.value,
+                traffic_investment: form.traffic_investment.value
             };
 
             try {
@@ -1460,30 +1938,96 @@
 
         // Simple Particle Generator
         const particlesContainer = document.getElementById('particles');
-        const particleCount = 20;
+        if (particlesContainer) {
+            const particleCount = 20;
 
-        for (let i = 0; i < particleCount; i++) {
-            const particle = document.createElement('div');
-            particle.classList.add('particle');
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
 
-            // Random size
-            const size = Math.random() * 10 + 5;
-            particle.style.width = `${size}px`;
-            particle.style.height = `${size}px`;
+                // Random size
+                const size = Math.random() * 10 + 5;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
 
-            // Random position
-            particle.style.left = `${Math.random() * 100}%`;
-            particle.style.top = `${Math.random() * 100}%`;
+                // Random position
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
 
-            // Random animation delay
-            particle.style.animationDelay = `${Math.random() * 5}s`;
-            particle.style.animationDuration = `${15 + Math.random() * 10}s`;
+                // Random animation delay
+                particle.style.animationDelay = `${Math.random() * 5}s`;
+                particle.style.animationDuration = `${15 + Math.random() * 10}s`;
 
-            // Random color opacity
-            particle.style.opacity = Math.random() * 0.2;
+                // Random color opacity
+                particle.style.opacity = Math.random() * 0.2;
 
-            particlesContainer.appendChild(particle);
+                particlesContainer.appendChild(particle);
+            }
         }
+    </script>
+    <script>
+        // Sticky Scroll Diagnosis Effect
+        (function () {
+            const textBlocks = document.querySelectorAll('.scroll-text-block');
+            const images = document.querySelectorAll('.sticky-image');
+
+            if (!textBlocks.length || !images.length) return;
+
+            const observerOptions = {
+                root: null,
+                rootMargin: '-40% 0px -40% 0px', // Trigger when element is in the middle 20% of viewport
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const index = entry.target.getAttribute('data-index');
+
+                        // Activate text
+                        textBlocks.forEach(block => block.classList.remove('active'));
+                        entry.target.classList.add('active');
+
+                        // Activate image
+                        images.forEach(img => {
+                            img.classList.remove('active');
+                            if (img.getAttribute('data-index') === index) {
+                                img.classList.add('active');
+                            }
+                        });
+                    }
+                });
+            }, observerOptions);
+
+            textBlocks.forEach(block => observer.observe(block));
+        })();
+
+        // 3D Tilt Effect for Methodology Cards
+        (function () {
+            const cards = document.querySelectorAll('.tilt-card');
+
+            cards.forEach(card => {
+                card.addEventListener('mousemove', (e) => {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+
+                    // Calculate center
+                    const centerX = rect.width / 2;
+                    const centerY = rect.height / 2;
+
+                    // Calculate tilt (max 15 degrees)
+                    const rotateX = ((y - centerY) / centerY) * -10; // Invert Y for tilt
+                    const rotateY = ((x - centerX) / centerX) * 10;
+
+                    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+                });
+
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) scale3d(1, 1, 1)';
+                });
+            });
+        })();
     </script>
 </body>
 

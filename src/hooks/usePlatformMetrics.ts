@@ -3,22 +3,17 @@ import type { CampaignStatusFilter } from "@/hooks/useCampaigns";
 import { resolveApiBase } from "@/lib/apiBase";
 
 export interface PlatformMetrics {
-  // Métricas principais
   totalSpend: number;
   totalResults: number;
   totalRevenue: number;
   avgRoas: number;
   avgCostPerResult: number;
-
-  // Métricas secundárias
   reach?: number;
   impressions?: number;
   clicks?: number;
   cpm?: number;
   ctr?: number;
   cpc?: number;
-
-  // Meta específico
   frequency?: number;
   linkClicks?: number;
   landingPageViews?: number;
@@ -30,69 +25,41 @@ export interface PlatformMetrics {
   addToCart?: number;
   checkouts?: number;
   purchases?: number;
-
-  // Google específico
   qualityScore?: number;
   impressionShare?: number;
-
-  // Dados agregados
   activeCampaigns: number;
   totalCampaigns: number;
 }
 
 interface UsePlatformMetricsParams {
   platform: "meta" | "google_ads";
-  dateRange: number; // dias
+  dateRange: number;
   accountId?: string;
   status?: CampaignStatusFilter;
   objective?: string;
 }
+
 const API_BASE = resolveApiBase();
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
 
-async function fetchPlatformMetrics({
-  platform,
-  dateRange,
-  accountId,
-  status,
-  objective,
-}: UsePlatformMetricsParams): Promise<PlatformMetrics> {
-  const params = new URLSearchParams({
-    platform,
-    days: dateRange.toString(),
-  });
+async function fetchPlatformMetrics(params: UsePlatformMetricsParams & { workspaceId: string }): Promise<PlatformMetrics> {
+  const { platform, dateRange, accountId, status, objective, workspaceId } = params;
+  const search = new URLSearchParams({ platform, days: dateRange.toString(), workspaceId });
+  if (accountId && accountId !== "all") search.append("accountId", accountId);
+  if (status && status !== "all") search.append("status", status);
+  if (objective) search.append("objective", objective);
 
-  if (WORKSPACE_ID) {
-    params.append("workspaceId", WORKSPACE_ID);
-  }
-
-  if (accountId && accountId !== "all") {
-    params.append("accountId", accountId);
-  }
-
-  if (status && status !== "all") {
-    params.append("status", status);
-  }
-
-  if (objective) {
-    params.append("objective", objective);
-  }
-
-  const response = await fetch(`${API_BASE}/api/metrics/aggregate?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch platform metrics");
-  }
-
+  const response = await fetch(`${API_BASE}/api/metrics/aggregate?${search.toString()}`);
+  if (!response.ok) throw new Error("Failed to fetch platform metrics");
   return response.json();
 }
 
-export function usePlatformMetrics(params: UsePlatformMetricsParams) {
+export function usePlatformMetrics(workspaceId: string | null, params: UsePlatformMetricsParams) {
   return useQuery({
-    queryKey: ["platform-metrics", params.platform, params.dateRange, params.accountId, params.status, params.objective],
-    queryFn: () => fetchPlatformMetrics(params),
-    staleTime: 5 * 60 * 1000, // 5 minutos
-    // Retornar dados mockados enquanto não há endpoint
+    queryKey: ["platform-metrics", workspaceId, params.platform, params.dateRange, params.accountId, params.status, params.objective],
+    enabled: !!workspaceId,
+    queryFn: () => fetchPlatformMetrics({ ...params, workspaceId: workspaceId || "" }),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: {
       totalSpend: 0,
       totalResults: 0,
@@ -116,7 +83,7 @@ export function usePlatformMetrics(params: UsePlatformMetricsParams) {
       purchases: 0,
       activeCampaigns: 0,
       totalCampaigns: 0,
-    },
+    } satisfies PlatformMetrics,
   });
 }
 
@@ -138,55 +105,29 @@ interface UseTimeSeriesParams {
   objective?: string;
 }
 
-async function fetchTimeSeries({
-  platform,
-  dateRange,
-  accountId,
-  metric,
-  status,
-  objective,
-}: UseTimeSeriesParams): Promise<TimeSeriesDataPoint[]> {
-  const params = new URLSearchParams({
-    platform,
-    days: dateRange.toString(),
-    metric,
-  });
+async function fetchTimeSeries(params: UseTimeSeriesParams & { workspaceId: string }): Promise<TimeSeriesDataPoint[]> {
+  const { platform, dateRange, accountId, metric, status, objective, workspaceId } = params;
+  const search = new URLSearchParams({ platform, days: dateRange.toString(), metric, workspaceId });
+  if (accountId && accountId !== "all") search.append("accountId", accountId);
+  if (status && status !== "all") search.append("status", status);
+  if (objective) search.append("objective", objective);
 
-  if (WORKSPACE_ID) {
-    params.append("workspaceId", WORKSPACE_ID);
-  }
-
-  if (accountId && accountId !== "all") {
-    params.append("accountId", accountId);
-  }
-
-  if (status && status !== "all") {
-    params.append("status", status);
-  }
-
-  if (objective) {
-    params.append("objective", objective);
-  }
-
-  const response = await fetch(`${API_BASE}/api/metrics/timeseries?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch time series data");
-  }
-
+  const response = await fetch(`${API_BASE}/api/metrics/timeseries?${search.toString()}`);
+  if (!response.ok) throw new Error("Failed to fetch time series data");
   return response.json();
 }
 
-export function useTimeSeries(params: UseTimeSeriesParams) {
+export function useTimeSeries(workspaceId: string | null, params: UseTimeSeriesParams) {
   return useQuery({
-    queryKey: ["timeseries", params.platform, params.dateRange, params.accountId, params.metric, params.status, params.objective],
-    queryFn: () => fetchTimeSeries(params),
+    queryKey: ["timeseries", workspaceId, params.platform, params.dateRange, params.accountId, params.metric, params.status, params.objective],
+    enabled: !!workspaceId,
+    queryFn: () => fetchTimeSeries({ ...params, workspaceId: workspaceId || "" }),
     staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: [],
   });
 }
 
-// Dados demográficos
 export interface DemographicDataPoint {
   name: string;
   value: number;
@@ -205,51 +146,28 @@ interface UseDemographicsParams {
   objective?: string;
 }
 
-async function fetchDemographics({
-  platform,
-  dateRange,
-  accountId,
-  objective,
-}: UseDemographicsParams): Promise<DemographicData> {
-  const params = new URLSearchParams({
-    platform,
-    days: dateRange.toString(),
-  });
+async function fetchDemographics(params: UseDemographicsParams & { workspaceId: string }): Promise<DemographicData> {
+  const { platform, dateRange, accountId, objective, workspaceId } = params;
+  const search = new URLSearchParams({ platform, days: dateRange.toString(), workspaceId });
+  if (accountId && accountId !== "all") search.append("accountId", accountId);
+  if (objective) search.append("objective", objective);
 
-  if (WORKSPACE_ID) {
-    params.append("workspaceId", WORKSPACE_ID);
-  }
-
-  if (accountId && accountId !== "all") {
-    params.append("accountId", accountId);
-  }
-
-  if (objective) {
-    params.append("objective", objective);
-  }
-
-  const response = await fetch(`${API_BASE}/api/metrics/demographics?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch demographics data");
-  }
-
+  const response = await fetch(`${API_BASE}/api/metrics/demographics?${search.toString()}`);
+  if (!response.ok) throw new Error("Failed to fetch demographics data");
   return response.json();
 }
 
-export function useDemographics(params: UseDemographicsParams) {
+export function useDemographics(workspaceId: string | null, params: UseDemographicsParams) {
   return useQuery({
-    queryKey: ["demographics", params.platform, params.dateRange, params.accountId, params.objective],
-    queryFn: () => fetchDemographics(params),
+    queryKey: ["demographics", workspaceId, params.platform, params.dateRange, params.accountId, params.objective],
+    enabled: !!workspaceId,
+    queryFn: () => fetchDemographics({ ...params, workspaceId: workspaceId || "" }),
     staleTime: 5 * 60 * 1000,
-    placeholderData: {
-      ageData: [],
-      genderData: [],
-    },
+    gcTime: 10 * 60 * 1000,
+    placeholderData: { ageData: [], genderData: [] },
   });
 }
 
-// Métricas por objetivo
 export interface ObjectiveMetrics {
   objective: string;
   resultLabel: string;
@@ -268,43 +186,24 @@ interface UseMetricsByObjectiveParams {
   status?: CampaignStatusFilter;
 }
 
-async function fetchMetricsByObjective({
-  platform,
-  dateRange,
-  accountId,
-  status,
-}: UseMetricsByObjectiveParams): Promise<ObjectiveMetrics[]> {
-  const params = new URLSearchParams({
-    platform,
-    days: dateRange.toString(),
-  });
+async function fetchMetricsByObjective(params: UseMetricsByObjectiveParams & { workspaceId: string }): Promise<ObjectiveMetrics[]> {
+  const { platform, dateRange, accountId, status, workspaceId } = params;
+  const search = new URLSearchParams({ platform, days: dateRange.toString(), workspaceId });
+  if (accountId && accountId !== "all") search.append("accountId", accountId);
+  if (status && status !== "all") search.append("status", status);
 
-  if (WORKSPACE_ID) {
-    params.append("workspaceId", WORKSPACE_ID);
-  }
-
-  if (accountId && accountId !== "all") {
-    params.append("accountId", accountId);
-  }
-
-  if (status && status !== "all") {
-    params.append("status", status);
-  }
-
-  const response = await fetch(`${API_BASE}/api/metrics/aggregate-by-objective?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch metrics by objective");
-  }
-
+  const response = await fetch(`${API_BASE}/api/metrics/aggregate-by-objective?${search.toString()}`);
+  if (!response.ok) throw new Error("Failed to fetch metrics by objective");
   return response.json();
 }
 
-export function useMetricsByObjective(params: UseMetricsByObjectiveParams) {
+export function useMetricsByObjective(workspaceId: string | null, params: UseMetricsByObjectiveParams) {
   return useQuery({
-    queryKey: ["metrics-by-objective", params.platform, params.dateRange, params.accountId, params.status],
-    queryFn: () => fetchMetricsByObjective(params),
+    queryKey: ["metrics-by-objective", workspaceId, params.platform, params.dateRange, params.accountId, params.status],
+    enabled: !!workspaceId,
+    queryFn: () => fetchMetricsByObjective({ ...params, workspaceId: workspaceId || "" }),
     staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     placeholderData: [],
   });
 }

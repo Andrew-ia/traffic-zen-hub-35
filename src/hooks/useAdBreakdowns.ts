@@ -8,12 +8,6 @@ import {
 } from "@/lib/conversionMetrics";
 import { keepLatestBreakdownRows } from "@/lib/breakdownMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface AdBreakdownItem {
   key: string;
   impressions: number;
@@ -51,18 +45,21 @@ export interface AdBreakdownOptions {
   granularity?: "day" | "week" | "month" | "lifetime";
 }
 
-export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdBreakdownResult> {
+export function useAdBreakdowns(workspaceId: string | null, options: AdBreakdownOptions): UseQueryResult<AdBreakdownResult> {
   const { adId, breakdownKey, startDate, endDate, granularity = "day" } = options;
   const startKey = startDate instanceof Date ? startDate.toISOString() : startDate ?? "auto";
   const endKey = endDate instanceof Date ? endDate.toISOString() : endDate ?? "auto";
   const hasCustomStart = Boolean(startDate);
 
   return useQuery({
-    queryKey: ["ad", adId, "breakdowns", breakdownKey, granularity, startKey, endKey],
-    enabled: Boolean(adId && breakdownKey),
+    queryKey: ["ad", workspaceId, adId, "breakdowns", breakdownKey, granularity, startKey, endKey],
+    enabled: Boolean(adId && breakdownKey && workspaceId),
     queryFn: async (): Promise<AdBreakdownResult> => {
       if (!adId) {
         throw new Error("Missing ad id");
+      }
+      if (!workspaceId) {
+        throw new Error("Workspace não selecionado");
       }
 
       const resolvedEnd = endDate ? new Date(endDate) : new Date();
@@ -95,7 +92,7 @@ export function useAdBreakdowns(options: AdBreakdownOptions): UseQueryResult<AdB
             extra_metrics
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("ad_id", adId)
         .eq("breakdown_key", breakdownKey)
         .eq("granularity", granularity)

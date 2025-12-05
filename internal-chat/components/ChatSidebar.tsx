@@ -20,17 +20,7 @@ export default function ChatSidebar({ userId, currentRoomId, onSelect }: { userI
         const mem = await getWorkspaceMembers(WORKSPACE_ID)
         const filtered = mem.filter(m => m.id !== userId)
         if (mounted) setMembers(filtered)
-        if (mounted && !currentRoomId && filtered.length > 0) {
-          try {
-            const rid = await findOrCreateDirectRoom(userId, filtered[0].id)
-            if (rid) {
-              setActiveMember(filtered[0].id)
-              onSelect(rid)
-            }
-          } catch {
-            void 0;
-          }
-        }
+        // Removed auto-select on mobile - user should manually choose conversation
         setLoading(false)
       })()
     const channel = supabase.channel("rooms-list")
@@ -39,7 +29,7 @@ export default function ChatSidebar({ userId, currentRoomId, onSelect }: { userI
       mounted = false
       channel.unsubscribe()
     }
-  }, [userId, currentRoomId, onSelect])
+  }, [userId])
 
   // Salas desativadas para foco em conversas 1:1
 
@@ -66,8 +56,8 @@ export default function ChatSidebar({ userId, currentRoomId, onSelect }: { userI
                       }
                     }}
                     className={`w-full text-left px-3 py-2 rounded-md flex items-center gap-3 transition-colors ${activeMember === m.id
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
                       }`}
                   >
                     <Avatar className="h-8 w-8">

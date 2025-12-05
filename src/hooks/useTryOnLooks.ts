@@ -2,11 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { resolveApiBase } from '@/lib/apiBase';
 
 const API_BASE = resolveApiBase();
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error('Missing VITE_WORKSPACE_ID environment variable.');
-}
 
 export interface TryOnImage {
   id: string;
@@ -34,11 +29,13 @@ export interface TryOnLooksResponse {
   totalImages: number;
 }
 
-export function useTryOnLooks() {
+export function useTryOnLooks(workspaceId: string | null) {
   return useQuery<TryOnLooksResponse>({
-    queryKey: ['tryon-looks', WORKSPACE_ID],
+    queryKey: ['tryon-looks', workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
-      const response = await fetch(`${API_BASE}/api/creatives/tryon-looks?workspaceId=${WORKSPACE_ID}`);
+      if (!workspaceId) throw new Error('Workspace não selecionado');
+      const response = await fetch(`${API_BASE}/api/creatives/tryon-looks?workspaceId=${workspaceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch try-on looks');
       }
@@ -47,18 +44,19 @@ export function useTryOnLooks() {
   });
 }
 
-export function useDeleteTryOnLook() {
+export function useDeleteTryOnLook(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       const response = await fetch(`${API_BASE}/api/creatives/tryon-looks/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workspaceId: WORKSPACE_ID,
+          workspaceId,
         }),
       });
 
@@ -70,7 +68,7 @@ export function useDeleteTryOnLook() {
     },
     onSuccess: () => {
       // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: ['tryon-looks'] });
+      queryClient.invalidateQueries({ queryKey: ['tryon-looks', workspaceId] });
     },
   });
 }

@@ -7,12 +7,6 @@ import {
   type MetaExtraMetrics,
 } from "@/lib/conversionMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface CampaignMetricPoint {
   date: string;
   impressions: number;
@@ -55,18 +49,24 @@ export interface CampaignMetricsOptions {
   granularity?: "day" | "week" | "month" | "lifetime";
 }
 
-export function useCampaignMetrics(options: CampaignMetricsOptions = {}): UseQueryResult<CampaignMetricsSummary> {
+export function useCampaignMetrics(
+  workspaceId: string | null,
+  options: CampaignMetricsOptions = {},
+): UseQueryResult<CampaignMetricsSummary> {
   const { campaignId, adSetId, adId, startDate, endDate, granularity = "day" } = options;
   const startKey = startDate instanceof Date ? startDate.toISOString() : startDate ?? "auto";
   const endKey = endDate instanceof Date ? endDate.toISOString() : endDate ?? "auto";
   const hasCustomStart = Boolean(startDate);
 
   return useQuery({
-    queryKey: ["campaign", campaignId, "metrics", granularity, adSetId ?? "none", adId ?? "none", startKey, endKey],
-    enabled: Boolean(campaignId ?? adSetId ?? adId),
+    queryKey: ["campaign", workspaceId, campaignId, "metrics", granularity, adSetId ?? "none", adId ?? "none", startKey, endKey],
+    enabled: Boolean((campaignId ?? adSetId ?? adId) && workspaceId),
     queryFn: async (): Promise<CampaignMetricsSummary> => {
       if (!campaignId && !adSetId && !adId) {
         throw new Error("Missing identifiers for campaign metrics query");
+      }
+      if (!workspaceId) {
+        throw new Error("Workspace não selecionado");
       }
 
       const resolvedEnd = endDate ? new Date(endDate) : new Date();
@@ -97,7 +97,7 @@ export function useCampaignMetrics(options: CampaignMetricsOptions = {}): UseQue
             extra_metrics
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("granularity", granularity)
         .gte("metric_date", startIso)
         .lte("metric_date", endIso)

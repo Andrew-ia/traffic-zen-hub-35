@@ -2,12 +2,6 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { startOfMonth, endOfMonth, parseISO, isWithinInterval } from "date-fns";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -76,15 +70,17 @@ const PLATFORM_COLORS: Record<string, string> = {
 // HOOK
 // ============================================================================
 
-export function useCalendarEvents(options: {
+export function useCalendarEvents(workspaceId: string | null, options: {
   startDate: Date;
   endDate: Date;
 }): UseQueryResult<CalendarEvent[]> {
   const { startDate, endDate } = options;
 
   return useQuery({
-    queryKey: ["calendar-events", WORKSPACE_ID, startDate.toISOString(), endDate.toISOString()],
+    queryKey: ["calendar-events", workspaceId, startDate.toISOString(), endDate.toISOString()],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<CalendarEvent[]> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const events: CalendarEvent[] = [];
 
       // Format dates for SQL
@@ -97,7 +93,7 @@ export function useCalendarEvents(options: {
       const { data: campaigns, error: campaignsError } = await supabase
         .from("campaigns")
         .select("id, name, status, platform_key, objective, start_date, end_date, created_at, daily_budget, lifetime_budget")
-        .eq("workspace_id", WORKSPACE_ID);
+        .eq("workspace_id", workspaceId);
 
       if (campaignsError) {
         console.error("Failed to fetch campaigns:", campaignsError.message);

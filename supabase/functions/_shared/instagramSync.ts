@@ -289,8 +289,15 @@ async function validatePermissions(
       name: basicData.name,
     };
   } catch (error) {
-    logger.error('❌ Falha ao validar instagram_basic:', (error as Error).message);
-    throw new Error('Permissão ausente: instagram_basic');
+    const errorMessage = (error as Error).message;
+    // Skip throwing error for permission issues - just log as warning
+    if (errorMessage.includes('permission') || errorMessage.includes('access_token')) {
+      logger.warn('⚠️ Instagram basic permission not available - skipping sync:', errorMessage);
+      throw error; // Still throw to skip sync, but don't spam logs
+    } else {
+      logger.error('❌ Falha ao validar instagram_basic:', errorMessage);
+      throw new Error('Permissão ausente: instagram_basic');
+    }
   }
 
   try {

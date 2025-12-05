@@ -9,12 +9,6 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import type { CampaignKPIRow, AggregatedCampaignKPI } from '@/types/kpi';
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error('Missing VITE_WORKSPACE_ID environment variable.');
-}
-
 interface UseObjectiveBasedKPIOptions {
   /** Number of days to look back (default: 30) */
   days?: number;
@@ -34,13 +28,16 @@ interface UseObjectiveBasedKPIOptions {
  * Hook to fetch raw KPI data from v_campaign_kpi view
  */
 export function useObjectiveBasedKPI(
+  workspaceId: string | null,
   options: UseObjectiveBasedKPIOptions = {}
 ): UseQueryResult<CampaignKPIRow[]> {
   const { days = 30, campaignId, adSetId, platformKey, dateFrom, dateTo } = options;
 
   return useQuery({
-    queryKey: ['objective-kpi', WORKSPACE_ID, { days, campaignId, adSetId, platformKey, dateFrom, dateTo }],
+    queryKey: ['objective-kpi', workspaceId, { days, campaignId, adSetId, platformKey, dateFrom, dateTo }],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       // Calculate date range
       let fromDate = dateFrom;
       let toDate = dateTo;
@@ -59,7 +56,7 @@ export function useObjectiveBasedKPI(
       let query = supabase
         .from('v_campaign_kpi')
         .select('*')
-        .eq('workspace_id', WORKSPACE_ID)
+        .eq('workspace_id', workspaceId)
         .gte('metric_date', fromDate)
         .lte('metric_date', toDate);
 
@@ -92,13 +89,16 @@ export function useObjectiveBasedKPI(
  * Hook to fetch aggregated KPI data by campaign
  */
 export function useAggregatedCampaignKPI(
+  workspaceId: string | null,
   options: UseObjectiveBasedKPIOptions = {}
 ): UseQueryResult<AggregatedCampaignKPI[]> {
   const { days = 30, platformKey, dateFrom, dateTo } = options;
 
   return useQuery({
-    queryKey: ['aggregated-campaign-kpi', WORKSPACE_ID, { days, platformKey, dateFrom, dateTo }],
+    queryKey: ['aggregated-campaign-kpi', workspaceId, { days, platformKey, dateFrom, dateTo }],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error('Workspace não selecionado');
       // Calculate date range
       let fromDate = dateFrom;
       let toDate = dateTo;
@@ -255,7 +255,7 @@ export function useKPISummary(
       let query = supabase
         .from('v_campaign_kpi')
         .select('*')
-        .eq('workspace_id', WORKSPACE_ID)
+        .eq('workspace_id', workspaceId)
         .gte('metric_date', fromDate)
         .lte('metric_date', toDate);
 

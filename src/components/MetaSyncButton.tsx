@@ -12,6 +12,7 @@ interface MetaSyncButtonProps {
   size?: "default" | "sm" | "lg" | "icon";
   className?: string;
   days?: number;
+  workspaceId?: string | null;
 }
 
 export default function MetaSyncButton({
@@ -19,6 +20,7 @@ export default function MetaSyncButton({
   size = "default",
   className = "",
   days = 7,
+  workspaceId,
 }: MetaSyncButtonProps) {
   const [syncing, setSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -61,12 +63,12 @@ export default function MetaSyncButton({
 
   const handleSync = async () => {
     if (syncing) return;
-    const workspaceId = import.meta.env.VITE_WORKSPACE_ID;
+    const resolvedWorkspace = workspaceId || (import.meta.env.VITE_WORKSPACE_ID as string | undefined);
 
-    if (!workspaceId) {
+    if (!resolvedWorkspace) {
       toast({
         title: "Configuração ausente",
-        description: "Defina VITE_WORKSPACE_ID para usar a sincronização.",
+        description: "Selecione um workspace ou defina VITE_WORKSPACE_ID.",
         variant: "destructive",
       });
       return;
@@ -92,7 +94,7 @@ export default function MetaSyncButton({
             Accept: "application/json",
           },
           body: JSON.stringify({
-            workspaceId,
+            workspaceId: resolvedWorkspace,
             platformKey: "meta",
             days,
             type: "all",

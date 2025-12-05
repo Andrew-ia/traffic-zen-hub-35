@@ -2,12 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { z } from "zod";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface BudgetPlan {
   id: string;
   platformAccountId: string | null;
@@ -40,10 +34,12 @@ const budgetPlanSchema = z.object({
   notes: z.string().nullable(),
 });
 
-export function useBudgetPlans() {
+export function useBudgetPlans(workspaceId: string | null) {
   return useQuery({
-    queryKey: ["budget", "plans"],
+    queryKey: ["budget", "plans", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async (): Promise<BudgetPlansResponse> => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const { data, error } = await supabase
         .from("budget_allocations")
         .select(
@@ -58,7 +54,7 @@ export function useBudgetPlans() {
             platform_accounts ( name )
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .order("allocation_date", { ascending: false })
         .limit(50);
 
@@ -128,7 +124,7 @@ const createBudgetPlanSchema = z.object({
 
 export type CreateBudgetPlanInput = z.infer<typeof createBudgetPlanSchema>;
 
-export function useCreateBudgetPlan() {
+export function useCreateBudgetPlan(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -136,7 +132,7 @@ export function useCreateBudgetPlan() {
       const payload = createBudgetPlanSchema.parse(input);
 
       const { error } = await supabase.from("budget_allocations").insert({
-        workspace_id: WORKSPACE_ID,
+        workspace_id: workspaceId,
         platform_account_id: payload.platformAccountId,
         allocation_date: payload.allocationDate,
         target_spend: payload.targetSpend,
@@ -151,8 +147,8 @@ export function useCreateBudgetPlan() {
     },
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["budget", "plans"] }),
-        queryClient.invalidateQueries({ queryKey: ["budget", "overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["budget", "plans", workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ["budget", "overview", workspaceId] }),
       ]);
     },
   });

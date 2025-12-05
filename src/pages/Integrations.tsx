@@ -26,11 +26,16 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  ShoppingBag,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 
 export default function Integrations() {
-  const { data: overview, isLoading } = useIntegrationOverview();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
+  const { data: overview, isLoading } = useIntegrationOverview(workspaceId);
   const [metaDays, setMetaDays] = useState<number>(7);
   const [googleAdsDays, setGoogleAdsDays] = useState<number>(7);
 
@@ -77,6 +82,14 @@ export default function Integrations() {
     return "Sincronização pendente";
   }, [googleAdsIntegration]);
 
+  const handleRenewGoogleAdsToken = () => {
+    if (!workspaceId) {
+      alert("Selecione um workspace para renovar o token do Google Ads.");
+      return;
+    }
+    window.location.href = `/api/integrations/google-ads/auth?workspaceId=${workspaceId}`;
+  };
+
 
 
   const adsPlatforms = useMemo(() => {
@@ -110,6 +123,9 @@ export default function Integrations() {
         <p className="text-muted-foreground mt-1">
           Conecte suas plataformas de anúncios, analytics e CRM
         </p>
+        {!workspaceId && (
+          <p className="text-red-500 text-sm mt-2">Selecione um workspace no topo para ver as integrações.</p>
+        )}
       </div>
 
       <ClientConfigurationCard />
@@ -200,7 +216,7 @@ export default function Integrations() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <MetaSyncButton size="sm" days={metaDays} />
+                      <MetaSyncButton size="sm" days={metaDays} workspaceId={workspaceId ?? undefined} />
                       <MetaCredentialsDialog />
                     </div>
                   ) : platform.id === 2 ? (
@@ -219,7 +235,11 @@ export default function Integrations() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <GoogleAdsSyncButton size="sm" days={googleAdsDays} />
+                      <GoogleAdsSyncButton size="sm" days={googleAdsDays} workspaceId={workspaceId ?? undefined} />
+                      <Button variant="secondary" size="sm" onClick={handleRenewGoogleAdsToken}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Renovar token
+                      </Button>
                       <GoogleAdsCredentialsDialog />
                     </div>
                   ) : platform.connected ? (
@@ -237,6 +257,29 @@ export default function Integrations() {
             </Card>
           ))}
         </div>
+      </div>
+
+      <div>
+        <h2 className="text-2xl font-bold mb-4">E-commerce</h2>
+        <Card>
+          <CardContent className="flex items-center justify-between p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                <ShoppingBag className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div>
+                <p className="font-semibold">Mercado Livre</p>
+                <p className="text-sm text-muted-foreground">Marketplace líder da América Latina</p>
+                <div className="flex gap-2 mt-2">
+                  <Badge variant="secondary">Clique para conectar</Badge>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <MercadoLivreConnectButton size="sm" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div>
@@ -354,18 +397,18 @@ function MetaCredentialsDialog() {
   useEffect(() => {
     let base = defaultCredentials();
     try {
-        const stored = localStorage.getItem(META_CREDENTIALS_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as MetaCredentials;
-          base = {
-            appId: parsed.appId || base.appId,
-            appSecret: parsed.appSecret || base.appSecret,
-            accessToken: parsed.accessToken || base.accessToken,
-            adAccountId: parsed.adAccountId || base.adAccountId,
-            workspaceId: parsed.workspaceId || base.workspaceId,
-            pageId: parsed.pageId || base.pageId,
-          };
-        }
+      const stored = localStorage.getItem(META_CREDENTIALS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as MetaCredentials;
+        base = {
+          appId: parsed.appId || base.appId,
+          appSecret: parsed.appSecret || base.appSecret,
+          accessToken: parsed.accessToken || base.accessToken,
+          adAccountId: parsed.adAccountId || base.adAccountId,
+          workspaceId: parsed.workspaceId || base.workspaceId,
+          pageId: parsed.pageId || base.pageId,
+        };
+      }
       setCredentials(base);
     } catch (error) {
       console.warn("Failed to load stored Meta credentials", error);
@@ -501,27 +544,27 @@ function MetaCredentialsDialog() {
               placeholder="Access token de longa duração"
             />
           </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="meta-ad-account">Ad Account ID</Label>
-            <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="meta-ad-account">Ad Account ID</Label>
+              <Input id="meta-ad-account" value={credentials.adAccountId} onChange={handleChange("adAccountId")} placeholder="1234567890" />
+            </div>
+            <div>
+              <Label htmlFor="meta-workspace">Workspace ID</Label>
+              <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
+              </p>
+            </div>
           </div>
-          <div>
-            <Label htmlFor="meta-workspace">Workspace ID</Label>
-            <Input id="meta-workspace" value={credentials.workspaceId} onChange={handleChange("workspaceId")} />
-            <p className="mt-1 text-xs text-muted-foreground">
-              ID do workspace no Supabase. Mantemos o valor padrão `0000...` do ambiente seed, altere caso use outra instância.
-            </p>
-          </div>
-        </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="meta-page-id">Page ID (Facebook)</Label>
-            <Input id="meta-page-id" value={credentials.pageId || ""} onChange={handleChange("pageId")} placeholder="123456789012345" />
-            <p className="mt-1 text-xs text-muted-foreground">Use o ID da Página conectada à sua conta de anúncios.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="meta-page-id">Page ID (Facebook)</Label>
+              <Input id="meta-page-id" value={credentials.pageId || ""} onChange={handleChange("pageId")} placeholder="123456789012345" />
+              <p className="mt-1 text-xs text-muted-foreground">Use o ID da Página conectada à sua conta de anúncios.</p>
+            </div>
           </div>
-        </div>
 
           <div className="space-y-2">
             <Label>Snippet para .env.local</Label>
@@ -583,9 +626,9 @@ function GoogleAdsCredentialsDialog() {
   const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || "00000000-0000-0000-0000-000000000010";
 
   useEffect(() => {
-    console.log("[Google Ads] 🔄 Carregando credenciais...");
+    if (import.meta.env.DEV) console.log("[Google Ads] 🔄 Carregando credenciais...");
     let base = defaultGoogleAdsCredentials();
-    console.log("[Google Ads] 📦 Credenciais base (VITE_*):", {
+    if (import.meta.env.DEV) console.log("[Google Ads] 📦 Credenciais base (VITE_*):", {
       hasClientId: !!base.clientId,
       hasDeveloperToken: !!base.developerToken,
       hasCustomerId: !!base.customerId,
@@ -594,7 +637,7 @@ function GoogleAdsCredentialsDialog() {
     try {
       const stored = localStorage.getItem(GOOGLE_ADS_CREDENTIALS_KEY);
       if (stored) {
-        console.log("[Google Ads] 💾 Credenciais encontradas no localStorage");
+        if (import.meta.env.DEV) console.log("[Google Ads] 💾 Credenciais encontradas no localStorage");
         const parsed = JSON.parse(stored) as GoogleAdsCredentials;
         base = {
           clientId: parsed.clientId || base.clientId,
@@ -606,7 +649,7 @@ function GoogleAdsCredentialsDialog() {
           workspaceId: parsed.workspaceId || base.workspaceId,
         };
       } else {
-        console.log("[Google Ads] 💾 Nenhuma credencial no localStorage");
+        if (import.meta.env.DEV) console.log("[Google Ads] 💾 Nenhuma credencial no localStorage");
       }
       setCredentials(base);
     } catch (error) {
@@ -616,15 +659,15 @@ function GoogleAdsCredentialsDialog() {
 
     (async () => {
       try {
-        console.log(`[Google Ads] 🌐 Buscando credenciais do servidor: /api/integrations/credentials/${WORKSPACE_ID}/google_ads`);
+        if (import.meta.env.DEV) console.log(`[Google Ads] 🌐 Buscando credenciais do servidor: /api/integrations/credentials/${WORKSPACE_ID}/google_ads`);
         const startTime = performance.now();
         const resp = await fetch(`/api/integrations/credentials/${WORKSPACE_ID}/google_ads`, { credentials: "include" });
         const endTime = performance.now();
-        console.log(`[Google Ads] ⏱️ Tempo de resposta da API: ${(endTime - startTime).toFixed(2)}ms`);
+        if (import.meta.env.DEV) console.log(`[Google Ads] ⏱️ Tempo de resposta da API: ${(endTime - startTime).toFixed(2)}ms`);
 
         if (resp.ok) {
           const json = await resp.json();
-          console.log("[Google Ads] ✅ Credenciais recebidas do servidor:", {
+          if (import.meta.env.DEV) console.log("[Google Ads] ✅ Credenciais recebidas do servidor:", {
             hasData: !!json?.data,
             hasCredentials: !!json?.data?.credentials,
           });
@@ -641,10 +684,10 @@ function GoogleAdsCredentialsDialog() {
           setCredentials(merged);
           setServerStatus("Credenciais do servidor carregadas");
         } else if (resp.status === 404) {
-          console.log("[Google Ads] 📭 Servidor retornou 404 - sem credenciais salvas");
+          if (import.meta.env.DEV) console.log("[Google Ads] 📭 Servidor retornou 404 - sem credenciais salvas");
           setServerStatus("Sem credenciais salvas no servidor");
         } else {
-          console.log(`[Google Ads] ⚠️ Servidor retornou status: ${resp.status}`);
+          if (import.meta.env.DEV) console.log(`[Google Ads] ⚠️ Servidor retornou status: ${resp.status}`);
         }
       } catch (error) {
         console.error("[Google Ads] ❌ Erro ao buscar credenciais do servidor:", error);

@@ -40,11 +40,19 @@ export default function InternalChat() {
           <ChatSidebar userId={userId} currentRoomId={roomId || undefined} onSelect={setRoomId} />
         ) : (
           <div className="flex flex-col h-full">
-            <div className="px-4 py-2 border-b border-border bg-card flex items-center gap-2 sticky top-0 z-20">
-              <Button variant="ghost" size="icon" onClick={() => setRoomId(null)} className="-ml-2">
+            <div className="px-3 py-3 border-b border-border bg-card flex items-center gap-3 sticky top-0 z-50 shadow-sm">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  console.log('Back button clicked - closing room');
+                  setRoomId(null);
+                }}
+                className="flex-shrink-0 h-9 w-9 -ml-1"
+              >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <span className="font-semibold truncate">{roomName}</span>
+              <span className="font-semibold truncate text-base">{roomName}</span>
             </div>
             <ChatWindow roomId={roomId} roomName={roomName} me={userId} hideHeader />
             <MessageInput roomId={roomId} me={userId} />

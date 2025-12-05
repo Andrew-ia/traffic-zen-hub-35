@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { GoogleAdsApi } from 'google-ads-api';
 import { getPool } from '../../config/database.js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 interface GoogleAdsCredentials {
   refreshToken: string;
@@ -281,11 +282,11 @@ async function upsertGoogleCampaigns(
 
 export async function syncGoogleAdsData(req: Request, res: Response) {
   try {
-    const workspaceId = (req.body.workspaceId || process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    const { id: workspaceId } = resolveWorkspaceId(req);
     const days = parseInt(req.body.days || '7', 10);
 
     if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Missing workspace ID' });
+      return res.status(400).json({ success: false, error: 'Missing workspace ID. Send workspaceId in body/query/header.' });
     }
 
     console.log(`Syncing Google Ads data for workspace: ${workspaceId}, days: ${days}`);
@@ -652,6 +653,100 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
       console.log(`Upserted ${performanceRowsSaved} rows into performance_metrics`);
     }
 
+    // Insert account-level aggregated data (for dashboard KPIs)
+    let accountLevelRows = 0;
+    if (Object.keys(aggregatedData.dailyData).length > 0) {
+      const accountValues: any[] = [];
+      const accountPlaceholders: string[] = [];
+      let accountIndex = 1;
+
+      Object.values(aggregatedData.dailyData).forEach((daily) => {
+        const dailyRoas = daily.cost > 0 ? daily.conversionsValue / daily.cost : 0;
+        const dailyCpm = daily.impressions > 0 ? (daily.cost / daily.impressions) * 1000 : 0;
+        const dailyCpc = daily.clicks > 0 ? daily.cost / daily.clicks : 0;
+        const dailyCtr = daily.impressions > 0 ? (daily.clicks / daily.impressions) * 100 : 0;
+        const dailyCpa = daily.conversions > 0 ? daily.cost / daily.conversions : 0;
+
+        accountPlaceholders.push(
+          `($${accountIndex}, $${accountIndex + 1}, $${accountIndex + 2}, $${accountIndex + 3}, $${accountIndex + 4}, ` +
+          `$${accountIndex + 5}, $${accountIndex + 6}, $${accountIndex + 7}, $${accountIndex + 8}, $${accountIndex + 9}, ` +
+          `$${accountIndex + 10}, $${accountIndex + 11}, $${accountIndex + 12}, $${accountIndex + 13}, $${accountIndex + 14}, $${accountIndex + 15})`
+        );
+
+        accountValues.push(
+          workspaceId,                    // workspace_id
+          platformAccountId,              // platform_account_id
+          'day',                         // granularity
+          daily.date,                    // metric_date
+          accountInfo.currencyCode,       // currency
+          daily.impressions,             // impressions
+          daily.clicks,                  // clicks
+          daily.cost,                    // spend
+          dailyCpm || null,              // cpm
+          dailyCpc || null,              // cpc
+          dailyCtr || null,              // ctr
+          dailyCpa || null,              // cpa
+          dailyRoas || null,             // roas
+          daily.conversions,             // conversions
+          daily.conversionsValue,        // conversion_value
+          JSON.stringify({ 
+            google_customer_id: credentials.customerId,
+            account_level: true,
+            source: 'google_ads_account_aggregation'
+          })                             // extra_metrics
+        );
+        accountIndex += 16;
+      });
+
+      const accountLevelQuery = `
+        INSERT INTO performance_metrics (
+          workspace_id,
+          platform_account_id,
+          granularity,
+          metric_date,
+          currency,
+          impressions,
+          clicks,
+          spend,
+          cpm,
+          cpc,
+          ctr,
+          cpa,
+          roas,
+          conversions,
+          conversion_value,
+          extra_metrics
+        ) VALUES ${accountPlaceholders.join(', ')}
+        ON CONFLICT (
+          workspace_id,
+          platform_account_id,
+          COALESCE(campaign_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          COALESCE(ad_set_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          COALESCE(ad_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          granularity,
+          metric_date
+        )
+        DO UPDATE SET
+          impressions = EXCLUDED.impressions,
+          clicks = EXCLUDED.clicks,
+          spend = EXCLUDED.spend,
+          cpm = EXCLUDED.cpm,
+          cpc = EXCLUDED.cpc,
+          ctr = EXCLUDED.ctr,
+          cpa = EXCLUDED.cpa,
+          roas = EXCLUDED.roas,
+          conversions = EXCLUDED.conversions,
+          conversion_value = EXCLUDED.conversion_value,
+          currency = EXCLUDED.currency,
+          extra_metrics = EXCLUDED.extra_metrics,
+          synced_at = now();
+      `;
+
+      const accountResult = await pool.query(accountLevelQuery, accountValues);
+      accountLevelRows = accountResult.rowCount ?? Object.keys(aggregatedData.dailyData).length;
+      console.log(`Upserted ${accountLevelRows} account-level rows into performance_metrics`);
+    }
+
     await pool.query(
       `UPDATE workspace_integrations SET last_synced_at = now(), updated_at = now()
        WHERE id = $1`,
@@ -683,6 +778,7 @@ export async function syncGoogleAdsData(req: Request, res: Response) {
           campaigns: campaignIdMap.size,
           adsSpendRows: adsRowsSaved,
           performanceRows: performanceRowsSaved,
+          accountLevelRows: accountLevelRows,
         },
         account: {
           platformAccountId,

@@ -4,20 +4,14 @@ import { resolveApiBase } from "@/lib/apiBase";
 
 const API_BASE = resolveApiBase();
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 interface LatestInsightsResponse {
   summary: SyncInsightsSummary | null;
   jobId: string | null;
   completedAt: string | null;
 }
 
-async function fetchLatestInsights(): Promise<LatestInsightsResponse> {
-  const response = await fetch(`${API_BASE}/api/integrations/sync/workspace/${WORKSPACE_ID}?limit=1`, {
+async function fetchLatestInsights(workspaceId: string): Promise<LatestInsightsResponse> {
+  const response = await fetch(`${API_BASE}/api/integrations/sync/workspace/${workspaceId}?limit=1`, {
     headers: {
       Accept: "application/json",
     },
@@ -64,10 +58,11 @@ async function fetchLatestInsights(): Promise<LatestInsightsResponse> {
   };
 }
 
-export function useLatestSyncInsights(): UseQueryResult<LatestInsightsResponse> {
+export function useLatestSyncInsights(workspaceId: string | null): UseQueryResult<LatestInsightsResponse> {
   return useQuery({
-    queryKey: ["latest-sync-insights", WORKSPACE_ID],
-    queryFn: fetchLatestInsights,
+    queryKey: ["latest-sync-insights", workspaceId],
+    enabled: !!workspaceId,
+    queryFn: () => fetchLatestInsights(workspaceId || ""),
     staleTime: 60 * 1000,
   });
 }

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { getPool } from '../../config/database.js';
 import { decryptCredentials, encryptCredentials } from '../../services/encryption.js';
+import { resolveWorkspaceId } from '../../utils/workspace.js';
 
 const GRAPH_VERSION = 'v21.0';
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -374,13 +375,13 @@ class InstagramSyncOptimized {
 export async function optimizedInstagramSync(req: Request, res: Response) {
   try {
     const { workspaceId, totalDays = 7, batchDays = 7 } = req.body;
-    const envWorkspaceId = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID;
-    const normalizedWorkspaceId = String(workspaceId || envWorkspaceId || '').trim();
+    const resolved = resolveWorkspaceId(req);
+    const normalizedWorkspaceId = String(workspaceId || resolved.id || '').trim();
 
     if (!normalizedWorkspaceId) {
       return res.status(400).json({
         success: false,
-        error: 'Missing workspaceId'
+        error: 'Missing workspaceId. Send workspaceId in body/query/header.'
       });
     }
 

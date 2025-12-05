@@ -38,19 +38,15 @@ export interface PerformanceSummary {
   lastUpdatedAt: string | null;
 }
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
-export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0): UseQueryResult<PerformanceSummary> {
+export function usePerformanceMetrics(workspaceId: string | null, days: number = 30, offsetDays: number = 0): UseQueryResult<PerformanceSummary> {
   return useQuery({
-    queryKey: ["meta", "performance-metrics", days, offsetDays],
+    queryKey: ["meta", "performance-metrics", workspaceId, days, offsetDays],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const since = new Date();
       since.setDate(since.getDate() - days - offsetDays);
-      
+
       const until = offsetDays > 0 ? new Date() : undefined;
       if (until && offsetDays > 0) {
         until.setDate(until.getDate() - offsetDays);
@@ -59,36 +55,60 @@ export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0)
       let query = supabase
         .from("performance_metrics")
         .select(
-          "metric_date, impressions, clicks, conversions, spend, roas, conversion_value, extra_metrics, synced_at",
+          "metric_date, impressions, clicks, conversions, spend, roas, conversion_value, extra_metrics, synced_at, platform_account_id",
         )
         .is("campaign_id", null)
         .is("ad_set_id", null)
         .is("ad_id", null)
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .gte("metric_date", since.toISOString().slice(0, 10));
-        
+
       if (until) {
         query = query.lt("metric_date", until.toISOString().slice(0, 10));
       }
-      
-      const { data, error } = await query.order("metric_date", { ascending: true });
+
+      const { data: rawData, error } = await query.order("metric_date", { ascending: true });
 
       if (error) {
         console.error("Failed to load performance metrics:", error.message);
         throw error;
       }
 
+      // Filter out demo accounts
+      const { data: accountsData, error: accountsError } = await supabase
+        .from("platform_accounts")
+        .select("id, name")
+        .eq("workspace_id", workspaceId);
+
+      if (accountsError) {
+        console.error("Failed to load platform accounts for filtering:", accountsError.message);
+        throw accountsError;
+      }
+
+      const allowedIds = new Set(
+        ((accountsData as { id: string | null; name: string | null }[]) ?? [])
+          .filter((a) => !/\bdemo\b/i.test(String(a.name || "")))
+          .map((a) => a.id)
+          .filter(Boolean) as string[]
+      );
+
+      const data = (rawData ?? []).filter((r) => 
+        !r.platform_account_id || allowedIds.has(r.platform_account_id)
+      );
+
       const rows = Array.isArray(data) ? data : [];
-      const latestByDate = new Map<string, (typeof rows)[number]>();
+      
+      // Group by date and platform to handle deduplication properly
+      const latestByDateAndPlatform = new Map<string, (typeof rows)[number]>();
       for (const row of rows) {
-        const key = row.metric_date as string;
-        const existing = latestByDate.get(key);
+        const key = `${row.metric_date}::${row.platform_account_id || 'null'}`;
+        const existing = latestByDateAndPlatform.get(key);
         const currentSynced = row.synced_at ? Date.parse(row.synced_at as string) : Number.NEGATIVE_INFINITY;
         const existingSynced = existing?.synced_at
           ? Date.parse(existing.synced_at as string)
           : Number.NEGATIVE_INFINITY;
         if (!existing || currentSynced >= existingSynced) {
-          latestByDate.set(key, row);
+          latestByDateAndPlatform.set(key, row);
         }
       }
 
@@ -97,20 +117,36 @@ export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0)
       let totalStarted = 0;
       let totalConnections = 0;
 
-      for (const row of latestByDate.values()) {
+      // Now aggregate by date (summing across platforms)
+      for (const row of latestByDateAndPlatform.values()) {
         const date = row.metric_date;
         const impressions = Number(row.impressions ?? 0);
         const clicks = Number(row.clicks ?? 0);
         const rawConversions = Number(row.conversions ?? 0);
-        const resolvedConversions = resolvePrimaryConversion(
-          row.extra_metrics as MetaExtraMetrics,
-          Number.isFinite(rawConversions) ? rawConversions : 0,
-        );
-        const started = getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_STARTED_ACTION) ?? 0;
-        const connections = getActionValueForType(
-          row.extra_metrics as MetaExtraMetrics,
-          CONVERSATION_CONNECTION_ACTION,
-        ) ?? 0;
+        let resolvedConversions;
+        let started = 0;
+        let connections = 0;
+        
+        try {
+          resolvedConversions = resolvePrimaryConversion(
+            row.extra_metrics as MetaExtraMetrics,
+            Number.isFinite(rawConversions) ? rawConversions : 0,
+          );
+          started = getActionValueForType(row.extra_metrics as MetaExtraMetrics, CONVERSATION_STARTED_ACTION) ?? 0;
+          connections = getActionValueForType(
+            row.extra_metrics as MetaExtraMetrics,
+            CONVERSATION_CONNECTION_ACTION,
+          ) ?? 0;
+        } catch (conversionError) {
+          // Only log conversion errors in development
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Error processing conversions for row:', row.metric_date, conversionError);
+          }
+          resolvedConversions = { value: 0, actionType: null };
+          started = 0;
+          connections = 0;
+        }
+        // Contar apenas conversas iniciadas, ignorar conexões duplicadas
         const conversions = started;
         const actionKey = resolvedConversions.actionType ?? null;
         conversionTotalsByAction.set(actionKey, (conversionTotalsByAction.get(actionKey) ?? 0) + conversions);
@@ -184,7 +220,7 @@ export function usePerformanceMetrics(days: number = 30, offsetDays: number = 0)
         primaryConversionTotal = totalConnections;
       }
 
-      const latestSync = Array.from(latestByDate.values()).reduce((latest, row) => {
+      const latestSync = Array.from(latestByDateAndPlatform.values()).reduce((latest, row) => {
         const ts = row.synced_at ? Date.parse(row.synced_at as string) : Number.NEGATIVE_INFINITY;
         return ts > latest ? ts : latest;
       }, Number.NEGATIVE_INFINITY);

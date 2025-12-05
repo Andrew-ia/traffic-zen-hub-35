@@ -7,10 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 
+import { useWorkspace } from "@/hooks/useWorkspace";
+
 const PAGE_SIZE = 12;
 
 export default function Campaigns() {
   const navigate = useNavigate();
+  const { currentWorkspace } = useWorkspace();
+  const workspaceId = currentWorkspace?.id || null;
   const [tab, setTab] = useState<CampaignStatusFilter>("all");
   const [metaPage, setMetaPage] = useState(1);
   const [googlePage, setGooglePage] = useState(1);
@@ -27,7 +31,7 @@ export default function Campaigns() {
     setGooglePage(1);
   }, [tab, debouncedSearch]);
 
-  const { data: metaData, isLoading: metaLoading, error: metaError } = useCampaigns({
+  const { data: metaData, isLoading: metaLoading, error: metaError } = useCampaigns(workspaceId, {
     status: tab,
     search: debouncedSearch,
     page: metaPage,
@@ -35,7 +39,7 @@ export default function Campaigns() {
     platform: "meta"
   });
 
-  const { data: googleData, isLoading: googleLoading, error: googleError } = useCampaigns({
+  const { data: googleData, isLoading: googleLoading, error: googleError } = useCampaigns(workspaceId, {
     status: tab,
     search: debouncedSearch,
     page: googlePage,
@@ -106,43 +110,43 @@ export default function Campaigns() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Campanhas</h1>
-          <p className="text-muted-foreground mt-1">Gerencie todas as suas campanhas de tráfego</p>
+        <div className="space-y-1">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Campanhas</h1>
+          <p className="text-muted-foreground text-sm sm:text-base">Gerencie todas as suas campanhas de tráfego</p>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
+        <div className="flex gap-3 w-full md:w-auto">
           <Input
-            className="w-full md:w-80"
+            className="w-full md:w-80 h-10"
             placeholder="Buscar campanhas..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <Button onClick={exportCampaignsCsv} disabled={(metaCampaigns.length + googleCampaigns.length) === 0}>
+          <Button onClick={exportCampaignsCsv} disabled={(metaCampaigns.length + googleCampaigns.length) === 0} variant="outline" className="shadow-sm h-10">
             Exportar CSV
           </Button>
-          <Button onClick={() => navigate("/campaigns/new/meta")}>
+          <Button onClick={() => navigate("/campaigns/new/meta")} className="shadow-md hover:shadow-lg transition-all h-10">
             Nova Campanha
           </Button>
         </div>
       </div>
 
       {(metaError || googleError) && (
-        <Card>
+        <Card className="border-destructive/50 bg-destructive/5 shadow-sm">
           <CardContent className="py-6">
-            <p className="text-destructive">
+            <p className="text-destructive font-medium text-center">
               Não foi possível carregar as campanhas. Verifique suas permissões no Supabase.
             </p>
           </CardContent>
         </Card>
       )}
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as CampaignStatusFilter)} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="all">Todas</TabsTrigger>
-          <TabsTrigger value="active">Ativas</TabsTrigger>
-          <TabsTrigger value="paused">Pausadas</TabsTrigger>
-          <TabsTrigger value="archived">Arquivadas</TabsTrigger>
-          <TabsTrigger value="completed">Concluídas</TabsTrigger>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as CampaignStatusFilter)} className="space-y-6">
+        <TabsList className="h-10 p-1 bg-muted/50">
+          <TabsTrigger value="all" className="rounded-sm">Todas</TabsTrigger>
+          <TabsTrigger value="active" className="rounded-sm">Ativas</TabsTrigger>
+          <TabsTrigger value="paused" className="rounded-sm">Pausadas</TabsTrigger>
+          <TabsTrigger value="archived" className="rounded-sm">Arquivadas</TabsTrigger>
+          <TabsTrigger value="completed" className="rounded-sm">Concluídas</TabsTrigger>
         </TabsList>
 
         <TabsContent value={tab} className="space-y-6">

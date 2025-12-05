@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startSimpleWorker } from './workers/simpleSyncWorker.js';
 import { runInstagramSync } from '../supabase/functions/_shared/instagramSync.js';
-import { decryptCredentials } from './services/encryption.js';
+import { decryptCredentials, encryptCredentials } from './services/encryption.js';
 import { getPool } from './config/database.js';
 import {
   saveCredentials,
@@ -20,10 +20,13 @@ import {
 } from './api/integrations/simpleSync.js';
 import { directInstagramSync } from './api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
-import { createMetaCampaign, getMetaCustomAudiences, getMetaPageInfo, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
+import { createMetaCampaign, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
+import { getMetaCustomAudiences, getMetaPageInfo, getEngagementRate } from './api/integrations/meta/stubs.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';
+import { initiateGoogleAdsAuth } from './api/integrations/google-ads/auth.js';
+import { handleGoogleAdsCallback } from './api/integrations/google-ads/callback.js';
 import { generateCreative } from './api/ai/generate-creative.js';
 import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
@@ -126,6 +129,7 @@ import {
   updateUserPreferences,
 } from './api/user-preferences.js';
 import leadsRouter from './api/leads.js';
+import workspacesRouter from './api/workspaces.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -135,12 +139,21 @@ const PORT = process.env.API_PORT || 3001;
 
 // Middleware
 app.use(helmet());
-const allowedOrigins = new Set([
-  process.env.FRONTEND_URL || 'http://localhost:8080',
-  'http://localhost:8081',
-  'http://localhost:8082',
-  'http://localhost:8083',
-]);
+const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const allowedOrigins = new Set<string>();
+const frontendUrl = String(process.env.FRONTEND_URL || '').trim();
+if (frontendUrl) allowedOrigins.add(frontendUrl);
+const extraOrigins = String(process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+for (const o of extraOrigins) allowedOrigins.add(o);
+if (!isProd) {
+  allowedOrigins.add('http://localhost:8080');
+  allowedOrigins.add('http://localhost:8081');
+  allowedOrigins.add('http://localhost:8082');
+  allowedOrigins.add('http://localhost:8083');
+}
 
 function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return true;
@@ -175,9 +188,13 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Public landing leads capture
 app.use('/api/leads', leadsRouter);
+app.use('/api/workspaces', workspacesRouter);
 
 // API Routes
 
@@ -206,6 +223,8 @@ app.get('/api/integrations/meta/custom-audiences/:workspaceId', getMetaCustomAud
 app.get('/api/integrations/meta/page-info/:workspaceId', getMetaPageInfo);
 app.get('/api/integrations/meta/pages/:workspaceId', listMetaPages);
 app.post('/api/creatives/mirror/:workspaceId/:assetId', mirrorCreativeAsset);
+app.get('/api/integrations/google-ads/auth', initiateGoogleAdsAuth);
+app.get('/api/integrations/google-ads/callback', handleGoogleAdsCallback);
 
 app.get('/api/drive/list/:folderId', async (req, res) => {
   try {
@@ -293,6 +312,58 @@ app.post('/api/ga4/google-ads', ga4GoogleAds);
 // Google Ads API endpoints (direct sync)
 app.post('/api/google-ads/sync', syncGoogleAdsData);
 
+app.get('/api/cron/daily-sync', async (req, res) => {
+  try {
+    const workspaceId = String(req.query.workspaceId || process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '').trim();
+    const days = Number(req.query.days ?? 2);
+    if (!workspaceId) return res.status(400).json({ success: false, error: 'Missing workspaceId' });
+
+    const pool = getPool();
+    let haveMetaCreds = false;
+    try {
+      const current = await pool.query(
+        `SELECT encrypted_credentials, encryption_iv FROM integration_credentials WHERE workspace_id = $1 AND platform_key = 'meta' LIMIT 1`,
+        [workspaceId]
+      );
+      if (current.rows.length > 0) {
+        const c = decryptCredentials(current.rows[0].encrypted_credentials, current.rows[0].encryption_iv) as any;
+        haveMetaCreds = !!(c?.access_token && (c?.ad_account_id || c?.adAccountId));
+      }
+    } catch (e) { void e; }
+
+    if (!haveMetaCreds) {
+      const envToken = String(process.env.META_ACCESS_TOKEN || '').trim();
+      const envAdAccount = String(process.env.META_AD_ACCOUNT_ID || '').trim();
+      if (envToken && envAdAccount) {
+        const enc = encryptCredentials({ access_token: envToken, ad_account_id: envAdAccount, accessToken: envToken, adAccountId: envAdAccount });
+        await pool.query(
+          `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
+           VALUES ($1, 'meta', $2, $3)
+           ON CONFLICT (workspace_id, platform_key)
+           DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()`,
+          [workspaceId, enc.encrypted_credentials, enc.encryption_iv]
+        );
+      }
+    }
+
+    const invoke = (handler: any, body: any) => new Promise((resolve) => {
+      const reqLike = { body, query: {}, headers: {}, get: () => '', protocol: req.protocol, method: 'POST' } as any;
+      const resLike = {
+        status: (code: number) => ({ json: (payload: any) => resolve({ ok: code < 400, code, payload }) }),
+        json: (payload: any) => resolve({ ok: true, code: 200, payload })
+      } as any;
+      handler(reqLike, resLike);
+    });
+
+    const meta = await invoke(optimizedMetaSync, { workspaceId, days, type: 'all' });
+    const google = await invoke(syncGoogleAdsData, { workspaceId, days });
+
+    return res.json({ success: true, data: { meta, google } });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to run daily sync' });
+  }
+});
+
 // Debug route to verify GA4 namespace is reachable
 app.post('/api/ga4/test', (req, res) => {
   res.json({ success: true, message: 'GA4 test endpoint' });
@@ -344,6 +415,22 @@ app.get('/api/ai/dashboard', getAIDashboard);
 app.use('/api/ai/chat', chatRouter);
 app.use('/api/ai/conversations', conversationsRouter);
 app.use('/api/debug', debugRouter);
+
+// Products endpoints
+import productsRouter from './api/products.js';
+app.use('/api/products', productsRouter);
+
+// Mercado Livre endpoints
+import mercadoLivreRouter from './api/integrations/mercadolivre.js';
+app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
+
+// Upload endpoints
+import uploadRouter from './api/upload.js';
+app.use('/api/upload', uploadRouter);
+
+// Sync endpoints
+import syncRouter from './api/sync.js';
+app.use('/api/sync', syncRouter);
 
 // Project Management endpoints
 // Hierarchy
@@ -469,22 +556,11 @@ async function start() {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`📡 Server running on: http://localhost:${PORT}`);
 
-      // Worker local apenas para desenvolvimento - não funciona no Vercel (serverless)
-      if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-        try {
-          const id: any = startSimpleWorker();
-          workerIntervalId = id || null;
-          console.log(`🔧 Worker local ativado: polling de jobs em background`);
-          console.log(`   → Ambiente: desenvolvimento local`);
-        } catch (error) {
-          console.log(`🔧 Worker indisponível: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
-          console.log(`   → Sincronização funcionará apenas sob demanda via API`);
-        }
-      } else {
-        console.log(`🔧 Worker local desabilitado: ambiente serverless detectado`);
-        console.log(`   → Plataforma: ${process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : 'AWS Lambda'}`);
-        console.log(`   → Sincronização via API endpoints diretos`);
-      }
+      // Worker local desabilitado - usa Supabase Edge Functions para sincronização
+      console.log(`🔧 Worker local desabilitado: usando Supabase Edge Functions`);
+      console.log(`   → Sincronização via Edge Functions e API endpoints diretos`);
+      console.log(`   → Evita problemas de conexão desnecessários`);
+      workerIntervalId = null;
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');
@@ -502,13 +578,17 @@ async function start() {
  */
 async function ensureAdminUser() {
   try {
-    const email = process.env.ADMIN_EMAIL || 'founder@trafficpro.dev';
-    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const emailEnv = process.env.ADMIN_EMAIL || '';
+    const passwordEnv = process.env.ADMIN_PASSWORD || '';
     const fullName = process.env.ADMIN_NAME || 'Founder TrafficPro';
     const workspaceId = process.env.WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
 
-    if (!email || !password) {
-      console.warn('ADMIN_EMAIL/ADMIN_PASSWORD not set; using defaults for development.');
+    if (!emailEnv || !passwordEnv) {
+      if (isProd) {
+        console.warn('ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping admin bootstrap in production');
+        return;
+      }
     }
 
     const pool = getPool();
@@ -522,7 +602,7 @@ async function ensureAdminUser() {
              password_hash = crypt($3, gen_salt('bf')),
              status = 'active'
        RETURNING id`,
-      [email, fullName, password]
+      [emailEnv || 'founder@trafficpro.dev', fullName, passwordEnv || 'admin123']
     );
 
     const userId = userRes.rows[0]?.id;
@@ -536,7 +616,7 @@ async function ensureAdminUser() {
       [workspaceId, userId]
     );
 
-    console.log(`✅ Admin bootstrap ensured for ${email} in workspace ${workspaceId}`);
+    console.log(`✅ Admin bootstrap ensured for ${emailEnv || 'founder@trafficpro.dev'} in workspace ${workspaceId}`);
   } catch (err) {
     console.error('Failed to ensure admin user', err);
   }
@@ -547,8 +627,10 @@ export default app;
 
 // Auto-start only in non-serverless environments
 if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  start();
+  start().catch((err) => {
+    console.error('Failed to start server', err);
+    process.exit(1);
+  });
 }
 
 // Graceful shutdown

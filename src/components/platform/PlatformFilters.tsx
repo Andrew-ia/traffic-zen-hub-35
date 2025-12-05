@@ -36,13 +36,13 @@ export function PlatformFilters({
   searchPlaceholder = "Buscar campanhas...",
 }: PlatformFiltersProps) {
   return (
-    <Card>
-      <CardContent className="pt-6">
+    <Card className="border-border/50 shadow-sm">
+      <CardContent className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Período */}
           <Select value={dateRange} onValueChange={onDateRangeChange}>
-            <SelectTrigger>
-              <Calendar className="h-4 w-4 mr-2" />
+            <SelectTrigger className="h-10">
+              <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
               <SelectValue placeholder="Período" />
             </SelectTrigger>
             <SelectContent>
@@ -56,7 +56,7 @@ export function PlatformFilters({
 
           {/* Conta */}
           <Select value={accountFilter} onValueChange={onAccountFilterChange}>
-            <SelectTrigger>
+            <SelectTrigger className="h-10">
               <SelectValue placeholder="Conta de anúncios" />
             </SelectTrigger>
             <SelectContent>
@@ -72,7 +72,7 @@ export function PlatformFilters({
           {/* Filtro Adicional (Objetivo ou Tipo de Campanha) */}
           {additionalFilter && (
             <Select value={additionalFilter.value} onValueChange={additionalFilter.onChange}>
-              <SelectTrigger>
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder={additionalFilter.placeholder} />
               </SelectTrigger>
               <SelectContent>
@@ -87,7 +87,7 @@ export function PlatformFilters({
 
           {/* Status */}
           <Select value={statusFilter} onValueChange={onStatusFilterChange}>
-            <SelectTrigger>
+            <SelectTrigger className="h-10">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -103,6 +103,7 @@ export function PlatformFilters({
             placeholder={searchPlaceholder}
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
+            className="h-10"
           />
         </div>
       </CardContent>

@@ -7,12 +7,6 @@ import {
   type MetaExtraMetrics,
 } from "@/lib/conversionMetrics";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 const DEFAULT_DAYS = 30;
 const DATA_LAG_SAFETY_DAYS = 7;
 
@@ -69,9 +63,11 @@ export interface LeadsSummary {
 
 export interface SalesSummary {
   purchases: number;
+  conversations: number;
   value: number;
   roas: number;
   costPerPurchase: number;
+  spend: number;
   trend: TrendPoint[];
   breakdown: Array<{ platform: PlatformKey; value: number }>;
 }
@@ -163,7 +159,6 @@ type AdSetRow = {
 };
 
 type MetricRow = {
-  ad_set_id: string | null;
   campaign_id: string | null;
   platform_account_id?: string | null;
   metric_date: string;
@@ -307,6 +302,10 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
       totalConversations: 0,
       conversationsByPlatform: [],
       messagingConnections: 0,
+      postEngagements: 0,
+      profileVisits: 0,
+      costPerEngagement: 0,
+      costPerProfileVisit: 0,
       likes: 0,
       comments: 0,
       shares: 0,
@@ -317,8 +316,12 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
     traffic: {
       linkClicks: 0,
       landingPageViews: 0,
+      profileVisits: 0,
       ctr: 0,
       cpc: 0,
+      costPerClick: 0,
+      costPerLanding: 0,
+      costPerProfileVisit: 0,
       conversationsByPlatform: [],
       trend: [],
     },
@@ -326,21 +329,24 @@ function createEmptySummary(fromIso: string, toIso: string): ObjectivePerformanc
       whatsappConversations: 0,
       formLeads: 0,
       cpl: 0,
+      costPerConversation: 0,
       trend: [],
       conversationsByPlatform: [],
     },
-    sales: { purchases: 0, value: 0, roas: 0, trend: [], breakdown: [] },
-    recognition: { reach: 0, frequency: 0, cpm: 0, trend: [], breakdown: [] },
-    app: { installs: 0, cpi: 0, appEngagements: 0, trend: [], breakdown: [] },
+    sales: { purchases: 0, conversations: 0, value: 0, roas: 0, costPerPurchase: 0, spend: 0, trend: [], breakdown: [] },
+    recognition: { reach: 0, frequency: 0, cpm: 0, costPerReach: 0, trend: [], breakdown: [] },
+    app: { installs: 0, cpi: 0, appEngagements: 0, costPerEngagement: 0, trend: [], breakdown: [] },
     extras: { totalSpend: 0, totalValue: 0, roi: 0, trend: [] },
     dateRange: { from: fromIso, to: toIso },
   };
 }
 
-export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryResult<ObjectivePerformanceSummary> {
+export function useObjectivePerformanceSummary(workspaceId: string | null, days = DEFAULT_DAYS): UseQueryResult<ObjectivePerformanceSummary> {
   return useQuery({
-    queryKey: ["dashboard", "objective-summary", WORKSPACE_ID, days],
+    queryKey: ["dashboard", "objective-summary", "v2", workspaceId, days],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const end = new Date();
       end.setHours(0, 0, 0, 0);
       const start = new Date(end);
@@ -352,13 +358,19 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const { data: metricsData, error: metricsError } = await supabase
         .from("performance_metrics")
         .select(
-          "ad_set_id, campaign_id, platform_account_id, metric_date, impressions, clicks, ctr, spend, cpc, cpm, reach, extra_metrics, synced_at",
+          "campaign_id, platform_account_id, metric_date, impressions, clicks, ctr, spend, cpc, cpm, reach, extra_metrics, synced_at",
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("granularity", "day")
-        .not("ad_set_id", "is", null)
+        // IMPORTANTE: Usar apenas métricas de nível CAMPAIGN para evitar duplicação
+        // O Meta Ads armazena métricas em múltiplos níveis (account, campaign, adset, ad)
+        // que somam para o mesmo valor. Usar apenas campaign level permite separar por objetivo.
+        .not("campaign_id", "is", null)
+        .is("ad_set_id", null)
+        .is("ad_id", null)
         .gte("metric_date", fromIso)
-        .lte("metric_date", toIso);
+        .lte("metric_date", toIso)
+        .order("synced_at", { ascending: false }); // Mais recente primeiro para de-duplicação
 
       if (metricsError) {
         console.error("Failed to load performance metrics for objective summary", metricsError.message);
@@ -370,7 +382,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const { data: accountsData, error: accountsError } = await supabase
         .from("platform_accounts")
         .select("id, name")
-        .eq("workspace_id", WORKSPACE_ID);
+        .eq("workspace_id", workspaceId);
 
       if (accountsError) {
         console.error("Failed to load platform accounts for objective summary", accountsError.message);
@@ -384,10 +396,9 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
           .filter(Boolean) as string[]
       );
 
-      let metricRows = metricRowsRaw.filter((r) => r.platform_account_id ? allowedIds.has(r.platform_account_id) : true);
+      const metricRows = metricRowsRaw.filter((r) => r.platform_account_id ? allowedIds.has(r.platform_account_id) : true);
 
       type AggregatedRow = {
-        ad_set_id: string | null;
         campaign_id: string | null;
         metric_date: string;
         impressions: number;
@@ -421,9 +432,9 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const aggregatedMap = new Map<string, AggregatedRow>();
 
       for (const row of metricRowsRaw) {
-        const adSetKey = row.ad_set_id ?? "none";
         const campaignKey = row.campaign_id ?? "none";
-        const key = `${row.metric_date}::${adSetKey}::${campaignKey}`;
+        // Chave única para cada combinação de data + campanha (apenas campaign level)
+        const key = `${row.metric_date}::${campaignKey}`;
         const syncedAt = row.synced_at ? Date.parse(row.synced_at) : Number.NEGATIVE_INFINITY;
 
         const actions = Array.isArray(row.extra_metrics?.actions) ? row.extra_metrics.actions : [];
@@ -479,8 +490,8 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
 
         const existing = aggregatedMap.get(key);
         if (!existing) {
+          // Primeiro registro para esta chave (mais recente devido ao ORDER BY synced_at DESC)
           aggregatedMap.set(key, {
-            ad_set_id: row.ad_set_id,
             campaign_id: row.campaign_id,
             metric_date: row.metric_date,
             impressions: Number(row.impressions ?? 0),
@@ -511,40 +522,14 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
             synced_at: syncedAt,
           });
         } else {
-          if (syncedAt >= existing.synced_at) {
-            existing.impressions = Number(row.impressions ?? 0);
-            existing.clicks = Number(row.clicks ?? 0);
-            existing.ctr = Number(row.ctr ?? 0);
-            existing.spend = Number(row.spend ?? 0);
-            existing.cpc = Number(row.cpc ?? 0);
-            existing.cpm = Number(row.cpm ?? 0);
-            existing.reach = Number(reachSource ?? 0);
-            existing.synced_at = syncedAt;
-          }
-          existing.conversationsStarted = Math.max(existing.conversationsStarted, conversationsStarted);
-          existing.messagingConnections = Math.max(existing.messagingConnections, messagingConnections);
-          existing.pageEngagements = Math.max(existing.pageEngagements, pageEngagements);
-          existing.inlinePostEngagement = Math.max(existing.inlinePostEngagement, inlinePostEngagement);
-          existing.profileVisits = Math.max(existing.profileVisits, profileVisits);
-          existing.likes = Math.max(existing.likes, likes);
-          existing.comments = Math.max(existing.comments, comments);
-          existing.shares = Math.max(existing.shares, shares);
-          existing.saves = Math.max(existing.saves, saves);
-          existing.videoViews = Math.max(existing.videoViews, videoViews);
-          existing.linkClicks = Math.max(existing.linkClicks, linkClicks);
-          existing.inlineLinkClicks = Math.max(existing.inlineLinkClicks, inlineLinkClicks);
-          existing.landingPageViews = Math.max(existing.landingPageViews, landingPageViews);
-          existing.formLeads = Math.max(existing.formLeads, formLeads);
-          existing.purchases = Math.max(existing.purchases, purchases);
-          existing.purchaseValue = Math.max(existing.purchaseValue, purchaseValue);
-          existing.installs = Math.max(existing.installs, installs);
-          existing.appEngagements = Math.max(existing.appEngagements, appEngagements);
+          // Duplicação detectada - pulando registro mais antigo
+          console.log(`⚠️ Duplicação ignorada: ${key}, spend antigo: ${existing.spend}, spend novo: ${row.spend}`);
         }
       }
 
-      metricRows = Array.from(aggregatedMap.values());
+      const aggregatedRows: AggregatedRow[] = Array.from(aggregatedMap.values());
 
-      const latestMetricDate = metricRows.reduce<string | null>((latest, row) => {
+      const latestMetricDate = aggregatedRows.reduce<string | null>((latest, row) => {
         if (!row.metric_date) return latest;
         if (!latest || row.metric_date > latest) {
           return row.metric_date;
@@ -558,51 +543,31 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       toIso = effectiveToIso;
       fromIso = effectiveFromIso;
 
-      if (metricRows.length === 0) {
+      if (aggregatedRows.length === 0) {
         return createEmptySummary(fromIso, toIso);
       }
 
-      metricRows = metricRows.filter((row) => row.metric_date >= fromIso && row.metric_date <= toIso);
+      const filteredRows = aggregatedRows.filter((row) => row.metric_date >= fromIso && row.metric_date <= toIso);
 
-      if (metricRows.length === 0) {
+      if (filteredRows.length === 0) {
         return createEmptySummary(fromIso, toIso);
       }
 
-      const adSetIds = new Set<string>();
-      for (const row of metricRows) {
-        if (row.ad_set_id) {
-          adSetIds.add(row.ad_set_id);
-        }
-      }
-
-      const adSetIdList = Array.from(adSetIds);
-
-      const { data: adSetsData, error: adSetsError } = adSetIdList.length
-        ? await supabase
-            .from("ad_sets")
-            .select("id, targeting, destination_type, promoted_object, campaign_id")
-            .in("id", adSetIdList)
-        : { data: [], error: null };
-
-      if (adSetsError) {
-        console.error("Failed to load ad sets for objective summary", adSetsError.message);
-        throw adSetsError;
-      }
-
-      const adSetRows = (adSetsData as AdSetRow[]) ?? [];
+      // Coletar IDs de campanhas
       const campaignIds = new Set<string>();
-      for (const row of adSetRows) {
+
+      for (const row of filteredRows) {
         if (row.campaign_id) {
           campaignIds.add(row.campaign_id);
         }
       }
 
-      const campaignIdList = Array.from(campaignIds);
-      const { data: campaignsData, error: campaignsError } = campaignIdList.length
+      // Buscar dados das campanhas
+      const { data: campaignsData, error: campaignsError } = campaignIds.size > 0
         ? await supabase
-            .from("campaigns")
-            .select("id, objective")
-            .in("id", campaignIdList)
+          .from("campaigns")
+          .select("id, objective")
+          .in("id", Array.from(campaignIds))
         : { data: [], error: null };
 
       if (campaignsError) {
@@ -610,20 +575,12 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
         throw campaignsError;
       }
 
+      // Criar mapa de campanha para objetivo
       const campaignObjectiveMap = new Map<string, string | null | undefined>();
       for (const row of (campaignsData as { id: string; objective?: string | null }[]) ?? []) {
         if (row.id) {
           campaignObjectiveMap.set(row.id, row.objective);
         }
-      }
-
-      const adSetMap = new Map<string, AdSetMetadata>();
-      for (const row of adSetRows) {
-        if (!row.id) continue;
-        const objectiveSource = row.campaign_id ? campaignObjectiveMap.get(row.campaign_id) : null;
-        const objectiveCategory = mapObjective(objectiveSource);
-        const platform = normalizePlatform(row);
-        adSetMap.set(row.id, { objective: objectiveCategory, platform });
       }
 
       const engagementPlatform = new Map<PlatformKey, number>();
@@ -650,6 +607,7 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       const salesTrend = new Map<string, number>();
       const salesPlatform = new Map<PlatformKey, number>();
       let salesPurchases = 0;
+      let salesConversations = 0;
       let salesValue = 0;
       let salesSpend = 0;
 
@@ -676,11 +634,11 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
       let extrasValue = 0;
       const extrasTrend = new Map<string, { spend: number; value: number }>();
 
-      for (const row of metricRows) {
-        if (!row.ad_set_id) continue;
-        const metadata = adSetMap.get(row.ad_set_id);
-        const platform = metadata?.platform ?? "other";
-        const objective = metadata?.objective ?? "OTHER";
+      for (const row of filteredRows) {
+        // Obter objetivo da campanha
+        const campaignObjective = row.campaign_id ? campaignObjectiveMap.get(row.campaign_id) : null;
+        const objective = mapObjective(campaignObjective);
+        const platform: PlatformKey = "other"; // Campaign-level não tem informação de plataforma específica
 
         const spend = Number(row.spend ?? 0);
         const impressions = Number(row.impressions ?? 0);
@@ -744,10 +702,12 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
           case "SALES": {
             const purchases = row.purchases ?? 0;
             salesPurchases += purchases;
+            salesConversations += conversationsStarted;
             salesValue += purchaseValue;
             salesSpend += spend;
-            incrementMap(salesPlatform, platform, purchases);
-            addTrend(salesTrend, date, purchases);
+            // Usar conversas para o gráfico se não houver compras
+            incrementMap(salesPlatform, platform, purchases > 0 ? purchases : conversationsStarted);
+            addTrend(salesTrend, date, purchases > 0 ? purchases : conversationsStarted);
             break;
           }
           case "RECOGNITION": {
@@ -821,9 +781,11 @@ export function useObjectivePerformanceSummary(days = DEFAULT_DAYS): UseQueryRes
 
       const salesSummary: SalesSummary = {
         purchases: salesPurchases,
+        conversations: salesConversations,
         value: salesValue,
         roas: salesRoas,
         costPerPurchase: salesPurchases > 0 ? salesSpend / salesPurchases : 0,
+        spend: salesSpend,
         trend: trendMapToArray(salesTrend, fromIso, toIso),
         breakdown: mapToArray(salesPlatform),
       };

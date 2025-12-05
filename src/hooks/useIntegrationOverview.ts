@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface IntegrationRecord {
   id: string;
   platform_key: string;
@@ -49,10 +43,12 @@ function describeLastSync(date: string | null): string | null {
   return `Há ${diffDays} dia${diffDays === 1 ? "" : "s"}`;
 }
 
-export function useIntegrationOverview(): UseQueryResult<IntegrationOverview> {
+export function useIntegrationOverview(workspaceId: string | null): UseQueryResult<IntegrationOverview> {
   return useQuery({
-    queryKey: ["integrations", "overview", WORKSPACE_ID],
+    queryKey: ["integrations", "overview", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
+      if (!workspaceId) throw new Error("Workspace não selecionado");
       const [{ data: integrations, error: integrationsError }, { data: accounts, error: accountsError }] =
         await Promise.all([
           supabase
@@ -60,11 +56,11 @@ export function useIntegrationOverview(): UseQueryResult<IntegrationOverview> {
             .select(
               `id, platform_key, status, last_synced_at, updated_at, metadata, platforms:platforms!workspace_integrations_platform_key_fkey ( category, display_name )`,
             )
-            .eq("workspace_id", WORKSPACE_ID),
+            .eq("workspace_id", workspaceId),
           supabase
             .from("platform_accounts")
             .select("id, platform_key, name, status, last_synced_at")
-            .eq("workspace_id", WORKSPACE_ID),
+            .eq("workspace_id", workspaceId),
         ]);
 
       if (integrationsError) {

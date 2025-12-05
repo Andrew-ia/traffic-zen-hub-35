@@ -1,12 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
-
-if (!WORKSPACE_ID) {
-  throw new Error("Missing VITE_WORKSPACE_ID environment variable.");
-}
-
 export interface CampaignDetail {
   id: string;
   externalId: string | null;
@@ -71,13 +65,16 @@ export interface CampaignDetailsResult {
   adSets: CampaignAdSet[];
 }
 
-export function useCampaignDetails(campaignId?: string): UseQueryResult<CampaignDetailsResult> {
+export function useCampaignDetails(workspaceId: string | null, campaignId?: string): UseQueryResult<CampaignDetailsResult> {
   return useQuery({
-    queryKey: ["campaign", campaignId, "details"],
-    enabled: Boolean(campaignId),
+    queryKey: ["campaign", workspaceId, campaignId, "details"],
+    enabled: Boolean(campaignId) && !!workspaceId,
     queryFn: async (): Promise<CampaignDetailsResult> => {
       if (!campaignId) {
         throw new Error("Missing campaign id");
+      }
+      if (!workspaceId) {
+        throw new Error("Workspace não selecionado");
       }
 
       const { data: campaignRow, error: campaignError } = await supabase
@@ -107,7 +104,7 @@ export function useCampaignDetails(campaignId?: string): UseQueryResult<Campaign
             )
           `,
         )
-        .eq("workspace_id", WORKSPACE_ID)
+        .eq("workspace_id", workspaceId)
         .eq("id", campaignId)
         .maybeSingle();
 

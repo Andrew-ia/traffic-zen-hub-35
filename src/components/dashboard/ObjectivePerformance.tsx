@@ -223,8 +223,8 @@ function SpendValueTrend({ data }: { data: Array<{ date: string; spend: number; 
   );
 }
 
-export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
-  const { data, isLoading, error } = useObjectivePerformanceSummary(days);
+export function ObjectivePerformanceSection({ workspaceId, days = 30 }: { workspaceId: string | null; days?: number }) {
+  const { data, isLoading, error } = useObjectivePerformanceSummary(workspaceId, days);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     engagement: false,
     traffic: false,
@@ -310,7 +310,10 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
   const hasLeads =
     data.leads.whatsappConversations > 0 || data.leads.formLeads > 0 || data.leads.conversationsByPlatform.length > 0;
 
-  const hasSales = data.sales.purchases > 0 || data.sales.value > 0 || data.sales.breakdown.length > 0;
+  // Mostrar seção de vendas se houver compras OU se houver gasto em campanhas de vendas
+  // Isso permite visualizar campanhas de vendas ativas mesmo sem conversões ainda
+  const hasSales = data.sales.purchases > 0 || data.sales.value > 0 || data.sales.spend > 0 || data.sales.breakdown.length > 0;
+  const hasActualSales = data.sales.purchases > 0 && data.sales.value > 0;
   const hasRecognition = data.recognition.reach > 0 || data.recognition.breakdown.length > 0;
   const hasApp = data.app.installs > 0 || data.app.appEngagements > 0 || data.app.breakdown.length > 0;
   const hasExtras = data.extras.totalSpend > 0 || data.extras.totalValue > 0 || data.extras.trend.length > 0;
@@ -322,8 +325,8 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
       <Card key="engagement">
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
-            <CardTitle>📊 Engajamento</CardTitle>
-            <CardDescription>Conversas e interações geradas pelas campanhas de engajamento.</CardDescription>
+            <CardTitle>💬 Engajamento</CardTitle>
+            <CardDescription>Conversas, conexões e interações geradas pelas campanhas de engajamento.</CardDescription>
           </div>
           <button
             aria-expanded={expanded.engagement}
@@ -359,7 +362,7 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                     hideIfZero: true,
                   },
                   {
-                    label: "Visitas ao perfil",
+                    label: "Visitas de perfil (engajamento)",
                     value: data.engagement.profileVisits,
                     hideIfZero: true,
                     hint:
@@ -406,7 +409,7 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                 entries={[
                   { label: "Cliques no link", value: data.traffic.linkClicks },
                   {
-                    label: "Custo por clique",
+                    label: "CPC de tráfego",
                     value: data.traffic.costPerClick,
                     format: "currency",
                     hideIfZero: true,
@@ -419,7 +422,7 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
                     hideIfZero: true,
                   },
                   {
-                    label: "Visitas ao perfil",
+                    label: "Visitas de perfil (tráfego)",
                     value: data.traffic.profileVisits,
                     hideIfZero: true,
                     hint:
@@ -486,8 +489,13 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
       <Card key="sales">
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
-            <CardTitle>📈 Vendas</CardTitle>
-            <CardDescription>Resultados das campanhas com objetivo de conversão e vendas.</CardDescription>
+            <CardTitle>💰 Vendas</CardTitle>
+            <CardDescription>
+              {data.sales.purchases > 0 
+                ? `Compras e receita gerada pelas campanhas de vendas.`
+                : `Campanhas de vendas ativas - Configure o Pixel para trackear compras.`
+              }
+            </CardDescription>
           </div>
           <button
             aria-expanded={expanded.sales}
@@ -502,15 +510,17 @@ export function ObjectivePerformanceSection({ days = 30 }: { days?: number }) {
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
               <MetricsList
                 entries={[
-                  { label: "Compras", value: data.sales.purchases },
-                  { label: "Valor total", value: data.sales.value, format: "currency" },
-                  { label: "ROAS", value: data.sales.roas, format: "number" },
-                  {
-                    label: "Custo por compra",
-                    value: data.sales.costPerPurchase,
-                    format: "currency",
-                    hideIfZero: true,
-                  },
+                  ...(data.sales.purchases > 0 ? [
+                    { label: "Compras", value: data.sales.purchases },
+                    { label: "Valor total", value: data.sales.value, format: "currency" },
+                    { label: "ROAS", value: data.sales.roas, format: "number" },
+                    { label: "Custo por compra", value: data.sales.costPerPurchase, format: "currency" },
+                  ] : [
+                    { label: "Investimento", value: data.sales.spend, format: "currency" },
+                    { label: "Conversas iniciadas", value: data.sales.conversations },
+                    { label: "Custo por conversa", value: data.sales.conversations > 0 ? data.sales.spend / data.sales.conversations : 0, format: "currency" },
+                  ]),
+                  { label: "Gasto total", value: data.sales.spend, format: "currency" },
                 ]}
               />
               <TrendLineChart data={data.sales.trend} label="Compras" color="hsl(var(--chart-4))" />

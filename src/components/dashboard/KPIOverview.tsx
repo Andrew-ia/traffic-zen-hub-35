@@ -49,21 +49,23 @@ function KPICard({ title, value, previousValue, trend, trendPercentage, icon, lo
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden border-border/50 shadow-sm hover:shadow-md transition-all duration-300">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className="h-4 w-4 text-muted-foreground">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
           {icon}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-3xl font-bold tracking-tight">{value}</div>
         {trendPercentage !== undefined && (
-          <div className={`flex items-center gap-1 text-xs ${getTrendColor(trend)}`}>
-            {getTrendIcon(trend)}
-            <span>{Math.abs(trendPercentage).toFixed(1)}%</span>
+          <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${getTrendColor(trend)}`}>
+            <span className={`flex items-center ${trend === 'up' ? 'bg-green-100 dark:bg-green-900/30' : trend === 'down' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-gray-100 dark:bg-gray-800'} px-1.5 py-0.5 rounded-full`}>
+              {getTrendIcon(trend)}
+              <span className="ml-1">{Math.abs(trendPercentage).toFixed(1)}%</span>
+            </span>
             {previousValue && (
-              <span className="text-muted-foreground">vs período anterior</span>
+              <span className="text-muted-foreground ml-1">vs anterior</span>
             )}
           </div>
         )}
@@ -108,13 +110,14 @@ function calculateTrend(current: number, previous: number): {
 
 interface KPIOverviewProps {
   days: number;
+  workspaceId: string | null;
   onRefresh?: () => void;
   refreshing?: boolean;
 }
 
-export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
-  const { data: currentData, isLoading: currentLoading } = usePerformanceMetrics(days);
-  const { data: previousData, isLoading: previousLoading } = usePerformanceMetrics(days, days);
+export function KPIOverview({ days, workspaceId, onRefresh, refreshing }: KPIOverviewProps) {
+  const { data: currentData, isLoading: currentLoading } = usePerformanceMetrics(workspaceId, days);
+  const { data: previousData, isLoading: previousLoading } = usePerformanceMetrics(workspaceId, days, days);
 
   const isLoading = currentLoading || previousLoading || refreshing;
 
@@ -184,7 +187,7 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
         />
 
         <KPICard
-          title="Conversões"
+          title="Conversas Iniciadas"
           value={current ? formatNumber(current.conversions) : "0"}
           trend={conversionsTrend?.trend}
           trendPercentage={conversionsTrend?.percentage}
@@ -202,8 +205,13 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
         />
 
         <KPICard
-          title="ROAS"
-          value={current ? `${current.roas.toFixed(2)}x` : "0x"}
+          title={current && current.conversionValue > 0 ? "ROAS" : "Custo por Conversa"}
+          value={current && current.conversionValue > 0 
+            ? `${current.roas.toFixed(2)}x` 
+            : current && current.conversions > 0 
+              ? formatCurrency(current.spend / current.conversions)
+              : "N/A"
+          }
           trend={roasTrend?.trend}
           trendPercentage={roasTrend?.percentage}
           icon={<TrendingUp className="h-4 w-4" />}
@@ -212,21 +220,27 @@ export function KPIOverview({ days, onRefresh, refreshing }: KPIOverviewProps) {
       </div>
 
       {current && (
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">
-            CPM: {current.spend > 0 && current.conversions > 0
-              ? formatCurrency(current.spend / current.conversions)
-              : "N/A"}
-          </Badge>
-          <Badge variant="outline">
-            CPC: {current.spend > 0 && current.clicks > 0
-              ? formatCurrency(current.spend / current.clicks)
-              : "N/A"}
-          </Badge>
-          {current.conversionValue > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {current.conversionValue > 0 ? (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                💰 Valor Total: {formatCurrency(current.conversionValue)}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                💬 {formatNumber(current.conversationsStarted)} conversas • {formatNumber(current.messagingConnections)} conexões
+              </Badge>
+            )}
             <Badge variant="outline">
-              Valor Total: {formatCurrency(current.conversionValue)}
+              CPM: {current.spend > 0 && current.impressions > 0
+                ? formatCurrency((current.spend / current.impressions) * 1000)
+                : "N/A"}
             </Badge>
+          </div>
+          {current.conversionValue === 0 && (
+            <div className="text-sm text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-3">
+              💡 <strong>Dica:</strong> Configure o Pixel do Meta para trackear vendas e calcular ROAS real.
+            </div>
           )}
         </div>
       )}

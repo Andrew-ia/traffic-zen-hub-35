@@ -26,7 +26,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const STORAGE_KEY = 'trafficpro.auth.token';
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
+const WORKSPACE_STORAGE_KEY = 'trafficpro.workspace.selected';
 const OVERRIDES_PREFIX = 'trafficpro.page_access_overrides';
 const API_BASE = resolveApiBase();
 const DISABLE_AUTH = import.meta.env.VITE_DISABLE_AUTH === 'true';
@@ -35,6 +35,17 @@ const DEFAULT_USER: User = {
   email: (import.meta.env.VITE_ADMIN_EMAIL as string | undefined) || 'founder@trafficpro.dev',
   role: 'adm',
 };
+
+function getWorkspaceId(): string | null {
+  try {
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(WORKSPACE_STORAGE_KEY) : null;
+    if (stored && stored.trim()) return stored.trim();
+  } catch {
+    // ignore storage read errors
+  }
+  const env = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
+  return env && env.length > 0 ? env : null;
+}
 
 
 
@@ -60,34 +71,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (authChecked) return; // Prevent multiple checks
 
-    console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
+    if (import.meta.env.DEV) console.log('🔄 Initial auth check. Token:', !!token, 'User:', !!user);
 
     if (token && !user) {
-      console.log('🔑 Token exists, validating...');
+      if (import.meta.env.DEV) console.log('🔑 Token exists, validating...');
 
       fetch(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'x-workspace-id': getWorkspaceId() || '' },
         signal: AbortSignal.timeout(10000)
       })
         .then(async (r) => {
-          console.log('🔍 Auth validation response:', r.status, r.ok);
+          if (import.meta.env.DEV) console.log('🔍 Auth validation response:', r.status, r.ok);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         })
         .then((data) => {
-          console.log('✅ Auth validation successful:', data);
+          if (import.meta.env.DEV) console.log('✅ Auth validation successful:', data);
           if (data?.success && data?.user) {
             setUser(data.user);
-            console.log('👤 User set:', data.user);
+            if (import.meta.env.DEV) console.log('👤 User set:', data.user);
           } else {
-            console.log('⚠️ Invalid response from auth endpoint');
+            console.warn('Invalid response from auth endpoint');
             throw new Error('Invalid auth response');
           }
           setIsLoading(false);
           setAuthChecked(true);
         })
         .catch((error) => {
-          console.log('❌ Auth validation failed, clearing session:', error.message);
+          console.warn('Auth validation failed, clearing session:', error.message);
           window.localStorage.removeItem(STORAGE_KEY);
           setToken(null);
           setUser(null);
@@ -118,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('🔑 Attempting login for:', username);
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-workspace-id': getWorkspaceId() || '' },
         body: JSON.stringify({ username, password }),
       });
 
@@ -145,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('💾 Storing token and user data');
       window.localStorage.setItem(STORAGE_KEY, data.token);
       setToken(data.token);
-      setUser(data.user);
+      setUser({ ...data.user, workspace_id: data.user.workspace_id || getWorkspaceId() || undefined });
 
       console.log('✅ Login successful, redirecting to dashboard');
       navigate('/', { replace: true });
@@ -168,7 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     fetch(`${API_BASE}/api/auth/page-permissions/${user.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'x-workspace-id': getWorkspaceId() || '' },
       signal: AbortSignal.timeout(10000),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -193,8 +204,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [navigate]);
 
   const getAllowedRoutes = useCallback(() => {
-    if (user?.id && WORKSPACE_ID) {
-      const key = `${OVERRIDES_PREFIX}:${WORKSPACE_ID}:${user.id}`;
+    const wid = getWorkspaceId();
+    if (user?.id && wid) {
+      const key = `${OVERRIDES_PREFIX}:${wid}:${user.id}`;
       const raw = window.localStorage.getItem(key);
       let map: Record<string, boolean> = {};
       try {
@@ -229,8 +241,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    if (WORKSPACE_ID) {
-      const key = `${OVERRIDES_PREFIX}:${WORKSPACE_ID}:${user.id}`;
+    const wid = getWorkspaceId();
+    if (wid) {
+      const key = `${OVERRIDES_PREFIX}:${wid}:${user.id}`;
       const raw = window.localStorage.getItem(key);
       let map: Record<string, boolean> = {};
       try {

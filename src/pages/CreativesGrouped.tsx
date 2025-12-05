@@ -257,7 +257,7 @@ export default function CreativesGrouped() {
 
   // Debug: Log groups on mount
   React.useEffect(() => {
-    if (groups.length > 0) {
+    if (groups.length > 0 && import.meta.env.DEV) {
       console.log('[CreativesGrouped] Total groups:', groups.length);
       console.log('[CreativesGrouped] Groups with multiple variants:',
         groups.filter(g => g.totalVariants > 1).length);
@@ -285,17 +285,17 @@ export default function CreativesGrouped() {
   }, [groups, searchTerm]);
 
   function toggleGroup(groupId: string) {
-    console.log('[CreativesGrouped] Toggling group:', groupId);
+    if (import.meta.env.DEV) console.log('[CreativesGrouped] Toggling group:', groupId);
     setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(groupId)) {
-        console.log('[CreativesGrouped] Collapsing group:', groupId);
+        if (import.meta.env.DEV) console.log('[CreativesGrouped] Collapsing group:', groupId);
         next.delete(groupId);
       } else {
-        console.log('[CreativesGrouped] Expanding group:', groupId);
+        if (import.meta.env.DEV) console.log('[CreativesGrouped] Expanding group:', groupId);
         next.add(groupId);
       }
-      console.log('[CreativesGrouped] New expanded groups:', Array.from(next));
+      if (import.meta.env.DEV) console.log('[CreativesGrouped] New expanded groups:', Array.from(next));
       return next;
     });
   }
