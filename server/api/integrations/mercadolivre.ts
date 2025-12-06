@@ -1,11 +1,14 @@
 import { Router } from "express";
 import axios from "axios";
+import { getPool } from "../../config/database.js";
+import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
 // import { authMiddleware } from "../auth";
 
 const router = Router();
 
 // Base URL da API do Mercado Livre
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
+const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
 
 // Cache simples para categorias do Mercado Livre
 const CATEGORIES_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
@@ -22,6 +25,119 @@ interface MercadoLivreCredentials {
 
 const tokenStore = new Map<string, (MercadoLivreCredentials & { expiresAt?: number })>();
 
+async function credentialsExist(workspaceId: string): Promise<boolean> {
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT 1 FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2 LIMIT 1`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
+        );
+        return result.rows.length > 0;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao verificar credenciais existentes:", error instanceof Error ? error.message : error);
+        return false;
+    }
+}
+
+export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): Promise<boolean> {
+    const accessToken = (process.env.MERCADO_LIVRE_ACCESS_TOKEN || "").trim();
+    const refreshToken = (process.env.MERCADO_LIVRE_REFRESH_TOKEN || "").trim();
+    const userId = (process.env.MERCADO_LIVRE_USER_ID || "").trim();
+
+    if (!accessToken || !userId) {
+        return false; // Nada para aplicar a partir das envs
+    }
+
+    // Evita sobrescrever se já existir no banco
+    const alreadySaved = await credentialsExist(workspaceId);
+    if (alreadySaved) return false;
+
+    const payload = { accessToken, refreshToken, userId };
+    const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
+
+    try {
+        const pool = getPool();
+        await pool.query(
+            `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (workspace_id, platform_key)
+             DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY, encrypted_credentials, encryption_iv]
+        );
+
+        tokenStore.set(workspaceId, payload);
+        console.log(`[MercadoLivre] Credenciais aplicadas a partir das envs para workspace ${workspaceId}`);
+        return true;
+    } catch (error) {
+        console.error("[MercadoLivre] Falha ao gravar credenciais de env:", error instanceof Error ? error.message : error);
+        return false;
+    }
+}
+
+async function persistMercadoLivreCredentials(
+    workspaceId: string,
+    credentials: MercadoLivreCredentials & { expiresAt?: number }
+): Promise<boolean> {
+    try {
+        const pool = getPool();
+        const payload = {
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            userId: credentials.userId,
+            expiresAt: credentials.expiresAt
+        };
+        const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
+
+        await pool.query(
+            `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (workspace_id, platform_key)
+             DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY, encrypted_credentials, encryption_iv]
+        );
+        return true;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao persistir tokens:", error instanceof Error ? error.message : error);
+        return false;
+    }
+}
+
+async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreCredentials & { expiresAt?: number }) | null> {
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT encrypted_credentials, encryption_iv
+             FROM integration_credentials
+             WHERE workspace_id = $1 AND platform_key = $2
+             LIMIT 1`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
+        );
+
+        if (!result.rows.length) return null;
+
+        const decrypted = decryptCredentials(
+            result.rows[0].encrypted_credentials,
+            result.rows[0].encryption_iv
+        ) as any;
+
+        const accessToken = decrypted.accessToken || decrypted.access_token;
+        const refreshToken = decrypted.refreshToken || decrypted.refresh_token;
+        const userId = decrypted.userId || decrypted.user_id;
+
+        if (!accessToken || !userId) return null;
+
+        return {
+            accessToken: String(accessToken),
+            refreshToken: String(refreshToken || ""),
+            userId: String(userId),
+            expiresAt: typeof decrypted.expiresAt === "number" ? decrypted.expiresAt : undefined,
+        };
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao buscar tokens no banco:", error instanceof Error ? error.message : error);
+        return null;
+    }
+}
+
 /**
  * Busca as credenciais do Mercado Livre para um workspace
  */
@@ -29,9 +145,16 @@ async function getMercadoLivreCredentials(
     workspaceId: string
 ): Promise<MercadoLivreCredentials | null> {
     const cached = tokenStore.get(workspaceId);
-    if (cached) {
+    if (cached && (!cached.expiresAt || cached.expiresAt > Date.now())) {
         return { accessToken: cached.accessToken, refreshToken: cached.refreshToken, userId: cached.userId };
     }
+
+    const dbCreds = await getCredentialsFromDb(workspaceId);
+    if (dbCreds) {
+        tokenStore.set(workspaceId, dbCreds);
+        return { accessToken: dbCreds.accessToken, refreshToken: dbCreds.refreshToken, userId: dbCreds.userId };
+    }
+
     const accessToken = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
     const refreshToken = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
     const userId = process.env.MERCADO_LIVRE_USER_ID;
@@ -41,6 +164,12 @@ async function getMercadoLivreCredentials(
     const creds = { accessToken: accessToken.trim(), refreshToken: (refreshToken || "").trim(), userId: userId.trim() };
     tokenStore.set(workspaceId, creds);
     return creds;
+}
+
+function tokenNeedsRefresh(creds: { expiresAt?: number }): boolean {
+    if (!creds.expiresAt) return false;
+    const marginMs = 15 * 60 * 1000; // 15 minutos de margem
+    return Date.now() >= (creds.expiresAt - marginMs);
 }
 
 async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCredentials | null> {
@@ -69,12 +198,22 @@ async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCred
         expiresAt: typeof expires_in === "number" ? Date.now() + (expires_in * 1000) : undefined,
     };
     tokenStore.set(workspaceId, updated);
+    void persistMercadoLivreCredentials(workspaceId, updated);
     return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId };
 }
 
 async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any } = {}): Promise<T> {
-    const creds = await getMercadoLivreCredentials(workspaceId);
+    let creds = await getMercadoLivreCredentials(workspaceId);
     if (!creds) throw new Error("ml_not_connected");
+
+    // Refresh antecipado se token estiver perto de expirar
+    if (tokenNeedsRefresh(creds)) {
+        const refreshed = await refreshAccessToken(workspaceId);
+        if (refreshed) {
+            creds = refreshed;
+        }
+    }
+
     try {
         const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${creds.accessToken}` } });
         return resp.data as any;
@@ -128,6 +267,90 @@ router.get("/auth/url", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/items/:itemId
+ * Proxy para obter detalhes públicos de um item (requere workspaceId para token)
+ */
+router.get("/items/:itemId", async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+        return res.json(data);
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch item",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/items/:itemId/description
+ * Obtém a descrição (plain_text) do item
+ */
+router.get("/items/:itemId/description", async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`);
+        return res.json(data);
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch item description",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/categories/:categoryId
+ * Obtém detalhes de uma categoria
+ */
+router.get("/categories/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
+        return res.json(data);
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch category",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/categories/:categoryId/attributes
+ * Obtém atributos permitidos para a categoria
+ */
+router.get("/categories/:categoryId/attributes", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
+        return res.json(data);
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch category attributes",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
  * POST /api/integrations/mercadolivre/auth/callback
  * Processa callback OAuth e troca código por tokens
  */
@@ -170,7 +393,9 @@ router.post("/auth/callback", async (req, res) => {
 
         const { access_token, refresh_token, user_id } = tokenResponse.data;
 
-        tokenStore.set(String(workspaceId), { accessToken: access_token, refreshToken: refresh_token, userId: user_id });
+        const creds = { accessToken: access_token, refreshToken: refresh_token, userId: user_id };
+        tokenStore.set(String(workspaceId), creds);
+        void persistMercadoLivreCredentials(String(workspaceId), creds);
         console.log("✅ Mercado Livre OAuth Success:");
         console.log("Access Token:", access_token);
         console.log("Refresh Token:", refresh_token);
@@ -243,7 +468,9 @@ router.post("/auth/refresh", async (req, res) => {
 
         const { access_token, refresh_token } = tokenResponse.data;
 
-        tokenStore.set(String(workspaceId), { accessToken: access_token, refreshToken: refresh_token, userId: credentials.userId });
+        const creds = { accessToken: access_token, refreshToken: refresh_token, userId: credentials.userId };
+        tokenStore.set(String(workspaceId), creds);
+        void persistMercadoLivreCredentials(String(workspaceId), creds);
         console.log("✅ Token refreshed successfully");
         console.log(`MERCADO_LIVRE_ACCESS_TOKEN=${access_token}`);
         console.log(`MERCADO_LIVRE_REFRESH_TOKEN=${refresh_token}`);
@@ -995,6 +1222,61 @@ router.put("/products/:productId/price", async (req, res) => {
     }
 });
 
+router.put("/products/:productId/title", async (req, res) => {
+    try {
+        const { productId } = req.params;
+        const { title, workspaceId } = req.body;
+
+        if (!workspaceId || !title) {
+            return res.status(400).json({
+                error: "Workspace ID e título são obrigatórios",
+            });
+        }
+
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+
+        if (!credentials) {
+            return res.status(401).json({
+                error: "Mercado Livre não conectado para este workspace",
+            });
+        }
+
+        try {
+            const response = await axios.put(
+                `${MERCADO_LIVRE_API_BASE}/items/${productId}`,
+                { title: String(title) },
+                {
+                    headers: {
+                        Authorization: `Bearer ${credentials.accessToken}`,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            return res.json({
+                success: true,
+                data: response.data,
+            });
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const data = error?.response?.data || {};
+            const message = data?.message || error?.message || "Erro na API do Mercado Livre";
+            const causes = Array.isArray(data?.cause) ? data.cause : [];
+            const causeText = causes.map((c: any) => c?.message || c?.description || "").filter(Boolean).join(" | ");
+
+            return res.status(status || 400).json({
+                error: "Falha ao atualizar título",
+                details: [message, causeText].filter(Boolean).join(" | "),
+            });
+        }
+    } catch (error: any) {
+        return res.status(500).json({
+            error: "Erro interno do servidor",
+            details: error?.message || String(error) || "Erro desconhecido",
+        });
+    }
+});
+
 /**
  * PUT /api/integrations/mercadolivre/products/:productId/status
  * Atualiza status de um produto
@@ -1096,14 +1378,17 @@ router.post("/products/:productId/publish", async (req, res) => {
         };
 
         // Preparar payload para o Mercado Livre
-        const mlPayload = {
-            title: product.title,
-            description: {
-                plain_text: product.description || ""
-            },
+        const enableUserProducts = process.env.ML_USER_PRODUCTS === 'true';
+        const attributes = [
+            ...(product.attributes || [])
+        ];
+        if (product.condition) {
+            attributes.unshift({ id: 'ITEM_CONDITION', value_name: String(product.condition) });
+        }
+
+        const mlPayload: any = {
             category_id: product.ml_category_id,
             listing_type_id: product.ml_listing_type || "gold_special",
-            condition: product.condition || "new",
             price: product.price,
             currency_id: "BRL",
             available_quantity: product.available_quantity || 1,
@@ -1116,8 +1401,13 @@ router.post("/products/:productId/publish", async (req, res) => {
                 free_shipping: product.free_shipping || false,
                 local_pick_up: false
             },
-            attributes: product.attributes || []
+            channels: (product as any).channels || ['marketplace'],
+            attributes
         };
+        if (!enableUserProducts) {
+            mlPayload.title = product.title;
+            mlPayload.condition = product.condition || "new"; // retrocompatibilidade
+        }
 
         console.log(`[ML Publish] Publicando produto ${productId} no ML`);
 
@@ -1156,6 +1446,24 @@ router.post("/products/:productId/publish", async (req, res) => {
         //     VALUES ($1, $2, $3, $4, $5, NOW())
         // `, [productId, workspaceId, mlItem.id, mlItem.permalink, mlItem.status]);
 
+        // Enviar descrição após publicar, se houver
+        if (product.description) {
+            try {
+                await axios.post(
+                    `${MERCADO_LIVRE_API_BASE}/items/${mlItem.id}/description`,
+                    { plain_text: product.description },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                            "Content-Type": "application/json",
+                        },
+                    }
+                );
+            } catch (descErr) {
+                console.warn('[ML Publish] Falha ao enviar descrição após publicar:', descErr);
+            }
+        }
+
         return res.json({
             success: true,
             message: "Produto publicado com sucesso no Mercado Livre",
@@ -1181,7 +1489,7 @@ router.post("/products/:productId/publish", async (req, res) => {
 router.put("/products/:productId/update-from-table", async (req, res) => {
     try {
         const { productId } = req.params;
-        const { workspaceId, fields = ['price', 'stock', 'title', 'description'] } = req.body;
+        const { workspaceId, fields = ['price', 'stock', 'description'] } = req.body;
 
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
@@ -1213,18 +1521,15 @@ router.put("/products/:productId/update-from-table", async (req, res) => {
         // Preparar dados para atualização
         const updateData: any = {};
 
-        if (fields.includes('price')) {
+        const safeFields = Array.isArray(fields) ? fields.filter((f: string) => f !== 'title') : ['price','stock','description'];
+
+        if (safeFields.includes('price')) {
             updateData.price = product.price;
         }
-        if (fields.includes('stock')) {
+        if (safeFields.includes('stock')) {
             updateData.available_quantity = product.available_quantity;
         }
-        if (fields.includes('title')) {
-            updateData.title = product.title;
-        }
-        if (fields.includes('description')) {
-            updateData.description = { plain_text: product.description };
-        }
+        const shouldUpdateDescription = safeFields.includes('description');
 
         console.log(`[ML Update] Atualizando item ${product.ml_item_id} no ML`);
 
@@ -1240,12 +1545,30 @@ router.put("/products/:productId/update-from-table", async (req, res) => {
             }
         );
 
+        // Atualizar descrição via endpoint dedicado
+        if (shouldUpdateDescription && product.description) {
+            try {
+                await axios.post(
+                    `${MERCADO_LIVRE_API_BASE}/items/${product.ml_item_id}/description`,
+                    { plain_text: product.description },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                            "Content-Type": "application/json",
+                        },
+                    }
+                );
+            } catch (descErr) {
+                console.warn('[ML Update] Falha ao atualizar descrição:', descErr);
+            }
+        }
+
         console.log(`[ML Update] Item atualizado com sucesso`);
 
         return res.json({
             success: true,
             message: "Produto atualizado no Mercado Livre",
-            updated_fields: fields,
+            updated_fields: safeFields,
             ml_response: response.data
         });
 
@@ -1847,11 +2170,11 @@ router.post("/analyze", async (req, res) => {
         const accessToken = credentials?.accessToken;
 
         // Importar serviços dinamicamente para evitar problemas de circular dependency
-        const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service");
-        const { seoOptimizerService, fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } = await import("../../services/seoOptimizer.service");
-        const { modelOptimizerService } = await import("../../services/modelOptimizer.service");
-        const { technicalSheetService } = await import("../../services/technicalSheetService");
-        const { competitiveAnalyzerService } = await import("../../services/competitiveAnalyzer.service");
+        const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service.js");
+        const { seoOptimizerService, fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } = await import("../../services/seoOptimizer.service.js");
+        const { modelOptimizerService } = await import("../../services/modelOptimizer.service.js");
+        const { technicalSheetService } = await import("../../services/technicalSheetService.js");
+        const { competitiveAnalyzerService } = await import("../../services/competitiveAnalyzer.service.js");
 
         console.log(`[MLB Analyzer] Iniciando análise do produto ${mlbId}`);
 
@@ -1886,6 +2209,90 @@ router.post("/analyze", async (req, res) => {
                 });
             }
         }
+
+        const buildEmptyCompetitiveAnalysis = () => ({
+            total_competitors_analyzed: 0,
+            market_position: 'average',
+            competitive_score: 50,
+            top_competitors: [],
+            price_analysis: {
+                current_price: productData.price,
+                market_average: productData.price,
+                cheapest_competitor: productData.price,
+                most_expensive: productData.price,
+                price_position: 'average',
+                optimal_price_range: {
+                    min: productData.price,
+                    max: productData.price,
+                    recommended: productData.price
+                },
+                price_elasticity_insights: {
+                    price_sensitive_category: false,
+                    sweet_spot: productData.price,
+                    conversion_impact: 'neutral'
+                }
+            },
+            feature_comparison: {
+                current_features: productData.attributes.map((a: any) => a.id),
+                competitor_features: {},
+                missing_features: [],
+                unique_advantages: [],
+                category_standards: []
+            },
+            ranking_factors: {
+                current_score: 50,
+                top_competitor_score: 50,
+                gap_analysis: [],
+                quick_wins: []
+            },
+            competitive_gaps: [],
+            opportunities: [],
+            threats: [],
+            market_insights: {
+                category_trends: [],
+                consumer_preferences: [],
+                seasonal_patterns: [],
+                growth_opportunities: []
+            },
+            category_top_products: []
+        });
+
+        const buildEmptyModelOptimization = () => ({
+            current_model: null,
+            current_score: 50,
+            strategic_keywords: [],
+            optimized_models: [],
+            category_insights: {
+                category_id: productData.category_id,
+                category_name: '',
+                trending_terms: [],
+                high_conversion_words: [],
+                seasonal_keywords: [],
+                competitor_analysis: []
+            },
+            advanced_strategies: []
+        });
+
+        const buildEmptyTechnicalSheetAnalysis = () => ({
+            completion_score: 0,
+            total_attributes: productData.attributes.length,
+            filled_attributes: 0,
+            critical_missing: [],
+            high_priority_missing: [],
+            optimization_opportunities: [],
+            category_specific_insights: {
+                required_attributes: [],
+                recommended_attributes: [],
+                competitive_advantages: []
+            },
+            seo_impact_analysis: {
+                current_seo_score: 0,
+                max_possible_score: 100,
+                improvement_potential: 100,
+                priority_attributes: []
+            },
+            validation_results: []
+        });
 
         // 2. Calcular score de qualidade
         const qualityScore = mlbAnalyzerService.calculateQualityScore(productData);
@@ -1934,13 +2341,28 @@ router.post("/analyze", async (req, res) => {
         };
 
         // 8. Análise competitiva avançada
-        const competitiveAnalysis = await competitiveAnalyzerService.analyzeCompetition(productData, accessToken);
+        let competitiveAnalysis = buildEmptyCompetitiveAnalysis();
+        try {
+            competitiveAnalysis = await competitiveAnalyzerService.analyzeCompetition(productData, accessToken);
+        } catch (e: any) {
+            console.warn('[MLB Analyzer] Falha na análise competitiva, usando fallback:', e?.message || e);
+        }
 
         // 9. Análise e otimização do campo Modelo
-        const modelOptimization = await modelOptimizerService.generateModelStrategy(productData);
+        let modelOptimization = buildEmptyModelOptimization();
+        try {
+            modelOptimization = await modelOptimizerService.generateModelStrategy(productData);
+        } catch (e: any) {
+            console.warn('[MLB Analyzer] Falha na otimização de modelo, usando fallback:', e?.message || e);
+        }
 
         // 10. Análise avançada de ficha técnica
-        const technicalSheetAnalysis = await technicalSheetService.analyzeTechnicalSheet(productData);
+        let technicalSheetAnalysis = buildEmptyTechnicalSheetAnalysis();
+        try {
+            technicalSheetAnalysis = await technicalSheetService.analyzeTechnicalSheet(productData);
+        } catch (e: any) {
+            console.warn('[MLB Analyzer] Falha na análise de ficha técnica, usando fallback:', e?.message || e);
+        }
 
         // 11. Previsão de entrega orgânica
         const organicDeliveryPrediction = {
@@ -1966,7 +2388,9 @@ router.post("/analyze", async (req, res) => {
                 sold_quantity: productData.sold_quantity,
                 available_quantity: productData.available_quantity,
                 permalink: productData.permalink,
-                thumbnail: productData.thumbnail
+                thumbnail: productData.thumbnail,
+                attributes: productData.attributes || [],
+                pictures: productData.pictures || []
             },
             quality_score: qualityScore,
             keyword_analysis: keywordAnalysis,
@@ -2038,7 +2462,7 @@ router.post("/optimize-title", async (req, res) => {
             });
         }
 
-        const { seoOptimizerService } = await import("../../services/seoOptimizer.service");
+        const { seoOptimizerService } = await import("../../services/seoOptimizer.service.js");
         
         // Análise básica do título
         const titleAnalysis = {
@@ -2102,8 +2526,8 @@ router.post("/generate-description", async (req, res) => {
         }
 
         const credentials = await getMercadoLivreCredentials(workspaceId || 'default');
-        const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service");
-        const { seoOptimizerService, fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } = await import("../../services/seoOptimizer.service");
+        const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service.js");
+        const { seoOptimizerService, fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } = await import("../../services/seoOptimizer.service.js");
 
         // Buscar dados do produto
         const productData = await mlbAnalyzerService.getProductData(mlbId, credentials?.accessToken);
@@ -2132,6 +2556,751 @@ router.post("/generate-description", async (req, res) => {
         return res.status(500).json({
             error: "Falha na geração da descrição",
             details: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/apply-optimizations
+ * Aplica otimizações automaticamente no anúncio do MercadoLivre
+ */
+router.post("/apply-optimizations", async (req, res) => {
+    try {
+        const { mlbId, workspaceId, optimizations } = req.body;
+
+        if (!mlbId || !workspaceId || !optimizations) {
+            return res.status(400).json({ 
+                error: "MLB ID, Workspace ID e otimizações são obrigatórios" 
+            });
+        }
+
+        // Validar formato do MLB ID
+        if (!mlbId.match(/^MLB\d+$/)) {
+            return res.status(400).json({
+                error: "Formato de MLB ID inválido. Use: MLB1234567890"
+            });
+        }
+
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            return res.status(401).json({ 
+                error: "Credenciais do MercadoLivre não encontradas" 
+            });
+        }
+
+        console.log(`[Apply Optimizations] Iniciando aplicação de otimizações para ${mlbId}`);
+
+        // Buscar dados atuais do produto
+        let currentProduct;
+        try {
+            currentProduct = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`);
+        } catch (err: any) {
+            return res.status(404).json({
+                error: "Produto não encontrado",
+                details: err?.message || "Not Found",
+                mlb_id: mlbId
+            });
+        }
+
+        const updates: any = {};
+        const appliedChanges: string[] = [];
+
+        
+
+        // 2. Aplicar modelo otimizado
+        if (optimizations.model) {
+            // Encontrar o atributo MODEL
+            if (!currentProduct.attributes) currentProduct.attributes = [];
+            
+            const modelAttr = currentProduct.attributes.find((attr: any) => attr.id === 'MODEL');
+            const originalModel = modelAttr?.value_name || null;
+            
+            console.log(`[Apply Optimizations] MODELO - Original: "${originalModel}" -> Novo: "${optimizations.model}"`);
+            
+            if (modelAttr) {
+                modelAttr.value_name = optimizations.model;
+            } else {
+                currentProduct.attributes.push({
+                    id: 'MODEL',
+                    value_name: optimizations.model
+                });
+            }
+            
+            updates.attributes = currentProduct.attributes;
+            appliedChanges.push(`Campo modelo: "${optimizations.model}"`);
+        }
+
+        // 2.1 Aplicar atributos COLOR e SIZE, se fornecidos (com mapeamento para value_id quando disponível)
+        if (optimizations.attributes) {
+            if (!currentProduct.attributes) currentProduct.attributes = [];
+            const { COLOR, SIZE } = optimizations.attributes as { COLOR?: string; SIZE?: string };
+
+            // Helper: normalizar strings para comparação
+            const normalize = (s: string) => s
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim();
+
+            // Buscar metadados de atributos da categoria para obter value_id válido
+            let categoryAttributes: any[] = [];
+            try {
+                const catId = String(currentProduct.category_id || '').trim();
+                if (catId) {
+                    const attrsResp = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/categories/${catId}/attributes`);
+                    categoryAttributes = Array.isArray(attrsResp) ? attrsResp : [];
+                }
+            } catch (e) {
+                // Se falhar, seguimos com value_name
+            }
+
+            const findValueId = (attrId: string, valueName: string): string | null => {
+                if (!valueName) return null;
+                const meta = categoryAttributes.find((a) => a.id === attrId);
+                const values = Array.isArray(meta?.values) ? meta.values : [];
+                const target = values.find((v: any) => normalize(v?.name || '') === normalize(valueName));
+                return target?.id || null;
+            };
+
+            if (COLOR) {
+                const valueId = findValueId('COLOR', COLOR);
+                const existing = currentProduct.attributes.find((attr: any) => attr.id === 'COLOR');
+                const resolveName = (attr: any): string | null => {
+                    if (!attr) return null;
+                    if (attr.value_name) return String(attr.value_name);
+                    if (attr.value_id) {
+                        const meta = categoryAttributes.find((a) => a.id === 'COLOR');
+                        const v = Array.isArray(meta?.values) ? meta.values.find((x: any) => String(x.id) === String(attr.value_id)) : null;
+                        return v?.name || null;
+                    }
+                    return null;
+                };
+                const before = resolveName(existing);
+                const after = valueId ? null : COLOR;
+                const changed = !before || normalize(before) !== normalize(COLOR);
+                if (existing) {
+                    if (valueId) {
+                        existing.value_id = valueId;
+                        delete existing.value_name;
+                    } else {
+                        existing.value_name = COLOR;
+                        delete existing.value_id;
+                    }
+                } else {
+                    currentProduct.attributes.push(valueId ? { id: 'COLOR', value_id: valueId } : { id: 'COLOR', value_name: COLOR });
+                }
+                if (changed) appliedChanges.push('Cor (COLOR) atualizada');
+            }
+
+            if (SIZE) {
+                const valueId = findValueId('SIZE', SIZE);
+                const existing = currentProduct.attributes.find((attr: any) => attr.id === 'SIZE');
+                const resolveName = (attr: any): string | null => {
+                    if (!attr) return null;
+                    if (attr.value_name) return String(attr.value_name);
+                    if (attr.value_id) {
+                        const meta = categoryAttributes.find((a) => a.id === 'SIZE');
+                        const v = Array.isArray(meta?.values) ? meta.values.find((x: any) => String(x.id) === String(attr.value_id)) : null;
+                        return v?.name || null;
+                    }
+                    return null;
+                };
+                const before = resolveName(existing);
+                const changed = !before || normalize(before) !== normalize(SIZE);
+                if (existing) {
+                    if (valueId) {
+                        existing.value_id = valueId;
+                        delete existing.value_name;
+                    } else {
+                        existing.value_name = SIZE;
+                        delete existing.value_id;
+                    }
+                } else {
+                    currentProduct.attributes.push(valueId ? { id: 'SIZE', value_id: valueId } : { id: 'SIZE', value_name: SIZE });
+                }
+                if (changed) appliedChanges.push('Tamanho (SIZE) atualizado');
+            }
+
+            if ((optimizations.attributes as any)?.BRAND) {
+                const BRAND = (optimizations.attributes as any).BRAND as string;
+                const valueId = findValueId('BRAND', BRAND);
+                const existing = currentProduct.attributes.find((attr: any) => attr.id === 'BRAND');
+                const resolveName = (attr: any): string | null => {
+                    if (!attr) return null;
+                    if (attr.value_name) return String(attr.value_name);
+                    if (attr.value_id) {
+                        const meta = categoryAttributes.find((a) => a.id === 'BRAND');
+                        const v = Array.isArray(meta?.values) ? meta.values.find((x: any) => String(x.id) === String(attr.value_id)) : null;
+                        return v?.name || null;
+                    }
+                    return null;
+                };
+                const before = resolveName(existing);
+                const changed = !before || normalize(before) !== normalize(BRAND);
+                if (existing) {
+                    if (valueId) {
+                        existing.value_id = valueId;
+                        delete existing.value_name;
+                    } else {
+                        existing.value_name = BRAND;
+                        delete existing.value_id;
+                    }
+                } else {
+                    currentProduct.attributes.push(valueId ? { id: 'BRAND', value_id: valueId } : { id: 'BRAND', value_name: BRAND });
+                }
+                if (changed) appliedChanges.push('Marca (BRAND) atualizada');
+            }
+
+            // Tratar outros atributos (que não sejam COLOR, SIZE, BRAND)
+            const processedAttributes = ['COLOR', 'SIZE', 'BRAND'];
+            for (const [attrId, attrValue] of Object.entries(optimizations.attributes)) {
+                if (processedAttributes.includes(attrId) || !attrValue) continue;
+                
+                const existing = currentProduct.attributes.find((attr: any) => attr.id === attrId);
+                const currentValue = existing?.value_name || existing?.value_id || '';
+                const changed = !existing || String(currentValue).toLowerCase().trim() !== String(attrValue).toLowerCase().trim();
+                
+                console.log(`[Apply Optimizations] ${attrId} - Original: "${currentValue}" -> Novo: "${attrValue}"`);
+                
+                if (existing) {
+                    existing.value_name = attrValue;
+                    delete existing.value_id; // Usar value_name para atributos customizados
+                } else {
+                    currentProduct.attributes.push({
+                        id: attrId,
+                        value_name: attrValue
+                    });
+                }
+                
+                if (changed) {
+                    appliedChanges.push(`${attrId} atualizado: "${attrValue}"`);
+                }
+            }
+
+            const hasAnyAttributes = COLOR || SIZE || Boolean((optimizations.attributes as any)?.BRAND) || 
+                Object.keys(optimizations.attributes).some(k => !processedAttributes.includes(k) && optimizations.attributes[k]);
+            
+            if (hasAnyAttributes) {
+                updates.attributes = currentProduct.attributes;
+            }
+        }
+
+        // 3. Aplicar descrição otimizada
+        if (optimizations.description) {
+            try {
+                let hasExistingDesc = false;
+                try {
+                    const existing = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`);
+                    hasExistingDesc = !!existing && (typeof existing.plain_text === 'string' || typeof existing.id === 'string');
+                } catch {
+                    hasExistingDesc = false;
+                }
+
+                const sanitizePlain = (s: string): string => {
+                    const cleaned = String(s)
+                        .replace(/[•–]/g, '-')
+                        .replace(/<[^>]*>/g, '')
+                        .replace(/\r\n/g, '\n')
+                        .replace(/\r/g, '\n');
+                    return cleaned;
+                };
+                const plain = sanitizePlain(String(optimizations.description));
+
+                const url = hasExistingDesc
+                    ? `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description?api_version=2`
+                    : `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`;
+
+                await requestWithAuth(String(workspaceId), url, {
+                    method: hasExistingDesc ? 'PUT' : 'POST',
+                    data: { plain_text: plain }
+                });
+                appliedChanges.push('Descrição SEO aplicada');
+            } catch (descError) {
+                console.warn('[Apply Optimizations] Erro ao atualizar descrição:', descError);
+                appliedChanges.push('Descrição não atualizada');
+            }
+        }
+
+        // Aplicar as atualizações principais (título, atributos, etc.)
+        if (Object.keys(updates).length > 0) {
+            try {
+                console.log(`[Apply Optimizations] Tentando atualizar produto ${mlbId} com:`, updates);
+                
+                await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`, {
+                    method: 'PUT',
+                    data: updates
+                });
+                
+                console.log(`[Apply Optimizations] Produto ${mlbId} atualizado com sucesso`);
+                
+            } catch (updateError: any) {
+                console.error('[Apply Optimizations] Erro ao atualizar produto:', updateError);
+                
+                // Verificar se é erro de permissão ou status do produto
+                const status = updateError?.response?.status;
+                const errorData = updateError?.response?.data || {};
+                const errorMessage = errorData?.message || updateError?.message || "Erro na API do MercadoLivre";
+                const causes = Array.isArray(errorData?.cause) ? errorData.cause : [];
+                const causeMessages = causes.map((c: any) => c?.message || c?.description || '').filter(Boolean);
+                
+                if (status === 400) {
+                    const titleBlocked = causeMessages.some((m: string) => /title/i.test(m)) || /title/i.test(errorMessage);
+
+                    if (titleBlocked && updates.title) {
+                        const originalTitle = updates.title;
+                        delete updates.title;
+                        try {
+                            await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`, {
+                                method: 'PUT',
+                                data: updates
+                            });
+                            const safeChanges = appliedChanges
+                                .filter((c) => c !== 'Título atualizado');
+                            safeChanges.push('Título não atualizado devido a restrição, demais campos aplicados');
+                            return res.json({
+                                success: true,
+                                message: 'Algumas otimizações aplicadas (título não permitido)',
+                                changes_applied: safeChanges,
+                                mlb_id: mlbId,
+                                updated_fields: Object.keys(updates),
+                                applied_at: new Date().toISOString(),
+                            });
+                        } catch (retryErr: any) {
+                            const retryData = retryErr?.response?.data || {};
+                            const retryCauses = Array.isArray(retryData?.cause) ? retryData.cause : [];
+                            const retryMessages = retryCauses.map((c: any) => c?.message || c?.description || '').filter(Boolean);
+                            return res.status(400).json({
+                                error: "Não foi possível editar este produto",
+                                details: [errorMessage, ...causeMessages, ...retryMessages].filter(Boolean).join(' | '),
+                                mlb_id: mlbId,
+                                suggestions: [
+                                    "Verifique se o produto está ativo no MercadoLivre",
+                                    "Confirme se você tem permissão para editar este produto",
+                                    "Valide se os valores de atributos (BRAND/COLOR/SIZE) são aceitos pela categoria",
+                                    "Tente aplicar as mudanças manualmente no ML"
+                                ]
+                            });
+                        } finally {
+                            updates.title = originalTitle;
+                        }
+                    }
+
+                    return res.status(400).json({
+                        error: "Não foi possível editar este produto",
+                        details: [
+                            errorMessage,
+                            ...causeMessages
+                        ].filter(Boolean).join(' | '),
+                        mlb_id: mlbId,
+                        suggestions: [
+                            "Verifique se o produto está ativo no MercadoLivre",
+                            "Confirme se você tem permissão para editar este produto",
+                            "Valide se os valores de atributos (BRAND/COLOR/SIZE) são aceitos pela categoria",
+                            "Tente aplicar as mudanças manualmente no ML"
+                        ]
+                    });
+                } else if (status === 403) {
+                    return res.status(403).json({
+                        error: "Permissão negada para editar produto",
+                        details: "Sua conta não tem permissão para editar este produto via API.",
+                        mlb_id: mlbId,
+                        suggestions: [
+                            "Verifique as permissões da sua aplicação no MercadoLivre",
+                            "Confirme se o token de acesso tem escopo de escrita",
+                            "Aplique as mudanças manualmente no painel do ML"
+                        ]
+                    });
+                }
+                
+                return res.status(502).json({
+                    error: "Falha ao aplicar otimizações",
+                    details: [
+                        errorMessage,
+                        ...causeMessages
+                    ].filter(Boolean).join(' | '),
+                    mlb_id: mlbId,
+                    status_code: status
+                });
+            }
+        }
+
+        if (appliedChanges.length === 0) {
+            return res.json({
+                success: true,
+                message: "Nenhuma alteração necessária",
+                changes_applied: [],
+                mlb_id: mlbId
+            });
+        }
+
+        console.log(`[Apply Optimizations] Sucesso! Aplicadas ${appliedChanges.length} otimizações para ${mlbId}`);
+
+        // Pós-verificação: buscar item e descrição para confirmar aplicação efetiva
+        let afterItem: any = null;
+        let afterDesc: any = null;
+        const effectiveChanges: string[] = [];
+        try {
+            // Margem de consistência eventual
+            await new Promise((r) => setTimeout(r, 1500));
+            afterItem = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`);
+            try {
+                afterDesc = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`);
+            } catch { /* descrição pode não existir */ }
+
+            
+            // Checar atributos
+            const attrs = Array.isArray(afterItem?.attributes) ? afterItem.attributes : [];
+            const findName = (id: string): string | null => {
+                const a = attrs.find((x: any) => x.id === id);
+                return a?.value_name || null;
+            };
+            
+            // Verificação específica do modelo
+            if (optimizations.model) {
+                const actualModel = findName('MODEL');
+                console.log(`[Apply Optimizations] MODELO VERIFICAÇÃO - Enviado: "${optimizations.model}" -> Real: "${actualModel}"`);
+                if (actualModel) {
+                    if (actualModel.toLowerCase().trim() === optimizations.model.toLowerCase().trim()) {
+                        effectiveChanges.push(`Modelo aplicado: "${actualModel}"`);
+                    } else {
+                        effectiveChanges.push(`Modelo modificado pelo ML: "${actualModel}" (enviado: "${optimizations.model}")`);
+                    }
+                }
+            }
+            if ((optimizations as any)?.attributes?.COLOR) {
+                const c = findName('COLOR');
+                if (c && c.toLowerCase().trim() === String((optimizations as any).attributes.COLOR).toLowerCase().trim()) {
+                    effectiveChanges.push('COLOR confirmado');
+                }
+            }
+            if ((optimizations as any)?.attributes?.SIZE) {
+                const s = findName('SIZE');
+                if (s && s.toLowerCase().trim() === String((optimizations as any).attributes.SIZE).toLowerCase().trim()) {
+                    effectiveChanges.push('SIZE confirmado');
+                }
+            }
+            if ((optimizations as any)?.attributes?.BRAND) {
+                const b = findName('BRAND');
+                if (b && b.toLowerCase().trim() === String((optimizations as any).attributes.BRAND).toLowerCase().trim()) {
+                    effectiveChanges.push('BRAND confirmado');
+                }
+            }
+            // Checar descrição
+            if (optimizations?.description) {
+                const d = String(afterDesc?.plain_text || '').trim();
+                if (d && d.slice(0, 24) === String(optimizations.description).trim().slice(0, 24)) {
+                    effectiveChanges.push('Descrição confirmada');
+                }
+            }
+        } catch (postErr) {
+            console.warn('[Apply Optimizations] Falha na pós-verificação:', postErr);
+        }
+
+        res.json({
+            success: true,
+            message: "Otimizações aplicadas com sucesso!",
+            changes_applied: appliedChanges,
+            effective_changes: effectiveChanges,
+            mlb_id: mlbId,
+            updated_fields: Object.keys(updates),
+            after_snapshot: {
+                title: afterItem?.title,
+                model: afterItem?.attributes?.find((a: any) => a.id === 'MODEL')?.value_name || null,
+                attributes: Array.isArray(afterItem?.attributes) ? afterItem.attributes : [],
+                description: afterDesc?.plain_text || null,
+            },
+            applied_at: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error("[Apply Optimizations] Erro:", error);
+        res.status(500).json({ 
+            error: "Erro interno do servidor",
+            details: error instanceof Error ? error.message : "Erro desconhecido"
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/catalog-intelligence
+ * Busca análise de inteligência de catálogo para um workspace
+ */
+router.get("/catalog-intelligence", async (req, res) => {
+    try {
+        const { workspaceId } = req.query;
+        
+        if (!workspaceId) {
+            return res.status(400).json({
+                error: 'Workspace ID é obrigatório'
+            });
+        }
+        
+        const credentials = await getMercadoLivreCredentials(workspaceId as string);
+        
+        if (!credentials) {
+            return res.status(401).json({
+                error: 'Token de acesso do MercadoLivre não encontrado',
+                details: 'É necessário conectar sua conta do MercadoLivre primeiro',
+                suggestions: [
+                    'Vá para Integrações > MercadoLivre',
+                    'Clique em "Conectar Conta"',
+                    'Autorize o acesso à sua conta'
+                ]
+            });
+        }
+        
+        // Importar dinamicamente o serviço
+        const { catalogIntelligenceService } = await import('../../services/catalogIntelligence.service.js');
+        
+        // Executar análise de catálogo
+        const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
+            workspaceId as string,
+            credentials.accessToken
+        );
+        
+        return res.json({
+            success: true,
+            data: catalogAnalysis,
+            message: 'Análise de catálogo realizada com sucesso',
+            analyzed_at: new Date().toISOString()
+        });
+        
+    } catch (error: any) {
+        console.error('Erro na análise de catálogo:', error);
+        
+        // Tratamento de erros específicos
+        if (error.response?.status === 401) {
+            return res.status(401).json({
+                error: 'Token de acesso inválido ou expirado',
+                details: 'Seu token do MercadoLivre pode ter expirado',
+                suggestions: [
+                    'Reconecte sua conta do MercadoLivre',
+                    'Verifique se as permissões estão corretas',
+                    'Tente novamente em alguns minutos'
+                ]
+            });
+        }
+        
+        if (error.response?.status === 403) {
+            return res.status(403).json({
+                error: 'Permissões insuficientes',
+                details: 'Sua conta não tem permissão para acessar os dados necessários',
+                suggestions: [
+                    'Verifique se sua conta do MercadoLivre tem produtos cadastrados',
+                    'Confirme que você é o proprietário dos produtos',
+                    'Reconecte com permissões completas'
+                ]
+            });
+        }
+        
+        if (error.response?.status === 429) {
+            return res.status(429).json({
+                error: 'Limite de requisições excedido',
+                details: 'Muitas requisições para a API do MercadoLivre',
+                suggestions: [
+                    'Aguarde alguns minutos antes de tentar novamente',
+                    'Reduza a frequência de análises',
+                    'Tente em um horário de menor movimento'
+                ]
+            });
+        }
+        
+        // Erro genérico
+        return res.status(500).json({
+            error: 'Falha na análise de catálogo',
+            details: error.message || 'Erro interno do servidor',
+            suggestions: [
+                'Verifique sua conexão com o MercadoLivre',
+                'Tente novamente em alguns minutos',
+                'Contate o suporte se o erro persistir'
+            ]
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/catalog-intelligence/refresh
+ * Força atualização dos dados de catálogo
+ */
+router.post("/catalog-intelligence/refresh", async (req, res) => {
+    try {
+        const { workspaceId } = req.body;
+        
+        if (!workspaceId) {
+            return res.status(400).json({
+                error: 'Workspace ID é obrigatório'
+            });
+        }
+        
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+        
+        if (!credentials) {
+            return res.status(401).json({
+                error: 'Token de acesso não encontrado'
+            });
+        }
+        
+        // Importar dinamicamente o serviço
+        const { catalogIntelligenceService } = await import('../../services/catalogIntelligence.service.js');
+        
+        // Forçar nova análise (sem cache)
+        const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
+            workspaceId,
+            credentials.accessToken
+        );
+        
+        return res.json({
+            success: true,
+            data: catalogAnalysis,
+            message: 'Dados de catálogo atualizados com sucesso',
+            refreshed_at: new Date().toISOString()
+        });
+        
+    } catch (error: any) {
+        console.error('Erro na atualização de catálogo:', error);
+        
+        return res.status(500).json({
+            error: 'Falha na atualização',
+            details: error.message || 'Erro interno do servidor'
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/upload-image
+ * Faz upload de uma imagem para o MercadoLivre
+ */
+router.post("/upload-image", async (req, res) => {
+    try {
+        const { workspaceId, imageData, fileName } = req.body;
+
+        if (!workspaceId || !imageData) {
+            return res.status(400).json({ 
+                error: "Workspace ID e dados da imagem são obrigatórios" 
+            });
+        }
+
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            return res.status(401).json({ 
+                error: "Credenciais do MercadoLivre não encontradas" 
+            });
+        }
+
+        console.log(`[Upload Image] Iniciando upload de imagem: ${fileName}`);
+
+        // Converter base64 para buffer
+        const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+
+        // Preparar form data para upload
+        const FormData = require('form-data');
+        const formData = new FormData();
+        formData.append('file', imageBuffer, {
+            filename: fileName || 'image.jpg',
+            contentType: imageData.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+        });
+
+        // Upload da imagem para o MercadoLivre
+        const uploadResponse = await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/pictures/items/upload`, {
+            method: 'POST',
+            data: formData,
+            headers: formData.getHeaders()
+        });
+
+        console.log(`[Upload Image] Upload realizado com sucesso. Picture ID: ${uploadResponse.id}`);
+
+        return res.json({
+            success: true,
+            picture_id: uploadResponse.id,
+            url: uploadResponse.variations?.[0]?.url || null,
+            max_size: uploadResponse.max_size,
+            message: "Imagem enviada com sucesso!"
+        });
+
+    } catch (error: any) {
+        console.error("[Upload Image] Erro:", error);
+        
+        const status = error?.response?.status;
+        const errorData = error?.response?.data || {};
+        
+        return res.status(status || 500).json({
+            error: "Falha no upload da imagem",
+            details: errorData?.message || error?.message || "Erro desconhecido",
+            suggestions: [
+                "Verifique se a imagem tem menos de 10MB",
+                "Use formatos JPG, JPEG ou PNG",
+                "Tente uma imagem com resolução menor"
+            ]
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/add-pictures
+ * Adiciona imagens a um produto existente
+ */
+router.post("/add-pictures", async (req, res) => {
+    try {
+        const { mlbId, workspaceId, pictureIds } = req.body;
+
+        if (!mlbId || !workspaceId || !Array.isArray(pictureIds)) {
+            return res.status(400).json({ 
+                error: "MLB ID, Workspace ID e lista de picture IDs são obrigatórios" 
+            });
+        }
+
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            return res.status(401).json({ 
+                error: "Credenciais do MercadoLivre não encontradas" 
+            });
+        }
+
+        console.log(`[Add Pictures] Adicionando ${pictureIds.length} imagens ao produto ${mlbId}`);
+
+        const addedPictures = [];
+        const errors = [];
+
+        // Adicionar cada imagem individualmente
+        for (const pictureId of pictureIds) {
+            try {
+                const addResponse = await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/pictures`, {
+                    method: 'POST',
+                    data: { id: pictureId }
+                });
+                
+                addedPictures.push({
+                    picture_id: pictureId,
+                    status: 'success',
+                    response: addResponse
+                });
+                
+                console.log(`[Add Pictures] Imagem ${pictureId} adicionada com sucesso`);
+                
+            } catch (err: any) {
+                console.error(`[Add Pictures] Erro ao adicionar imagem ${pictureId}:`, err);
+                errors.push({
+                    picture_id: pictureId,
+                    error: err?.response?.data?.message || err?.message || 'Erro desconhecido'
+                });
+            }
+        }
+
+        return res.json({
+            success: addedPictures.length > 0,
+            message: `${addedPictures.length} de ${pictureIds.length} imagens adicionadas`,
+            added_pictures: addedPictures,
+            errors: errors,
+            mlb_id: mlbId
+        });
+
+    } catch (error: any) {
+        console.error("[Add Pictures] Erro:", error);
+        
+        return res.status(500).json({
+            error: "Falha ao adicionar imagens",
+            details: error?.message || "Erro interno do servidor"
         });
     }
 });
