@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { catalogIntelligenceService } from '../../services/catalogIntelligence.service.js';
+import { getMercadoLivreCredentials } from './mercadolivre.js';
 import { z } from 'zod';
 
 // Schema de validação
@@ -14,12 +15,11 @@ const getCatalogIntelligenceSchema = z.object({
 export async function getCatalogIntelligence(req: Request, res: Response) {
   try {
     const { workspaceId } = getCatalogIntelligenceSchema.parse(req.query);
-    
-    // Buscar token de acesso do MercadoLivre para o workspace
-    // Na implementação real, isso viria do banco de dados
-    const accessToken = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!accessToken) {
+
+    // Buscar credenciais do banco de dados
+    const credentials = await getMercadoLivreCredentials(workspaceId);
+
+    if (!credentials || !credentials.accessToken) {
       return res.status(401).json({
         error: 'Token de acesso do MercadoLivre não encontrado',
         details: 'É necessário conectar sua conta do MercadoLivre primeiro',
@@ -30,23 +30,23 @@ export async function getCatalogIntelligence(req: Request, res: Response) {
         ]
       });
     }
-    
+
     // Executar análise de catálogo
     const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
       workspaceId,
-      accessToken
+      credentials.accessToken
     );
-    
+
     return res.json({
       success: true,
       data: catalogAnalysis,
       message: 'Análise de catálogo realizada com sucesso',
       analyzed_at: new Date().toISOString()
     });
-    
+
   } catch (error: any) {
     console.error('Erro na análise de catálogo:', error);
-    
+
     // Tratamento de erros específicos
     if (error.response?.status === 401) {
       return res.status(401).json({
@@ -59,7 +59,7 @@ export async function getCatalogIntelligence(req: Request, res: Response) {
         ]
       });
     }
-    
+
     if (error.response?.status === 403) {
       return res.status(403).json({
         error: 'Permissões insuficientes',
@@ -71,7 +71,7 @@ export async function getCatalogIntelligence(req: Request, res: Response) {
         ]
       });
     }
-    
+
     if (error.response?.status === 429) {
       return res.status(429).json({
         error: 'Limite de requisições excedido',
@@ -83,7 +83,7 @@ export async function getCatalogIntelligence(req: Request, res: Response) {
         ]
       });
     }
-    
+
     // Erro genérico
     return res.status(500).json({
       error: 'Falha na análise de catálogo',
@@ -104,31 +104,33 @@ export async function getCatalogIntelligence(req: Request, res: Response) {
 export async function refreshCatalogIntelligence(req: Request, res: Response) {
   try {
     const { workspaceId } = getCatalogIntelligenceSchema.parse(req.body);
-    
-    const accessToken = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!accessToken) {
+
+    // Buscar credenciais do banco de dados
+    const credentials = await getMercadoLivreCredentials(workspaceId);
+
+    if (!credentials || !credentials.accessToken) {
       return res.status(401).json({
-        error: 'Token de acesso não encontrado'
+        error: 'Token de acesso não encontrado',
+        details: 'Conecte sua conta do Mercado Livre novamente'
       });
     }
-    
+
     // Forçar nova análise (sem cache)
     const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
       workspaceId,
-      accessToken
+      credentials.accessToken
     );
-    
+
     return res.json({
       success: true,
       data: catalogAnalysis,
       message: 'Dados de catálogo atualizados com sucesso',
       refreshed_at: new Date().toISOString()
     });
-    
+
   } catch (error: any) {
     console.error('Erro na atualização de catálogo:', error);
-    
+
     return res.status(500).json({
       error: 'Falha na atualização',
       details: error.message || 'Erro interno do servidor'
@@ -144,45 +146,45 @@ export async function getProductCatalogAnalysis(req: Request, res: Response) {
   try {
     const { mlbId } = req.params;
     const { workspaceId } = req.query;
-    
+
     if (!mlbId || !workspaceId) {
       return res.status(400).json({
         error: 'MLB ID e Workspace ID são obrigatórios'
       });
     }
-    
+
     const accessToken = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!accessToken) {
       return res.status(401).json({
         error: 'Token de acesso não encontrado'
       });
     }
-    
+
     // Analisar produto específico
     const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
       workspaceId as string,
       accessToken
     );
-    
+
     const productAnalysis = catalogAnalysis.products.find(p => p.mlb_id === mlbId);
-    
+
     if (!productAnalysis) {
       return res.status(404).json({
         error: 'Produto não encontrado',
         details: `Produto ${mlbId} não encontrado na análise de catálogo`
       });
     }
-    
+
     return res.json({
       success: true,
       data: productAnalysis,
       message: 'Análise do produto realizada com sucesso'
     });
-    
+
   } catch (error: any) {
     console.error('Erro na análise do produto:', error);
-    
+
     return res.status(500).json({
       error: 'Falha na análise do produto',
       details: error.message || 'Erro interno do servidor'

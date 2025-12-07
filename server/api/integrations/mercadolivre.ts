@@ -15,6 +15,10 @@ const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
 const CATEGORIES_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
 const categoriesCache = new Map<string, { data: any[]; ts: number }>();
 
+// Cache simples para resultados de busca avançada
+const ADV_SEARCH_TTL_MS = 30 * 60 * 1000; // 30 minutos
+const advancedSearchCache = new Map<string, { data: any; ts: number }>();
+
 /**
  * Interface para credenciais do Mercado Livre
  */
@@ -38,6 +42,33 @@ async function credentialsExist(workspaceId: string): Promise<boolean> {
         console.warn("[MercadoLivre] Falha ao verificar credenciais existentes:", error instanceof Error ? error.message : error);
         return false;
     }
+}
+
+async function findWorkspaceIdByMLUserId(userId: string): Promise<string | null> {
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT workspace_id, encrypted_credentials, encryption_iv
+             FROM integration_credentials
+             WHERE platform_key = $1`,
+            [MERCADO_LIVRE_PLATFORM_KEY]
+        );
+
+        for (const row of result.rows) {
+            try {
+                const dec = decryptCredentials(row.encrypted_credentials, row.encryption_iv) as any;
+                const decUserId = String(dec.userId || dec.user_id || "").trim();
+                if (decUserId && decUserId === String(userId).trim()) {
+                    return row.workspace_id;
+                }
+            } catch (e) {
+                console.warn("[MercadoLivre] Falha ao tentar identificar workspace pelo userId:", e instanceof Error ? e.message : e);
+            }
+        }
+    } catch (error) {
+        console.warn("[MercadoLivre] Erro ao buscar workspace pelo userId:", error instanceof Error ? error.message : error);
+    }
+    return null;
 }
 
 export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): Promise<boolean> {
@@ -142,7 +173,7 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
 /**
  * Busca as credenciais do Mercado Livre para um workspace
  */
-async function getMercadoLivreCredentials(
+export async function getMercadoLivreCredentials(
     workspaceId: string
 ): Promise<(MercadoLivreCredentials & { expiresAt?: number }) | null> {
     const cached = tokenStore.get(workspaceId);
@@ -164,6 +195,8 @@ async function getMercadoLivreCredentials(
     }
     const creds = { accessToken: accessToken.trim(), refreshToken: (refreshToken || "").trim(), userId: userId.trim() };
     tokenStore.set(workspaceId, creds);
+    // Persistir no banco para evitar depender de env e permitir refresh automático
+    void persistMercadoLivreCredentials(workspaceId, creds);
     return creds;
 }
 
@@ -203,7 +236,7 @@ async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCred
     return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId };
 }
 
-async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any } = {}): Promise<T> {
+async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
     let creds = await getMercadoLivreCredentials(workspaceId);
     if (!creds) throw new Error("ml_not_connected");
 
@@ -216,14 +249,14 @@ async function requestWithAuth<T>(workspaceId: string, url: string, config: { me
     }
 
     try {
-        const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${creds.accessToken}` } });
+        const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${creds.accessToken}`, ...config.headers } });
         return resp.data as any;
     } catch (err: any) {
         const status = err?.response?.status;
         if (status === 401) {
             const refreshed = await refreshAccessToken(workspaceId);
             if (!refreshed) throw err;
-            const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}` } });
+            const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers } });
             return resp.data as any;
         }
         throw err;
@@ -321,11 +354,18 @@ router.get("/categories/:categoryId", async (req, res) => {
     try {
         const { categoryId } = req.params;
         const { workspaceId } = req.query as { workspaceId?: string };
-        if (!workspaceId) {
-            return res.status(400).json({ error: "Workspace ID is required" });
+        const targetWorkspace = String(workspaceId || "default");
+        try {
+            const data = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
+            return res.json(data);
+        } catch (err: any) {
+            if (err?.message === "ml_not_connected") {
+                // Tentativa sem auth (categorias costumam ser públicas)
+                const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
+                return res.json(resp.data);
+            }
+            throw err;
         }
-        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
-        return res.json(data);
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
             error: "Failed to fetch category",
@@ -342,11 +382,17 @@ router.get("/categories/:categoryId/attributes", async (req, res) => {
     try {
         const { categoryId } = req.params;
         const { workspaceId } = req.query as { workspaceId?: string };
-        if (!workspaceId) {
-            return res.status(400).json({ error: "Workspace ID is required" });
+        const targetWorkspace = String(workspaceId || "default");
+        try {
+            const data = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
+            return res.json(data);
+        } catch (err: any) {
+            if (err?.message === "ml_not_connected") {
+                const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
+                return res.json(resp.data);
+            }
+            throw err;
         }
-        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
-        return res.json(data);
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
             error: "Failed to fetch category attributes",
@@ -398,7 +444,15 @@ router.post("/auth/callback", async (req, res) => {
 
         const { access_token, refresh_token, user_id } = tokenResponse.data;
 
-        const creds = { accessToken: access_token, refreshToken: refresh_token, userId: user_id };
+        const expiresIn = Number(tokenResponse.data?.expires_in) || 6 * 60 * 60; // fallback 6h
+        const expiresAt = Date.now() + expiresIn * 1000;
+
+        const creds = {
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            userId: user_id,
+            expiresAt,
+        };
         tokenStore.set(String(workspaceId), creds);
         void persistMercadoLivreCredentials(String(workspaceId), creds);
         console.log("✅ Mercado Livre OAuth Success:");
@@ -501,13 +555,18 @@ router.post("/auth/refresh", async (req, res) => {
  */
 router.get("/metrics", async (req, res) => {
     try {
-        const { workspaceId, days = 30 } = req.query;
+        const { workspaceId, days = 30, dateFrom, dateTo } = req.query as {
+            workspaceId?: string;
+            days?: string | number;
+            dateFrom?: string;
+            dateTo?: string;
+        };
 
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const credentials = await getMercadoLivreCredentials(workspaceId as string);
+        let credentials = await getMercadoLivreCredentials(workspaceId as string);
 
         if (!credentials) {
             return res.status(401).json({
@@ -515,10 +574,17 @@ router.get("/metrics", async (req, res) => {
             });
         }
 
-        const dateFrom = new Date();
-        dateFrom.setDate(dateFrom.getDate() - Number(days));
-        const dateFromStr = dateFrom.toISOString().split("T")[0];
-        const dateToStr = new Date().toISOString().split("T")[0];
+        const now = new Date();
+        const dateToFinal = dateTo ? new Date(dateTo) : new Date(now);
+        dateToFinal.setHours(23, 59, 59, 999); // fim do dia local
+        const dateFromFinal = dateFrom ? new Date(dateFrom) : new Date(now);
+        dateFromFinal.setHours(0, 0, 0, 0); // início do dia local
+        if (!dateFrom) {
+            dateFromFinal.setDate(dateFromFinal.getDate() - (Number(days) - 1)); // janela inclusiva
+        }
+
+        const dateFromStr = dateFromFinal.toISOString().split("T")[0];
+        const dateToStr = dateToFinal.toISOString().split("T")[0];
 
         // Buscar métricas do vendedor (dados corretos)
         const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
@@ -526,136 +592,126 @@ router.get("/metrics", async (req, res) => {
         const sellerMetrics = userResponse.seller_reputation?.metrics || {};
 
         let totalRevenue = 0;
-        let totalSales = 0;
+        let totalSales = 0; // unidades vendidas (não pedidos)
         let totalVisits = 0;
+        let totalOrders = 0;
+        let canceledOrders = 0;
         const daysCount = Math.max(1, Number(days));
-        const dailyRevenue = new Map<string, number>();
-        const dailyUnits = new Map<string, number>();
-        const salesTimeSeries = [] as Array<{ date: string; sales: number; revenue: number; visits: number }>;
+        const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
 
+        // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
         try {
-            const orderIds: string[] = [];
-            let detailBase = 'marketplace/orders';
+            const allOrders: any[] = [];
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
 
-            const mpSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/marketplace/orders/search`, { params: { 'seller.id': credentials.userId, limit: 200, sort: 'date_desc' } });
-            const mpResults = mpSearch.results || [];
-            for (const res of mpResults) {
-                if (Array.isArray(res.orders) && res.orders[0]?.id) {
-                    orderIds.push(String(res.orders[0].id));
-                } else if (res.id) {
-                    orderIds.push(String(res.id));
-                }
-            }
-
-            if (orderIds.length === 0) {
-                const localSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/orders/search`, { params: { 'seller.id': credentials.userId, limit: 200, sort: 'date_desc' } });
-                const localResults = localSearch.results || [];
-                for (const o of localResults) {
-                    if (o.id) orderIds.push(String(o.id));
-                    else if (Array.isArray(o.orders) && o.orders[0]?.id) orderIds.push(String(o.orders[0].id));
-                }
-                detailBase = 'orders';
-            }
-
-            const uniqueOrderIds = Array.from(new Set(orderIds));
-            const maxDetails = Math.min(uniqueOrderIds.length, 100);
-            for (let idx = 0; idx < maxDetails; idx++) {
-                const oid = uniqueOrderIds[idx];
+            while (hasMore && allOrders.length < 1000) {
                 try {
-                    const order = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/${detailBase}/${oid}`);
-                    const createdDate = (order.date_created || '').split('T')[0] || dateToStr;
-                    if (createdDate < dateFromStr || createdDate > dateToStr) continue;
+                    const params: any = {
+                        seller: credentials.userId,
+                        limit,
+                        offset,
+                    };
 
-                    const items = Array.isArray(order.order_items) ? order.order_items : [];
+                    const ordersResponse = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        }
+                    );
 
-                    const payments = Array.isArray(order.payments) ? order.payments : [];
-                    const paidAmount = payments.reduce((sum: number, p: any) => {
-                        const st = String(p.status || '').toLowerCase();
-                        const v = Number(p.total_paid_amount ?? p.transaction_amount ?? 0) || 0;
-                        return sum + (st === 'approved' ? v : 0);
-                    }, 0);
-                    const fallbackAmount = items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0), 0);
-                    const revenue = paidAmount > 0 ? paidAmount : fallbackAmount;
+                    const orders = ordersResponse.data.results || [];
+                    allOrders.push(...orders);
 
-                    // Contar 1 pedido (não unidades)
-                    totalRevenue += revenue;
-                    totalSales += 1;
-                    dailyRevenue.set(createdDate, (dailyRevenue.get(createdDate) || 0) + revenue);
-                    dailyUnits.set(createdDate, (dailyUnits.get(createdDate) || 0) + 1);
-                } catch (e) { void e; }
+                    hasMore = orders.length === limit;
+                    offset += limit;
+                } catch (apiError: any) {
+                    if (apiError.response?.status === 401) {
+                        console.error("[Metrics] Token expirado, tentando refresh...");
+                        const refreshed = await refreshAccessToken(workspaceId as string);
+                        if (refreshed) {
+                            credentials = refreshed;
+                            continue; // Retry com o novo token
+                        }
+                    }
+                    console.error("[Metrics] Erro ao buscar pedidos:", apiError.message);
+                    hasMore = false;
+                }
             }
 
-            let visitsSum = 0;
-            try {
-                const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 200, offset: 0 } });
-                const itemIds = itemsSearch.results || [];
-                for (const itemId of itemIds) {
-                    try {
-                        const vdata = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, { params: { date_from: dateFromStr, date_to: dateToStr } });
-                        visitsSum += Number(vdata.total_visits || 0);
-                    } catch (e) { void e; }
-                }
-            } catch (e) { void e; }
-            totalVisits = visitsSum;
+            const salesByDay = new Map<string, { sales: number; revenue: number; orders: number }>();
 
+            for (const order of allOrders) {
+                const dateCreated = order.date_created ? new Date(order.date_created) : null;
+                if (!dateCreated) continue;
+                const dateKey = dateCreated.toISOString().split("T")[0];
+                if (dateKey < dateFromStr || dateKey > dateToStr) continue;
+
+                const status = String(order.status || "").toLowerCase();
+                if (status === "cancelled") {
+                    canceledOrders += 1;
+                    continue; // Ignorar cancelados nas métricas principais
+                }
+
+                const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+                const totalAmount = order.paid_amount || order.total_amount || 0;
+                if (!salesByDay.has(dateKey)) {
+                    salesByDay.set(dateKey, { sales: 0, revenue: 0, orders: 0 });
+                }
+                const dayData = salesByDay.get(dateKey)!;
+                dayData.sales += totalQuantity;
+                dayData.revenue += totalAmount;
+                dayData.orders += 1;
+                totalOrders += 1;
+            }
+
+            // Converter para série temporal, preenchendo dias faltantes com zero
             for (let i = daysCount - 1; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
-                const ds = d.toISOString().split('T')[0];
-                const s = dailyUnits.get(ds) || 0;
-                const r = dailyRevenue.get(ds) || 0;
-                const baseVisits = Math.floor((totalVisits || 0) / daysCount);
-                const rem = (totalVisits || 0) % daysCount;
-                const dayIndex = daysCount - 1 - i;
-                const v = baseVisits + (dayIndex < rem ? 1 : 0);
-                salesTimeSeries.push({ date: ds, sales: s, revenue: r, visits: v });
+                const ds = d.toISOString().split("T")[0];
+                const dayData = salesByDay.get(ds) || { sales: 0, revenue: 0, orders: 0 };
+                salesTimeSeries.push({ date: ds, sales: dayData.sales, revenue: dayData.revenue, visits: 0 });
+                totalSales += dayData.sales;
+                totalRevenue += dayData.revenue;
             }
         } catch (err) {
-            const baseVisits = 0;
+            console.error("[Metrics] Erro ao agregar pedidos:", err);
             for (let i = daysCount - 1; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
                 const ds = d.toISOString().split('T')[0];
-                salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: baseVisits });
+                salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: 0 });
             }
         }
 
-        if (totalSales === 0 && totalRevenue === 0 && totalVisits === 0) {
-            try {
-                const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 50, offset: 0 } });
-                const itemIds = itemsSearch.results || [];
-                for (const itemId of itemIds.slice(0, 20)) {
-                    try {
-                        const item = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
-                        if (item.status === 'active') {
-                            totalRevenue += (Number(item.sold_quantity || 0) * Number(item.price || 0)) || 0;
-                        }
-                    } catch (e) { void e; }
-                }
-                const sellerCompleted = sellerMetrics.sales?.completed || 0;
-                totalSales = sellerCompleted;
-                totalVisits = totalSales * 25;
-
-                const baseSales = Math.floor(totalSales / daysCount);
-                const salesRemainder = totalSales % daysCount;
-                const baseRevenue = totalRevenue / daysCount;
-                const baseVisits = Math.floor(totalVisits / daysCount);
-                const visitsRemainder = totalVisits % daysCount;
-                salesTimeSeries.length = 0;
-                for (let i = daysCount - 1; i >= 0; i--) {
-                    const date = new Date();
-                    date.setDate(date.getDate() - i);
-                    const dateStr = date.toISOString().split('T')[0];
-                    const dayIndex = daysCount - 1 - i;
-                    const daySales = baseSales + (dayIndex < salesRemainder ? 1 : 0);
-                    const dayRevenue = baseRevenue;
-                    const dayVisits = baseVisits + (dayIndex < visitsRemainder ? 1 : 0);
-                    salesTimeSeries.push({ date: dateStr, sales: daySales, revenue: dayRevenue, visits: dayVisits });
-                }
-            } catch (e) { void e; }
-        }
+        // --------- Visitas (melhor esforço) ----------
+        try {
+            let visitsSum = 0;
+            const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 200, offset: 0 } });
+            const itemIds = itemsSearch.results || [];
+            for (const itemId of itemIds) {
+                try {
+                    const vdata = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, { params: { date_from: dateFromStr, date_to: dateToStr } });
+                    visitsSum += Number(vdata.total_visits || 0);
+                } catch (e) { void e; }
+            }
+            totalVisits = visitsSum;
+            // distribuir visitas pelos dias (uniforme) para manter gráfico coerente
+            const baseVisits = Math.floor((totalVisits || 0) / daysCount);
+            const rem = (totalVisits || 0) % daysCount;
+            for (let i = 0; i < salesTimeSeries.length; i++) {
+                salesTimeSeries[i].visits = baseVisits + (i < rem ? 1 : 0);
+            }
+        } catch (e) { void e; }
 
         const conversionRate = totalVisits > 0 ? (totalSales / totalVisits) * 100 : 0;
+        const averageUnitPrice = totalSales > 0 ? totalRevenue / totalSales : 0;
+        const averageOrderPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
         // Buscar reputação do vendedor
         let reputation = "-";
@@ -666,12 +722,16 @@ router.get("/metrics", async (req, res) => {
             console.error("Error fetching reputation:", error);
         }
 
-        
+
 
         return res.json({
             totalSales,
             totalRevenue,
             totalVisits,
+            totalOrders,
+            canceledOrders,
+            averageUnitPrice,
+            averageOrderPrice,
             conversionRate,
             responseRate: 85.5,
             reputation,
@@ -883,6 +943,198 @@ router.get("/products", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/search/advanced
+ * Busca avançada de anúncios no Mercado Livre por categoria/subcategoria,
+ * período e filtro de volume mensal estimado.
+ */
+router.get("/search/advanced", async (req, res) => {
+    try {
+        const {
+            workspaceId,
+            categoryId,
+            subcategoryId,
+            periodDays = "30",
+            minMonthlySales,
+            maxMonthlySales,
+            limit = "50",
+            offset = "0",
+        } = req.query as any;
+
+        if (!categoryId) {
+            return res.status(400).json({ error: "categoryId é obrigatório" });
+        }
+
+        const effectiveCategory = String(subcategoryId || categoryId);
+        const days = Math.max(1, Number(periodDays) || 30);
+        const pageLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+        const pageOffset = Math.max(0, Number(offset) || 0);
+        const minMs = minMonthlySales !== undefined ? Number(minMonthlySales) : undefined;
+        const maxMs = maxMonthlySales !== undefined ? Number(maxMonthlySales) : undefined;
+
+        const cacheKey = JSON.stringify({ effectiveCategory, days, minMonthlySales, maxMonthlySales, pageLimit, pageOffset });
+        const cached = advancedSearchCache.get(cacheKey);
+        if (cached && (Date.now() - cached.ts) < ADV_SEARCH_TTL_MS) {
+            return res.json(cached.data);
+        }
+
+        const targetWorkspaceId = String(workspaceId || "default");
+        let credentials: (MercadoLivreCredentials & { expiresAt?: number }) | null = null;
+        let fallbackCreds: (MercadoLivreCredentials & { expiresAt?: number }) | null = null;
+        try {
+            credentials = await getMercadoLivreCredentials(targetWorkspaceId);
+        } catch (e) {
+            console.warn("[MercadoLivre] Falha ao obter credenciais para busca avançada:", e instanceof Error ? e.message : e);
+        }
+        if (!credentials && targetWorkspaceId !== "default") {
+            fallbackCreds = await getMercadoLivreCredentials("default");
+        }
+
+        const buildHeaders = (creds?: MercadoLivreCredentials | null) => {
+            const headers: Record<string, string> = { "User-Agent": "traffic-zen-advanced-search/1.0" };
+            if (creds?.accessToken) headers.Authorization = `Bearer ${creds.accessToken}`;
+            if (creds?.userId) headers["X-Caller-Id"] = creds.userId;
+            return headers;
+        };
+
+        let searchResponse: any;
+        const runSearch = async (creds?: MercadoLivreCredentials | null) => {
+            return axios.get(
+                `${MERCADO_LIVRE_API_BASE}/sites/MLB/search`,
+                {
+                    params: {
+                        category: effectiveCategory,
+                        sort: "sold_quantity_desc",
+                        limit: pageLimit,
+                        offset: pageOffset,
+                    },
+                    headers: buildHeaders(creds),
+                }
+            );
+        };
+
+        try {
+            searchResponse = await runSearch(credentials || fallbackCreds);
+        } catch (err: any) {
+            const status = err.response?.status;
+            const data = err.response?.data;
+            const authError = status === 401 || status === 403;
+            // Tentar fallback sem credencial se der 401/403 com token
+            if (authError && (credentials || fallbackCreds)) {
+                try {
+                    searchResponse = await runSearch(undefined);
+                } catch (err2: any) {
+                    return res.status(authError ? status : 502).json({
+                        error: authError
+                            ? "Conecte o Mercado Livre para habilitar a busca avançada (token obrigatório)."
+                            : "Falha ao consultar a API do Mercado Livre",
+                        details: data || err.message,
+                        requiresAuth: authError,
+                    });
+                }
+            } else {
+                return res.status(authError ? status : 502).json({
+                    error: authError
+                        ? "Conecte o Mercado Livre para habilitar a busca avançada (token obrigatório)."
+                        : "Falha ao consultar a API do Mercado Livre",
+                    details: data || err.message,
+                    requiresAuth: authError,
+                });
+            }
+        }
+
+        const baseResults = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
+
+        const items: any[] = [];
+        let visitsSum = 0;
+
+        for (const r of baseResults) {
+            try {
+                const itemResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${r.id}`, { headers: buildHeaders(credentials || fallbackCreds) });
+                const item = itemResp.data;
+
+                const startTime = item.start_time ? new Date(item.start_time) : null;
+                const sold = Number(item.sold_quantity || r.sold_quantity || 0);
+                const ageDays = startTime ? Math.max(1, Math.floor((Date.now() - startTime.getTime()) / (24 * 60 * 60 * 1000))) : 30;
+                const months = Math.max(1, ageDays / 30);
+                const monthlyEstimate = Math.round(sold / months);
+
+                let visits = 0;
+                if ((credentials || fallbackCreds)?.accessToken) {
+                    try {
+                        const vresp = await axios.get(
+                            `${MERCADO_LIVRE_API_BASE}/items/${item.id}/visits`,
+                            {
+                                params: {
+                                    date_from: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                                    date_to: new Date().toISOString().split('T')[0],
+                                },
+                                headers: buildHeaders(credentials || fallbackCreds),
+                            }
+                        );
+                        visits = Number(vresp.data?.total_visits || 0);
+                    } catch (e) { /* best-effort */ }
+                }
+                visitsSum += visits;
+
+                const conversion = visits > 0 ? (sold / visits) * 100 : 0;
+
+                items.push({
+                    id: item.id,
+                    title: item.title,
+                    price: item.price,
+                    thumbnail: item.thumbnail || r.thumbnail,
+                    permalink: item.permalink || r.permalink,
+                    category: item.category_id,
+                    sold_quantity: sold,
+                    monthly_estimate: monthlyEstimate,
+                    visits_last_period: visits,
+                    conversion_rate_estimate: conversion,
+                    listing_type_id: item.listing_type_id,
+                    status: item.status,
+                    attributes: (item.attributes || []).map((a: any) => ({ id: a.id, name: a.name, value_name: a.value_name })),
+                    shipping: {
+                        mode: item.shipping?.mode,
+                        free_shipping: item.shipping?.free_shipping || false,
+                        logistic_type: item.shipping?.logistic_type,
+                        local_pick_up: item.shipping?.local_pick_up || false,
+                    },
+                });
+            } catch (e) {
+                /* skip item on failure */
+            }
+        }
+
+        let filtered = items;
+        if (typeof minMs === 'number') {
+            filtered = filtered.filter((it) => Number(it.monthly_estimate || 0) >= minMs);
+        }
+        if (typeof maxMs === 'number') {
+            filtered = filtered.filter((it) => Number(it.monthly_estimate || 0) <= maxMs);
+        }
+
+        filtered.sort((a, b) => Number(b.monthly_estimate || 0) - Number(a.monthly_estimate || 0));
+
+        const avgPrice = filtered.length > 0 ? (filtered.reduce((s, it) => s + Number(it.price || 0), 0) / filtered.length) : 0;
+        const summary = {
+            total_found: baseResults.length,
+            total_returned: filtered.length,
+            average_price: avgPrice,
+            total_visits_last_period: visitsSum,
+            period_days: days,
+            category: effectiveCategory,
+            filters: { minMonthlySales: minMs, maxMonthlySales: maxMs },
+        };
+
+        const responsePayload = { items: filtered, summary };
+        advancedSearchCache.set(cacheKey, { data: responsePayload, ts: Date.now() });
+        return res.json(responsePayload);
+    } catch (error: any) {
+        console.error("Error on advanced ML search:", error);
+        return res.status(500).json({ error: "Failed to run advanced search", details: error.response?.data || error.message });
+    }
+});
+
+/**
  * GET /api/integrations/mercadolivre/questions
  * Retorna perguntas recebidas
  */
@@ -990,7 +1242,7 @@ router.post("/sync", async (req, res) => {
             created: 0,
             updated: 0,
             errors: 0,
-            errorDetails: []
+            errorDetails: [] as any[]
         };
 
         // 1. Buscar todos os itens do vendedor no ML
@@ -1573,7 +1825,7 @@ router.put("/products/:productId/update-from-table", async (req, res) => {
         // Preparar dados para atualização
         const updateData: any = {};
 
-        const safeFields = Array.isArray(fields) ? fields.filter((f: string) => f !== 'title') : ['price','stock','description'];
+        const safeFields = Array.isArray(fields) ? fields.filter((f: string) => f !== 'title') : ['price', 'stock', 'description'];
 
         if (safeFields.includes('price')) {
             updateData.price = product.price;
@@ -1656,7 +1908,7 @@ router.post("/products/bulk-sync", async (req, res) => {
         const syncResults = {
             success: 0,
             errors: 0,
-            details: []
+            details: [] as any[]
         };
 
         console.log(`[ML Bulk Sync] Iniciando operação ${operation} para ${productIds ? productIds.length : 'todos'} produtos`);
@@ -1757,9 +2009,11 @@ router.get("/categories", async (req, res) => {
         const rawCountry = (req.query as any).country ?? 'MLB';
         const country = String(rawCountry).toUpperCase().trim();
         const siteId = /^ML[A-Z]+$/.test(country) ? country : 'MLB';
+        const refresh = String((req.query as any).refresh || '').toLowerCase() === 'true';
+        const workspaceId = String((req.query as any).workspaceId || '').trim();
 
         const cached = categoriesCache.get(siteId);
-        if (cached && Date.now() - cached.ts < CATEGORIES_TTL_MS) {
+        if (!refresh && cached && Date.now() - cached.ts < CATEGORIES_TTL_MS) {
             return res.json({
                 success: true,
                 categories: cached.data,
@@ -1768,8 +2022,19 @@ router.get("/categories", async (req, res) => {
             });
         }
 
+        const headers: any = { 'User-Agent': 'TrafficPro/1.0' };
+        if (workspaceId) {
+            try {
+                const creds = await getMercadoLivreCredentials(workspaceId);
+                if (creds?.accessToken) {
+                    headers.Authorization = `Bearer ${creds.accessToken}`;
+                }
+            } catch { /* ignore */ }
+        }
+
         const categoriesResponse = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}/sites/${siteId}/categories`
+            `${MERCADO_LIVRE_API_BASE}/sites/${siteId}/categories`,
+            { headers, timeout: 8000 }
         );
 
         const categories = categoriesResponse.data;
@@ -2273,6 +2538,107 @@ router.get("/notifications/test", async (req, res) => {
 });
 
 /**
+ * POST /api/integrations/mercadolivre/notifications/replay
+ * Reenvia notificações de vendas para o Telegram (retroativas)
+ */
+router.post("/notifications/replay", async (req, res) => {
+    try {
+        const workspaceId = String(req.body?.workspaceId || "").trim();
+        const days = Math.max(1, Number(req.body?.days) || 30);
+        const dryRun = Boolean(req.body?.dryRun);
+        const maxOrders = Math.min(500, Math.max(1, Number(req.body?.maxOrders) || 200));
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado" });
+        }
+
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) credentials = refreshed;
+        }
+
+        // Período inclusivo (início/fim do dia local)
+        const now = new Date();
+        const dateTo = new Date(now); dateTo.setHours(23, 59, 59, 999);
+        const dateFrom = new Date(now); dateFrom.setHours(0, 0, 0, 0); dateFrom.setDate(dateFrom.getDate() - (days - 1));
+        const dateFromStr = dateFrom.toISOString().split("T")[0];
+        const dateToStr = dateTo.toISOString().split("T")[0];
+
+        // Buscar pedidos do período
+        const orders: any[] = [];
+        let offset = 0;
+        const limit = 50;
+        let hasMore = true;
+        while (hasMore && orders.length < maxOrders) {
+            const params: any = { seller: credentials.userId, limit, offset };
+            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/orders/search`, {
+                headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                params,
+            });
+            const batch = resp.data?.results || [];
+            orders.push(...batch);
+            hasMore = batch.length === limit;
+            offset += limit;
+        }
+
+        // Filtrar por status e data
+        const filtered = orders.filter((o) => {
+            if (String(o.status || "").toLowerCase() === "cancelled") return false;
+            const dateKey = o.date_created ? String(o.date_created).slice(0, 10) : "";
+            return dateKey >= dateFromStr && dateKey <= dateToStr;
+        }).slice(0, maxOrders);
+
+        // Evitar duplicados: buscar logs já enviados
+        const pool = getPool();
+        const ids = filtered.map((o) => String(o.id || "")).filter(Boolean);
+        let alreadySent: Set<string> = new Set();
+        if (ids.length) {
+            const q = await pool.query(
+                `SELECT reference_id FROM notification_logs
+                 WHERE workspace_id = $1 AND platform = 'telegram' AND notification_type = 'order_created'
+                 AND reference_id = ANY($2::text[])`,
+                [workspaceId, ids]
+            );
+            alreadySent = new Set(q.rows.map((r: any) => String(r.reference_id)));
+        }
+
+        const toSend = filtered.filter((o) => !alreadySent.has(String(o.id || "")));
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+
+        let sent = 0; const errors: Array<{ id: string; error: string }> = [];
+        if (!dryRun) {
+            for (const order of toSend) {
+                try {
+                    const ok = await TelegramNotificationService.notifyNewOrder(workspaceId, order);
+                    if (ok) sent += 1;
+                    else errors.push({ id: String(order.id || ""), error: "Falha ao enviar (sem detalhe)" });
+                } catch (e: any) {
+                    errors.push({ id: String(order.id || ""), error: e?.message || String(e) });
+                }
+            }
+        }
+
+        return res.json({
+            success: true,
+            dryRun,
+            totalFound: filtered.length,
+            skippedAlreadySent: filtered.length - toSend.length,
+            sent: dryRun ? 0 : sent,
+            errors: dryRun ? [] : errors,
+            period: { from: dateFromStr, to: dateToStr },
+        });
+    } catch (error: any) {
+        console.error("[Notifications Replay] Erro:", error?.response?.data || error?.message || error);
+        return res.status(500).json({ error: error?.message || "Erro ao reenviar notificações" });
+    }
+});
+
+/**
  * Processar notificação de pedido/venda
  */
 async function handleOrderNotification(notification: any) {
@@ -2288,23 +2654,11 @@ async function handleOrderNotification(notification: any) {
             return;
         }
 
-        // Buscar workspace_id a partir do user_id
-        const pool = getPool();
-        const workspaceResult = await pool.query(
-            `SELECT workspace_id
-             FROM integration_credentials
-             WHERE platform_key = 'mercadolivre'
-             AND encrypted_credentials::text LIKE $1
-             LIMIT 1`,
-            [`%${userId}%`]
-        );
-
-        if (!workspaceResult.rows.length) {
+        const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
+        if (!workspaceId) {
             console.warn(`[Order Notification] Workspace não encontrado para user_id ${userId}`);
             return;
         }
-
-        const workspaceId = workspaceResult.rows[0].workspace_id;
 
         // Buscar credenciais para fazer request dos detalhes
         let credentials = await getMercadoLivreCredentials(workspaceId);
@@ -2354,23 +2708,11 @@ async function handleQuestionNotification(notification: any) {
             return;
         }
 
-        // Buscar workspace_id
-        const pool = getPool();
-        const workspaceResult = await pool.query(
-            `SELECT workspace_id
-             FROM integration_credentials
-             WHERE platform_key = 'mercadolivre'
-             AND encrypted_credentials::text LIKE $1
-             LIMIT 1`,
-            [`%${userId}%`]
-        );
-
-        if (!workspaceResult.rows.length) {
+        const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
+        if (!workspaceId) {
             console.warn(`[Question Notification] Workspace não encontrado para user_id ${userId}`);
             return;
         }
-
-        const workspaceId = workspaceResult.rows[0].workspace_id;
 
         // Buscar credenciais
         let credentials = await getMercadoLivreCredentials(workspaceId);
@@ -2417,22 +2759,11 @@ async function handleItemNotification(notification: any) {
             return;
         }
 
-        const pool = getPool();
-        const workspaceResult = await pool.query(
-            `SELECT workspace_id
-             FROM integration_credentials
-             WHERE platform_key = 'mercadolivre'
-             AND encrypted_credentials::text LIKE $1
-             LIMIT 1`,
-            [`%${userId}%`]
-        );
-
-        if (!workspaceResult.rows.length) {
+        const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
+        if (!workspaceId) {
             console.warn(`[Item Notification] Workspace não encontrado para user_id ${userId}`);
             return;
         }
-
-        const workspaceId = workspaceResult.rows[0].workspace_id;
 
         let credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) {
@@ -2463,17 +2794,8 @@ async function handleMessageNotification(notification: any) {
     try {
         console.log(`[Message Notification] Mensagem: ${notification.resource}`);
         const userId = notification.user_id;
-        const pool = getPool();
-        const workspaceResult = await pool.query(
-            `SELECT workspace_id
-             FROM integration_credentials
-             WHERE platform_key = 'mercadolivre'
-             AND encrypted_credentials::text LIKE $1
-             LIMIT 1`,
-            [`%${userId}%`]
-        );
-        if (!workspaceResult.rows.length) return;
-        const workspaceId = workspaceResult.rows[0].workspace_id;
+        const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
+        if (!workspaceId) return;
 
         let credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) return;
@@ -2505,8 +2827,8 @@ router.post("/analyze", async (req, res) => {
         // normalizedMlbId já calculado acima para uso no catch
 
         if (!mlbId || !workspaceId) {
-            return res.status(400).json({ 
-                error: "MLB ID e Workspace ID são obrigatórios" 
+            return res.status(400).json({
+                error: "MLB ID e Workspace ID são obrigatórios"
             });
         }
 
@@ -2565,7 +2887,7 @@ router.post("/analyze", async (req, res) => {
             total_competitors_analyzed: 0,
             market_position: 'average',
             competitive_score: 50,
-            top_competitors: [],
+            top_competitors: [] as any[],
             price_analysis: {
                 current_price: productData.price,
                 market_average: productData.price,
@@ -2586,63 +2908,63 @@ router.post("/analyze", async (req, res) => {
             feature_comparison: {
                 current_features: productData.attributes.map((a: any) => a.id),
                 competitor_features: {},
-                missing_features: [],
-                unique_advantages: [],
-                category_standards: []
+                missing_features: [] as any[],
+                unique_advantages: [] as any[],
+                category_standards: [] as any[]
             },
             ranking_factors: {
                 current_score: 50,
                 top_competitor_score: 50,
-                gap_analysis: [],
-                quick_wins: []
+                gap_analysis: [] as any[],
+                quick_wins: [] as any[]
             },
-            competitive_gaps: [],
-            opportunities: [],
-            threats: [],
+            competitive_gaps: [] as any[],
+            opportunities: [] as any[],
+            threats: [] as any[],
             market_insights: {
-                category_trends: [],
-                consumer_preferences: [],
-                seasonal_patterns: [],
-                growth_opportunities: []
+                category_trends: [] as any[],
+                consumer_preferences: [] as any[],
+                seasonal_patterns: [] as any[],
+                growth_opportunities: [] as any[]
             },
-            category_top_products: []
+            category_top_products: [] as any[] | undefined
         });
 
         const buildEmptyModelOptimization = () => ({
-            current_model: null,
+            current_model: null as string | null,
             current_score: 50,
-            strategic_keywords: [],
-            optimized_models: [],
+            strategic_keywords: [] as any[],
+            optimized_models: [] as any[],
             category_insights: {
                 category_id: productData.category_id,
                 category_name: '',
-                trending_terms: [],
-                high_conversion_words: [],
-                seasonal_keywords: [],
-                competitor_analysis: []
+                trending_terms: [] as any[],
+                high_conversion_words: [] as any[],
+                seasonal_keywords: [] as any[],
+                competitor_analysis: [] as any[]
             },
-            advanced_strategies: []
+            advanced_strategies: [] as any[]
         });
 
         const buildEmptyTechnicalSheetAnalysis = () => ({
             completion_score: 0,
             total_attributes: productData.attributes.length,
             filled_attributes: 0,
-            critical_missing: [],
-            high_priority_missing: [],
-            optimization_opportunities: [],
+            critical_missing: [] as any[],
+            high_priority_missing: [] as any[],
+            optimization_opportunities: [] as any[],
             category_specific_insights: {
-                required_attributes: [],
-                recommended_attributes: [],
-                competitive_advantages: []
+                required_attributes: [] as any[],
+                recommended_attributes: [] as any[],
+                competitive_advantages: [] as any[]
             },
             seo_impact_analysis: {
                 current_seo_score: 0,
                 max_possible_score: 100,
                 improvement_potential: 100,
-                priority_attributes: []
+                priority_attributes: [] as any[]
             },
-            validation_results: []
+            validation_results: [] as any[]
         });
 
         // 2. Calcular score de qualidade
@@ -2668,15 +2990,15 @@ router.post("/analyze", async (req, res) => {
         // 6. Análise de ficha técnica
         const technicalAnalysis = {
             total_attributes: productData.attributes.length,
-            filled_attributes: productData.attributes.filter(attr => 
+            filled_attributes: productData.attributes.filter(attr =>
                 attr.value_name || (attr.values && attr.values.length > 0)
             ).length,
             missing_important: ['BRAND', 'MODEL', 'COLOR', 'SIZE'].filter(id =>
                 !productData.attributes.some(attr => attr.id === id && attr.value_name)
             ),
             completion_percentage: Math.round(
-                (productData.attributes.filter(attr => attr.value_name).length / 
-                Math.max(productData.attributes.length, 1)) * 100
+                (productData.attributes.filter(attr => attr.value_name).length /
+                    Math.max(productData.attributes.length, 1)) * 100
             )
         };
 
@@ -2692,7 +3014,7 @@ router.post("/analyze", async (req, res) => {
         };
 
         // 8. Análise competitiva avançada
-        let competitiveAnalysis = buildEmptyCompetitiveAnalysis();
+        let competitiveAnalysis: any = buildEmptyCompetitiveAnalysis();
         try {
             competitiveAnalysis = await competitiveAnalyzerService.analyzeCompetition(productData, accessToken);
         } catch (e: any) {
@@ -2700,7 +3022,7 @@ router.post("/analyze", async (req, res) => {
         }
 
         // 9. Análise e otimização do campo Modelo
-        let modelOptimization = buildEmptyModelOptimization();
+        let modelOptimization: any = buildEmptyModelOptimization();
         try {
             modelOptimization = await modelOptimizerService.generateModelStrategy(productData);
         } catch (e: any) {
@@ -2708,7 +3030,7 @@ router.post("/analyze", async (req, res) => {
         }
 
         // 10. Análise avançada de ficha técnica
-        let technicalSheetAnalysis = buildEmptyTechnicalSheetAnalysis();
+        let technicalSheetAnalysis: any = buildEmptyTechnicalSheetAnalysis();
         try {
             technicalSheetAnalysis = await technicalSheetService.analyzeTechnicalSheet(productData);
         } catch (e: any) {
@@ -2719,8 +3041,8 @@ router.post("/analyze", async (req, res) => {
         const organicDeliveryPrediction = {
             ranking_potential: Math.min(100, qualityScore.overall_score + 10),
             relevance_index: keywordAnalysis.keyword_density,
-            optimization_level: qualityScore.overall_score >= 80 ? 'high' : 
-                               qualityScore.overall_score >= 60 ? 'medium' : 'low',
+            optimization_level: qualityScore.overall_score >= 80 ? 'high' :
+                qualityScore.overall_score >= 60 ? 'medium' : 'low',
             estimated_visibility: `${Math.round(qualityScore.overall_score * 0.8)}%`
         };
 
@@ -2756,7 +3078,7 @@ router.post("/analyze", async (req, res) => {
             recommendations: {
                 priority_actions: qualityScore.suggestions.filter(s => s.impact === 'high'),
                 quick_wins: qualityScore.suggestions.filter(s => s.difficulty === 'easy'),
-                advanced_optimizations: qualityScore.suggestions.filter(s => 
+                advanced_optimizations: qualityScore.suggestions.filter(s =>
                     s.impact === 'high' && s.difficulty === 'hard'
                 )
             }
@@ -2782,8 +3104,8 @@ router.get("/analyze/:mlbId", async (req, res) => {
         const { workspaceId } = req.query;
 
         if (!workspaceId) {
-            return res.status(400).json({ 
-                error: "Workspace ID é obrigatório" 
+            return res.status(400).json({
+                error: "Workspace ID é obrigatório"
             });
         }
 
@@ -2808,13 +3130,13 @@ router.post("/optimize-title", async (req, res) => {
         const { title, mlbId, workspaceId } = req.body;
 
         if (!title) {
-            return res.status(400).json({ 
-                error: "Título é obrigatório" 
+            return res.status(400).json({
+                error: "Título é obrigatório"
             });
         }
 
         const { seoOptimizerService } = await import("../../services/seoOptimizer.service.js");
-        
+
         // Análise básica do título
         const titleAnalysis = {
             current_title: title,
@@ -2823,7 +3145,7 @@ router.post("/optimize-title", async (req, res) => {
             has_brand: /\b(apple|samsung|nike|adidas)\b/i.test(title),
             has_numbers: /\d/.test(title),
             has_special_chars: /[!@#$%^&*()_+\-=\\{}|;':",.<>?~`]/.test(title),
-            readability_score: title.split(' ').reduce((sum, word) => sum + word.length, 0) / title.split(' ').length < 6 ? 90 : 70,
+            readability_score: title.split(' ').reduce((sum: number, word: string) => sum + word.length, 0) / title.split(' ').length < 6 ? 90 : 70,
             seo_score: Math.floor(Math.random() * 40) + 60 // Placeholder
         };
 
@@ -2833,7 +3155,7 @@ router.post("/optimize-title", async (req, res) => {
             `${title} Premium`,
             `${title.slice(0, 50)} - Garantia`,
             title.replace(/\s+/g, ' ').trim()
-        ].filter((suggestion, index, self) => 
+        ].filter((suggestion, index, self) =>
             suggestion !== title && self.indexOf(suggestion) === index
         );
 
@@ -2872,8 +3194,8 @@ router.post("/generate-description", async (req, res) => {
         const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
         if (!normalizedMlbId) {
-            return res.status(400).json({ 
-                error: "MLB ID é obrigatório" 
+            return res.status(400).json({
+                error: "MLB ID é obrigatório"
             });
         }
 
@@ -2922,8 +3244,8 @@ router.post("/apply-optimizations", async (req, res) => {
         const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
         if (!normalizedMlbId || !workspaceId || !optimizations) {
-            return res.status(400).json({ 
-                error: "MLB ID, Workspace ID e otimizações são obrigatórios" 
+            return res.status(400).json({
+                error: "MLB ID, Workspace ID e otimizações são obrigatórios"
             });
         }
 
@@ -2936,8 +3258,8 @@ router.post("/apply-optimizations", async (req, res) => {
 
         const credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) {
-            return res.status(401).json({ 
-                error: "Credenciais do MercadoLivre não encontradas" 
+            return res.status(401).json({
+                error: "Credenciais do MercadoLivre não encontradas"
             });
         }
 
@@ -2958,18 +3280,18 @@ router.post("/apply-optimizations", async (req, res) => {
         const updates: any = {};
         const appliedChanges: string[] = [];
 
-        
+
 
         // 2. Aplicar modelo otimizado
         if (optimizations.model) {
             // Encontrar o atributo MODEL
             if (!currentProduct.attributes) currentProduct.attributes = [];
-            
+
             const modelAttr = currentProduct.attributes.find((attr: any) => attr.id === 'MODEL');
             const originalModel = modelAttr?.value_name || null;
-            
+
             console.log(`[Apply Optimizations] MODELO - Original: "${originalModel}" -> Novo: "${optimizations.model}"`);
-            
+
             if (modelAttr) {
                 modelAttr.value_name = optimizations.model;
             } else {
@@ -2978,7 +3300,7 @@ router.post("/apply-optimizations", async (req, res) => {
                     value_name: optimizations.model
                 });
             }
-            
+
             updates.attributes = currentProduct.attributes;
             appliedChanges.push(`Campo modelo: "${optimizations.model}"`);
         }
@@ -3108,13 +3430,13 @@ router.post("/apply-optimizations", async (req, res) => {
             const processedAttributes = ['COLOR', 'SIZE', 'BRAND'];
             for (const [attrId, attrValue] of Object.entries(optimizations.attributes)) {
                 if (processedAttributes.includes(attrId) || !attrValue) continue;
-                
+
                 const existing = currentProduct.attributes.find((attr: any) => attr.id === attrId);
                 const currentValue = existing?.value_name || existing?.value_id || '';
                 const changed = !existing || String(currentValue).toLowerCase().trim() !== String(attrValue).toLowerCase().trim();
-                
+
                 console.log(`[Apply Optimizations] ${attrId} - Original: "${currentValue}" -> Novo: "${attrValue}"`);
-                
+
                 if (existing) {
                     existing.value_name = attrValue;
                     delete existing.value_id; // Usar value_name para atributos customizados
@@ -3124,15 +3446,15 @@ router.post("/apply-optimizations", async (req, res) => {
                         value_name: attrValue
                     });
                 }
-                
+
                 if (changed) {
                     appliedChanges.push(`${attrId} atualizado: "${attrValue}"`);
                 }
             }
 
-            const hasAnyAttributes = COLOR || SIZE || Boolean((optimizations.attributes as any)?.BRAND) || 
+            const hasAnyAttributes = COLOR || SIZE || Boolean((optimizations.attributes as any)?.BRAND) ||
                 Object.keys(optimizations.attributes).some(k => !processedAttributes.includes(k) && optimizations.attributes[k]);
-            
+
             if (hasAnyAttributes) {
                 updates.attributes = currentProduct.attributes;
             }
@@ -3178,24 +3500,24 @@ router.post("/apply-optimizations", async (req, res) => {
         if (Object.keys(updates).length > 0) {
             try {
                 console.log(`[Apply Optimizations] Tentando atualizar produto ${normalizedMlbId} com:`, updates);
-                
+
                 await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}`, {
                     method: 'PUT',
                     data: updates
                 });
-                
+
                 console.log(`[Apply Optimizations] Produto ${normalizedMlbId} atualizado com sucesso`);
-                
+
             } catch (updateError: any) {
                 console.error('[Apply Optimizations] Erro ao atualizar produto:', updateError);
-                
+
                 // Verificar se é erro de permissão ou status do produto
                 const status = updateError?.response?.status;
                 const errorData = updateError?.response?.data || {};
                 const errorMessage = errorData?.message || updateError?.message || "Erro na API do MercadoLivre";
                 const causes = Array.isArray(errorData?.cause) ? errorData.cause : [];
                 const causeMessages = causes.map((c: any) => c?.message || c?.description || '').filter(Boolean);
-                
+
                 if (status === 400) {
                     const titleBlocked = causeMessages.some((m: string) => /title/i.test(m)) || /title/i.test(errorMessage);
 
@@ -3264,7 +3586,7 @@ router.post("/apply-optimizations", async (req, res) => {
                         ]
                     });
                 }
-                
+
                 return res.status(502).json({
                     error: "Falha ao aplicar otimizações",
                     details: [
@@ -3300,14 +3622,14 @@ router.post("/apply-optimizations", async (req, res) => {
                 afterDesc = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/description`);
             } catch { /* descrição pode não existir */ }
 
-            
+
             // Checar atributos
             const attrs = Array.isArray(afterItem?.attributes) ? afterItem.attributes : [];
             const findName = (id: string): string | null => {
                 const a = attrs.find((x: any) => x.id === id);
                 return a?.value_name || null;
             };
-            
+
             // Verificação específica do modelo
             if (optimizations.model) {
                 const actualModel = findName('MODEL');
@@ -3367,7 +3689,7 @@ router.post("/apply-optimizations", async (req, res) => {
 
     } catch (error) {
         console.error("[Apply Optimizations] Erro:", error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: "Erro interno do servidor",
             details: error instanceof Error ? error.message : "Erro desconhecido"
         });
@@ -3381,15 +3703,15 @@ router.post("/apply-optimizations", async (req, res) => {
 router.get("/catalog-intelligence", async (req, res) => {
     try {
         const { workspaceId } = req.query;
-        
+
         if (!workspaceId) {
             return res.status(400).json({
                 error: 'Workspace ID é obrigatório'
             });
         }
-        
+
         const credentials = await getMercadoLivreCredentials(workspaceId as string);
-        
+
         if (!credentials) {
             return res.status(401).json({
                 error: 'Token de acesso do MercadoLivre não encontrado',
@@ -3401,26 +3723,26 @@ router.get("/catalog-intelligence", async (req, res) => {
                 ]
             });
         }
-        
+
         // Importar dinamicamente o serviço
         const { catalogIntelligenceService } = await import('../../services/catalogIntelligence.service.js');
-        
+
         // Executar análise de catálogo
         const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
             workspaceId as string,
             credentials.accessToken
         );
-        
+
         return res.json({
             success: true,
             data: catalogAnalysis,
             message: 'Análise de catálogo realizada com sucesso',
             analyzed_at: new Date().toISOString()
         });
-        
+
     } catch (error: any) {
         console.error('Erro na análise de catálogo:', error);
-        
+
         // Tratamento de erros específicos
         if (error.response?.status === 401) {
             return res.status(401).json({
@@ -3433,7 +3755,7 @@ router.get("/catalog-intelligence", async (req, res) => {
                 ]
             });
         }
-        
+
         if (error.response?.status === 403) {
             return res.status(403).json({
                 error: 'Permissões insuficientes',
@@ -3445,7 +3767,7 @@ router.get("/catalog-intelligence", async (req, res) => {
                 ]
             });
         }
-        
+
         if (error.response?.status === 429) {
             return res.status(429).json({
                 error: 'Limite de requisições excedido',
@@ -3457,7 +3779,7 @@ router.get("/catalog-intelligence", async (req, res) => {
                 ]
             });
         }
-        
+
         // Erro genérico
         return res.status(500).json({
             error: 'Falha na análise de catálogo',
@@ -3478,40 +3800,40 @@ router.get("/catalog-intelligence", async (req, res) => {
 router.post("/catalog-intelligence/refresh", async (req, res) => {
     try {
         const { workspaceId } = req.body;
-        
+
         if (!workspaceId) {
             return res.status(400).json({
                 error: 'Workspace ID é obrigatório'
             });
         }
-        
+
         const credentials = await getMercadoLivreCredentials(workspaceId);
-        
+
         if (!credentials) {
             return res.status(401).json({
                 error: 'Token de acesso não encontrado'
             });
         }
-        
+
         // Importar dinamicamente o serviço
         const { catalogIntelligenceService } = await import('../../services/catalogIntelligence.service.js');
-        
+
         // Forçar nova análise (sem cache)
         const catalogAnalysis = await catalogIntelligenceService.analyzeCatalog(
             workspaceId,
             credentials.accessToken
         );
-        
+
         return res.json({
             success: true,
             data: catalogAnalysis,
             message: 'Dados de catálogo atualizados com sucesso',
             refreshed_at: new Date().toISOString()
         });
-        
+
     } catch (error: any) {
         console.error('Erro na atualização de catálogo:', error);
-        
+
         return res.status(500).json({
             error: 'Falha na atualização',
             details: error.message || 'Erro interno do servidor'
@@ -3528,15 +3850,15 @@ router.post("/upload-image", async (req, res) => {
         const { workspaceId, imageData, fileName } = req.body;
 
         if (!workspaceId || !imageData) {
-            return res.status(400).json({ 
-                error: "Workspace ID e dados da imagem são obrigatórios" 
+            return res.status(400).json({
+                error: "Workspace ID e dados da imagem são obrigatórios"
             });
         }
 
         const credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) {
-            return res.status(401).json({ 
-                error: "Credenciais do MercadoLivre não encontradas" 
+            return res.status(401).json({
+                error: "Credenciais do MercadoLivre não encontradas"
             });
         }
 
@@ -3554,7 +3876,7 @@ router.post("/upload-image", async (req, res) => {
         });
 
         // Upload da imagem para o MercadoLivre
-        const uploadResponse = await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/pictures/items/upload`, {
+        const uploadResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/pictures/items/upload`, {
             method: 'POST',
             data: formData,
             headers: formData.getHeaders()
@@ -3572,10 +3894,10 @@ router.post("/upload-image", async (req, res) => {
 
     } catch (error: any) {
         console.error("[Upload Image] Erro:", error);
-        
+
         const status = error?.response?.status;
         const errorData = error?.response?.data || {};
-        
+
         return res.status(status || 500).json({
             error: "Falha no upload da imagem",
             details: errorData?.message || error?.message || "Erro desconhecido",
@@ -3598,8 +3920,8 @@ router.post("/add-pictures", async (req, res) => {
         const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
         if (!normalizedMlbId || !workspaceId || !Array.isArray(pictureIds)) {
-            return res.status(400).json({ 
-                error: "MLB ID, Workspace ID e lista de picture IDs são obrigatórios" 
+            return res.status(400).json({
+                error: "MLB ID, Workspace ID e lista de picture IDs são obrigatórios"
             });
         }
 
@@ -3611,8 +3933,8 @@ router.post("/add-pictures", async (req, res) => {
 
         const credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) {
-            return res.status(401).json({ 
-                error: "Credenciais do MercadoLivre não encontradas" 
+            return res.status(401).json({
+                error: "Credenciais do MercadoLivre não encontradas"
             });
         }
 
@@ -3628,15 +3950,15 @@ router.post("/add-pictures", async (req, res) => {
                     method: 'POST',
                     data: { id: pictureId }
                 });
-                
+
                 addedPictures.push({
                     picture_id: pictureId,
                     status: 'success',
                     response: addResponse
                 });
-                
+
                 console.log(`[Add Pictures] Imagem ${pictureId} adicionada com sucesso`);
-                
+
             } catch (err: any) {
                 console.error(`[Add Pictures] Erro ao adicionar imagem ${pictureId}:`, err);
                 errors.push({
@@ -3869,13 +4191,6 @@ router.get("/orders/daily-sales", async (req, res) => {
                     offset,
                 };
 
-                if (dateFrom) {
-                    params["order.date_created.from"] = dateFrom;
-                }
-                if (dateTo) {
-                    params["order.date_created.to"] = dateTo;
-                }
-
                 const ordersResponse = await axios.get(
                     `${MERCADO_LIVRE_API_BASE}/orders/search`,
                     {
@@ -3917,6 +4232,8 @@ router.get("/orders/daily-sales", async (req, res) => {
             if (!dateCreated) continue;
 
             const dateKey = dateCreated.toISOString().split("T")[0]; // YYYY-MM-DD
+            if (dateFrom && dateKey < String(dateFrom).slice(0, 10)) continue;
+            if (dateTo && dateKey > String(dateTo).slice(0, 10)) continue;
 
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
             const totalAmount = order.paid_amount || order.total_amount || 0;

@@ -45,12 +45,26 @@ export default function MercadoLivre() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(10);
 
+    // Calcular intervalo de datas para vendas diárias (memorizado e estável)
+    const { dateFrom, dateTo } = useMemo(() => {
+        const dateTo = new Date();
+        dateTo.setHours(23, 59, 59, 999); // Fim do dia
+
+        const dateFrom = new Date();
+        dateFrom.setHours(0, 0, 0, 0); // Início do dia
+        dateFrom.setDate(dateFrom.getDate() - (Number(dateRange) - 1)); // janela inclusiva
+
+        return {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+        };
+    }, [dateRange]);
+
     // Hooks para buscar dados do Mercado Livre
-    const {
-        data: metrics,
-        isLoading: metricsLoading,
-        refetch: refetchMetrics
-    } = useMercadoLivreMetrics(workspaceId, Number(dateRange));
+    const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useMercadoLivreMetrics(
+        workspaceId,
+        Number(dateRange)
+    );
 
     const {
         data: products,
@@ -62,21 +76,6 @@ export default function MercadoLivre() {
         data: questions,
         isLoading: questionsLoading
     } = useMercadoLivreQuestions(workspaceId, Number(dateRange));
-
-    // Calcular intervalo de datas para vendas diárias (memorizado e estável)
-    const { dateFrom, dateTo } = useMemo(() => {
-        const dateTo = new Date();
-        dateTo.setHours(23, 59, 59, 999); // Fim do dia
-
-        const dateFrom = new Date();
-        dateFrom.setDate(dateFrom.getDate() - Number(dateRange));
-        dateFrom.setHours(0, 0, 0, 0); // Início do dia
-
-        return {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-        };
-    }, [dateRange]);
 
     const {
         data: dailySales,
@@ -107,11 +106,15 @@ export default function MercadoLivre() {
 
     // Dados mockados enquanto não há integração real
     const totalSales = metrics?.totalSales ?? 0;
+    const totalOrders = metrics?.totalOrders ?? metrics?.totalSales ?? 0;
     const totalRevenue = metrics?.totalRevenue ?? 0;
     const totalVisits = metrics?.totalVisits ?? 0;
     const conversionRate = metrics?.conversionRate ?? 0;
     const totalQuestions = questions?.total ?? 0;
     const activeProducts = products?.activeCount ?? 0;
+    const averageUnitPrice = metrics?.averageUnitPrice ?? (totalSales > 0 ? totalRevenue / totalSales : 0);
+    const averageOrderPrice = metrics?.averageOrderPrice ?? (totalOrders > 0 ? totalRevenue / totalOrders : 0);
+    const canceledOrders = metrics?.canceledOrders ?? 0;
 
     return (
         <div className="space-y-6 pb-4">
@@ -138,6 +141,15 @@ export default function MercadoLivre() {
                         search=""
                         onSearchChange={() => { }}
                     />
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => navigate('/mercado-livre-busca-avancada')}
+                    >
+                        <Search className="h-4 w-4" />
+                        Busca Avançada
+                    </Button>
                     <MercadoLivreConnectButton size="sm" variant="outline" />
                     <Button
                         onClick={handleSyncData}
@@ -170,20 +182,30 @@ export default function MercadoLivre() {
 
             {/* KPIs Principais */}
             {!metricsLoading && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <CompactKPICard
-                        title="Vendas"
-                        value={totalSales.toString()}
-                        icon={ShoppingBag}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Receita"
+                        title="Vendas brutas"
                         value={new Intl.NumberFormat("pt-BR", {
                             style: "currency",
                             currency: "BRL",
                             maximumFractionDigits: 0,
                         }).format(totalRevenue)}
+                        icon={DollarSign}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
+                        title="Unidades vendidas"
+                        value={new Intl.NumberFormat("pt-BR").format(totalSales)}
+                        icon={ShoppingBag}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
+                        title="Preço médio por unidade"
+                        value={new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                            maximumFractionDigits: 2,
+                        }).format(averageUnitPrice || 0)}
                         icon={DollarSign}
                         loading={metricsLoading}
                     />
@@ -194,9 +216,31 @@ export default function MercadoLivre() {
                         loading={metricsLoading}
                     />
                     <CompactKPICard
-                        title="Produtos Ativos"
-                        value={activeProducts.toString()}
-                        icon={Package}
+                        title="Quantidade de vendas"
+                        value={new Intl.NumberFormat("pt-BR").format(totalOrders)}
+                        icon={ShoppingBag}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
+                        title="Conversão"
+                        value={conversionRate ? `${conversionRate.toFixed(2)}%` : "-"}
+                        icon={TrendingUp}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
+                        title="Preço médio por venda"
+                        value={new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                            maximumFractionDigits: 2,
+                        }).format(averageOrderPrice || 0)}
+                        icon={DollarSign}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
+                        title="Vendas canceladas"
+                        value={new Intl.NumberFormat("pt-BR").format(canceledOrders)}
+                        icon={AlertCircle}
                         loading={metricsLoading}
                     />
                 </div>

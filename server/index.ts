@@ -5,6 +5,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startSimpleWorker } from './workers/simpleSyncWorker.js';
+import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
 import { runInstagramSync } from '../supabase/functions/_shared/instagramSync.js';
 import { decryptCredentials, encryptCredentials } from './services/encryption.js';
 import { getPool } from './config/database.js';
@@ -536,6 +537,7 @@ app.use((req, res) => {
 
 // Start server and worker
 let workerIntervalId: NodeJS.Timeout | null = null;
+let stopMLReplayWorker: (() => void) | null = null;
 
 async function start() {
   try {
@@ -582,6 +584,30 @@ async function start() {
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');
+
+      // Worker de replay de notificações ML (opcional)
+      if (String(process.env.ML_NOTIFICATIONS_REPLAY_ENABLED || '').toLowerCase() === 'true') {
+        const apiBase =
+          process.env.API_INTERNAL_URL ||
+          process.env.API_URL ||
+          `http://localhost:${PORT}`;
+        const workspaceId =
+          process.env.MERCADO_LIVRE_DEFAULT_WORKSPACE_ID ||
+          process.env.WORKSPACE_ID ||
+          process.env.VITE_WORKSPACE_ID ||
+          '00000000-0000-0000-0000-000000000010';
+
+        stopMLReplayWorker = startMLNotificationsReplayWorker({
+          workspaceId,
+          apiBaseUrl: apiBase,
+          intervalMinutes: Number(process.env.ML_NOTIFICATIONS_REPLAY_INTERVAL_MINUTES || 60),
+          days: Number(process.env.ML_NOTIFICATIONS_REPLAY_DAYS || 2),
+          maxOrders: Number(process.env.ML_NOTIFICATIONS_REPLAY_MAX_ORDERS || 200),
+          dryRun: String(process.env.ML_NOTIFICATIONS_REPLAY_DRY_RUN || '').toLowerCase() === 'true',
+        });
+      } else {
+        console.log('ℹ️  ML replay worker desabilitado (ML_NOTIFICATIONS_REPLAY_ENABLED != true)');
+      }
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -658,6 +684,9 @@ process.on('SIGTERM', async () => {
   if (workerIntervalId) {
     clearInterval(workerIntervalId);
   }
+  if (stopMLReplayWorker) {
+    stopMLReplayWorker();
+  }
 
   process.exit(0);
 });
@@ -667,6 +696,9 @@ process.on('SIGINT', async () => {
 
   if (workerIntervalId) {
     clearInterval(workerIntervalId);
+  }
+  if (stopMLReplayWorker) {
+    stopMLReplayWorker();
   }
 
   process.exit(0);

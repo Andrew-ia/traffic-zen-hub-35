@@ -4,12 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function MercadoLivreCallback() {
+    const queryClient = useQueryClient();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
     const [message, setMessage] = useState("");
+    const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+    const [syncing, setSyncing] = useState(false);
     const [tokens, setTokens] = useState<{
         accessToken?: string;
         refreshToken?: string;
@@ -33,9 +37,30 @@ export default function MercadoLivreCallback() {
             return;
         }
 
+        setWorkspaceId(state);
         // Trocar código por tokens
         exchangeCodeForTokens(code, state);
     }, [searchParams]);
+
+    const runPostAuthSync = async (workspaceId: string) => {
+        setSyncing(true);
+        try {
+            const authToken = localStorage.getItem("token");
+            await fetch("/api/integrations/mercadolivre/sync", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                },
+                body: JSON.stringify({ workspaceId }),
+            });
+            await queryClient.invalidateQueries({ queryKey: ["mercadolivre"] });
+        } catch (error) {
+            console.warn("Falha ao disparar sync pós-auth do Mercado Livre:", error);
+        } finally {
+            setSyncing(false);
+        }
+    };
 
     const exchangeCodeForTokens = async (code: string, workspaceId: string) => {
         try {
@@ -51,12 +76,14 @@ export default function MercadoLivreCallback() {
 
             if (response.ok && data.success) {
                 setStatus("success");
-                setMessage("Autenticação realizada com sucesso!");
+                setMessage("Autenticado! Aplicando credenciais e sincronizando dados...");
                 setTokens({
                     accessToken: data.accessToken,
                     refreshToken: data.refreshToken,
                     userId: data.userId,
                 });
+                await runPostAuthSync(workspaceId);
+                setMessage("Tokens aplicados. Dados do Mercado Livre serão atualizados em instantes.");
             } else {
                 setStatus("error");
                 setMessage(data.error || "Erro ao processar autenticação");
@@ -145,12 +172,13 @@ export default function MercadoLivreCallback() {
                                 </div>
 
                                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-4">
-                                    ⚠️ Após adicionar as variáveis ao .env.local, reinicie o servidor para aplicar as mudanças.
+                                    Sincronizamos automaticamente para o workspace selecionado. Você pode continuar sem atualizar o .env.local no ambiente atual.
                                 </p>
                             </div>
 
                             <div className="flex gap-2">
-                                <Button onClick={() => navigate("/mercadolivre")} className="flex-1">
+                                <Button onClick={() => navigate("/mercado-livre")} className="flex-1" disabled={syncing}>
+                                    {syncing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                                     Ir para Mercado Livre
                                 </Button>
                                 <Button onClick={() => navigate("/integrations")} variant="outline" className="flex-1">

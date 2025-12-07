@@ -24,11 +24,14 @@ export interface CategoryPrediction {
 /**
  * Hook para buscar todas as categorias do Mercado Livre
  */
-export function useMLCategories() {
+export function useMLCategories(workspaceId?: string | null) {
     return useQuery({
-        queryKey: ["ml-categories"],
+        queryKey: ["ml-categories", workspaceId],
         queryFn: async () => {
-            const response = await fetch("/api/integrations/mercadolivre/categories");
+            const params = new URLSearchParams({
+                ...(workspaceId ? { workspaceId } : {}),
+            });
+            const response = await fetch(`/api/integrations/mercadolivre/categories?${params.toString()}`);
             if (!response.ok) throw new Error("Failed to fetch ML categories");
             return response.json();
         },
@@ -39,12 +42,15 @@ export function useMLCategories() {
 /**
  * Hook para buscar detalhes de uma categoria específica
  */
-export function useMLCategoryDetails(categoryId: string | null) {
+export function useMLCategoryDetails(categoryId: string | null, workspaceId?: string | null) {
     return useQuery({
-        queryKey: ["ml-category", categoryId],
+        queryKey: ["ml-category", categoryId, workspaceId],
         queryFn: async () => {
             if (!categoryId) throw new Error("Category ID required");
-            const response = await fetch(`/api/integrations/mercadolivre/categories/${categoryId}`);
+            const params = new URLSearchParams({
+                ...(workspaceId ? { workspaceId } : {}),
+            });
+            const response = await fetch(`/api/integrations/mercadolivre/categories/${categoryId}?${params.toString()}`);
             if (!response.ok) throw new Error("Failed to fetch category details");
             return response.json();
         },

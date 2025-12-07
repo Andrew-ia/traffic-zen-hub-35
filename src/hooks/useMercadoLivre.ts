@@ -12,8 +12,12 @@ const getAuthHeaders = (): HeadersInit => {
 // Interface para métricas do Mercado Livre
 export interface MercadoLivreMetrics {
     totalSales: number;
+    totalOrders?: number;
+    canceledOrders?: number;
     totalRevenue: number;
     totalVisits: number;
+    averageUnitPrice?: number;
+    averageOrderPrice?: number;
     conversionRate: number;
     responseRate: number;
     reputation: string;
@@ -41,6 +45,7 @@ export interface MercadoLivreProduct {
     title: string;
     price: number;
     thumbnail?: string;
+    permalink?: string;
     sales: number;
     visits: number;
     conversionRate: number;
@@ -78,18 +83,22 @@ export interface MercadoLivreQuestion {
 /**
  * Hook para buscar métricas do Mercado Livre
  */
-export function useMercadoLivreMetrics(workspaceId: string | null, days: number = 30) {
+export function useMercadoLivreMetrics(workspaceId: string | null, days: number = 30, range?: { dateFrom?: string; dateTo?: string }) {
     return useQuery({
-        queryKey: ["mercadolivre", "metrics", workspaceId, days],
+        queryKey: ["mercadolivre", "metrics", workspaceId, days, range?.dateFrom, range?.dateTo],
         queryFn: async (): Promise<MercadoLivreMetrics> => {
             if (!workspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
-            const response = await fetch(
-                `/api/integrations/mercadolivre/metrics?workspaceId=${workspaceId}&days=${days}`,
-                { headers: getAuthHeaders() }
-            );
+            const params = new URLSearchParams({
+                workspaceId,
+                days: String(days),
+                ...(range?.dateFrom ? { dateFrom: range.dateFrom } : {}),
+                ...(range?.dateTo ? { dateTo: range.dateTo } : {}),
+            });
+
+            const response = await fetch(`/api/integrations/mercadolivre/metrics?${params.toString()}`, { headers: getAuthHeaders() });
 
             if (!response.ok) {
                 throw new Error("Failed to fetch Mercado Livre metrics");
@@ -380,5 +389,98 @@ export function useToggleMercadoLivreProduct() {
                 queryKey: ["mercadolivre", "products", variables.workspaceId],
             });
         },
+    });
+}
+
+/**
+ * Hook para busca avançada de anúncios no Mercado Livre
+ */
+export function useMercadoLivreAdvancedSearch(
+    workspaceId: string | null,
+    params: {
+        categoryId: string;
+        subcategoryId?: string | null;
+        periodDays?: number;
+        minMonthlySales?: number;
+        maxMonthlySales?: number;
+        limit?: number;
+        offset?: number;
+    }
+) {
+    const {
+        categoryId,
+        subcategoryId = null,
+        periodDays = 30,
+        minMonthlySales,
+        maxMonthlySales,
+        limit = 50,
+        offset = 0,
+    } = params;
+
+    return useQuery({
+        queryKey: [
+            "mercadolivre",
+            "advanced-search",
+            workspaceId,
+            categoryId,
+            subcategoryId,
+            periodDays,
+            minMonthlySales,
+            maxMonthlySales,
+            limit,
+            offset,
+        ],
+        queryFn: async (): Promise<{
+            items: Array<
+                MercadoLivreProduct & {
+                    sold_quantity?: number;
+                    monthly_estimate?: number;
+                    visits_last_period?: number;
+                    conversion_rate_estimate?: number;
+                }
+            >;
+            summary: {
+                total_found: number;
+                total_returned: number;
+                average_price: number;
+                total_visits_last_period: number;
+                period_days: number;
+                category: string;
+                filters: { minMonthlySales?: number; maxMonthlySales?: number };
+            };
+        }> => {
+            if (!workspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+            if (!categoryId) {
+                throw new Error("Category ID is required");
+            }
+
+            const q = new URLSearchParams({
+                workspaceId,
+                categoryId,
+                ...(subcategoryId ? { subcategoryId } : {}),
+                periodDays: String(periodDays),
+                limit: String(limit),
+                offset: String(offset),
+                ...(typeof minMonthlySales === "number" ? { minMonthlySales: String(minMonthlySales) } : {}),
+                ...(typeof maxMonthlySales === "number" ? { maxMonthlySales: String(maxMonthlySales) } : {}),
+            });
+
+            const response = await fetch(`/api/integrations/mercadolivre/search/advanced?${q.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore parse errors */ }
+                const message = details?.error || details?.message || `Failed to run advanced ML search (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+            return response.json();
+        },
+        enabled: !!workspaceId && !!categoryId,
+        staleTime: 30 * 60 * 1000,
     });
 }
