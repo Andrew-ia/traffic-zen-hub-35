@@ -1,4 +1,4 @@
-import { MLBAnalysisData } from './mlbAnalyzer.service';
+import { MLBAnalysisData } from './mlbAnalyzer.service.js';
 import axios from 'axios';
 
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
@@ -93,6 +93,25 @@ export interface RankingFactorsAnalysis {
     }>;
 }
 
+export interface CategoryTopProduct {
+    id: string;
+    title: string;
+    price: number;
+    sold_quantity: number;
+    permalink: string;
+    thumbnail: string;
+    seller: {
+        id: string;
+        nickname: string;
+        reputation_level: string;
+        transactions: number;
+    };
+    shipping: {
+        free_shipping: boolean;
+        mode: string;
+    };
+}
+
 export interface CompetitiveAnalysisResult {
     total_competitors_analyzed: number;
     market_position: 'leader' | 'strong' | 'average' | 'weak';
@@ -123,6 +142,7 @@ export interface CompetitiveAnalysisResult {
         seasonal_patterns: string[];
         growth_opportunities: string[];
     };
+    category_top_products?: CategoryTopProduct[];
 }
 
 /**
@@ -156,6 +176,9 @@ export class CompetitiveAnalyzerService {
         // 7. Insights de mercado
         const marketInsights = await this.generateMarketInsights(productData.category_id, competitors);
         
+        // 8. Top 10 produtos da categoria
+        const categoryTopProducts = await this.getCategoryTopProducts(productData.category_id, accessToken);
+        
         const competitiveScore = this.calculateCompetitiveScore(productData, competitors, priceAnalysis, featureComparison);
         const marketPosition = this.determineMarketPosition(competitiveScore, competitors.length);
         
@@ -170,7 +193,8 @@ export class CompetitiveAnalyzerService {
             competitive_gaps: competitiveGaps,
             opportunities: opportunities,
             threats: threats,
-            market_insights: marketInsights
+            market_insights: marketInsights,
+            category_top_products: categoryTopProducts
         };
     }
 
@@ -186,10 +210,11 @@ export class CompetitiveAnalyzerService {
 
         const allResults: any[] = [];
         try {
-            for (let offset = 0; offset < 300; offset += 50) {
+            for (let offset = 0; offset < 100; offset += 50) { // Reduzir para evitar rate limiting
                 const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/sites/MLB/search`, {
-                    params: { category: productData.category_id, limit: 50, offset, sort: 'sold_quantity_desc' },
-                    headers
+                    params: { category: productData.category_id, limit: 20, offset, sort: 'sold_quantity_desc' },
+                    headers,
+                    timeout: 10000
                 });
                 const results = Array.isArray(resp.data?.results) ? resp.data.results : [];
                 for (const r of results) {
@@ -199,10 +224,10 @@ export class CompetitiveAnalyzerService {
                     collectedIds.add(id);
                     allResults.push(r);
                 }
-                if (collectedIds.size >= 60) break;
+                if (collectedIds.size >= 20) break; // Reduzir quantidade para melhor performance
             }
         } catch (e) {
-            void e;
+            console.warn('[Competitors] Erro na busca inicial:', e.message);
         }
 
         if (collectedIds.size < 30) {
@@ -243,7 +268,7 @@ export class CompetitiveAnalyzerService {
         }
 
         // Mapear diretamente dos resultados da busca
-        const baseCompetitors = allResults.slice(0, 30).map((r: any) => {
+        const baseCompetitors = allResults.slice(0, 15).map((r: any) => {
             const comp: CompetitorProduct = {
                 id: String(r.id || ''),
                 title: String(r.title || ''),
@@ -275,6 +300,11 @@ export class CompetitiveAnalyzerService {
         });
 
         competitors.push(...baseCompetitors);
+
+        // Log se poucos concorrentes encontrados
+        if (competitors.length < 5) {
+            console.log(`[Competitors] Poucos concorrentes encontrados: ${competitors.length}`);
+        }
 
         // Enriquecer os 12 primeiros com atributos detalhados
         const enrichIds = competitors.slice(0, 12).map(c => c.id);
@@ -804,6 +834,209 @@ export class CompetitiveAnalyzerService {
         opps.push('Explorar termos long-tail no título');
         return opps.slice(0, 4);
     }
+
+    /**
+     * Busca os top 10 produtos mais vendidos da categoria usando estratégias alternativas
+     */
+    private async getCategoryTopProducts(categoryId: string, accessToken?: string): Promise<CategoryTopProduct[]> {
+        try {
+            const headers = { 'User-Agent': 'TrafficPro-MLB-Analyzer/1.0' } as any;
+            
+            // Estratégia 1: Buscar informações da categoria para entender melhor
+            let categoryInfo;
+            try {
+                const categoryResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`, {
+                    headers,
+                    timeout: 5000
+                });
+                categoryInfo = categoryResponse.data;
+                console.log(`[Category Top Products] Categoria: ${categoryInfo.name}`);
+            } catch (e) {
+                console.warn(`[Category Top Products] Erro ao buscar info da categoria:`, e.message);
+            }
+
+            const results: any[] = [];
+            
+            // Estratégia 2: Se temos accessToken, buscar produtos do usuário da mesma categoria primeiro
+            if (accessToken) {
+                try {
+                    const userItemsResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/users/me/items/search`, {
+                        headers: { ...headers, 'Authorization': `Bearer ${accessToken}` },
+                        params: { limit: 50, sort: 'sold_quantity_desc' },
+                        timeout: 8000
+                    });
+                    
+                    const userItems = userItemsResponse.data?.results || [];
+                    console.log(`[Category Top Products] Encontrados ${userItems.length} produtos do usuário`);
+                    
+                    // Filtrar apenas produtos da mesma categoria e buscar detalhes
+                    for (const itemId of userItems.slice(0, 10)) {
+                        try {
+                            const itemResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
+                                headers: { ...headers, 'Authorization': `Bearer ${accessToken}` },
+                                timeout: 5000
+                            });
+                            
+                            const item = itemResponse.data;
+                            if (item.category_id === categoryId && item.sold_quantity > 0) {
+                                results.push(item);
+                            }
+                        } catch (e) {
+                            console.warn(`[Category Top Products] Erro ao buscar item ${itemId}:`, e.message);
+                        }
+                    }
+                    
+                    console.log(`[Category Top Products] Encontrados ${results.length} produtos do usuário na categoria ${categoryId}`);
+                } catch (e) {
+                    console.warn(`[Category Top Products] Erro ao buscar produtos do usuário:`, e.message);
+                }
+            }
+            
+            // Estratégia 3: Se ainda não temos produtos suficientes, usar busca por palavras-chave da categoria
+            if (results.length < 5) {
+                const searchTerms = this.getCategorySearchTerms(categoryId, categoryInfo?.name);
+                
+                for (const term of searchTerms.slice(0, 3)) {
+                    try {
+                        let searchResponse;
+                        
+                        // Tentar busca autenticada primeiro
+                        if (accessToken) {
+                            try {
+                                searchResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/sites/MLB/search`, {
+                                    headers: { ...headers, 'Authorization': `Bearer ${accessToken}` },
+                                    params: { q: term, limit: 10, sort: 'sold_quantity_desc' },
+                                    timeout: 8000
+                                });
+                            } catch (authError) {
+                                console.warn(`[Category Top Products] Busca autenticada falhou para termo '${term}':`, authError.message);
+                            }
+                        }
+                        
+                        // Fallback para busca pública se a autenticada falhou
+                        if (!searchResponse) {
+                            try {
+                                searchResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/sites/MLB/search`, {
+                                    headers,
+                                    params: { q: term, limit: 10, sort: 'sold_quantity_desc' },
+                                    timeout: 8000
+                                });
+                            } catch (publicError) {
+                                console.warn(`[Category Top Products] Busca pública falhou para termo '${term}':`, publicError.message);
+                                continue;
+                            }
+                        }
+                        
+                        const searchResults = searchResponse?.data?.results || [];
+                        
+                        // Filtrar apenas produtos da categoria correta
+                        const categoryProducts = searchResults.filter((product: any) => 
+                            product.category_id === categoryId && 
+                            product.sold_quantity && 
+                            product.sold_quantity > 1
+                        );
+                        
+                        results.push(...categoryProducts);
+                        console.log(`[Category Top Products] Encontrados ${categoryProducts.length} produtos para termo '${term}'`);
+                        
+                        if (results.length >= 15) break; // Limitar para não fazer muitas requests
+                        
+                    } catch (error) {
+                        console.warn(`[Category Top Products] Erro ao buscar termo '${term}':`, error.message);
+                        continue;
+                    }
+                }
+            }
+            
+            // Remover duplicatas e ordenar por vendas
+            const uniqueProducts = new Map();
+            results.forEach(product => {
+                const id = String(product.id);
+                if (!uniqueProducts.has(id) || uniqueProducts.get(id).sold_quantity < product.sold_quantity) {
+                    uniqueProducts.set(id, product);
+                }
+            });
+            
+            const sortedProducts = Array.from(uniqueProducts.values())
+                .filter(product => product.sold_quantity && product.sold_quantity > 0)
+                .sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0));
+
+            // Se ainda não temos produtos suficientes, retornar lista vazia
+            if (sortedProducts.length < 3) {
+                console.log(`[Category Top Products] Poucos produtos encontrados (${sortedProducts.length}), retornando vazio`);
+                return [];
+            }
+
+            // Mapear para o formato esperado e pegar apenas os top 10
+            const topProducts: CategoryTopProduct[] = sortedProducts.slice(0, 10).map(product => ({
+                id: String(product.id),
+                title: String(product.title || ''),
+                price: Number(product.price || 0),
+                sold_quantity: Number(product.sold_quantity || 0),
+                permalink: String(product.permalink || ''),
+                thumbnail: String(product.thumbnail || product.secure_thumbnail || ''),
+                seller: {
+                    id: String(product.seller?.id || ''),
+                    nickname: String(product.seller?.nickname || ''),
+                    reputation_level: String(product.seller?.seller_reputation?.level_id || 'bronze'),
+                    transactions: Number(product.seller?.seller_reputation?.transactions?.total || 0)
+                },
+                shipping: {
+                    free_shipping: Boolean(product.shipping?.free_shipping || false),
+                    mode: String(product.shipping?.mode || '')
+                }
+            }));
+
+            console.log(`[Category Top Products] Sucesso: ${topProducts.length} produtos top na categoria ${categoryId}`);
+            return topProducts;
+
+        } catch (error) {
+            console.error(`[Category Top Products] Erro geral ao buscar top produtos da categoria ${categoryId}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * Gera termos de busca específicos para cada categoria
+     */
+    private getCategorySearchTerms(categoryId: string, categoryName?: string): string[] {
+        const categoryTermsMap: { [key: string]: string[] } = {
+            // Bolsas
+            'MLB7022': ['bolsa feminina', 'carteira', 'necessaire', 'mochila'],
+            // Celulares
+            'MLB1051': ['smartphone', 'iphone', 'samsung', 'motorola'],
+            // Notebooks
+            'MLB1652': ['notebook', 'laptop', 'macbook', 'dell'],
+            // Eletrodomésticos
+            'MLB5726': ['geladeira', 'fogão', 'microondas', 'lavadora'],
+            // Roupas Femininas
+            'MLB1430': ['blusa', 'vestido', 'calça feminina', 'saia'],
+            // Sapatos
+            'MLB1276': ['tênis', 'sandália', 'sapato', 'bota'],
+            // Casa e Decoração
+            'MLB1367': ['decoração', 'móveis', 'quadros', 'almofadas'],
+            // Beleza
+            'MLB1246': ['maquiagem', 'perfume', 'creme', 'shampoo']
+        };
+        
+        const specificTerms = categoryTermsMap[categoryId] || [];
+        
+        // Se temos o nome da categoria, usar também
+        if (categoryName) {
+            const categoryWords = categoryName.toLowerCase()
+                .split(' ')
+                .filter(word => word.length > 3 && !['para', 'com', 'sem', 'mais'].includes(word));
+            specificTerms.unshift(...categoryWords);
+        }
+        
+        // Fallback genérico se não encontramos termos específicos
+        if (specificTerms.length === 0) {
+            return ['produto', 'original', 'novo'];
+        }
+        
+        return [...new Set(specificTerms)]; // Remove duplicatas
+    }
+
 }
 
 export const competitiveAnalyzerService = new CompetitiveAnalyzerService();

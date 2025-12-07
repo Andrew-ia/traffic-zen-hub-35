@@ -1,14 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMercadoLivreMetrics, useMercadoLivreProducts, useMercadoLivreQuestions, useSyncMercadoLivre } from "../hooks/useMercadoLivre";
+import { useMercadoLivreDailySales } from "@/hooks/useMercadoLivreOrders";
 import { PlatformFilters } from "@/components/platform/PlatformFilters";
 import { CompactKPICard } from "@/components/platform/CompactKPICard";
 import { MetricCard } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
+import { DailySalesChart } from "@/components/mercadolivre/DailySalesChart";
+import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 import { toast } from "@/hooks/use-toast";
 import {
     ShoppingBag,
@@ -39,6 +42,8 @@ export default function MercadoLivre() {
 
     const [dateRange, setDateRange] = useState("30");
     const [selectedCategory, setSelectedCategory] = useState("all");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage] = useState(10);
 
     // Hooks para buscar dados do Mercado Livre
     const {
@@ -57,6 +62,26 @@ export default function MercadoLivre() {
         data: questions,
         isLoading: questionsLoading
     } = useMercadoLivreQuestions(workspaceId, Number(dateRange));
+
+    // Calcular intervalo de datas para vendas diárias (memorizado e estável)
+    const { dateFrom, dateTo } = useMemo(() => {
+        const dateTo = new Date();
+        dateTo.setHours(23, 59, 59, 999); // Fim do dia
+
+        const dateFrom = new Date();
+        dateFrom.setDate(dateFrom.getDate() - Number(dateRange));
+        dateFrom.setHours(0, 0, 0, 0); // Início do dia
+
+        return {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+        };
+    }, [dateRange]);
+
+    const {
+        data: dailySales,
+        isLoading: dailySalesLoading
+    } = useMercadoLivreDailySales(workspaceId, dateFrom, dateTo);
 
     const syncMutation = useSyncMercadoLivre();
 
@@ -113,6 +138,7 @@ export default function MercadoLivre() {
                         search=""
                         onSearchChange={() => { }}
                     />
+                    <MercadoLivreConnectButton size="sm" variant="outline" />
                     <Button
                         onClick={handleSyncData}
                         size="sm"
@@ -220,149 +246,201 @@ export default function MercadoLivre() {
             </Card>
 
             {/* Layout Principal em 2 Colunas */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Coluna Esquerda - 60% */}
-                <div className="lg:col-span-7 space-y-6">
-                    {/* Gráfico de Vendas */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Coluna Esquerda - mais ampla */}
+                <div className="lg:col-span-9 space-y-6">
+                    {/* Gráfico de Vendas Diárias (Real) */}
                     <Card className="border-border/50 shadow-sm">
                         <CardHeader className="border-b border-border/50 bg-muted/20">
-                            <CardTitle className="text-base font-semibold">Evolução de Vendas</CardTitle>
+                            <CardTitle className="text-base font-semibold">Vendas Diárias</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
-                            {metricsLoading ? (
-                                <Skeleton className="h-64 w-full" />
-                            ) : (
-                                <PerformanceChart
-                                    data={(metrics?.salesTimeSeries ?? []).map(item => ({
-                                        date: item.date,
-                                        results: item.sales,
-                                        impressions: item.visits,
-                                        clicks: 0,
-                                        revenue: item.revenue,
-                                        spend: 0,
-                                    }))}
-                                    metric="revenue"
-                                    loading={metricsLoading}
-                                />
-                            )}
+                            <DailySalesChart
+                                data={dailySales?.dailySales || []}
+                                loading={dailySalesLoading}
+                            />
                         </CardContent>
                     </Card>
 
-                    {/* Top Produtos */}
+                    {/* Lista de Produtos com Paginação */}
                     <Card className="border-border/50 shadow-sm">
                         <CardHeader className="border-b border-border/50 bg-muted/20 flex flex-row items-center justify-between">
-                            <CardTitle className="text-base font-semibold">Top Produtos</CardTitle>
-                            <Button variant="ghost" size="sm" className="gap-2">
-                                Ver todos
-                                <ExternalLink className="h-3 w-3" />
-                            </Button>
+                            <div>
+                                <CardTitle className="text-base font-semibold">Todos os Produtos</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {products?.items ? `${products.items.length} produtos encontrados` : 'Carregando...'}
+                                </p>
+                            </div>
                         </CardHeader>
                         <CardContent className="p-6">
                             {productsLoading ? (
                                 <div className="space-y-3">
-                                    {[...Array(5)].map((_, i) => (
+                                    {[...Array(itemsPerPage)].map((_, i) => (
                                         <Skeleton key={i} className="h-16 w-full" />
                                     ))}
                                 </div>
                             ) : products?.items && products.items.length > 0 ? (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Produto</TableHead>
-                                            <TableHead>MLB ID</TableHead>
-                                            <TableHead className="text-right">Vendas</TableHead>
-                                            <TableHead className="text-right">Visitas</TableHead>
-                                            <TableHead className="text-right">Taxa Conv.</TableHead>
-                                            <TableHead className="text-right">Receita</TableHead>
-                                            <TableHead className="text-center">Ações</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {products.items.slice(0, 10).map((product: any) => (
-                                            <TableRow key={product.id}>
-                                                <TableCell className="font-medium">
-                                                    <div className="flex items-center gap-2">
-                                                        {product.thumbnail && (
-                                                            <img
-                                                                src={product.thumbnail}
-                                                                alt={product.title}
-                                                                className="h-10 w-10 rounded object-cover"
-                                                            />
-                                                        )}
-                                                        <span className="truncate max-w-xs">{product.title}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
-                                                            {product.id || product.mlb_id || 'N/A'}
-                                                        </code>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-6 w-6 p-0"
-                                                            onClick={async () => {
-                                                                try {
-                                                                    await navigator.clipboard.writeText(product.id || product.mlb_id || '');
-                                                                    toast({ title: "Copiado!", description: "MLB ID copiado para a área de transferência" });
-                                                                } catch (e) {
-                                                                    toast({ title: "Não foi possível copiar", variant: "destructive" });
-                                                                }
-                                                            }}
-                                                            title="Copiar MLB ID"
-                                                        >
-                                                            <Copy className="h-3 w-3" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">{product.sales ?? 0}</TableCell>
-                                                <TableCell className="text-right">
-                                                    {new Intl.NumberFormat("pt-BR").format(product.visits ?? 0)}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {product.conversionRate ? `${product.conversionRate.toFixed(1)}%` : "-"}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {new Intl.NumberFormat("pt-BR", {
-                                                        style: "currency",
-                                                        currency: "BRL",
-                                                    }).format(product.revenue ?? 0)}
-                                                </TableCell>
-                                                <TableCell className="text-center">
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="h-8 px-2 text-xs"
-                                                            onClick={() => {
-                                                                const mlbId = product.id || product.mlb_id;
-                                                                if (mlbId) {
-                                                                    navigate(`/mercado-livre-analyzer?mlb=${mlbId}`);
-                                                                }
-                                                            }}
-                                                            disabled={!product.id && !product.mlb_id}
-                                                        >
-                                                            <Search className="h-3 w-3 mr-1" />
-                                                            Analisar
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 px-2 text-xs"
-                                                            onClick={() => {
-                                                                const permalink = product.permalink || `https://mercadolivre.com.br/p/${product.id || product.mlb_id}`;
-                                                                window.open(permalink, '_blank');
-                                                            }}
-                                                            title="Ver no Mercado Livre"
-                                                        >
-                                                            <ExternalLink className="h-3 w-3" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                <>
+                                    <div className="overflow-x-auto">
+                                        <Table className="w-full min-w-[800px]">
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Produto</TableHead>
+                                                    <TableHead>MLB ID</TableHead>
+                                                    <TableHead className="text-right">Vendas</TableHead>
+                                                    <TableHead className="text-right">Visitas</TableHead>
+                                                    <TableHead className="text-right">Taxa Conv.</TableHead>
+                                                    <TableHead className="text-right">Receita</TableHead>
+                                                    <TableHead className="text-center">Ações</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {products.items
+                                                    .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                                                    .map((product: any) => (
+                                                <TableRow key={product.id}>
+                                                    <TableCell className="font-medium">
+                                                        <div className="flex items-center gap-2">
+                                                            {product.thumbnail && (
+                                                                <img
+                                                                    src={product.thumbnail}
+                                                                    alt={product.title}
+                                                                    className="h-10 w-10 rounded object-cover"
+                                                                />
+                                                            )}
+                                                            <span className="truncate max-w-2xl">{product.title}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
+                                                                {product.id || product.mlb_id || 'N/A'}
+                                                            </code>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 w-6 p-0"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await navigator.clipboard.writeText(product.id || product.mlb_id || '');
+                                                                        toast({ title: "Copiado!", description: "MLB ID copiado para a área de transferência" });
+                                                                    } catch (e) {
+                                                                        toast({ title: "Não foi possível copiar", variant: "destructive" });
+                                                                    }
+                                                                }}
+                                                                title="Copiar MLB ID"
+                                                            >
+                                                                <Copy className="h-3 w-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">{product.sales ?? 0}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        {new Intl.NumberFormat("pt-BR").format(product.visits ?? 0)}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {product.conversionRate ? `${product.conversionRate.toFixed(1)}%` : "-"}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {new Intl.NumberFormat("pt-BR", {
+                                                            style: "currency",
+                                                            currency: "BRL",
+                                                        }).format(product.revenue ?? 0)}
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="h-8 px-2 text-xs"
+                                                                onClick={() => {
+                                                                    const mlbId = product.id || product.mlb_id;
+                                                                    if (mlbId) {
+                                                                        navigate(`/mercado-livre-analyzer?mlb=${mlbId}`);
+                                                                    }
+                                                                }}
+                                                                disabled={!product.id && !product.mlb_id}
+                                                            >
+                                                                <Search className="h-3 w-3 mr-1" />
+                                                                Analisar
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 px-2 text-xs"
+                                                                onClick={() => {
+                                                                    const permalink = product.permalink || `https://mercadolivre.com.br/p/${product.id || product.mlb_id}`;
+                                                                    window.open(permalink, '_blank');
+                                                                }}
+                                                                title="Ver no Mercado Livre"
+                                                            >
+                                                                <ExternalLink className="h-3 w-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                {/* Controles de Paginação */}
+                                {products.items.length > itemsPerPage && (
+                                    <div className="flex items-center justify-between mt-6 pt-4 border-t border-border/50">
+                                        <div className="text-sm text-muted-foreground">
+                                            Mostrando {((currentPage - 1) * itemsPerPage) + 1} a {Math.min(currentPage * itemsPerPage, products.items.length)} de {products.items.length} produtos
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                                disabled={currentPage === 1}
+                                            >
+                                                Anterior
+                                            </Button>
+
+                                            <div className="flex items-center gap-1">
+                                                {Array.from({ length: Math.ceil(products.items.length / itemsPerPage) }, (_, i) => i + 1)
+                                                    .filter(page => {
+                                                        // Mostrar primeira, última e páginas próximas à atual
+                                                        const totalPages = Math.ceil(products.items.length / itemsPerPage);
+                                                        return (
+                                                            page === 1 ||
+                                                            page === totalPages ||
+                                                            (page >= currentPage - 1 && page <= currentPage + 1)
+                                                        );
+                                                    })
+                                                    .map((page, index, array) => (
+                                                        <div key={page} className="flex items-center">
+                                                            {index > 0 && array[index - 1] !== page - 1 && (
+                                                                <span className="px-2 text-muted-foreground">...</span>
+                                                            )}
+                                                            <Button
+                                                                variant={currentPage === page ? "default" : "outline"}
+                                                                size="sm"
+                                                                onClick={() => setCurrentPage(page)}
+                                                                className="min-w-[2.5rem]"
+                                                            >
+                                                                {page}
+                                                            </Button>
+                                                        </div>
+                                                    ))
+                                                }
+                                            </div>
+
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(products.items.length / itemsPerPage), prev + 1))}
+                                                disabled={currentPage === Math.ceil(products.items.length / itemsPerPage)}
+                                            >
+                                                Próximo
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                             ) : (
                                 <div className="text-center py-12">
                                     <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
@@ -376,8 +454,8 @@ export default function MercadoLivre() {
                     </Card>
                 </div>
 
-                {/* Coluna Direita - 40% */}
-                <div className="lg:col-span-5 space-y-6">
+                {/* Coluna Direita - ajustada */}
+                <div className="lg:col-span-3 space-y-6">
                     {/* Status da Integração */}
                     <Card className="border-border/50 shadow-sm">
                         <CardHeader className="border-b border-border/50 bg-muted/20">
@@ -478,11 +556,22 @@ export default function MercadoLivre() {
                                         Abrir Mercado Livre
                                     </a>
                                 </Button>
-                                <Button variant="outline" className="w-full justify-start">
+                                <Button
+                                    variant="outline"
+                                    className="w-full justify-start"
+                                    onClick={() => navigate('/catalog-intelligence')}
+                                >
                                     <TrendingUp className="h-4 w-4 mr-2" />
                                     Ver Relatório Completo
                                 </Button>
-                                <Button variant="outline" className="w-full justify-start">
+                                <Button
+                                    variant="outline"
+                                    className="w-full justify-start"
+                                    onClick={() => {
+                                        const url = 'https://www.mercadolivre.com.br/vendas/perguntas';
+                                        window.open(url, '_blank');
+                                    }}
+                                >
                                     <MessageCircle className="h-4 w-4 mr-2" />
                                     Responder Perguntas
                                 </Button>

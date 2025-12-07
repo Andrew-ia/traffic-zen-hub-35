@@ -8,6 +8,7 @@ interface PerformanceChartProps {
   description?: string;
   loading?: boolean;
   metric: "spend" | "results" | "revenue";
+  labelOverride?: string;
 }
 
 const metricConfig = {
@@ -44,8 +45,10 @@ export function PerformanceChart({
   description,
   loading = false,
   metric,
+  labelOverride,
 }: PerformanceChartProps) {
   const config = metricConfig[metric];
+  const lineLabel = labelOverride || config.label;
 
   // Formatar dados para o gráfico
   // Forçar interpretação da data como UTC para evitar problemas de timezone
@@ -94,12 +97,12 @@ export function PerformanceChart({
               borderRadius: "var(--radius)",
             }}
             labelStyle={{ color: "hsl(var(--foreground))" }}
-            formatter={(value: number) => [config.format(value), config.label]}
+            formatter={(value: number) => [config.format(value), lineLabel]}
           />
           <Line
             type="monotone"
             dataKey="value"
-            name={config.label}
+            name={lineLabel}
             stroke={config.color}
             strokeWidth={2}
             dot={{ fill: config.color, r: 3 }}
@@ -146,13 +149,13 @@ export function PerformanceChart({
                   borderRadius: "var(--radius)",
                 }}
                 labelStyle={{ color: "hsl(var(--foreground))" }}
-                formatter={(value: number) => [config.format(value), config.label]}
+                formatter={(value: number) => [config.format(value), lineLabel]}
               />
               <Legend />
               <Line
                 type="monotone"
                 dataKey="value"
-                name={config.label}
+                name={lineLabel}
                 stroke={config.color}
                 strokeWidth={2}
                 dot={{ fill: config.color, r: 4 }}

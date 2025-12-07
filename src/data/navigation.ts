@@ -1,23 +1,20 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
-  BarChart3,
   Target,
   TrendingUp,
   Plug,
   Sparkles,
   Facebook,
-  Search,
   MessageSquare,
-  Wallet,
   Kanban,
   ChartLine,
   Folder,
-  Bot,
-  Users,
   ShoppingBag,
   Package,
-  RefreshCw,
+  Trophy,
+  Warehouse,
+  Bell,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -29,26 +26,19 @@ export interface NavigationItem {
 
 export const mainNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
-  { name: "Leads", href: "/leads", icon: Users, keywords: ["leads", "crm", "clientes", "contatos"] },
-
   { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
   { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
-  { name: "Análise de Criativos", href: "/creative-analysis/meta", icon: Sparkles, keywords: ["meta", "criativos", "analise", "ia"] },
-
   { name: "Criativos Drive", href: "/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
   { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   { name: "Mercado Livre", href: "/mercado-livre", icon: ShoppingBag, keywords: ["mercado livre", "ecommerce", "vendas", "marketplace"] },
   { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
-
+  { name: "Inteligência de Catálogo", href: "/catalog-intelligence", icon: Trophy, keywords: ["catalogo", "ranking", "posicao", "competidores", "vencedor", "mercado livre"] },
   { name: "Produtos", href: "/products", icon: Package, keywords: ["produtos", "catalogo", "estoque", "ml"] },
-  { name: "Sincronização", href: "/sync", icon: RefreshCw, keywords: ["sync", "sincronizar", "mercado livre", "conflitos"] },
+  { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
   { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
-  { name: "AI Assistant", href: "/ai-assistant", icon: Bot, keywords: ["ai", "chat", "assistente", "inteligencia"] },
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
-
-  { name: "Rastreamento Digital", href: "/tracking", icon: Sparkles, keywords: ["tags", "gtm", "rastreamento"] },
-  { name: "Integrações", href: "/integrations", icon: Plug, keywords: ["config", "conexões"] },
+  { name: "Notificações", href: "/notifications", icon: Bell, keywords: ["notificações", "telegram", "alertas", "avisos"] },
   { name: "Usuários", href: "/admin/users", icon: Plug, keywords: ["admin", "usuários", "acesso"] },
 ];
 

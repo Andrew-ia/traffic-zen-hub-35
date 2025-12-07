@@ -38,13 +38,16 @@ export async function downloadProxy(req: Request, res: Response) {
     console.log(`📥 Proxying download for: ${url}`);
 
     // Fetch the file from the external URL with additional headers
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000); // 30 segundos
+
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'TrafficPro/1.0 (+https://trafficpro.dev)',
         'Accept': '*/*',
       },
-      timeout: 30000, // 30 seconds timeout
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
 
     console.log(`📡 Response status: ${response.status} ${response.statusText}`);
     console.log(`📡 Response headers:`, Object.fromEntries(response.headers.entries()));

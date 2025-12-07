@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { resolveApiBase } from "@/lib/apiBase";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { MetricCard } from "@/components/dashboard/MetricCard";
+import GoogleAnalyticsConnectButton from "@/components/GoogleAnalyticsConnectButton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const API_BASE = resolveApiBase();
@@ -410,6 +411,7 @@ export default function GoogleAnalytics() {
               <SelectItem value="90">Últimos 90 dias</SelectItem>
             </SelectContent>
           </Select>
+          <GoogleAnalyticsConnectButton size="sm" variant="outline" />
           <Button onClick={() => fetchGA4Data(dateRange)} size="sm">
             <RefreshCw className="w-4 h-4 mr-2" />
             Sincronizar Dados

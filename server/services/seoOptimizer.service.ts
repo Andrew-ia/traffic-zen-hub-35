@@ -1,4 +1,4 @@
-import { MLBAnalysisData, KeywordAnalysis, TitleOptimization } from './mlbAnalyzer.service';
+import { MLBAnalysisData, KeywordAnalysis, TitleOptimization } from './mlbAnalyzer.service.js';
 import axios from 'axios';
 
 const MERCADO_LIVRE_API_BASE = 'https://api.mercadolibre.com';
@@ -42,7 +42,7 @@ export interface SEODescriptionData {
  * Serviço especializado em otimização SEO para Mercado Livre
  */
 export class SEOOptimizerService {
-    
+
     /**
      * Analisa palavras-chave do produto
      */
@@ -50,31 +50,31 @@ export class SEOOptimizerService {
         const title = productData.title.toLowerCase();
         const description = productData.descriptions?.[0]?.plain_text?.toLowerCase() || '';
         const categoryId = productData.category_id;
-        
+
         // Extrair palavras-chave primárias (categoria + atributos importantes)
         const primary_keywords = this.extractPrimaryKeywords(productData);
-        
+
         // Extrair palavras-chave secundárias (do título e atributos)
         const secondary_keywords = this.extractSecondaryKeywords(productData);
-        
+
         // Extrair long-tail keywords
         const long_tail_keywords = this.extractLongTailKeywords(productData);
-        
+
         // Identificar palavras-chave em falta
         const missing_keywords = this.identifyMissingKeywords(productData);
-        
+
         // Calcular densidade de palavras-chave
         const keyword_density = this.calculateKeywordDensity(productData);
-        
+
         // Identificar palavras-chave em tendência
         const trending_keywords = this.getTrendingKeywords(categoryId);
-        
+
         // Analisar competidores (simulado por enquanto)
         const competitor_keywords = this.getCompetitorKeywords(categoryId);
-        
+
         // Gerar recomendações por seção
         const recommendations = this.generateKeywordRecommendations(productData);
-        
+
         return {
             primary_keywords,
             secondary_keywords,
@@ -89,23 +89,23 @@ export class SEOOptimizerService {
             recommended_for_description: recommendations.description
         };
     }
-    
+
     /**
      * Otimiza título do produto
      */
     optimizeTitle(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): TitleOptimization {
         const current_title = productData.title;
         const current_score = this.scoreTitleSEO(current_title, productData);
-        
+
         // Identificar fraquezas do título atual
         const weaknesses = this.identifyTitleWeaknesses(current_title, productData);
-        
+
         // Gerar sugestões de título otimizado
         const suggested_titles = this.generateTitleSuggestions(productData, keywordAnalysis);
-        
+
         // Melhores práticas
         const best_practices = this.getTitleBestPractices();
-        
+
         return {
             current_title,
             current_score,
@@ -114,85 +114,100 @@ export class SEOOptimizerService {
             best_practices
         };
     }
-    
+
     /**
      * Gera descrição SEO otimizada
      */
     generateSEODescription(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): SEODescriptionData {
+        const title = productData.title;
         const brand = this.getBrand(productData);
-        const model = this.getModel(productData);
-        const category = this.getCategoryName(productData.category_id);
-        
-        // Construir seções da descrição
-        const title_section = this.generateTitleSection(productData, brand, model);
-        const bullet_points = this.generateBulletPoints(productData, keywordAnalysis);
-        const technical_specs = this.generateTechnicalSpecs(productData);
-        const benefits = this.generateBenefits(productData, keywordAnalysis);
-        const usage_info = this.generateUsageInfo(productData);
-        const warranty_info = this.generateWarrantyInfo(productData);
-        const faq_section = this.generateFAQSection(productData);
-        
-        // Montar descrição completa
-        const optimized_description = this.assembleDescription({
-            title_section,
-            bullet_points,
-            technical_specs,
-            benefits,
-            usage_info,
-            warranty_info,
-            faq_section
-        });
-        
-        // Calcular métricas
-        const readability_score = this.calculateReadabilityScore(optimized_description);
-        const call_to_action = this.generateCallToAction(productData);
-        
+        const categoryKeyword = this.getCategoryKeywordFromData(productData) || '';
+        const normalizedTitle = title.toLowerCase();
+        const isEarring = normalizedTitle.includes('brinco') || categoryKeyword.toLowerCase().includes('brinco');
+        const isRing = normalizedTitle.includes('anel');
+        const isNecklace = normalizedTitle.includes('colar');
+
+        const attributes = productData.attributes || [];
+        const material = attributes.find(a => a.id === 'MATERIAL')?.value_name || '';
+        const color = attributes.find(a => a.id === 'COLOR')?.value_name || '';
+        const size = attributes.find(a => a.id === 'SIZE')?.value_name || '';
+
+        const parts: string[] = [];
+        parts.push(title);
+
+        const details: string[] = [];
+        if (brand) details.push(`Marca: ${brand}`);
+        if (material) details.push(`Material: ${material}`);
+        if (color) details.push(`Cor: ${color}`);
+        if (size) details.push(`Tamanho: ${size}`);
+
+        if (details.length > 0) {
+            parts.push('');
+            parts.push('CARACTERÍSTICAS:');
+            parts.push(...details);
+        }
+
+        const qtyPrefix = isEarring ? '02' : '01';
+        parts.push('');
+        parts.push('ACOMPANHA:');
+        parts.push(`${qtyPrefix} ${title}`);
+        parts.push('Nota Fiscal');
+        parts.push('Embalagem');
+
+        parts.push('');
+        parts.push('ENVIO:');
+        parts.push('SEG A SEXTA: Pedidos até meio dia, envio no mesmo dia.');
+        parts.push('SÁB, DOM E FERIADOS: Envio no próximo dia útil.');
+
+        const optimized_description = parts.join('\n');
+        const readability_score = Math.min(100, 80 + Math.floor(details.length * 2));
+
         return {
             optimized_description,
             structure: {
-                title_section,
-                bullet_points,
-                technical_specs,
-                benefits,
-                usage_info,
-                warranty_info,
-                faq_section
+                title_section: title,
+                bullet_points: details,
+                technical_specs: details.join('\n'),
+                benefits: [],
+                usage_info: '',
+                warranty_info: '',
+                faq_section: []
             },
-            seo_keywords: keywordAnalysis.primary_keywords.concat(keywordAnalysis.secondary_keywords),
+            seo_keywords: keywordAnalysis.primary_keywords,
             readability_score,
-            call_to_action
+            call_to_action: ''
         };
     }
-    
+
     /**
      * Extrai palavras-chave primárias
      */
     private extractPrimaryKeywords(productData: MLBAnalysisData): string[] {
         const keywords: string[] = [];
-        
+
         // Categoria principal
-        const categoryKeyword = this.getCategoryKeyword(productData.category_id);
+        const categoryKeyword = this.getCategoryKeywordFromData(productData);
         if (categoryKeyword) keywords.push(categoryKeyword);
-        
+
         // Marca
         const brand = this.getBrand(productData);
         if (brand) keywords.push(brand.toLowerCase());
-        
+
         // Palavras principais do título
         const titleWords = productData.title.toLowerCase().split(' ')
             .filter(word => word.length > 3)
             .slice(0, 3);
         keywords.push(...titleWords);
-        
+
         return [...new Set(keywords)]; // Remove duplicatas
     }
-    
+
     /**
      * Extrai palavras-chave secundárias
      */
     private extractSecondaryKeywords(productData: MLBAnalysisData): string[] {
         const keywords: string[] = [];
-        
+
         // Atributos importantes
         const attributes = productData.attributes || [];
         attributes.forEach(attr => {
@@ -200,49 +215,49 @@ export class SEOOptimizerService {
                 keywords.push(attr.value_name.toLowerCase());
             }
         });
-        
+
         // Palavras do modelo
         const model = this.getModel(productData);
         if (model) {
             const modelWords = model.toLowerCase().split(' ').filter(word => word.length > 2);
             keywords.push(...modelWords);
         }
-        
+
         // Tags do produto
         if (productData.tags) {
             keywords.push(...productData.tags.map(tag => tag.toLowerCase()));
         }
-        
+
         return [...new Set(keywords)];
     }
-    
+
     /**
      * Extrai long-tail keywords
      */
     private extractLongTailKeywords(productData: MLBAnalysisData): string[] {
         const keywords: string[] = [];
-        
+
         // Combinações de atributos
         const brand = this.getBrand(productData);
         const color = this.getAttribute(productData, 'COLOR');
         const size = this.getAttribute(productData, 'SIZE');
-        const category = this.getCategoryKeyword(productData.category_id);
-        
+        const category = this.getCategoryKeywordFromData(productData);
+
         if (brand && color && category) {
             keywords.push(`${category} ${brand} ${color}`.toLowerCase());
         }
-        
+
         if (brand && size && category) {
             keywords.push(`${category} ${brand} ${size}`.toLowerCase());
         }
-        
+
         // Frases do título
         const titlePhrases = this.extractPhrases(productData.title, 3);
         keywords.push(...titlePhrases);
-        
+
         return [...new Set(keywords)];
     }
-    
+
     /**
      * Identifica palavras-chave em falta
      */
@@ -250,16 +265,16 @@ export class SEOOptimizerService {
         const missing: string[] = [];
         const title = productData.title.toLowerCase();
         const description = productData.descriptions?.[0]?.plain_text?.toLowerCase() || '';
-        
+
         // Keywords que deveriam estar presentes
-        const shouldHave = this.getExpectedKeywords(productData.category_id);
-        
+        const shouldHave = this.getExpectedKeywordsDynamic(productData);
+
         shouldHave.forEach(keyword => {
             if (!title.includes(keyword) && !description.includes(keyword)) {
                 missing.push(keyword);
             }
         });
-        
+
         // Atributos não mencionados
         const attributes = productData.attributes || [];
         attributes.forEach(attr => {
@@ -270,10 +285,10 @@ export class SEOOptimizerService {
                 }
             }
         });
-        
+
         return [...new Set(missing)];
     }
-    
+
     /**
      * Calcula densidade de palavras-chave
      */
@@ -281,20 +296,20 @@ export class SEOOptimizerService {
         const title = productData.title.toLowerCase();
         const description = productData.descriptions?.[0]?.plain_text?.toLowerCase() || '';
         const allText = `${title} ${description}`;
-        
+
         const totalWords = allText.split(' ').length;
         const categoryKeywords = this.getExpectedKeywords(productData.category_id);
-        
+
         let keywordCount = 0;
         categoryKeywords.forEach(keyword => {
             const regex = new RegExp(`\\b${keyword.toLowerCase()}\\b`, 'g');
             const matches = allText.match(regex);
             keywordCount += matches ? matches.length : 0;
         });
-        
+
         return totalWords > 0 ? (keywordCount / totalWords) * 100 : 0;
     }
-    
+
     /**
      * Obtém palavras-chave em tendência
      */
@@ -306,10 +321,10 @@ export class SEOOptimizerService {
             'MLB1432': ['dourado', 'prateado', 'hipoalergênico', 'delicado'],
             // ... mais categorias
         };
-        
+
         return trendingByCategory[categoryId] || [];
     }
-    
+
     /**
      * Obtém palavras-chave de competidores
      */
@@ -320,7 +335,7 @@ export class SEOOptimizerService {
         }
         return ['premium', 'original', 'garantia', 'entrega rapida'];
     }
-    
+
     /**
      * Gera recomendações de palavras-chave por seção
      */
@@ -328,15 +343,29 @@ export class SEOOptimizerService {
         const brand = this.getBrand(productData);
         const category = this.getCategoryKeyword(productData.category_id);
         const trending = this.getTrendingKeywords(productData.category_id);
-        
+
+        const colorAttr = (this.getAttribute(productData, 'COLOR') || '').toLowerCase();
+        const normalizeColor = (s: string) => {
+            const n = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+            if (n === 'ouro' || n === 'dourado') return 'dourado';
+            if (n === 'prata' || n === 'prateado') return 'prateado';
+            return n;
+        };
+        const colorWords = new Set(['dourado', 'ouro', 'prateado', 'prata', 'preto', 'branco', 'azul', 'verde', 'vermelho', 'rosa', 'roxo', 'bege', 'cinza', 'laranja', 'amarelo', 'marrom']);
+        const safeTrending = trending.filter((kw) => {
+            const n = normalizeColor(kw);
+            const isColor = colorWords.has(n);
+            return !isColor || (colorAttr && normalizeColor(colorAttr) === n);
+        });
+
         return {
-            title: [category, brand, ...trending.slice(0, 2)].filter(Boolean),
-            model: trending.concat(['premium', 'original', 'qualidade']),
+            title: [category, brand, ...safeTrending.slice(0, 2)].filter(Boolean),
+            model: safeTrending.concat(['premium', 'original', 'qualidade']),
             attributes: ['cor', 'tamanho', 'material', 'marca'],
-            description: ['garantia', 'entrega', 'qualidade', 'durabilidade', ...trending]
+            description: ['garantia', 'entrega', 'qualidade', 'durabilidade', ...safeTrending]
         };
     }
-    
+
     /**
      * Gera sugestões de título otimizado
      */
@@ -347,34 +376,48 @@ export class SEOOptimizerService {
         const category = this.getCategoryKeyword(productData.category_id);
         const color = this.getAttribute(productData, 'COLOR');
         const size = this.getAttribute(productData, 'SIZE');
-        
+
+        const colorAttr = (color || '').toLowerCase();
+        const normalizeColor = (s: string) => {
+            const n = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+            if (n === 'ouro' || n === 'dourado') return 'dourado';
+            if (n === 'prata' || n === 'prateado') return 'prateado';
+            return n;
+        };
+        const colorWords = new Set(['dourado', 'ouro', 'prateado', 'prata', 'preto', 'branco', 'azul', 'verde', 'vermelho', 'rosa', 'roxo', 'bege', 'cinza', 'laranja', 'amarelo', 'marrom']);
+        const safeTrending = keywordAnalysis.trending_keywords.filter((kw) => {
+            const n = normalizeColor(kw);
+            const isColor = colorWords.has(n);
+            return !isColor || (colorAttr && normalizeColor(colorAttr) === n);
+        });
+
         // Estratégia 1: Categoria + Marca + Modelo + Diferencial
         if (category && brand) {
-            const title1 = `${category} ${brand} ${model || ''} ${color || ''} ${keywordAnalysis.trending_keywords[0] || ''}`.trim();
+            const title1 = `${category} ${brand} ${model || ''} ${color || ''} ${safeTrending[0] || ''}`.trim();
             suggestions.push(this.evaluateTitle(title1, productData, keywordAnalysis));
         }
-        
+
         // Estratégia 2: Foco em benefícios
         if (category) {
-            const benefits = keywordAnalysis.trending_keywords.slice(0, 2).join(' ');
+            const benefits = safeTrending.slice(0, 2).join(' ');
             const title2 = `${category} ${benefits} ${brand} ${color || size || ''}`.trim();
             suggestions.push(this.evaluateTitle(title2, productData, keywordAnalysis));
         }
-        
+
         // Estratégia 3: Long-tail otimizado
         if (keywordAnalysis.long_tail_keywords.length > 0) {
             const longTail = keywordAnalysis.long_tail_keywords[0];
-            const title3 = `${longTail} ${brand} Original`.trim();
+        const title3 = `${longTail}${brand ? ` ${brand}` : ''}`.trim();
             suggestions.push(this.evaluateTitle(title3, productData, keywordAnalysis));
         }
-        
+
         // Estratégia 4: Otimização do título atual
         const currentOptimized = this.optimizeCurrentTitle(productData.title, keywordAnalysis);
         suggestions.push(this.evaluateTitle(currentOptimized, productData, keywordAnalysis));
-        
+
         return suggestions.sort((a, b) => b.score - a.score);
     }
-    
+
     /**
      * Avalia um título e retorna score + análise
      */
@@ -382,23 +425,23 @@ export class SEOOptimizerService {
         const score = this.scoreTitleSEO(title, productData);
         const keywords_added: string[] = [];
         const keywords_removed: string[] = [];
-        
+
         // Comparar com título original
         const originalWords = productData.title.toLowerCase().split(' ');
         const newWords = title.toLowerCase().split(' ');
-        
+
         newWords.forEach(word => {
             if (!originalWords.includes(word) && word.length > 2) {
                 keywords_added.push(word);
             }
         });
-        
+
         originalWords.forEach(word => {
             if (!newWords.includes(word) && word.length > 2) {
                 keywords_removed.push(word);
             }
         });
-        
+
         return {
             title,
             score,
@@ -415,7 +458,7 @@ export class SEOOptimizerService {
             }
         };
     }
-    
+
     // Métodos auxiliares
     private scoreTitleSEO(title: string, productData: MLBAnalysisData): number {
         let score = 0;
@@ -446,20 +489,20 @@ export class SEOOptimizerService {
 
         return Math.max(0, Math.min(100, score));
     }
-    
+
     private identifyTitleWeaknesses(title: string, productData: MLBAnalysisData): string[] {
         const weaknesses = [];
-        
+
         if (title.length > 60) weaknesses.push('Título muito longo');
         if (title.length < 20) weaknesses.push('Título muito curto');
         if (title.toUpperCase() === title) weaknesses.push('Excesso de maiúsculas');
         if (!this.getBrand(productData) || !title.toLowerCase().includes(this.getBrand(productData)?.toLowerCase() || '')) {
             weaknesses.push('Marca ausente no título');
         }
-        
+
         return weaknesses;
     }
-    
+
     private getTitleBestPractices(): string[] {
         return [
             'Use 20-60 caracteres para melhor visibilidade',
@@ -471,202 +514,146 @@ export class SEOOptimizerService {
             'Evite caracteres especiais desnecessários'
         ];
     }
-    
+
     // Métodos auxiliares para extrair informações do produto
     private getBrand(productData: MLBAnalysisData): string | null {
         const brandAttr = productData.attributes.find(attr => attr.id === 'BRAND');
         return brandAttr?.value_name || null;
     }
-    
+
     private getModel(productData: MLBAnalysisData): string | null {
         const modelAttr = productData.attributes.find(attr => attr.id === 'MODEL');
         return modelAttr?.value_name || null;
     }
-    
+
     private getAttribute(productData: MLBAnalysisData, attributeId: string): string | null {
         const attr = productData.attributes.find(attr => attr.id === attributeId);
         return attr?.value_name || null;
     }
-    
+
+    private getCategoryKeywordFromData(productData: MLBAnalysisData): string | null {
+        const path = productData.category_prediction?.path_from_root || [];
+        const leaf = String(path[path.length - 1]?.name || '').toLowerCase();
+        if (/anel/.test(leaf)) return 'Anel';
+        if (/brinco/.test(leaf)) return 'Brinco';
+        if (/colar/.test(leaf)) return 'Colar';
+        if (/pulseira/.test(leaf)) return 'Pulseira';
+        return null;
+    }
+
+    private getCategoryNameByData(productData: MLBAnalysisData): string {
+        return this.getCategoryKeywordFromData(productData) || 'Produto';
+    }
+
     private getCategoryKeyword(categoryId: string): string | null {
-        const categoryMappings: { [key: string]: string } = {
+        const mapping: Record<string, string> = {
+            'MLB1432': 'Joia',
             'MLB1276': 'Fone',
             'MLB1051': 'Celular',
-            'MLB1432': 'Brinco',
             'MLB1652': 'Notebook'
         };
-        return categoryMappings[categoryId] || null;
+        return mapping[categoryId] || null;
     }
-    
-    private getCategoryName(categoryId: string): string {
-        return this.getCategoryKeyword(categoryId) || 'Produto';
-    }
-    
+
     private getExpectedKeywords(categoryId: string): string[] {
-        const keywordsByCategory: { [key: string]: string[] } = {
-            'MLB1276': ['fone', 'audio', 'som', 'música'],
-            'MLB1051': ['celular', 'smartphone', 'telefone'],
-            'MLB1432': ['brinco', 'joia', 'acessório']
+        const mapping: Record<string, string[]> = {
+            'MLB1432': ['joia', 'bijuteria', 'acessório', 'anel', 'brinco', 'colar', 'pulseira'],
+            'MLB1276': ['fone', 'headphone', 'audio', 'som', 'bluetooth'],
+            'MLB1051': ['celular', 'smartphone', 'mobile', 'telefone'],
+            'MLB1652': ['notebook', 'laptop', 'computador']
         };
-        return keywordsByCategory[categoryId] || [];
+        return mapping[categoryId] || [];
     }
-    
+
+    private getExpectedKeywordsDynamic(productData: MLBAnalysisData): string[] {
+        const kw: string[] = [];
+        const cat = this.getCategoryKeywordFromData(productData);
+        if (cat) kw.push(cat.toLowerCase());
+        const material = this.getAttribute(productData, 'MATERIAL');
+        const color = this.getAttribute(productData, 'COLOR');
+        const size = this.getAttribute(productData, 'SIZE');
+        [material, color, size].forEach(v => { if (v) kw.push(v.toLowerCase()); });
+        return [...new Set(kw)];
+    }
+
     private extractPhrases(text: string, minWords: number): string[] {
         const words = text.toLowerCase().split(' ');
         const phrases = [];
-        
+
         for (let i = 0; i <= words.length - minWords; i++) {
             const phrase = words.slice(i, i + minWords).join(' ');
             phrases.push(phrase);
         }
-        
+
         return phrases;
     }
-    
+
     // Métodos para geração de descrição
     private generateTitleSection(productData: MLBAnalysisData, brand: string | null, model: string | null): string {
-        const category = this.getCategoryName(productData.category_id);
-        return `🔥 ${category} ${brand || ''} ${model || ''} - Original com Garantia`.trim();
+        return '';
     }
-    
-    private generateBulletPoints(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): string[] {
-        const points = [];
-        
-        const brand = this.getBrand(productData);
-        if (brand) points.push(`✅ Marca: ${brand}`);
-        
-        const color = this.getAttribute(productData, 'COLOR');
-        if (color) points.push(`🎨 Cor: ${color}`);
-        
-        points.push('📦 Entrega rápida');
-        points.push('🛡️ Produto original');
-        points.push('🚚 Frete grátis');
-        
-        return points;
-    }
-    
-    private generateTechnicalSpecs(productData: MLBAnalysisData): string {
-        const specs = [];
-        const attributes = productData.attributes || [];
-        
-        attributes.forEach(attr => {
-            if (['DIMENSIONS', 'WEIGHT', 'MATERIAL'].includes(attr.id) && attr.value_name) {
-                specs.push(`${attr.name}: ${attr.value_name}`);
-            }
-        });
-        
-        return specs.length > 0 ? `\n📋 Especificações Técnicas:\n${specs.join('\n')}` : '';
-    }
-    
-    private generateBenefits(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): string[] {
-        return [
-            'Qualidade superior',
-            'Durabilidade garantida',
-            'Design moderno',
-            'Fácil de usar'
-        ];
-    }
-    
-    private generateUsageInfo(productData: MLBAnalysisData): string {
-        return '\n💡 Ideal para uso diário, presente ou coleção.';
-    }
-    
-    private generateWarrantyInfo(productData: MLBAnalysisData): string {
-        return '\n🛡️ Garantia: 30 dias conforme Código de Defesa do Consumidor.';
-    }
-    
-    private generateFAQSection(productData: MLBAnalysisData): string[] {
-        return [
-            '❓ É original? Sim, produto 100% original.',
-            '❓ Tem garantia? Sim, 30 dias de garantia.',
-            '❓ Como é a entrega? Rápida e segura via Mercado Envios.'
-        ];
-    }
-    
-    private assembleDescription(structure: any): string {
-        return [
-            structure.title_section,
-            '',
-            structure.bullet_points.join('\n'),
-            structure.technical_specs,
-            '',
-            '🌟 Benefícios:',
-            structure.benefits.map((b: string) => `• ${b}`).join('\n'),
-            structure.usage_info,
-            structure.warranty_info,
-            '',
-            '❓ Dúvidas Frequentes:',
-            structure.faq_section.join('\n')
-        ].filter(Boolean).join('\n');
-    }
-    
-    private calculateReadabilityScore(text: string): number {
-        // Implementação básica de legibilidade
-        const sentences = text.split(/[.!?]+/).length;
-        const words = text.split(' ').length;
-        const avgWordsPerSentence = words / sentences;
-        
-        // Score baseado na simplicidade
-        if (avgWordsPerSentence < 15) return 90;
-        if (avgWordsPerSentence < 20) return 75;
-        return 60;
-    }
-    
-    private generateCallToAction(productData: MLBAnalysisData): string {
-        return '🛒 Clique em COMPRAR AGORA e garante já o seu!';
-    }
-    
+
+    private generateBulletPoints(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): string[] { return []; }
+    private generateTechnicalSpecs(productData: MLBAnalysisData): string { return ''; }
+    private generateBenefits(productData: MLBAnalysisData, keywordAnalysis: KeywordAnalysis): string[] { return []; }
+    private generateUsageInfo(productData: MLBAnalysisData): string { return ''; }
+    private generateWarrantyInfo(productData: MLBAnalysisData): string { return ''; }
+    private generateFAQSection(productData: MLBAnalysisData): string[] { return []; }
+    private assembleDescription(structure: any): string { return ''; }
+    private calculateReadabilityScore(text: string): number { return 100; }
+    private generateCallToAction(productData: MLBAnalysisData): string { return ''; }
+
     private optimizeCurrentTitle(title: string, keywordAnalysis: KeywordAnalysis): string {
         // Implementação básica de otimização do título atual
         let optimized = title;
-        
+
         // Adicionar palavra-chave se não existe
         if (keywordAnalysis.missing_keywords.length > 0) {
             optimized = `${optimized} ${keywordAnalysis.missing_keywords[0]}`;
         }
-        
+
         // Limitar comprimento
         if (optimized.length > 60) {
             optimized = optimized.substring(0, 57) + '...';
         }
-        
+
         return optimized;
     }
-    
+
     private generateTitleReasoning(title: string, score: number): string {
         if (score >= 80) return 'Título bem otimizado com boa estrutura SEO';
         if (score >= 60) return 'Título aceitável, mas pode ser melhorado';
         return 'Título precisa de otimização significativa';
     }
-    
+
     private calculateTitleKeywordDensity(title: string, keywordAnalysis: KeywordAnalysis): number {
         const words = title.toLowerCase().split(' ');
-        const keywordCount = keywordAnalysis.primary_keywords.filter(kw => 
+        const keywordCount = keywordAnalysis.primary_keywords.filter(kw =>
             words.includes(kw.toLowerCase())
         ).length;
-        
+
         return (keywordCount / words.length) * 100;
     }
-    
+
     private calculateTitleReadability(title: string): number {
         // Score baseado na facilidade de leitura
         const words = title.split(' ');
         const avgWordLength = words.reduce((sum, word) => sum + word.length, 0) / words.length;
-        
+
         if (avgWordLength < 6) return 90;
         if (avgWordLength < 8) return 75;
         return 60;
     }
-    
+
     private calculateCTRPotential(title: string): number {
         let score = 50; // Base
-        
+
         // Fatores que aumentam CTR
         if (title.includes('Original')) score += 15;
         if (title.includes('Garantia')) score += 10;
         if (title.includes('Grátis')) score += 10;
         if (/\d+%/.test(title)) score += 15; // Desconto em %
-        
+
         return Math.min(100, score);
     }
 }
@@ -685,7 +672,7 @@ export async function fetchTrendingKeywordsFromML(categoryId: string, limit = 20
         const titles: string[] = results.map((r: any) => String(r.title || '').toLowerCase());
 
         const stop = new Set([
-            'de','da','do','das','dos','para','por','com','sem','em','na','no','nas','nos','e','ou','o','a','os','as','um','uma','uns','umas','kit','novo','usado'
+            'de', 'da', 'do', 'das', 'dos', 'para', 'por', 'com', 'sem', 'em', 'na', 'no', 'nas', 'nos', 'e', 'ou', 'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'kit', 'novo', 'usado'
         ]);
 
         const freq: Record<string, number> = {};
@@ -724,7 +711,7 @@ export async function fetchCompetitorKeywordsFromML(categoryId: string, limit = 
         const results = Array.isArray(response.data?.results) ? response.data.results : [];
         const titles: string[] = results.map((r: any) => String(r.title || '').toLowerCase());
 
-        const preference = new Set(['original','premium','garantia','frete','grátis','entrega','rápida']);
+        const preference = new Set(['original', 'premium', 'garantia', 'frete', 'grátis', 'entrega', 'rápida']);
         const freq: Record<string, number> = {};
         for (const t of titles) {
             const tokens = t.split(/[^a-z0-9áéíóúãõâêîôûç]+/i).filter(w => w && w.length > 3);
@@ -741,11 +728,11 @@ export async function fetchCompetitorKeywordsFromML(categoryId: string, limit = 
             .map(([w]) => w)
             .slice(0, limit);
 
-        const finalList = sorted.length > 0 ? sorted : ['premium','original','garantia'];
+        const finalList = sorted.length > 0 ? sorted : ['premium', 'original', 'garantia'];
         COMPETITOR_CACHE.set(categoryId, { data: finalList, ts: Date.now() });
         return finalList;
     } catch {
-        const fallback = ['premium','original','garantia'];
+        const fallback = ['premium', 'original', 'garantia'];
         COMPETITOR_CACHE.set(categoryId, { data: fallback, ts: Date.now() });
         return fallback.slice(0, limit);
     }

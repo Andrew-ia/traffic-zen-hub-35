@@ -1,4 +1,4 @@
-import { MLBAnalysisData } from './mlbAnalyzer.service';
+import { MLBAnalysisData } from './mlbAnalyzer.service.js';
 
 export interface TechnicalAttribute {
     id: string;

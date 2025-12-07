@@ -39,6 +39,20 @@ export interface MercadoLivreProduct {
     status: "active" | "paused" | "closed";
     category: string;
     stock: number;
+    logisticType?: string | null;
+    isFull?: boolean;
+    shipping?: {
+        mode?: string;
+        free_shipping?: boolean;
+        logistic_type?: string;
+        local_pick_up?: boolean;
+        dimensions?: string;
+    };
+    tags?: string[];
+    pictures?: Array<{ url: string; id: string }>;
+    attributes?: Array<{ name: string; value_name: string }>;
+    listing_type_id?: string;
+    condition?: string;
 }
 
 // Interface para perguntas
@@ -91,6 +105,16 @@ export function useMercadoLivreProducts(
             items: MercadoLivreProduct[];
             totalCount: number;
             activeCount: number;
+            counts?: {
+                active: number;
+                full: number;
+                normal: number;
+            };
+            stock?: {
+                full: number;
+                normal: number;
+                total: number;
+            };
             page?: number;
             limit?: number;
         }> => {
@@ -102,7 +126,7 @@ export function useMercadoLivreProducts(
                 workspaceId,
                 ...(category !== "all" && { category }),
                 page: String(1),
-                limit: String(20),
+                limit: String(1000), // Buscar até 1000 produtos
             });
 
             const response = await fetch(

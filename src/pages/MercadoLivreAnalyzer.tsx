@@ -1,16 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ShoppingBag, BarChart3, Zap, Target, Settings, AlertTriangle, FileText, Wrench, Package, ExternalLink } from "lucide-react";
+import { ShoppingBag, Zap, Target, ExternalLink } from "lucide-react";
 import { useMLBAnalyzer } from "@/hooks/useMLBAnalyzer";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMLBOptimizations } from "@/hooks/useMLBOptimizations";
 import type { OptimizationPayload } from "@/hooks/useMLBOptimizations";
 import { toast } from "@/hooks/use-toast";
 import { MLBAnalyzerInput } from "@/components/analyzer/MLBAnalyzerInput";
-import { QualityScore } from "@/components/analyzer/QualityScore";
-import { ModelManager } from "@/components/analyzer/ModelManager";
-import { SmartAlerts } from "@/components/analyzer/SmartAlerts";
-import { TechnicalSheetAnalyzer } from "@/components/analyzer/TechnicalSheetAnalyzer";
 import { ImageUpload } from "@/components/analyzer/ImageUpload";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,7 +49,7 @@ export default function MercadoLivreAnalyzer() {
     } = useMLBOptimizations();
     const { currentWorkspace } = useWorkspace();
 
-    const [activeTab, setActiveTab] = useState("overview");
+    const [activeTab, setActiveTab] = useState("apply");
     const [searchParams] = useSearchParams();
     const mlbFromQuery = searchParams.get("mlb") || undefined;
 
@@ -261,50 +257,142 @@ export default function MercadoLivreAnalyzer() {
         const size = (editedSize.trim() || (currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'SIZE')?.value_name || '').trim();
         const material = ((currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'MATERIAL')?.value_name || '').trim();
         const brandVal = (editedBrand || (currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'BRAND')?.value_name || '').trim();
-        const brandDisplay = brandVal && !['outras', 'genérica', 'generica', 'generic', 'outra'].includes(brandVal.toLowerCase()) ? brandVal : 'Nossa loja';
 
-        const intro = `${title}. Modelo clássico e elegante. Fica lindo para compor qualquer look clean, fresh e minimalista.`;
-
-        const brandBlock = `${brandDisplay} está no mercado oferecendo produtos de alta qualidade. Peças com excelente acabamento e durabilidade. Não perde a cor e mantemos um rigoroso padrão de qualidade.`;
-
-        const specLines: string[] = [];
-        specLines.push(`${title}`);
-        if (material) specLines.push(`Material: ${material}`);
-        if (color) specLines.push(`Cor: ${color}`);
-        if (size) specLines.push(`Tamanho: ${size}`);
-        specLines.push(`Acabamento de ótima qualidade, brilho prolongado e excelente durabilidade.`);
-
-        const body = [
-            intro,
-            '',
-            brandBlock,
-            '',
-            'CARACTERÍSTICAS:',
-            ...specLines,
-            '',
-            'GARANTIA:',
-            'Garantia de qualidade e acabamento.',
-            '',
-            'ACOMPANHA:',
-            `${(title.toLowerCase().includes('brinco') || (currentAnalysis?.product_data?.category_id === 'MLB1432')) ? '02' : '01'} ${title}`,
-            'Nota Fiscal',
-            'Embalagem',
-            '',
-            'ENVIO:',
-            'SEG A SEXTA: Para pedidos realizados até meio dia, envio NO MESMO DIA.',
-            'SÁB, DOM E FERIADOS: Envio no próximo dia útil.',
-            'OBS: A cor do produto pode variar sutilmente da foto do site.',
-            '',
-            'Garantia do vendedor: 30 dias'
-        ];
-        return body.join('\n');
+        const lines: string[] = [];
+        lines.push(title);
+        const details: string[] = [];
+        if (brandVal) details.push(`Marca: ${brandVal}`);
+        if (material) details.push(`Material: ${material}`);
+        if (color) details.push(`Cor: ${color}`);
+        if (size) details.push(`Tamanho: ${size}`);
+        if (details.length > 0) {
+            lines.push('');
+            lines.push('CARACTERÍSTICAS:');
+            lines.push(...details);
+        }
+        const isEarring = title.toLowerCase().includes('brinco') || (currentAnalysis?.product_data?.category_id === 'MLB1432');
+        lines.push('');
+        lines.push('ACOMPANHA:');
+        lines.push(`${isEarring ? '02' : '01'} ${title}`);
+        lines.push('Nota Fiscal');
+        lines.push('Embalagem');
+        lines.push('');
+        lines.push('ENVIO:');
+        lines.push('SEG A SEXTA: Pedidos até meio dia, envio no mesmo dia.');
+        lines.push('SÁB, DOM E FERIADOS: Envio no próximo dia útil.');
+        return lines.join('\n');
     }
 
     const handleAnalyze = async (mlbId: string) => {
         clearError();
         await analyzeProduct(mlbId);
         if (!error) {
-            setActiveTab("quality");
+            setActiveTab("apply");
+        }
+    };
+
+    const handleApplySuggestion = (suggestion: any) => {
+        // Aplicar sugestão específica
+        if (suggestion.action_data) {
+            const { field, suggested_value, attribute_id } = suggestion.action_data;
+            
+            switch (field) {
+                case 'title':
+                    if (suggested_value) setEditedTitle(suggested_value);
+                    break;
+                case 'description':
+                    if (suggested_value) setEditedDescription(suggested_value);
+                    break;
+                case 'model':
+                    if (suggested_value) {
+                        setEditedModel(suggested_value);
+                        // Também aplicar no atributo MODEL se existir
+                        setAllAttributes(prev => ({
+                            ...prev,
+                            'MODEL': suggested_value
+                        }));
+                    }
+                    break;
+                case 'attributes':
+                    if (attribute_id && suggested_value) {
+                        setAllAttributes(prev => ({
+                            ...prev,
+                            [attribute_id]: suggested_value
+                        }));
+                    }
+                    break;
+            }
+            
+            // Navegar para aba aplicar
+            setActiveTab("apply");
+            
+            toast({
+                title: "✅ Sugestão aplicada",
+                description: `${suggestion.title} foi aplicada. Revise na aba Aplicar.`,
+            });
+        } else {
+            toast({
+                title: "ℹ️ Sugestão selecionada",
+                description: "Esta sugestão requer ação manual. Verifique a descrição.",
+            });
+        }
+    };
+
+    const handleApplyMultipleSuggestions = (suggestions: any[]) => {
+        let appliedCount = 0;
+        
+        suggestions.forEach(suggestion => {
+            if (suggestion.action_data) {
+                const { field, suggested_value, attribute_id } = suggestion.action_data;
+                
+                switch (field) {
+                    case 'title':
+                        if (suggested_value) {
+                            setEditedTitle(suggested_value);
+                            appliedCount++;
+                        }
+                        break;
+                    case 'description':
+                        if (suggested_value) {
+                            setEditedDescription(suggested_value);
+                            appliedCount++;
+                        }
+                        break;
+                    case 'model':
+                        if (suggested_value) {
+                            setEditedModel(suggested_value);
+                            // Também aplicar no atributo MODEL se existir
+                            setAllAttributes(prev => ({
+                                ...prev,
+                                'MODEL': suggested_value
+                            }));
+                            appliedCount++;
+                        }
+                        break;
+                    case 'attributes':
+                        if (attribute_id && suggested_value) {
+                            setAllAttributes(prev => ({
+                                ...prev,
+                                [attribute_id]: suggested_value
+                            }));
+                            appliedCount++;
+                        }
+                        break;
+                }
+            }
+        });
+        
+        if (appliedCount > 0) {
+            setActiveTab("apply");
+            toast({
+                title: "✅ Sugestões aplicadas",
+                description: `${appliedCount} sugestões foram aplicadas. Revise na aba Aplicar.`,
+            });
+        } else {
+            toast({
+                title: "ℹ️ Sugestões selecionadas",
+                description: "Algumas sugestões requerem ação manual.",
+            });
         }
     };
 
@@ -340,41 +428,7 @@ export default function MercadoLivreAnalyzer() {
             {/* Conteúdo Principal */}
             {currentAnalysis ? (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="grid w-full grid-cols-10">
-                        <TabsTrigger value="quality" className="flex items-center gap-2">
-                            <BarChart3 className="h-4 w-4" />
-                            <span className="hidden sm:inline">Quality</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="title" className="flex items-center gap-2">
-                            <Target className="h-4 w-4" />
-                            <span className="hidden sm:inline">Título</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="keywords" className="flex items-center gap-2">
-                            <Zap className="h-4 w-4" />
-                            <span className="hidden sm:inline">Keywords</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="model" className="flex items-center gap-2">
-                            <Settings className="h-4 w-4" />
-                            <span className="hidden sm:inline">Modelo</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="sheet" className="flex items-center gap-2">
-                            <Wrench className="h-4 w-4" />
-                            <span className="hidden sm:inline">Ficha</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="alerts" className="flex items-center gap-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="hidden sm:inline">Alertas</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="technical" className="flex items-center gap-2">
-                            <span className="hidden sm:inline">Técnico</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="seo" className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            <span className="hidden sm:inline">SEO</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="competitors" className="flex items-center gap-2">
-                            <span className="hidden sm:inline">Concorrentes</span>
-                        </TabsTrigger>
+                    <TabsList className="grid w-full grid-cols-1">
                         <TabsTrigger value="apply" className="flex items-center gap-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
                             <Zap className="h-4 w-4" />
                             <span className="hidden sm:inline font-bold">Aplicar</span>
@@ -458,535 +512,50 @@ export default function MercadoLivreAnalyzer() {
                     </div>
 
                     {/* Abas de Conteúdo */}
-                    <TabsContent value="quality" className="space-y-6">
-                        <QualityScore score={currentAnalysis.quality_score} />
-                    </TabsContent>
 
-                    <TabsContent value="title" className="space-y-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Análise do Título</CardTitle>
-                                <CardDescription>
-                                    Otimização SEO do título atual
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="p-4 bg-muted rounded-lg">
-                                    <p className="font-medium">Título Atual:</p>
-                                    <p className="text-lg">{currentAnalysis.title_optimization.current_title}</p>
-                                    <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                        <span>Score: {currentAnalysis.title_optimization.current_score}/100</span>
-                                        <span>Caracteres: {currentAnalysis.title_optimization.current_title.length}</span>
-                                    </div>
-                                </div>
 
-                                {currentAnalysis.title_optimization.weaknesses.length > 0 && (
-                                    <div>
-                                        <h4 className="font-medium mb-2">Pontos Fracos:</h4>
-                                        <div className="space-y-1">
-                                            {currentAnalysis.title_optimization.weaknesses.map((weakness, index) => (
-                                                <Alert key={index}>
-                                                    <AlertDescription>{weakness}</AlertDescription>
-                                                </Alert>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
 
-                                <div>
-                                    <h4 className="font-medium mb-3">Sugestões Otimizadas:</h4>
-                                    <div className="space-y-3">
-                                        {currentAnalysis.title_optimization.suggested_titles.map((suggestion, index) => (
-                                            <div key={index} className="p-4 border rounded-lg space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Badge variant="secondary">Score: {suggestion.score}</Badge>
-                                                    <Badge variant={suggestion.score > currentAnalysis.title_optimization.current_score ? 'default' : 'outline'}>
-                                                        {suggestion.score > currentAnalysis.title_optimization.current_score ? '↑ Melhor' : '→ Similar'}
-                                                    </Badge>
-                                                </div>
-                                                <p className="font-medium">{suggestion.title}</p>
-                                                <p className="text-sm text-muted-foreground">{suggestion.reasoning}</p>
+                    
 
-                                                {suggestion.keywords_added.length > 0 && (
-                                                    <div className="flex flex-wrap gap-1">
-                                                        <span className="text-xs text-green-600">Adicionadas:</span>
-                                                        {Array.from(new Set(suggestion.keywords_added)).map(kw => (
-                                                            <Badge key={kw} variant="outline" className="text-xs">
-                                                                +{kw}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
+                    
 
-                    <TabsContent value="keywords" className="space-y-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Palavras-chave Encontradas</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div>
-                                        <h4 className="font-medium mb-2">Primárias:</h4>
-                                        <div className="flex flex-wrap gap-1">
-                                            {currentAnalysis.keyword_analysis.primary_keywords.map(keyword => (
-                                                <Badge key={keyword} variant="default">{keyword}</Badge>
-                                            ))}
-                                        </div>
-                                    </div>
+                    
 
-                                    <div>
-                                        <h4 className="font-medium mb-2">Secundárias:</h4>
-                                        <div className="flex flex-wrap gap-1">
-                                            {currentAnalysis.keyword_analysis.secondary_keywords.map(keyword => (
-                                                <Badge key={keyword} variant="secondary">{keyword}</Badge>
-                                            ))}
-                                        </div>
-                                    </div>
+                    
 
-                                    <div>
-                                        <h4 className="font-medium mb-2">Long-tail:</h4>
-                                        <div className="flex flex-wrap gap-1">
-                                            {currentAnalysis.keyword_analysis.long_tail_keywords.slice(0, 5).map(keyword => (
-                                                <Badge key={keyword} variant="outline">{keyword}</Badge>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
+                    
 
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Oportunidades</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div>
-                                        <h4 className="font-medium mb-2">Em Falta:</h4>
-                                        <div className="flex flex-wrap gap-1">
-                                            {currentAnalysis.keyword_analysis.missing_keywords.slice(0, 8).map(keyword => (
-                                                <Badge key={keyword} variant="outline" className="text-red-600 border-red-200">
-                                                    {keyword}
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    </div>
+                    
 
-                                    <div>
-                                        <h4 className="font-medium mb-2">Tendência:</h4>
-                                        <div className="flex flex-wrap gap-1">
-                                            {currentAnalysis.keyword_analysis.trending_keywords.map(keyword => (
-                                                <Badge key={keyword} variant="outline" className="text-green-600 border-green-200">
-                                                    🔥 {keyword}
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="pt-2">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span>Densidade de Keywords:</span>
-                                            <span className="font-bold">{currentAnalysis.keyword_analysis.keyword_density.toFixed(1)}%</span>
-                                        </div>
-                                        <Progress value={currentAnalysis.keyword_analysis.keyword_density} className="mt-1" />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="model" className="space-y-6">
-                        {currentAnalysis?.model_optimization ? (
-                            <ModelManager
-                                currentModel={currentAnalysis.model_optimization?.current_model || null}
-                                currentScore={currentAnalysis.model_optimization?.current_score || 0}
-                                strategicKeywords={(currentAnalysis.model_optimization?.strategic_keywords || []).map(k => ({
-                                    keyword: typeof k === 'string' ? k : k.keyword || 'Palavra-chave',
-                                    relevance: 'alta' as const,
-                                    type: 'trend' as const,
-                                    search_volume: 1000,
-                                    competition_level: 'media' as const,
-                                    ranking_boost: 5,
-                                    ctr_potential: 5,
-                                    conversion_impact: 5,
-                                    usage_recommendation: 'Usar no início do título'
-                                }))}
-                                optimizedModels={(currentAnalysis.model_optimization?.optimized_models || []).map((m, index) => ({
-                                    model: m?.model || `Modelo ${index + 1}`,
-                                    score: m?.score || 50,
-                                    strategy: 'SEO Padrão',
-                                    keywords_used: [],
-                                    expected_boost: 5,
-                                    reasoning: 'Otimização baseada em palavras-chave'
-                                }))}
-                                categoryInsights={currentAnalysis.model_optimization?.category_insights || {
-                                    category_name: "Categoria",
-                                    trending_terms: [],
-                                    high_conversion_words: [],
-                                    seasonal_keywords: []
-                                }}
-                                onModelSelect={(model) => {
-                                    setEditedModel(model);
-                                    setActiveTab('apply');
-                                }}
-                                onRefreshStrategy={() => {
-                                    console.log('Atualizando estratégia...');
-                                    // TODO: Implementar atualização de estratégia
-                                }}
-                            />
-                        ) : (
-                            <Card className="text-center py-12">
-                                <CardContent className="space-y-4">
-                                    <Target className="h-16 w-16 text-muted-foreground mx-auto" />
-                                    <div>
-                                        <h3 className="text-xl font-semibold mb-2">Otimização de Modelo Indisponível</h3>
-                                        <p className="text-muted-foreground">
-                                            A análise de otimização do campo modelo não está disponível para este produto.
-                                        </p>
-                                        <p className="text-sm text-muted-foreground mt-2">
-                                            Faça uma nova análise do produto para gerar otimizações de modelo.
-                                        </p>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="sheet" className="space-y-6">
-                        {currentAnalysis.technical_sheet_analysis && (
-                            <TechnicalSheetAnalyzer
-                                analysis={currentAnalysis.technical_sheet_analysis}
-                                productId={currentAnalysis.mlb_id}
-                                onOptimize={(attributeId) => {
-                                    console.log('Otimizar atributo:', attributeId);
-                                    // TODO: Implementar redirecionamento para ML
-                                }}
-                                onViewDetails={(attributeId) => {
-                                    console.log('Ver detalhes do atributo:', attributeId);
-                                    // TODO: Implementar modal de detalhes
-                                }}
-                            />
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="alerts" className="space-y-6">
-                        <SmartAlerts
-                            analysisData={{
-                                quality_score: currentAnalysis.quality_score,
-                                technical_analysis: currentAnalysis.technical_analysis,
-                                image_analysis: currentAnalysis.image_analysis,
-                                keyword_analysis: currentAnalysis.keyword_analysis,
-                                title_optimization: currentAnalysis.title_optimization,
-                                organic_delivery_prediction: currentAnalysis.organic_delivery_prediction || {
-                                    ranking_potential: 50,
-                                    optimization_level: "médio"
-                                }
-                            }}
-                            productData={{
-                                title: currentAnalysis.product_data.title,
-                                status: currentAnalysis.product_data.status,
-                                sold_quantity: currentAnalysis.product_data.sold_quantity,
-                                category_id: currentAnalysis.product_data.category_id
-                            }}
-                        />
-                    </TabsContent>
-
-                    <TabsContent value="technical" className="space-y-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Ficha Técnica</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <p className="text-muted-foreground">Total de Atributos:</p>
-                                            <p className="font-bold">{currentAnalysis.technical_analysis.total_attributes}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-muted-foreground">Preenchidos:</p>
-                                            <p className="font-bold">{currentAnalysis.technical_analysis.filled_attributes}</p>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-sm">Completude:</span>
-                                            <span className="text-sm font-bold">{currentAnalysis.technical_analysis.completion_percentage}%</span>
-                                        </div>
-                                        <Progress value={currentAnalysis.technical_analysis.completion_percentage} />
-                                    </div>
-
-                                    {currentAnalysis.technical_analysis.missing_important.length > 0 && (
-                                        <div>
-                                            <h4 className="font-medium mb-2">Atributos Importantes em Falta:</h4>
-                                            <div className="flex flex-wrap gap-1">
-                                                {currentAnalysis.technical_analysis.missing_important.map(attr => (
-                                                    <Badge key={attr} variant="outline" className="text-red-600">
-                                                        {attr}
-                                                    </Badge>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Imagens e Mídia</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <p className="text-muted-foreground">Total de Imagens:</p>
-                                            <p className="font-bold">{currentAnalysis.image_analysis.total_images}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-muted-foreground">Alta Qualidade:</p>
-                                            <p className="font-bold">{currentAnalysis.image_analysis.high_quality_images}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm">Tem Vídeo:</span>
-                                            <Badge variant={currentAnalysis.image_analysis.has_video ? 'default' : 'secondary'}>
-                                                {currentAnalysis.image_analysis.has_video ? 'Sim' : 'Não'}
-                                            </Badge>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm">Variações com Imagens:</span>
-                                            <Badge variant={currentAnalysis.image_analysis.has_variations_images ? 'default' : 'secondary'}>
-                                                {currentAnalysis.image_analysis.has_variations_images ? 'Sim' : 'Não'}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="seo" className="space-y-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Descrição SEO Otimizada</CardTitle>
-                                <CardDescription>
-                                    Descrição gerada automaticamente para máximo SEO
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="p-4 bg-muted rounded-lg">
-                                    <pre className="whitespace-pre-wrap text-sm">
-                                        {currentAnalysis.seo_description.optimized_description}
-                                    </pre>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
-                                        <p className="text-muted-foreground">Legibilidade:</p>
-                                        <div className="flex items-center gap-2">
-                                            <Progress value={currentAnalysis.seo_description.readability_score} className="flex-1" />
-                                            <span className="font-bold">{currentAnalysis.seo_description.readability_score}/100</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p className="text-muted-foreground">Keywords SEO:</p>
-                                        <p className="font-bold">{currentAnalysis.seo_description.seo_keywords.length}</p>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <h4 className="font-medium mb-2">Call-to-Action:</h4>
-                                    <p className="text-lg font-medium text-green-600">
-                                        {currentAnalysis.seo_description.call_to_action}
-                                    </p>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    <TabsContent value="competitors" className="space-y-6">
-                        <div className="grid gap-6">
-                            {/* Concorrentes Diretos */}
-                            <Card>
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <CardTitle>Concorrentes Diretos</CardTitle>
-                                            <CardDescription>
-                                                Produtos similares ao seu anúncio na categoria
-                                            </CardDescription>
-                                        </div>
-                                        {(currentAnalysis.competitive_analysis.top_competitors || []).length > 0 && (
-                                            <Badge variant="secondary" className="text-xs">
-                                                Dados reais ML
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    {(currentAnalysis.competitive_analysis.top_competitors || []).length > 0 ? (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                            {currentAnalysis.competitive_analysis.top_competitors.slice(0, 9).map((c) => (
-                                                <div key={c.id} className="p-4 border rounded-lg space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Badge variant={c.shipping.free_shipping ? 'default' : 'outline'}>
-                                                            {c.shipping.free_shipping ? 'Frete grátis' : 'Frete'}
-                                                        </Badge>
-                                                        <Badge variant="outline">Score {c.score.overall}</Badge>
-                                                    </div>
-                                                    <p className="font-medium line-clamp-2">{c.title}</p>
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <span>Preço</span>
-                                                        <span className="font-bold">R$ {c.price}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <span>Vendidos</span>
-                                                        <span className="font-bold">{c.sold_quantity}</span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-1 pt-1">
-                                                        {c.attributes.slice(0, 3).map((a) => (
-                                                            <Badge key={`${c.id}-${a.id}`} variant="outline" className="text-xs">
-                                                                {a.value_name || a.id}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                    <a href={c.permalink} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">
-                                                        Ver anúncio
-                                                    </a>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="text-center py-8 text-muted-foreground">
-                                            <div className="space-y-3">
-                                                <div className="w-16 h-16 mx-auto bg-muted rounded-full flex items-center justify-center">
-                                                    <Target className="w-8 h-8" />
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">Nenhum concorrente encontrado</p>
-                                                    <p className="text-xs mt-1">
-                                                        Não foi possível encontrar produtos similares a este anúncio no momento
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-
-                            {/* Top 10 da Categoria */}
-                            <Card>
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <CardTitle>Top 10 Produtos da Categoria</CardTitle>
-                                            <CardDescription>
-                                                Os produtos mais vendidos na categoria {currentAnalysis.product_data.category_id}
-                                            </CardDescription>
-                                        </div>
-                                        {currentAnalysis.competitive_analysis.category_top_products && currentAnalysis.competitive_analysis.category_top_products.length > 0 && (
-                                            <Badge variant="secondary" className="text-xs">
-                                                Dados reais ML
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    {currentAnalysis.competitive_analysis.category_top_products && currentAnalysis.competitive_analysis.category_top_products.length > 0 ? (
-                                        <div className="space-y-3">
-                                            {currentAnalysis.competitive_analysis.category_top_products.map((product, index) => (
-                                                <div key={product.id} className="flex items-center gap-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
-                                                        #{index + 1}
-                                                    </div>
-                                                    <img
-                                                        src={product.thumbnail}
-                                                        alt={product.title}
-                                                        className="w-12 h-12 object-cover rounded"
-                                                        onError={(e) => { e.currentTarget.src = '/placeholder-product.jpg' }}
-                                                    />
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="font-medium line-clamp-1 mb-1">{product.title}</p>
-                                                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                                            <span className="font-medium text-green-600">R$ {product.price}</span>
-                                                            <span>{product.sold_quantity} vendidos</span>
-                                                            <span>⭐ {product.seller.reputation_level}</span>
-                                                            {product.shipping.free_shipping && (
-                                                                <Badge variant="secondary" className="text-xs px-1 py-0">
-                                                                    Frete grátis
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <a
-                                                        href={product.permalink}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="text-xs text-blue-600 hover:underline flex-shrink-0"
-                                                    >
-                                                        Ver →
-                                                    </a>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="text-center py-8 text-muted-foreground">
-                                            <div className="space-y-3">
-                                                <div className="w-16 h-16 mx-auto bg-muted rounded-full flex items-center justify-center">
-                                                    <Package className="w-8 h-8" />
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">Nenhum produto encontrado</p>
-                                                    <p className="text-xs mt-1">
-                                                        Não foi possível buscar os produtos mais vendidos desta categoria no momento
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-
-                            {/* Análise de Mercado */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Análise de Mercado</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <div className="p-3 border rounded-md">
-                                            <p className="text-sm text-muted-foreground">Posição de Preço</p>
-                                            <p className="font-bold">{pricePosition}</p>
-                                            <div className="text-xs">Média: R$ {marketAverage !== undefined && Number.isFinite(marketAverage) ? marketAverage.toFixed(2) : '-'}</div>
-                                        </div>
-                                        <div className="p-3 border rounded-md">
-                                            <p className="text-sm text-muted-foreground">Tendências</p>
-                                            <div className="flex flex-wrap gap-1">
-                                                {trends.map((t) => (
-                                                    <Badge key={t} variant="outline">{t}</Badge>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="p-3 border rounded-md">
-                                            <p className="text-sm text-muted-foreground">Preferências</p>
-                                            <div className="flex flex-wrap gap-1">
-                                                {preferences.map((t) => (
-                                                    <Badge key={t} variant="outline">{t}</Badge>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </TabsContent>
+                    
 
                     <TabsContent value="apply" className="space-y-6">
                         {/* ABA APLICAR COMPLETAMENTE NOVA */}
@@ -1163,7 +732,10 @@ export default function MercadoLivreAnalyzer() {
                                                 <label htmlFor="apply-model" className="text-sm font-medium cursor-pointer">
                                                     Aplicar modelo: {(() => {
                                                         const finalModel = allAttributes['MODEL'] || editedModel.trim();
-                                                        return finalModel ? `"${finalModel.substring(0, 30)}${finalModel.length > 30 ? '...' : ''}"` : '(vazio)';
+                                                        const originalModel = currentAnalysis?.product_data?.attributes?.find((attr: any) => attr.id === 'MODEL')?.value_name || '';
+                                                        const isModified = finalModel !== originalModel;
+                                                        const modelText = finalModel ? `"${finalModel.substring(0, 30)}${finalModel.length > 30 ? '...' : ''}"` : '(vazio)';
+                                                        return `${modelText}${isModified ? ' *' : ''}`;
                                                     })()}
                                                 </label>
                                             </div>
@@ -1230,7 +802,7 @@ export default function MercadoLivreAnalyzer() {
                                                         attributes: applyAttributes ? modifiedAttrs : {}
                                                     };
 
-                                                    let allResults = [];
+                                                    const allResults = [];
                                                     
                                                     // Aplicar otimizações básicas
                                                     if (applyAttributes || applyModel || applyDescription) {

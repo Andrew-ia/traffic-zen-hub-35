@@ -15,6 +15,11 @@ export interface MLBAnalysisResult {
         available_quantity: number;
         permalink: string;
         thumbnail: string;
+        attributes?: Array<{
+            id: string;
+            value_id?: string;
+            value_name: string;
+        }>;
     };
     quality_score: {
         overall_score: number;
@@ -44,6 +49,19 @@ export interface MLBAnalysisResult {
             difficulty: 'easy' | 'medium' | 'hard';
         }>;
     };
+    model_optimization?: {
+        current_model?: string;
+        current_score?: number;
+        strategic_keywords?: string[];
+        optimized_models?: Array<{ model: string; score: number }>;
+        category_insights?: {
+            category_name: string;
+            trending_terms: string[];
+            high_conversion_words: string[];
+            seasonal_keywords: string[];
+        };
+    };
+    technical_sheet_analysis?: any; // Definir tipo mais específico se possível
     keyword_analysis: {
         primary_keywords: string[];
         secondary_keywords: string[];
@@ -79,6 +97,7 @@ export interface MLBAnalysisResult {
             benefits: string[];
             usage_info: string;
             warranty_info: string;
+            warranty_time?: string;
             faq_section: string[];
         };
         seo_keywords: string[];
@@ -146,6 +165,24 @@ export interface MLBAnalysisResult {
             seasonal_patterns: string[];
             growth_opportunities: string[];
         };
+        category_top_products?: Array<{
+            id: string;
+            title: string;
+            price: number;
+            sold_quantity: number;
+            permalink: string;
+            thumbnail: string;
+            seller: {
+                id: string;
+                nickname: string;
+                reputation_level: string;
+                transactions: number;
+            };
+            shipping: {
+                free_shipping: boolean;
+                mode: string;
+            };
+        }>;
     };
     organic_delivery_prediction: {
         ranking_potential: number;
@@ -230,11 +267,13 @@ export function useMLBAnalyzer() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Falha na análise do produto');
+                const serverMessage = errorData?.details || errorData?.error;
+                console.error('Erro na análise MLB (server):', errorData);
+                throw new Error(serverMessage || 'Falha na análise do produto');
             }
 
             const result: MLBAnalysisResult = await response.json();
-            
+
             setCurrentAnalysis(result);
             setLastAnalyzed({
                 mlbId: result.mlb_id,
@@ -350,14 +389,14 @@ export function useMLBAnalyzer() {
         currentAnalysis,
         error,
         lastAnalyzed,
-        
+
         // Métodos
         analyzeProduct,
         optimizeTitle,
         generateDescription,
         clearAnalysis,
         clearError,
-        
+
         // Dados derivados
         hasAnalysis: !!currentAnalysis,
         qualityScore: currentAnalysis?.quality_score?.overall_score || 0,

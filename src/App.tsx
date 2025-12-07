@@ -9,23 +9,14 @@ import Campaigns from "./pages/Campaigns";
 import CampaignDetails from "./pages/CampaignDetails";
 import AdDetails from "./pages/AdDetails";
 import Reports from "./pages/Reports";
-import Leads from "./pages/Leads";
 import VirtualTryOn from "./pages/VirtualTryOnV2";
 import Automations from "./pages/Automations";
 import Experiments from "./pages/Experiments";
-import Integrations from "./pages/Integrations";
 import InternalChat from "./pages/InternalChat";
-import AIChat from "./pages/AIChat";
-
-
-
-
-import Tracking from "./pages/Tracking";
 import MetaAds from "./pages/MetaAds";
 import CreateMetaCampaign from "./pages/CreateMetaCampaign";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DriveCreatives from "./pages/DriveCreatives";
-import MetaCreativeAnalysis from "./pages/MetaCreativeAnalysis";
 import NotFound from "./pages/NotFound";
 import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
@@ -35,8 +26,10 @@ import AdminUsers from "./pages/AdminUsers";
 import MercadoLivre from "./pages/MercadoLivre";
 import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
+import CatalogIntelligence from "./pages/CatalogIntelligence";
 import Products from "./pages/Products";
-import ProductSync from "./pages/ProductSync";
+import FulfillmentManagement from "./pages/FulfillmentManagement";
+import Notifications from "./pages/Notifications";
 import { AuthProvider } from "./hooks/useAuth";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { WorkspaceProvider } from "./hooks/useWorkspace";
@@ -95,21 +88,18 @@ const App = () => (
                 <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
                 <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
                 <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
-                <Route path="/creative-analysis/meta" element={<RequireAuth><MetaCreativeAnalysis /></RequireAuth>} />
-                <Route path="/leads" element={<RequireAuth><Leads /></RequireAuth>} />
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
                 <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
                 <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
-                <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
                 <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
-                <Route path="/ai-assistant" element={<RequireAuth><AIChat /></RequireAuth>} />
-
-                <Route path="/tracking" element={<RequireAuth><Tracking /></RequireAuth>} />
                 <Route path="/mercado-livre" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
+                <Route path="/catalog-intelligence" element={<RequireAuth><CatalogIntelligence /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
-                <Route path="/sync" element={<RequireAuth><ProductSync /></RequireAuth>} />
+                <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />
+
+                <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
 
                 <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 

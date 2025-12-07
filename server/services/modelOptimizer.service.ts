@@ -1,4 +1,5 @@
-import { MLBAnalysisData } from './mlbAnalyzer.service';
+import { MLBAnalysisData } from './mlbAnalyzer.service.js';
+import { fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } from './seoOptimizer.service.js';
 
 export interface ModelKeywordStrategy {
     keyword: string;
@@ -83,119 +84,121 @@ export class ModelOptimizerService {
     private async generateStrategicKeywords(productData: MLBAnalysisData): Promise<ModelKeywordStrategy[]> {
         const keywords: ModelKeywordStrategy[] = [];
         const categoryId = productData.category_id;
-        const title = productData.title.toLowerCase();
         const brand = this.extractBrand(productData);
-        
-        // 1. PALAVRAS DE TENDÊNCIA (20-25 palavras)
-        const trendKeywords = this.getTrendingKeywords(categoryId);
-        trendKeywords.forEach(keyword => {
+        const competitorList = await fetchCompetitorKeywordsFromML(categoryId, 30).catch(() => [] as string[]);
+        const trendingLive = await fetchTrendingKeywordsFromML(categoryId, 30).catch(() => [] as string[]);
+
+        const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+
+        const trendKeywords = trendingLive.length > 0 ? trendingLive : this.getTrendingKeywords(categoryId);
+        trendKeywords.slice(0, 25).forEach((keyword, idx) => {
+            const inCompetitors = competitorList.some(ck => normalize(ck) === normalize(keyword));
+            const rankFactor = Math.max(1, 25 - idx);
             keywords.push({
                 keyword,
                 relevance: 'alta',
                 type: 'trend',
-                search_volume: Math.floor(Math.random() * 10000) + 1000,
-                competition_level: 'media',
-                ranking_boost: Math.floor(Math.random() * 3) + 7,
-                ctr_potential: Math.floor(Math.random() * 3) + 7,
-                conversion_impact: Math.floor(Math.random() * 3) + 6,
-                usage_recommendation: 'Use no início do modelo para máximo impacto',
+                search_volume: 1000 + rankFactor * 200,
+                competition_level: inCompetitors ? 'alta' : 'media',
+                ranking_boost: Math.min(10, 6 + Math.ceil(rankFactor / 5)),
+                ctr_potential: inCompetitors ? 8 : 7,
+                conversion_impact: inCompetitors ? 7 : 6,
+                usage_recommendation: 'Priorize termos em alta no início do modelo',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // 2. PALAVRAS DE CARACTERÍSTICAS (15-20 palavras)
+
         const characteristicWords = this.getCharacteristicWords(productData);
-        characteristicWords.forEach(keyword => {
+        characteristicWords.slice(0, 20).forEach((keyword, idx) => {
+            const rankFactor = Math.max(1, 20 - idx);
             keywords.push({
                 keyword,
                 relevance: 'alta',
                 type: 'characteristic',
-                search_volume: Math.floor(Math.random() * 5000) + 500,
+                search_volume: 500 + rankFactor * 100,
                 competition_level: 'baixa',
-                ranking_boost: Math.floor(Math.random() * 2) + 8,
-                ctr_potential: Math.floor(Math.random() * 2) + 6,
-                conversion_impact: Math.floor(Math.random() * 2) + 8,
-                usage_recommendation: 'Combine com características físicas do produto',
+                ranking_boost: Math.min(10, 7 + Math.ceil(rankFactor / 6)),
+                ctr_potential: 6,
+                conversion_impact: 8,
+                usage_recommendation: 'Combine com atributos reais do produto',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // 3. PALAVRAS DE COMPORTAMENTO DE BUSCA (10-15 palavras)
+
         const searchBehaviorWords = this.getSearchBehaviorWords(categoryId);
-        searchBehaviorWords.forEach(keyword => {
+        searchBehaviorWords.slice(0, 12).forEach((keyword, idx) => {
+            const rankFactor = Math.max(1, 12 - idx);
             keywords.push({
                 keyword,
                 relevance: 'media',
                 type: 'search_behavior',
-                search_volume: Math.floor(Math.random() * 3000) + 200,
+                search_volume: 200 + rankFactor * 80,
                 competition_level: 'media',
-                ranking_boost: Math.floor(Math.random() * 2) + 6,
-                ctr_potential: Math.floor(Math.random() * 3) + 7,
-                conversion_impact: Math.floor(Math.random() * 2) + 5,
-                usage_recommendation: 'Use para captar intenção de compra específica',
+                ranking_boost: Math.min(9, 5 + Math.ceil(rankFactor / 4)),
+                ctr_potential: 7,
+                conversion_impact: 5,
+                usage_recommendation: 'Capta intenção específica de compra',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // 4. PALAVRAS EMOCIONAIS (10-15 palavras)
+
         const emotionalWords = this.getEmotionalWords(categoryId);
-        emotionalWords.forEach(keyword => {
+        emotionalWords.slice(0, 12).forEach((keyword, idx) => {
+            const rankFactor = Math.max(1, 12 - idx);
             keywords.push({
                 keyword,
                 relevance: 'media',
                 type: 'emotional',
-                search_volume: Math.floor(Math.random() * 2000) + 100,
+                search_volume: 100 + rankFactor * 50,
                 competition_level: 'baixa',
-                ranking_boost: Math.floor(Math.random() * 2) + 5,
-                ctr_potential: Math.floor(Math.random() * 3) + 8,
-                conversion_impact: Math.floor(Math.random() * 3) + 7,
-                usage_recommendation: 'Use para criar conexão emocional e aumentar CTR',
+                ranking_boost: Math.min(8, 4 + Math.ceil(rankFactor / 4)),
+                ctr_potential: 8,
+                conversion_impact: 7,
+                usage_recommendation: 'Use com moderação para aumentar CTR',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // 5. PALAVRAS DE COMPRA (10-12 palavras)
+
         const purchaseWords = this.getPurchaseWords();
-        purchaseWords.forEach(keyword => {
+        purchaseWords.slice(0, 12).forEach((keyword) => {
+            const inCompetitors = competitorList.some(ck => normalize(ck) === normalize(keyword));
             keywords.push({
                 keyword,
                 relevance: 'alta',
                 type: 'purchase',
-                search_volume: Math.floor(Math.random() * 8000) + 2000,
-                competition_level: 'alta',
-                ranking_boost: Math.floor(Math.random() * 2) + 8,
-                ctr_potential: Math.floor(Math.random() * 2) + 9,
-                conversion_impact: Math.floor(Math.random() * 1) + 9,
+                search_volume: 1800,
+                competition_level: inCompetitors ? 'alta' : 'media',
+                ranking_boost: 8,
+                ctr_potential: 9,
+                conversion_impact: 9,
                 usage_recommendation: 'Use para captar usuários prontos para comprar',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // 6. PALAVRAS FOTOGRÁFICAS (8-10 palavras)
+
         const photographicWords = this.getPhotographicWords(categoryId);
-        photographicWords.forEach(keyword => {
+        photographicWords.slice(0, 10).forEach((keyword, idx) => {
+            const rankFactor = Math.max(1, 10 - idx);
             keywords.push({
                 keyword,
                 relevance: 'baixa',
                 type: 'photographic',
-                search_volume: Math.floor(Math.random() * 1000) + 50,
+                search_volume: 50 + rankFactor * 30,
                 competition_level: 'baixa',
-                ranking_boost: Math.floor(Math.random() * 2) + 4,
-                ctr_potential: Math.floor(Math.random() * 2) + 6,
-                conversion_impact: Math.floor(Math.random() * 2) + 4,
-                usage_recommendation: 'Use para complementar quando há espaço disponível',
+                ranking_boost: Math.min(7, 4 + Math.ceil(rankFactor / 5)),
+                ctr_potential: 6,
+                conversion_impact: 4,
+                usage_recommendation: 'Complementa quando houver espaço',
                 combinations: this.generateCombinations(keyword, brand)
             });
         });
-        
-        // Ordenar por impacto geral (ranking_boost * ctr_potential * conversion_impact)
+
         keywords.sort((a, b) => {
             const scoreA = a.ranking_boost * a.ctr_potential * a.conversion_impact;
             const scoreB = b.ranking_boost * b.ctr_potential * b.conversion_impact;
             return scoreB - scoreA;
         });
-        
-        // Retornar até 100 palavras
+
         return keywords.slice(0, 100);
     }
     
@@ -205,14 +208,38 @@ export class ModelOptimizerService {
     private generateOptimizedModels(keywords: ModelKeywordStrategy[], productData: MLBAnalysisData): Array<any> {
         const brand = this.extractBrand(productData);
         const category = this.getCategoryName(productData.category_id);
+        const color = this.extractColor(productData);
         const models: Array<any> = [];
+        const sanitizeModel = (text: string): string => {
+            const banned = new Set(['garantia','promoção','desconto','oportunidade','original','especial','premium','entrega','rápida','grátis','genérico','generico']);
+            const tokens = text
+                .toLowerCase()
+                .split(/[^a-z0-9áéíóúãõâêîôûç]+/i)
+                .filter(Boolean)
+                .filter((t) => !banned.has(t));
+            // Remover termos de cor contraditórios com a cor real do produto
+            const normColor = (color || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const isPrata = /\bprata|prateado\b/.test(normColor);
+            const isDourado = /\bdourado|ouro\b/.test(normColor);
+            const filtered = tokens.filter((t) => {
+                const tn = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (isPrata && (tn === 'dourado' || tn === 'ouro')) return false;
+                if (isDourado && (tn === 'prateado' || tn === 'prata')) return false;
+                return true;
+            });
+            const dedup: string[] = [];
+            for (const t of filtered) { if (!dedup.includes(t)) dedup.push(t); }
+            const trimmed = dedup.slice(0, 5); // modelo curto e objetivo
+            return trimmed.join(' ').replace(/\s+/g, ' ').trim();
+        };
         
         // Estratégia 1: Foco em Trending + Purchase
         const trendingKeywords = keywords.filter(k => k.type === 'trend' && k.relevance === 'alta').slice(0, 3);
         const purchaseKeywords = keywords.filter(k => k.type === 'purchase').slice(0, 2);
         
         if (trendingKeywords.length > 0) {
-            const model1 = `${brand || category} ${trendingKeywords.map(k => k.keyword).join(' ')} ${purchaseKeywords[0]?.keyword || 'Premium'}`.trim();
+            const model1Raw = `${brand || category} ${trendingKeywords.map(k => k.keyword).join(' ')} ${purchaseKeywords[0]?.keyword || ''}`.trim();
+            const model1 = sanitizeModel(model1Raw || `${brand || category}`);
             models.push({
                 model: model1,
                 score: this.calculateModelScore(model1, keywords),
@@ -228,7 +255,8 @@ export class ModelOptimizerService {
         const emotionalKeywords = keywords.filter(k => k.type === 'emotional' && k.ctr_potential >= 7).slice(0, 2);
         
         if (characteristicKeywords.length > 0) {
-            const model2 = `${characteristicKeywords.map(k => k.keyword).join(' ')} ${emotionalKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model2Raw = `${characteristicKeywords.map(k => k.keyword).join(' ')} ${emotionalKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model2 = sanitizeModel(model2Raw);
             models.push({
                 model: model2,
                 score: this.calculateModelScore(model2, keywords),
@@ -243,7 +271,8 @@ export class ModelOptimizerService {
         const searchBehaviorKeywords = keywords.filter(k => k.type === 'search_behavior').slice(0, 3);
         
         if (searchBehaviorKeywords.length > 0) {
-            const model3 = `${searchBehaviorKeywords.map(k => k.keyword).join(' ')} ${brand || category}`.trim();
+            const model3Raw = `${searchBehaviorKeywords.map(k => k.keyword).join(' ')} ${brand || category}`.trim();
+            const model3 = sanitizeModel(model3Raw);
             models.push({
                 model: model3,
                 score: this.calculateModelScore(model3, keywords),
@@ -263,7 +292,8 @@ export class ModelOptimizerService {
         ].filter(Boolean) as ModelKeywordStrategy[];
         
         if (balancedKeywords.length >= 3) {
-            const model4 = `${balancedKeywords.map(k => k.keyword).join(' ')}`.trim();
+            const model4Raw = `${balancedKeywords.map(k => k.keyword).join(' ')}`.trim();
+            const model4 = sanitizeModel(model4Raw);
             models.push({
                 model: model4,
                 score: this.calculateModelScore(model4, keywords),
@@ -278,7 +308,8 @@ export class ModelOptimizerService {
         const highCTRKeywords = keywords.filter(k => k.ctr_potential >= 8 && k.conversion_impact >= 7).slice(0, 4);
         
         if (highCTRKeywords.length >= 2) {
-            const model5 = `${highCTRKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model5Raw = `${highCTRKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model5 = sanitizeModel(model5Raw);
             models.push({
                 model: model5,
                 score: this.calculateModelScore(model5, keywords),
@@ -290,6 +321,11 @@ export class ModelOptimizerService {
         }
         
         return models.sort((a, b) => b.score - a.score).slice(0, 8);
+    }
+
+    private extractColor(productData: MLBAnalysisData): string | null {
+        const colorAttr = productData.attributes.find(attr => attr.id === 'COLOR');
+        return colorAttr?.value_name || null;
     }
     
     /**
@@ -449,7 +485,27 @@ export class ModelOptimizerService {
     
     private extractBrand(productData: MLBAnalysisData): string | null {
         const brandAttr = productData.attributes.find(attr => attr.id === 'BRAND');
-        return brandAttr?.value_name || null;
+        const raw = brandAttr?.value_name || null;
+        if (!raw) return null;
+        const norm = raw
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+        const genericSet = new Set([
+            'generico',
+            'generica',
+            'generic',
+            'sem marca',
+            'sem-marca',
+            'no brand',
+            'marca propria',
+            'marcapropria',
+            'marca generica',
+            'sem nome'
+        ]);
+        if (genericSet.has(norm)) return null;
+        return raw;
     }
     
     private getCategoryName(categoryId: string): string {

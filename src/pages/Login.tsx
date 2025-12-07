@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { resolveApiBase } from '@/lib/apiBase';
 
 export default function Login() {
   const { login } = useAuth();
@@ -10,6 +11,15 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<'unknown' | 'ok' | 'error'>('unknown');
+  const API_BASE = resolveApiBase();
+
+  useEffect(() => {
+    const abort = AbortSignal.timeout(5000);
+    fetch(`${API_BASE}/api/health`, { signal: abort })
+      .then((r) => setApiStatus(r.ok ? 'ok' : 'error'))
+      .catch(() => setApiStatus('error'));
+  }, [API_BASE]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +44,11 @@ export default function Login() {
             Traffic Pro
           </h1>
           <p className="text-muted-foreground">Gestão de Tráfego Baseada em Dados</p>
+          {apiStatus !== 'unknown' && (
+            <div className={`mt-3 text-xs inline-block px-2 py-1 rounded border ${apiStatus === 'ok' ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
+              {apiStatus === 'ok' ? 'Servidor conectado' : 'Servidor indisponível'}
+            </div>
+          )}
         </div>
 
         <Card className="w-full border-border/50 shadow-xl backdrop-blur-sm bg-card/95">
@@ -89,4 +104,3 @@ export default function Login() {
     </div>
   );
 }
-
