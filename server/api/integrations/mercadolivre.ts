@@ -1,5 +1,6 @@
 import { Router } from "express";
 import axios from "axios";
+import FormData from "form-data";
 import { getPool } from "../../config/database.js";
 import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
 // import { authMiddleware } from "../auth";
@@ -143,16 +144,16 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
  */
 async function getMercadoLivreCredentials(
     workspaceId: string
-): Promise<MercadoLivreCredentials | null> {
+): Promise<(MercadoLivreCredentials & { expiresAt?: number }) | null> {
     const cached = tokenStore.get(workspaceId);
     if (cached && (!cached.expiresAt || cached.expiresAt > Date.now())) {
-        return { accessToken: cached.accessToken, refreshToken: cached.refreshToken, userId: cached.userId };
+        return cached;
     }
 
     const dbCreds = await getCredentialsFromDb(workspaceId);
     if (dbCreds) {
         tokenStore.set(workspaceId, dbCreds);
-        return { accessToken: dbCreds.accessToken, refreshToken: dbCreds.refreshToken, userId: dbCreds.userId };
+        return dbCreds;
     }
 
     const accessToken = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
@@ -273,11 +274,13 @@ router.get("/auth/url", async (req, res) => {
 router.get("/items/:itemId", async (req, res) => {
     try {
         const { itemId } = req.params;
+        const normalizedItemId = String(itemId || '').trim().toUpperCase();
         const { workspaceId } = req.query as { workspaceId?: string };
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
-        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+        const idToUse = /^MLB\d+$/.test(normalizedItemId) ? normalizedItemId : itemId;
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${idToUse}`);
         return res.json(data);
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -294,11 +297,13 @@ router.get("/items/:itemId", async (req, res) => {
 router.get("/items/:itemId/description", async (req, res) => {
     try {
         const { itemId } = req.params;
+        const normalizedItemId = String(itemId || '').trim().toUpperCase();
         const { workspaceId } = req.query as { workspaceId?: string };
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
-        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`);
+        const idToUse = /^MLB\d+$/.test(normalizedItemId) ? normalizedItemId : itemId;
+        const data = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${idToUse}/description`);
         return res.json(data);
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -510,12 +515,10 @@ router.get("/metrics", async (req, res) => {
             });
         }
 
-        // Calcular data de início
         const dateFrom = new Date();
         dateFrom.setDate(dateFrom.getDate() - Number(days));
         const dateFromStr = dateFrom.toISOString().split("T")[0];
-
-        const dateTo = new Date().toISOString().split("T")[0];
+        const dateToStr = new Date().toISOString().split("T")[0];
 
         // Buscar métricas do vendedor (dados corretos)
         const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
@@ -527,7 +530,7 @@ router.get("/metrics", async (req, res) => {
         let totalVisits = 0;
         const daysCount = Math.max(1, Number(days));
         const dailyRevenue = new Map<string, number>();
-        const dailySales = new Map<string, number>();
+        const dailyUnits = new Map<string, number>();
         const salesTimeSeries = [] as Array<{ date: string; sales: number; revenue: number; visits: number }>;
 
         try {
@@ -554,65 +557,102 @@ router.get("/metrics", async (req, res) => {
                 detailBase = 'orders';
             }
 
-            const maxDetails = Math.min(orderIds.length, 100);
+            const uniqueOrderIds = Array.from(new Set(orderIds));
+            const maxDetails = Math.min(uniqueOrderIds.length, 100);
             for (let idx = 0; idx < maxDetails; idx++) {
-                const oid = orderIds[idx];
+                const oid = uniqueOrderIds[idx];
                 try {
                     const order = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/${detailBase}/${oid}`);
-                    const createdDate = (order.date_created || '').split('T')[0] || dateTo;
+                    const createdDate = (order.date_created || '').split('T')[0] || dateToStr;
+                    if (createdDate < dateFromStr || createdDate > dateToStr) continue;
+
+                    const items = Array.isArray(order.order_items) ? order.order_items : [];
+                    const units = items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0) || 1;
+
                     const payments = Array.isArray(order.payments) ? order.payments : [];
                     const paidAmount = payments.reduce((sum: number, p: any) => {
+                        const st = String(p.status || '').toLowerCase();
                         const v = Number(p.total_paid_amount ?? p.transaction_amount ?? 0) || 0;
-                        return sum + v;
+                        return sum + (st === 'approved' ? v : 0);
                     }, 0);
-                    totalRevenue += paidAmount;
-                    dailyRevenue.set(createdDate, (dailyRevenue.get(createdDate) || 0) + paidAmount);
-                    dailySales.set(createdDate, (dailySales.get(createdDate) || 0) + 1);
+                    const fallbackAmount = items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0), 0);
+                    const revenue = paidAmount > 0 ? paidAmount : fallbackAmount;
+
+                    totalRevenue += revenue;
+                    totalSales += units;
+                    dailyRevenue.set(createdDate, (dailyRevenue.get(createdDate) || 0) + revenue);
+                    dailyUnits.set(createdDate, (dailyUnits.get(createdDate) || 0) + units);
                 } catch (e) { void e; }
             }
+
+            let visitsSum = 0;
+            try {
+                const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 200, offset: 0 } });
+                const itemIds = itemsSearch.results || [];
+                for (const itemId of itemIds) {
+                    try {
+                        const vdata = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, { params: { date_from: dateFromStr, date_to: dateToStr } });
+                        visitsSum += Number(vdata.total_visits || 0);
+                    } catch (e) { void e; }
+                }
+            } catch (e) { void e; }
+            totalVisits = visitsSum;
 
             for (let i = daysCount - 1; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
                 const ds = d.toISOString().split('T')[0];
-                const s = dailySales.get(ds) || 0;
+                const s = dailyUnits.get(ds) || 0;
                 const r = dailyRevenue.get(ds) || 0;
-                const v = s * 25;
-                totalSales += s;
-                totalVisits += v;
+                const baseVisits = Math.floor((totalVisits || 0) / daysCount);
+                const rem = (totalVisits || 0) % daysCount;
+                const dayIndex = daysCount - 1 - i;
+                const v = baseVisits + (dayIndex < rem ? 1 : 0);
                 salesTimeSeries.push({ date: ds, sales: s, revenue: r, visits: v });
             }
         } catch (err) {
-            // Fallback para estimativas com base em itens e métricas do vendedor
-            const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 50, offset: 0 } });
-            const itemIds = itemsSearch.results || [];
-            for (const itemId of itemIds.slice(0, 20)) {
-                try {
-                    const item = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
-                    if (item.status === 'active') {
-                        totalRevenue += (item.sold_quantity || 0) * item.price;
-                    }
-                } catch (e) { void e; }
-            }
-            const sellerCompleted = sellerMetrics.sales?.completed || 0;
-            totalSales = sellerCompleted;
-            totalVisits = totalSales * 25;
-
-            const baseSales = Math.floor(totalSales / daysCount);
-            const salesRemainder = totalSales % daysCount;
-            const baseRevenue = totalRevenue / daysCount;
-            const baseVisits = Math.floor(totalVisits / daysCount);
-            const visitsRemainder = totalVisits % daysCount;
+            const baseVisits = 0;
             for (let i = daysCount - 1; i >= 0; i--) {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                const dateStr = date.toISOString().split('T')[0];
-                const dayIndex = daysCount - 1 - i;
-                const daySales = baseSales + (dayIndex < salesRemainder ? 1 : 0);
-                const dayRevenue = baseRevenue;
-                const dayVisits = baseVisits + (dayIndex < visitsRemainder ? 1 : 0);
-                salesTimeSeries.push({ date: dateStr, sales: daySales, revenue: dayRevenue, visits: dayVisits });
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const ds = d.toISOString().split('T')[0];
+                salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: baseVisits });
             }
+        }
+
+        if (totalSales === 0 && totalRevenue === 0 && totalVisits === 0) {
+            try {
+                const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 50, offset: 0 } });
+                const itemIds = itemsSearch.results || [];
+                for (const itemId of itemIds.slice(0, 20)) {
+                    try {
+                        const item = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+                        if (item.status === 'active') {
+                            totalRevenue += (Number(item.sold_quantity || 0) * Number(item.price || 0)) || 0;
+                        }
+                    } catch (e) { void e; }
+                }
+                const sellerCompleted = sellerMetrics.sales?.completed || 0;
+                totalSales = sellerCompleted;
+                totalVisits = totalSales * 25;
+
+                const baseSales = Math.floor(totalSales / daysCount);
+                const salesRemainder = totalSales % daysCount;
+                const baseRevenue = totalRevenue / daysCount;
+                const baseVisits = Math.floor(totalVisits / daysCount);
+                const visitsRemainder = totalVisits % daysCount;
+                salesTimeSeries.length = 0;
+                for (let i = daysCount - 1; i >= 0; i--) {
+                    const date = new Date();
+                    date.setDate(date.getDate() - i);
+                    const dateStr = date.toISOString().split('T')[0];
+                    const dayIndex = daysCount - 1 - i;
+                    const daySales = baseSales + (dayIndex < salesRemainder ? 1 : 0);
+                    const dayRevenue = baseRevenue;
+                    const dayVisits = baseVisits + (dayIndex < visitsRemainder ? 1 : 0);
+                    salesTimeSeries.push({ date: dateStr, sales: daySales, revenue: dayRevenue, visits: dayVisits });
+                }
+            } catch (e) { void e; }
         }
 
         const conversionRate = totalVisits > 0 ? (totalSales / totalVisits) * 100 : 0;
@@ -633,12 +673,12 @@ router.get("/metrics", async (req, res) => {
             totalRevenue,
             totalVisits,
             conversionRate,
-            responseRate: 85.5, // Aproximação
+            responseRate: 85.5,
             reputation,
             lastSync: new Date().toISOString(),
             sellerId: credentials.userId,
             salesTimeSeries,
-            alerts: [], // Pode ser implementado com regras de negócio
+            alerts: [],
         });
     } catch (error: any) {
         console.error("Error fetching Mercado Livre metrics:", error);
@@ -792,6 +832,18 @@ router.get("/products", async (req, res) => {
                 stock: item.available_quantity,
                 logisticType,
                 isFull,
+                listing_type_id: item.listing_type_id,
+                condition: item.condition,
+                shipping: {
+                    mode: item.shipping?.mode,
+                    free_shipping: item.shipping?.free_shipping || false,
+                    logistic_type: item.shipping?.logistic_type,
+                    local_pick_up: item.shipping?.local_pick_up || false,
+                    dimensions: item.shipping?.dimensions,
+                },
+                tags: tags,
+                pictures: item.pictures?.map((pic: any) => ({ url: pic.url || pic.secure_url, id: pic.id })) || [],
+                attributes: item.attributes?.map((attr: any) => ({ name: attr.name, value_name: attr.value_name })) || [],
             });
         }
 
@@ -2081,21 +2133,209 @@ router.post("/notifications", async (req, res) => {
 });
 
 /**
+ * POST /api/integrations/mercadolivre/notifications/test
+ * Endpoint de teste para disparar notificações de Telegram remotamente
+ */
+router.post("/notifications/test", async (req, res) => {
+    try {
+        const { workspaceId, type = "order" } = req.body || {};
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+
+        if (type === "order") {
+            const sampleOrder = {
+                id: "TEST-ORDER-123",
+                total_amount: 199.9,
+                paid_amount: 199.9,
+                currency_id: "BRL",
+                status: "paid",
+                date_created: new Date().toISOString(),
+                buyer: { id: "buyer123", nickname: "Cliente Teste" },
+                order_items: [
+                    { item: { title: "Produto Exemplo" }, quantity: 1, unit_price: 199.9 },
+                ],
+            };
+            const ok = await TelegramNotificationService.notifyNewOrder(workspaceId, sampleOrder);
+            return res.json({ success: ok });
+        }
+
+        if (type === "question") {
+            const sampleQuestion = {
+                id: "Q-TEST-123",
+                text: "Ainda tem disponível?",
+                from: { id: "user123", nickname: "Interessado" },
+                item_id: "MLB123456789",
+                date_created: new Date().toISOString(),
+            };
+            const ok = await TelegramNotificationService.notifyNewQuestion(workspaceId, sampleQuestion);
+            return res.json({ success: ok });
+        }
+
+        if (type === "item") {
+            const sampleItem = {
+                id: "MLB123456789",
+                title: "Produto Exemplo",
+                status: "active",
+                price: 149.9,
+            };
+            const ok = await TelegramNotificationService.notifyItemUpdated(workspaceId, sampleItem);
+            return res.json({ success: ok });
+        }
+
+        if (type === "message") {
+            const sampleMsg = {
+                id: "MSG-TEST-123",
+                text: "Boa noite! Tenho uma dúvida.",
+                from: { id: "user123", nickname: "Cliente" },
+                date_created: new Date().toISOString(),
+            };
+            const ok = await TelegramNotificationService.notifyNewMessage(workspaceId, sampleMsg);
+            return res.json({ success: ok });
+        }
+
+        return res.status(400).json({ error: "type inválido" });
+    } catch (error: any) {
+        console.error("[Notifications Test] Erro:", error);
+        return res.status(500).json({ error: error?.message || "Erro ao enviar teste" });
+    }
+});
+
+// Suporte a teste via GET para facilitar validação rápida em browser
+router.get("/notifications/test", async (req, res) => {
+    try {
+        const workspaceId = String((req.query?.workspaceId || '')).trim();
+        const type = String((req.query?.type || 'order')).trim();
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+
+        if (type === "order") {
+            const sampleOrder = {
+                id: "TEST-ORDER-123",
+                total_amount: 199.9,
+                paid_amount: 199.9,
+                currency_id: "BRL",
+                status: "paid",
+                date_created: new Date().toISOString(),
+                buyer: { id: "buyer123", nickname: "Cliente Teste" },
+                order_items: [
+                    { item: { title: "Produto Exemplo" }, quantity: 1, unit_price: 199.9 },
+                ],
+            };
+            const ok = await TelegramNotificationService.notifyNewOrder(workspaceId, sampleOrder);
+            return res.json({ success: ok });
+        }
+
+        if (type === "question") {
+            const sampleQuestion = {
+                id: "Q-TEST-123",
+                text: "Ainda tem disponível?",
+                from: { id: "user123", nickname: "Interessado" },
+                item_id: "MLB123456789",
+                date_created: new Date().toISOString(),
+            };
+            const ok = await TelegramNotificationService.notifyNewQuestion(workspaceId, sampleQuestion);
+            return res.json({ success: ok });
+        }
+
+        if (type === "item") {
+            const sampleItem = {
+                id: "MLB123456789",
+                title: "Produto Exemplo",
+                status: "active",
+                price: 149.9,
+            };
+            const ok = await TelegramNotificationService.notifyItemUpdated(workspaceId, sampleItem);
+            return res.json({ success: ok });
+        }
+
+        if (type === "message") {
+            const sampleMsg = {
+                id: "MSG-TEST-123",
+                text: "Boa noite! Tenho uma dúvida.",
+                from: { id: "user123", nickname: "Cliente" },
+                date_created: new Date().toISOString(),
+            };
+            const ok = await TelegramNotificationService.notifyNewMessage(workspaceId, sampleMsg);
+            return res.json({ success: ok });
+        }
+
+        return res.status(400).json({ error: "type inválido" });
+    } catch (error: any) {
+        console.error("[Notifications Test GET] Erro:", error);
+        return res.status(500).json({ error: error?.message || "Erro ao enviar teste" });
+    }
+});
+
+/**
  * Processar notificação de pedido/venda
  */
 async function handleOrderNotification(notification: any) {
     try {
         console.log(`[Order Notification] Pedido: ${notification.resource}`);
 
-        // TODO: Buscar detalhes do pedido e salvar no banco
-        // const orderId = notification.resource.split('/').pop();
-        // const orderDetails = await axios.get(
-        //   `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-        //   { headers: { Authorization: `Bearer ${accessToken}` } }
-        // );
-        // await saveOrderToDatabase(orderDetails.data);
-    } catch (error) {
-        console.error("[Order Notification] Erro:", error);
+        // Extrair order ID do resource
+        const orderId = notification.resource.split('/').pop();
+        const userId = notification.user_id;
+
+        if (!orderId || !userId) {
+            console.warn("[Order Notification] Missing orderId or userId");
+            return;
+        }
+
+        // Buscar workspace_id a partir do user_id
+        const pool = getPool();
+        const workspaceResult = await pool.query(
+            `SELECT workspace_id
+             FROM integration_credentials
+             WHERE platform_key = 'mercadolivre'
+             AND encrypted_credentials::text LIKE $1
+             LIMIT 1`,
+            [`%${userId}%`]
+        );
+
+        if (!workspaceResult.rows.length) {
+            console.warn(`[Order Notification] Workspace não encontrado para user_id ${userId}`);
+            return;
+        }
+
+        const workspaceId = workspaceResult.rows[0].workspace_id;
+
+        // Buscar credenciais para fazer request dos detalhes
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            console.error("[Order Notification] Credenciais não encontradas");
+            return;
+        }
+
+        // Refresh token se necessário
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) {
+                credentials = refreshed;
+            }
+        }
+
+        // Buscar detalhes completos do pedido
+        const orderDetails = await axios.get(
+            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
+            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+        );
+
+        console.log(`[Order Notification] Detalhes do pedido ${orderId} obtidos com sucesso`);
+
+        // Enviar notificação Telegram
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        await TelegramNotificationService.notifyNewOrder(workspaceId, orderDetails.data);
+
+        // TODO: Salvar pedido no banco para cache local
+    } catch (error: any) {
+        console.error("[Order Notification] Erro:", error.response?.data || error.message);
     }
 }
 
@@ -2106,15 +2346,60 @@ async function handleQuestionNotification(notification: any) {
     try {
         console.log(`[Question Notification] Pergunta: ${notification.resource}`);
 
-        // TODO: Buscar detalhes da pergunta e notificar usuário
-        // const questionId = notification.resource.split('/').pop();
-        // const questionDetails = await axios.get(
-        //   `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-        //   { headers: { Authorization: `Bearer ${accessToken}` } }
-        // );
-        // await notifyUserNewQuestion(questionDetails.data);
-    } catch (error) {
-        console.error("[Question Notification] Erro:", error);
+        const questionId = notification.resource.split('/').pop();
+        const userId = notification.user_id;
+
+        if (!questionId || !userId) {
+            console.warn("[Question Notification] Missing questionId or userId");
+            return;
+        }
+
+        // Buscar workspace_id
+        const pool = getPool();
+        const workspaceResult = await pool.query(
+            `SELECT workspace_id
+             FROM integration_credentials
+             WHERE platform_key = 'mercadolivre'
+             AND encrypted_credentials::text LIKE $1
+             LIMIT 1`,
+            [`%${userId}%`]
+        );
+
+        if (!workspaceResult.rows.length) {
+            console.warn(`[Question Notification] Workspace não encontrado para user_id ${userId}`);
+            return;
+        }
+
+        const workspaceId = workspaceResult.rows[0].workspace_id;
+
+        // Buscar credenciais
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            console.error("[Question Notification] Credenciais não encontradas");
+            return;
+        }
+
+        // Refresh token se necessário
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) {
+                credentials = refreshed;
+            }
+        }
+
+        // Buscar detalhes da pergunta
+        const questionDetails = await axios.get(
+            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
+            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+        );
+
+        console.log(`[Question Notification] Detalhes da pergunta ${questionId} obtidos`);
+
+        // Enviar notificação Telegram
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        await TelegramNotificationService.notifyNewQuestion(workspaceId, questionDetails.data);
+    } catch (error: any) {
+        console.error("[Question Notification] Erro:", error.response?.data || error.message);
     }
 }
 
@@ -2124,9 +2409,48 @@ async function handleQuestionNotification(notification: any) {
 async function handleItemNotification(notification: any) {
     try {
         console.log(`[Item Notification] Item: ${notification.resource}`);
+        const itemId = notification.resource.split('/').pop();
+        const userId = notification.user_id;
 
-        // TODO: Atualizar cache do produto
-        // const itemId = notification.resource.split('/').pop();
+        if (!itemId || !userId) {
+            console.warn("[Item Notification] Missing itemId or userId");
+            return;
+        }
+
+        const pool = getPool();
+        const workspaceResult = await pool.query(
+            `SELECT workspace_id
+             FROM integration_credentials
+             WHERE platform_key = 'mercadolivre'
+             AND encrypted_credentials::text LIKE $1
+             LIMIT 1`,
+            [`%${userId}%`]
+        );
+
+        if (!workspaceResult.rows.length) {
+            console.warn(`[Item Notification] Workspace não encontrado para user_id ${userId}`);
+            return;
+        }
+
+        const workspaceId = workspaceResult.rows[0].workspace_id;
+
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            console.error("[Item Notification] Credenciais não encontradas");
+            return;
+        }
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) credentials = refreshed;
+        }
+
+        const itemResp = await axios.get(
+            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
+            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+        );
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        await TelegramNotificationService.notifyItemUpdated(workspaceId, itemResp.data);
     } catch (error) {
         console.error("[Item Notification] Erro:", error);
     }
@@ -2138,8 +2462,33 @@ async function handleItemNotification(notification: any) {
 async function handleMessageNotification(notification: any) {
     try {
         console.log(`[Message Notification] Mensagem: ${notification.resource}`);
+        const userId = notification.user_id;
+        const pool = getPool();
+        const workspaceResult = await pool.query(
+            `SELECT workspace_id
+             FROM integration_credentials
+             WHERE platform_key = 'mercadolivre'
+             AND encrypted_credentials::text LIKE $1
+             LIMIT 1`,
+            [`%${userId}%`]
+        );
+        if (!workspaceResult.rows.length) return;
+        const workspaceId = workspaceResult.rows[0].workspace_id;
 
-        // TODO: Processar mensagem recebida
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) return;
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) credentials = refreshed;
+        }
+
+        const msgResp = await axios.get(
+            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
+            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+        ).catch(() => ({ data: { text: "Nova mensagem recebida" } }));
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        await TelegramNotificationService.notifyNewMessage(workspaceId, msgResp.data);
     } catch (error) {
         console.error("[Message Notification] Erro:", error);
     }
@@ -2150,8 +2499,10 @@ async function handleMessageNotification(notification: any) {
  * Análise completa de produto MLB para otimização SEO
  */
 router.post("/analyze", async (req, res) => {
+    const normalizedMlbId = String((req.body?.mlbId) || '').trim().toUpperCase();
     try {
         const { mlbId, workspaceId } = req.body;
+        // normalizedMlbId já calculado acima para uso no catch
 
         if (!mlbId || !workspaceId) {
             return res.status(400).json({ 
@@ -2160,7 +2511,7 @@ router.post("/analyze", async (req, res) => {
         }
 
         // Validar formato do MLB ID
-        if (!mlbId.match(/^MLB\d+$/)) {
+        if (!normalizedMlbId.match(/^MLB\d+$/)) {
             return res.status(400).json({
                 error: "Formato de MLB ID inválido. Use: MLB1234567890"
             });
@@ -2176,36 +2527,36 @@ router.post("/analyze", async (req, res) => {
         const { technicalSheetService } = await import("../../services/technicalSheetService.js");
         const { competitiveAnalyzerService } = await import("../../services/competitiveAnalyzer.service.js");
 
-        console.log(`[MLB Analyzer] Iniciando análise do produto ${mlbId}`);
+        console.log(`[MLB Analyzer] Iniciando análise do produto ${normalizedMlbId}`);
 
         let productData;
         try {
-            productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+            productData = await mlbAnalyzerService.getProductData(normalizedMlbId, accessToken);
         } catch (err: any) {
             const status = err?.status || err?.response?.status;
             if (status === 401 && credentials?.refreshToken) {
                 try {
                     const refreshed = await refreshAccessToken(String(workspaceId));
                     const newToken = refreshed?.accessToken;
-                    productData = await mlbAnalyzerService.getProductData(mlbId, newToken);
+                    productData = await mlbAnalyzerService.getProductData(normalizedMlbId, newToken);
                 } catch (retryErr: any) {
                     return res.status(401).json({
                         error: "Conexão Mercado Livre inválida",
                         details: retryErr?.message || "Unauthorized",
-                        mlb_id: mlbId
+                        mlb_id: normalizedMlbId
                     });
                 }
             } else if (status === 404) {
                 return res.status(404).json({
                     error: "Produto não encontrado",
                     details: err?.message || "Not Found",
-                    mlb_id: mlbId
+                    mlb_id: normalizedMlbId
                 });
             } else {
                 return res.status(502).json({
                     error: "Falha ao consultar API do Mercado Livre",
                     details: err?.message || "Bad Gateway",
-                    mlb_id: mlbId
+                    mlb_id: normalizedMlbId
                 });
             }
         }
@@ -2373,11 +2724,11 @@ router.post("/analyze", async (req, res) => {
             estimated_visibility: `${Math.round(qualityScore.overall_score * 0.8)}%`
         };
 
-        console.log(`[MLB Analyzer] Análise concluída para ${mlbId}. Score: ${qualityScore.overall_score}`);
+        console.log(`[MLB Analyzer] Análise concluída para ${normalizedMlbId}. Score: ${qualityScore.overall_score}`);
 
         return res.json({
             success: true,
-            mlb_id: mlbId,
+            mlb_id: normalizedMlbId,
             analyzed_at: new Date().toISOString(),
             product_data: {
                 id: productData.id,
@@ -2416,7 +2767,7 @@ router.post("/analyze", async (req, res) => {
         return res.status(500).json({
             error: "Falha na análise do produto",
             details: error.message,
-            mlb_id: req.body.mlbId
+            mlb_id: normalizedMlbId
         });
     }
 });
@@ -2518,8 +2869,9 @@ router.post("/optimize-title", async (req, res) => {
 router.post("/generate-description", async (req, res) => {
     try {
         const { mlbId, workspaceId, style = 'professional' } = req.body;
+        const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
-        if (!mlbId) {
+        if (!normalizedMlbId) {
             return res.status(400).json({ 
                 error: "MLB ID é obrigatório" 
             });
@@ -2530,7 +2882,7 @@ router.post("/generate-description", async (req, res) => {
         const { seoOptimizerService, fetchTrendingKeywordsFromML, fetchCompetitorKeywordsFromML } = await import("../../services/seoOptimizer.service.js");
 
         // Buscar dados do produto
-        const productData = await mlbAnalyzerService.getProductData(mlbId, credentials?.accessToken);
+        const productData = await mlbAnalyzerService.getProductData(normalizedMlbId, credentials?.accessToken);
         const keywordAnalysis = seoOptimizerService.analyzeKeywords(productData);
         const liveTrending = await fetchTrendingKeywordsFromML(productData.category_id);
         const liveCompetitors = await fetchCompetitorKeywordsFromML(productData.category_id);
@@ -2544,7 +2896,7 @@ router.post("/generate-description", async (req, res) => {
 
         return res.json({
             success: true,
-            mlb_id: mlbId,
+            mlb_id: normalizedMlbId,
             generated_description: seoDescription,
             style_applied: style,
             keywords_included: keywordAnalysis.primary_keywords.concat(keywordAnalysis.secondary_keywords),
@@ -2567,15 +2919,16 @@ router.post("/generate-description", async (req, res) => {
 router.post("/apply-optimizations", async (req, res) => {
     try {
         const { mlbId, workspaceId, optimizations } = req.body;
+        const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
-        if (!mlbId || !workspaceId || !optimizations) {
+        if (!normalizedMlbId || !workspaceId || !optimizations) {
             return res.status(400).json({ 
                 error: "MLB ID, Workspace ID e otimizações são obrigatórios" 
             });
         }
 
         // Validar formato do MLB ID
-        if (!mlbId.match(/^MLB\d+$/)) {
+        if (!normalizedMlbId.match(/^MLB\d+$/)) {
             return res.status(400).json({
                 error: "Formato de MLB ID inválido. Use: MLB1234567890"
             });
@@ -2588,17 +2941,17 @@ router.post("/apply-optimizations", async (req, res) => {
             });
         }
 
-        console.log(`[Apply Optimizations] Iniciando aplicação de otimizações para ${mlbId}`);
+        console.log(`[Apply Optimizations] Iniciando aplicação de otimizações para ${normalizedMlbId}`);
 
         // Buscar dados atuais do produto
         let currentProduct;
         try {
-            currentProduct = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`);
+            currentProduct = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}`);
         } catch (err: any) {
             return res.status(404).json({
                 error: "Produto não encontrado",
                 details: err?.message || "Not Found",
-                mlb_id: mlbId
+                mlb_id: normalizedMlbId
             });
         }
 
@@ -2790,7 +3143,7 @@ router.post("/apply-optimizations", async (req, res) => {
             try {
                 let hasExistingDesc = false;
                 try {
-                    const existing = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`);
+                    const existing = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/description`);
                     hasExistingDesc = !!existing && (typeof existing.plain_text === 'string' || typeof existing.id === 'string');
                 } catch {
                     hasExistingDesc = false;
@@ -2807,8 +3160,8 @@ router.post("/apply-optimizations", async (req, res) => {
                 const plain = sanitizePlain(String(optimizations.description));
 
                 const url = hasExistingDesc
-                    ? `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description?api_version=2`
-                    : `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`;
+                    ? `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/description?api_version=2`
+                    : `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/description`;
 
                 await requestWithAuth(String(workspaceId), url, {
                     method: hasExistingDesc ? 'PUT' : 'POST',
@@ -2824,14 +3177,14 @@ router.post("/apply-optimizations", async (req, res) => {
         // Aplicar as atualizações principais (título, atributos, etc.)
         if (Object.keys(updates).length > 0) {
             try {
-                console.log(`[Apply Optimizations] Tentando atualizar produto ${mlbId} com:`, updates);
+                console.log(`[Apply Optimizations] Tentando atualizar produto ${normalizedMlbId} com:`, updates);
                 
-                await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`, {
+                await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}`, {
                     method: 'PUT',
                     data: updates
                 });
                 
-                console.log(`[Apply Optimizations] Produto ${mlbId} atualizado com sucesso`);
+                console.log(`[Apply Optimizations] Produto ${normalizedMlbId} atualizado com sucesso`);
                 
             } catch (updateError: any) {
                 console.error('[Apply Optimizations] Erro ao atualizar produto:', updateError);
@@ -2850,7 +3203,7 @@ router.post("/apply-optimizations", async (req, res) => {
                         const originalTitle = updates.title;
                         delete updates.title;
                         try {
-                            await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`, {
+                            await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}`, {
                                 method: 'PUT',
                                 data: updates
                             });
@@ -2861,7 +3214,7 @@ router.post("/apply-optimizations", async (req, res) => {
                                 success: true,
                                 message: 'Algumas otimizações aplicadas (título não permitido)',
                                 changes_applied: safeChanges,
-                                mlb_id: mlbId,
+                                mlb_id: normalizedMlbId,
                                 updated_fields: Object.keys(updates),
                                 applied_at: new Date().toISOString(),
                             });
@@ -2872,7 +3225,7 @@ router.post("/apply-optimizations", async (req, res) => {
                             return res.status(400).json({
                                 error: "Não foi possível editar este produto",
                                 details: [errorMessage, ...causeMessages, ...retryMessages].filter(Boolean).join(' | '),
-                                mlb_id: mlbId,
+                                mlb_id: normalizedMlbId,
                                 suggestions: [
                                     "Verifique se o produto está ativo no MercadoLivre",
                                     "Confirme se você tem permissão para editar este produto",
@@ -2891,7 +3244,7 @@ router.post("/apply-optimizations", async (req, res) => {
                             errorMessage,
                             ...causeMessages
                         ].filter(Boolean).join(' | '),
-                        mlb_id: mlbId,
+                        mlb_id: normalizedMlbId,
                         suggestions: [
                             "Verifique se o produto está ativo no MercadoLivre",
                             "Confirme se você tem permissão para editar este produto",
@@ -2903,7 +3256,7 @@ router.post("/apply-optimizations", async (req, res) => {
                     return res.status(403).json({
                         error: "Permissão negada para editar produto",
                         details: "Sua conta não tem permissão para editar este produto via API.",
-                        mlb_id: mlbId,
+                        mlb_id: normalizedMlbId,
                         suggestions: [
                             "Verifique as permissões da sua aplicação no MercadoLivre",
                             "Confirme se o token de acesso tem escopo de escrita",
@@ -2918,7 +3271,7 @@ router.post("/apply-optimizations", async (req, res) => {
                         errorMessage,
                         ...causeMessages
                     ].filter(Boolean).join(' | '),
-                    mlb_id: mlbId,
+                    mlb_id: normalizedMlbId,
                     status_code: status
                 });
             }
@@ -2929,11 +3282,11 @@ router.post("/apply-optimizations", async (req, res) => {
                 success: true,
                 message: "Nenhuma alteração necessária",
                 changes_applied: [],
-                mlb_id: mlbId
+                mlb_id: normalizedMlbId
             });
         }
 
-        console.log(`[Apply Optimizations] Sucesso! Aplicadas ${appliedChanges.length} otimizações para ${mlbId}`);
+        console.log(`[Apply Optimizations] Sucesso! Aplicadas ${appliedChanges.length} otimizações para ${normalizedMlbId}`);
 
         // Pós-verificação: buscar item e descrição para confirmar aplicação efetiva
         let afterItem: any = null;
@@ -2942,9 +3295,9 @@ router.post("/apply-optimizations", async (req, res) => {
         try {
             // Margem de consistência eventual
             await new Promise((r) => setTimeout(r, 1500));
-            afterItem = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`);
+            afterItem = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}`);
             try {
-                afterDesc = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`);
+                afterDesc = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/description`);
             } catch { /* descrição pode não existir */ }
 
             
@@ -3001,7 +3354,7 @@ router.post("/apply-optimizations", async (req, res) => {
             message: "Otimizações aplicadas com sucesso!",
             changes_applied: appliedChanges,
             effective_changes: effectiveChanges,
-            mlb_id: mlbId,
+            mlb_id: normalizedMlbId,
             updated_fields: Object.keys(updates),
             after_snapshot: {
                 title: afterItem?.title,
@@ -3194,7 +3547,6 @@ router.post("/upload-image", async (req, res) => {
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
         // Preparar form data para upload
-        const FormData = require('form-data');
         const formData = new FormData();
         formData.append('file', imageBuffer, {
             filename: fileName || 'image.jpg',
@@ -3243,10 +3595,17 @@ router.post("/upload-image", async (req, res) => {
 router.post("/add-pictures", async (req, res) => {
     try {
         const { mlbId, workspaceId, pictureIds } = req.body;
+        const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
-        if (!mlbId || !workspaceId || !Array.isArray(pictureIds)) {
+        if (!normalizedMlbId || !workspaceId || !Array.isArray(pictureIds)) {
             return res.status(400).json({ 
                 error: "MLB ID, Workspace ID e lista de picture IDs são obrigatórios" 
+            });
+        }
+
+        if (!normalizedMlbId.match(/^MLB\d+$/)) {
+            return res.status(400).json({
+                error: "Formato de MLB ID inválido. Use: MLB1234567890"
             });
         }
 
@@ -3257,7 +3616,7 @@ router.post("/add-pictures", async (req, res) => {
             });
         }
 
-        console.log(`[Add Pictures] Adicionando ${pictureIds.length} imagens ao produto ${mlbId}`);
+        console.log(`[Add Pictures] Adicionando ${pictureIds.length} imagens ao produto ${normalizedMlbId}`);
 
         const addedPictures = [];
         const errors = [];
@@ -3265,7 +3624,7 @@ router.post("/add-pictures", async (req, res) => {
         // Adicionar cada imagem individualmente
         for (const pictureId of pictureIds) {
             try {
-                const addResponse = await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/pictures`, {
+                const addResponse = await requestWithAuth(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${normalizedMlbId}/pictures`, {
                     method: 'POST',
                     data: { id: pictureId }
                 });
@@ -3292,15 +3651,301 @@ router.post("/add-pictures", async (req, res) => {
             message: `${addedPictures.length} de ${pictureIds.length} imagens adicionadas`,
             added_pictures: addedPictures,
             errors: errors,
-            mlb_id: mlbId
+            mlb_id: normalizedMlbId
         });
 
     } catch (error: any) {
         console.error("[Add Pictures] Erro:", error);
-        
+
         return res.status(500).json({
             error: "Falha ao adicionar imagens",
             details: error?.message || "Erro interno do servidor"
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/orders
+ * Busca vendas/pedidos do Mercado Livre com filtros de data
+ */
+router.get("/orders", async (req, res) => {
+    try {
+        const { workspaceId, dateFrom, dateTo, limit, offset } = req.query;
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        let credentials = await getMercadoLivreCredentials(workspaceId as string);
+
+        if (!credentials) {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
+
+        // Refresh antecipado se token estiver perto de expirar
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId as string);
+            if (refreshed) {
+                credentials = refreshed;
+            }
+        }
+
+        // Parâmetros para a API de Orders
+        const params: any = {
+            seller: credentials.userId,
+        };
+
+        // Filtros opcionais
+        if (dateFrom) {
+            params["order.date_created.from"] = dateFrom;
+        }
+        if (dateTo) {
+            params["order.date_created.to"] = dateTo;
+        }
+        if (limit) {
+            params.limit = Math.min(50, parseInt(limit as string, 10));
+        }
+        if (offset) {
+            params.offset = parseInt(offset as string, 10);
+        }
+
+        try {
+            const ordersResponse = await axios.get(
+                `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${credentials.accessToken}`,
+                    },
+                    params,
+                }
+            );
+
+            const orders = ordersResponse.data.results || [];
+            const paging = ordersResponse.data.paging || {};
+
+            // Processar pedidos para extrair informações relevantes
+            const processedOrders = orders.map((order: any) => {
+                const dateCreated = order.date_created ? new Date(order.date_created) : null;
+                const totalAmount = order.total_amount || 0;
+                const paidAmount = order.paid_amount || 0;
+
+                return {
+                    id: order.id,
+                    status: order.status,
+                    dateCreated: dateCreated ? dateCreated.toISOString() : null,
+                    totalAmount,
+                    paidAmount,
+                    currencyId: order.currency_id,
+                    buyerId: order.buyer?.id,
+                    items: order.order_items?.map((item: any) => ({
+                        itemId: item.item?.id,
+                        title: item.item?.title,
+                        quantity: item.quantity,
+                        unitPrice: item.unit_price,
+                        fullUnitPrice: item.full_unit_price,
+                    })) || [],
+                };
+            });
+
+            return res.json({
+                orders: processedOrders,
+                paging: {
+                    total: paging.total || 0,
+                    offset: paging.offset || 0,
+                    limit: paging.limit || 50,
+                },
+            });
+
+        } catch (apiError: any) {
+            if (apiError.response?.status === 401) {
+                console.error("[Orders] Token expirado, tentando refresh...");
+                const refreshed = await refreshAccessToken(workspaceId as string);
+                if (refreshed) {
+                    credentials = refreshed;
+                    // Tentar novamente com o novo token
+                    const retryResponse = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        }
+                    );
+
+                    const orders = retryResponse.data.results || [];
+                    const paging = retryResponse.data.paging || {};
+
+                    const processedOrders = orders.map((order: any) => {
+                        const dateCreated = order.date_created ? new Date(order.date_created) : null;
+                        const totalAmount = order.total_amount || 0;
+                        const paidAmount = order.paid_amount || 0;
+
+                        return {
+                            id: order.id,
+                            status: order.status,
+                            dateCreated: dateCreated ? dateCreated.toISOString() : null,
+                            totalAmount,
+                            paidAmount,
+                            currencyId: order.currency_id,
+                            buyerId: order.buyer?.id,
+                            items: order.order_items?.map((item: any) => ({
+                                itemId: item.item?.id,
+                                title: item.item?.title,
+                                quantity: item.quantity,
+                                unitPrice: item.unit_price,
+                                fullUnitPrice: item.full_unit_price,
+                            })) || [],
+                        };
+                    });
+
+                    return res.json({
+                        orders: processedOrders,
+                        paging: {
+                            total: paging.total || 0,
+                            offset: paging.offset || 0,
+                            limit: paging.limit || 50,
+                        },
+                    });
+                }
+            }
+
+            console.error("[Orders] Erro ao buscar pedidos:", apiError.response?.data || apiError.message);
+            return res.status(apiError.response?.status || 500).json({
+                error: apiError.response?.data?.message || "Erro ao buscar pedidos",
+            });
+        }
+
+    } catch (error: any) {
+        console.error("[Orders] Erro geral:", error);
+        return res.status(500).json({
+            error: "Erro ao buscar pedidos do Mercado Livre",
+            details: error?.message || "Erro interno do servidor",
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/orders/daily-sales
+ * Agrega vendas por dia para gráficos
+ */
+router.get("/orders/daily-sales", async (req, res) => {
+    try {
+        const { workspaceId, dateFrom, dateTo } = req.query;
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        let credentials = await getMercadoLivreCredentials(workspaceId as string);
+
+        if (!credentials) {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
+
+        // Refresh antecipado se token estiver perto de expirar
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId as string);
+            if (refreshed) {
+                credentials = refreshed;
+            }
+        }
+
+        // Buscar todos os pedidos no período
+        const allOrders: any[] = [];
+        let offset = 0;
+        const limit = 50;
+        let hasMore = true;
+
+        while (hasMore && allOrders.length < 1000) {
+            try {
+                const params: any = {
+                    seller: credentials.userId,
+                    limit,
+                    offset,
+                };
+
+                if (dateFrom) {
+                    params["order.date_created.from"] = dateFrom;
+                }
+                if (dateTo) {
+                    params["order.date_created.to"] = dateTo;
+                }
+
+                const ordersResponse = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                        params,
+                    }
+                );
+
+                const orders = ordersResponse.data.results || [];
+                allOrders.push(...orders);
+
+                hasMore = orders.length === limit;
+                offset += limit;
+            } catch (apiError: any) {
+                if (apiError.response?.status === 401) {
+                    console.error("[Daily Sales] Token expirado, tentando refresh...");
+                    const refreshed = await refreshAccessToken(workspaceId as string);
+                    if (refreshed) {
+                        credentials = refreshed;
+                        continue; // Retry com o novo token
+                    }
+                }
+                console.error("[Daily Sales] Erro ao buscar pedidos:", apiError.message);
+                hasMore = false;
+            }
+        }
+
+        console.log(`[Daily Sales] Total de ${allOrders.length} pedidos encontrados`);
+
+        // Agregar por dia
+        const salesByDay = new Map<string, { date: string; sales: number; revenue: number; orders: number }>();
+
+        for (const order of allOrders) {
+            if (order.status === "cancelled") continue; // Ignorar pedidos cancelados
+
+            const dateCreated = order.date_created ? new Date(order.date_created) : null;
+            if (!dateCreated) continue;
+
+            const dateKey = dateCreated.toISOString().split("T")[0]; // YYYY-MM-DD
+
+            const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+            const totalAmount = order.paid_amount || order.total_amount || 0;
+
+            if (!salesByDay.has(dateKey)) {
+                salesByDay.set(dateKey, { date: dateKey, sales: 0, revenue: 0, orders: 0 });
+            }
+
+            const dayData = salesByDay.get(dateKey)!;
+            dayData.sales += totalQuantity;
+            dayData.revenue += totalAmount;
+            dayData.orders += 1;
+        }
+
+        // Converter para array e ordenar por data
+        const dailySalesArray = Array.from(salesByDay.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+        return res.json({
+            dailySales: dailySalesArray,
+            totalOrders: allOrders.filter(o => o.status !== "cancelled").length,
+            totalSales: dailySalesArray.reduce((sum, day) => sum + day.sales, 0),
+            totalRevenue: dailySalesArray.reduce((sum, day) => sum + day.revenue, 0),
+        });
+
+    } catch (error: any) {
+        console.error("[Daily Sales] Erro geral:", error);
+        return res.status(500).json({
+            error: "Erro ao agregar vendas diárias",
+            details: error?.message || "Erro interno do servidor",
         });
     }
 });

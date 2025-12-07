@@ -32,6 +32,7 @@ import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
+import aiAnalysisHandler from './api/integrations/ai-analysis.js';
 import { google } from 'googleapis';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
@@ -128,7 +129,6 @@ import {
   getUserPreferences,
   updateUserPreferences,
 } from './api/user-preferences.js';
-import leadsRouter from './api/leads.js';
 import workspacesRouter from './api/workspaces.js';
 
 // Load environment variables
@@ -192,8 +192,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Public landing leads capture
-app.use('/api/leads', leadsRouter);
 app.use('/api/workspaces', workspacesRouter);
 
 // API Routes
@@ -218,6 +216,7 @@ app.post('/api/integrations/direct-sync', directInstagramSync); // Direct sync f
 // Optimized sync endpoints (new)
 app.post('/api/integrations/meta/sync-optimized', optimizedMetaSync);
 app.post('/api/integrations/meta/create-campaign', createMetaCampaign);
+app.post('/api/integrations/ai-analysis', aiAnalysisHandler);
 app.get('/api/integrations/meta/sync-status/:workspaceId', getMetaSyncStatus);
 app.get('/api/integrations/meta/custom-audiences/:workspaceId', getMetaCustomAudiences);
 app.get('/api/integrations/meta/page-info/:workspaceId', getMetaPageInfo);
@@ -421,8 +420,16 @@ import productsRouter from './api/products.js';
 app.use('/api/products', productsRouter);
 
 // Mercado Livre endpoints
-import mercadoLivreRouter from './api/integrations/mercadolivre.js';
+import mercadoLivreRouter, { bootstrapMercadoLivreEnvCredentials } from './api/integrations/mercadolivre.js';
 app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
+
+// Mercado Livre Fulfillment endpoints
+import mercadoLivreFulfillmentRouter from './api/integrations/mercadolivre-fulfillment.js';
+app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
+
+// Notification Settings endpoints
+import notificationSettingsRouter from './api/notification-settings.js';
+app.use('/api/notification-settings', notificationSettingsRouter);
 
 // Upload endpoints
 import uploadRouter from './api/upload.js';
@@ -545,6 +552,17 @@ async function start() {
 
     // Ensure at least one admin user exists
     await ensureAdminUser();
+
+    // Bootstrap credenciais do Mercado Livre a partir das envs (caso ainda não estejam no banco)
+    try {
+      const mlWorkspaceId = process.env.MERCADO_LIVRE_DEFAULT_WORKSPACE_ID || '00000000-0000-0000-0000-000000000010';
+      const applied = await bootstrapMercadoLivreEnvCredentials(mlWorkspaceId);
+      if (applied) {
+        console.log(`🔑 Credenciais MercadoLivre salvas no banco para workspace ${mlWorkspaceId} (via env)`);
+      }
+    } catch (e) {
+      console.warn('⚠️  Falha ao aplicar credenciais do MercadoLivre a partir das envs:', e);
+    }
 
     workerIntervalId = null;
 
