@@ -567,7 +567,6 @@ router.get("/metrics", async (req, res) => {
                     if (createdDate < dateFromStr || createdDate > dateToStr) continue;
 
                     const items = Array.isArray(order.order_items) ? order.order_items : [];
-                    const units = items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0) || 1;
 
                     const payments = Array.isArray(order.payments) ? order.payments : [];
                     const paidAmount = payments.reduce((sum: number, p: any) => {
@@ -578,10 +577,11 @@ router.get("/metrics", async (req, res) => {
                     const fallbackAmount = items.reduce((sum: number, it: any) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0), 0);
                     const revenue = paidAmount > 0 ? paidAmount : fallbackAmount;
 
+                    // Contar 1 pedido (não unidades)
                     totalRevenue += revenue;
-                    totalSales += units;
+                    totalSales += 1;
                     dailyRevenue.set(createdDate, (dailyRevenue.get(createdDate) || 0) + revenue);
-                    dailyUnits.set(createdDate, (dailyUnits.get(createdDate) || 0) + units);
+                    dailyUnits.set(createdDate, (dailyUnits.get(createdDate) || 0) + 1);
                 } catch (e) { void e; }
             }
 
