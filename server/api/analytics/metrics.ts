@@ -248,6 +248,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
       kpi_raw as (
         select
           kpi.campaign_id,
+          kpi.platform_account_id,
           kpi.metric_date,
           kpi.spend,
           kpi.result_value,
