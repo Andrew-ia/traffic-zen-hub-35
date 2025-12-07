@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mercado Livre Scraper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="title">
+      <div class="title__kicker">Chrome Extension</div>
+      <div class="title__main">Mercado Livre Scraper</div>
+    </div>
+  </header>
+
+  <div class="panel">
+    <div class="panel__title">Scraping rápido (página atual)</div>
+    <section class="controls">
+      <button id="scrape" class="btn btn-primary">Scrapear página</button>
+      <button id="copy" class="btn" disabled>Copiar JSON</button>
+      <button id="download" class="btn" disabled>Baixar JSON</button>
+    </section>
+  </div>
+
+  <div class="panel">
+    <div class="panel__title">Top da categoria (API pública)</div>
+    <form id="top-form" class="form">
+      <label class="field">
+        <span>Categoria (ID)</span>
+        <input id="category" name="category" type="text" placeholder="ex.: MLB1051" required />
+      </label>
+      <label class="field">
+        <span>Subcategoria (opcional)</span>
+        <input id="subcategory" name="subcategory" type="text" placeholder="ex.: MLB438566" />
+      </label>
+      <label class="field field-inline">
+        <span>Qtd. itens</span>
+        <select id="limit" name="limit">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+        </select>
+      </label>
+      <label class="field field-inline">
+        <span>Mín. vendas/mês</span>
+        <input id="minSold" name="minSold" type="number" min="0" placeholder="ex.: 100" />
+      </label>
+      <button id="top-submit" class="btn btn-primary" type="submit">Buscar top</button>
+    </form>
+    <div id="top-status" class="status">Use IDs de categoria do ML (ex.: MLB1051). Se a API falhar, uso o scraping da página ativa.</div>
+  </div>
+
+  <div id="status" class="status">Aguardando página do Mercado Livre…</div>
+
+  <pre id="output" class="output"></pre>
+
+  <p class="hint">Abra uma página de produto ou resultados do Mercado Livre e clique em “Scrapear página”.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

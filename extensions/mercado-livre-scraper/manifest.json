@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Mercado Livre Scraper",
+  "description": "Extensão para coletar dados de páginas e resultados de busca do Mercado Livre.",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "https://mercadolivre.com.br/*",
+    "https://*.mercadolivre.com/*",
+    "https://mercadolivre.com/*",
+    "https://api.mercadolibre.com/*"
+  ],
+  "action": {
+    "default_title": "Scrapear página do Mercado Livre",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.mercadolivre.com.br/*",
+        "https://mercadolivre.com.br/*",
+        "https://*.mercadolivre.com/*",
+        "https://mercadolivre.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

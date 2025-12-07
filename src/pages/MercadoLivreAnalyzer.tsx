@@ -60,13 +60,13 @@ export default function MercadoLivreAnalyzer() {
     const [editedSize, setEditedSize] = useState("");
     const [showColorCustom, setShowColorCustom] = useState(false);
     const [showSizeCustom, setShowSizeCustom] = useState(false);
-    
+
     // Estados dos checkboxes para controlar o que será aplicado
     const [applyAttributes, setApplyAttributes] = useState(true);
     const [applyModel, setApplyModel] = useState(true);
     const [applyDescription, setApplyDescription] = useState(true);
     const [applyImages, setApplyImages] = useState(false);
-    
+
     // Estados para upload de imagens
     const [newImagePictureIds, setNewImagePictureIds] = useState<string[]>([]);
     const [editedBrand, setEditedBrand] = useState("");
@@ -89,7 +89,7 @@ export default function MercadoLivreAnalyzer() {
     const [categoryError, setCategoryError] = useState<string | null>(null);
     const [allAttributes, setAllAttributes] = useState<Record<string, string>>({});
     const [showAdvancedAttrs, setShowAdvancedAttrs] = useState(false);
-    
+
 
     const baseColorOptions = [
         'Preto', 'Branco', 'Cinza', 'Prata', 'Vermelho', 'Azul', 'Verde', 'Amarelo', 'Marrom', 'Rosa', 'Roxo', 'Laranja', 'Bege', 'Dourado'
@@ -118,17 +118,17 @@ export default function MercadoLivreAnalyzer() {
             setEditedModel(currentAnalysis.model_optimization?.optimized_models?.[0]?.model || "");
             setEditedDescription(currentAnalysis.seo_description.optimized_description || "");
             const attrs = currentAnalysis.product_data.attributes || [];
-            
+
             const colorAttr = attrs.find((a: any) => a.id === 'COLOR');
             const sizeAttr = attrs.find((a: any) => a.id === 'SIZE');
             const brandAttr = attrs.find((a: any) => a.id === 'BRAND');
             setEditedColor(colorAttr?.value_name || "");
             setEditedSize(sizeAttr?.value_name || "");
             setEditedBrand(brandAttr?.value_name || "");
-            
-            setOriginalSnapshot({ 
-                title: currentAnalysis.product_data.title, 
-                model: (attrs.find((a: any) => a.id === 'MODEL')?.value_name) || '', 
+
+            setOriginalSnapshot({
+                title: currentAnalysis.product_data.title,
+                model: (attrs.find((a: any) => a.id === 'MODEL')?.value_name) || '',
                 attrs: {}
             });
         }
@@ -157,11 +157,7 @@ export default function MercadoLivreAnalyzer() {
         }
     }, [currentAnalysis?.mlb_id, currentWorkspace?.id]);
 
-    useEffect(() => {
-        if (activeTab === 'apply') {
-            loadItemData();
-        }
-    }, [activeTab, loadItemData]);
+
 
     const loadCategoryData = useCallback(async () => {
         const catId = currentAnalysis?.product_data?.category_id;
@@ -187,19 +183,26 @@ export default function MercadoLivreAnalyzer() {
         }
     }, [currentAnalysis?.product_data?.category_id, currentWorkspace?.id]);
 
+    useEffect(() => {
+        if (activeTab === 'apply') {
+            loadItemData();
+            loadCategoryData();
+        }
+    }, [activeTab, loadItemData, loadCategoryData]);
+
     function validateFields() {
         const d = editedDescription.trim();
         const dEff = d || String(currentAnalysis?.seo_description?.optimized_description || '').trim();
         const w: string[] = [];
         const critical: string[] = [];
         const contactRegex = /(https?:\/\/|www\.|@|\b\d{9,}\b)/i;
-        
+
         setTitleError(null);
         setDescriptionError(dEff.length === 0 ? "Descrição obrigatória" : null);
-        
+
         // Validações críticas
         if (contactRegex.test(dEff)) critical.push("Detectado contato/URL na descrição. Remova antes de aplicar.");
-        
+
         const status = currentAnalysis?.product_data?.status;
         if (status && String(status).toLowerCase() !== 'active') {
             critical.push(`O anúncio não está ativo (status: ${status}). Ative para editar.`);
@@ -209,9 +212,9 @@ export default function MercadoLivreAnalyzer() {
         if (editedModel.trim().length === 0) {
             w.push("Modelo vazio - será mantido o atual.");
         }
-        
+
         const hasBasicAttributes = editedBrand.trim() || editedColor.trim() || editedSize.trim();
-        
+
         // Verificar atributos avançados modificados
         let modifiedAdvancedCount = 0;
         if (currentAnalysis?.product_data?.attributes) {
@@ -223,7 +226,7 @@ export default function MercadoLivreAnalyzer() {
                 }
             }
         }
-        
+
         if (!hasBasicAttributes && modifiedAdvancedCount === 0) {
             w.push("Nenhum atributo será alterado.");
         } else if (modifiedAdvancedCount > 0) {
@@ -295,7 +298,7 @@ export default function MercadoLivreAnalyzer() {
         // Aplicar sugestão específica
         if (suggestion.action_data) {
             const { field, suggested_value, attribute_id } = suggestion.action_data;
-            
+
             switch (field) {
                 case 'title':
                     if (suggested_value) setEditedTitle(suggested_value);
@@ -322,10 +325,10 @@ export default function MercadoLivreAnalyzer() {
                     }
                     break;
             }
-            
+
             // Navegar para aba aplicar
             setActiveTab("apply");
-            
+
             toast({
                 title: "✅ Sugestão aplicada",
                 description: `${suggestion.title} foi aplicada. Revise na aba Aplicar.`,
@@ -340,11 +343,11 @@ export default function MercadoLivreAnalyzer() {
 
     const handleApplyMultipleSuggestions = (suggestions: any[]) => {
         let appliedCount = 0;
-        
+
         suggestions.forEach(suggestion => {
             if (suggestion.action_data) {
                 const { field, suggested_value, attribute_id } = suggestion.action_data;
-                
+
                 switch (field) {
                     case 'title':
                         if (suggested_value) {
@@ -381,7 +384,7 @@ export default function MercadoLivreAnalyzer() {
                 }
             }
         });
-        
+
         if (appliedCount > 0) {
             setActiveTab("apply");
             toast({
@@ -514,48 +517,48 @@ export default function MercadoLivreAnalyzer() {
                     {/* Abas de Conteúdo */}
 
 
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
 
-                    
 
-                    
 
-                    
 
-                    
 
-                    
 
-                    
 
-                    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
                     <TabsContent value="apply" className="space-y-6">
                         {/* ABA APLICAR COMPLETAMENTE NOVA */}
@@ -585,74 +588,136 @@ export default function MercadoLivreAnalyzer() {
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    {currentAnalysis?.product_data?.attributes?.length > 0 ? (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-                                            {currentAnalysis.product_data.attributes
-                                                .sort((a: any, b: any) => a.id.localeCompare(b.id))
-                                                .map((attr: any) => {
-                                                    const attrId = attr.id;
-                                                    const originalValue = attr.value_name || attr.value_id || '';
-                                                    const currentValue = allAttributes[attrId] || originalValue;
-                                                    const isModified = currentValue !== originalValue;
-                                                    
-                                                    return (
-                                                        <div key={attrId} className={`p-4 rounded-lg border-2 transition-all ${isModified ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-200'}`}>
-                                                            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                                                                {attrId.replace(/_/g, ' ').toUpperCase()}
-                                                                {isModified && <span className="ml-2 text-blue-600 font-bold">*</span>}
-                                                            </label>
-                                                            <Input
-                                                                value={currentValue}
-                                                                onChange={(e) => setAllAttributes(prev => ({
-                                                                    ...prev,
-                                                                    [attrId]: e.target.value
-                                                                }))}
-                                                                placeholder={originalValue || 'Vazio'}
-                                                                className={isModified ? 'border-blue-500' : ''}
-                                                            />
-                                                            <div className="mt-2 text-xs text-gray-500">
-                                                                Original: {originalValue || 'Vazio'}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                        </div>
-                                    ) : (
-                                        <div className="text-center py-12 text-gray-500">
-                                            <div className="text-4xl mb-4">📋</div>
-                                            <div className="text-lg font-medium">Nenhum atributo encontrado</div>
-                                            <div className="text-sm">Faça uma análise do produto primeiro</div>
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                                        {(() => {
+                                            // Combinar atributos do produto com atributos da categoria
+                                            const existingAttrsMock = currentAnalysis?.product_data?.attributes || [];
+                                            const catAttrs = categoryAttrs || [];
 
-                            {/* Descrição */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Descrição SEO</CardTitle>
-                                    <CardDescription>
-                                        Descrição otimizada para melhor rankeamento
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-4">
-                                        <Textarea
-                                            value={editedDescription}
-                                            onChange={(e) => setEditedDescription(e.target.value)}
-                                            rows={8}
-                                            placeholder="Digite a descrição otimizada..."
-                                            className="resize-none"
-                                        />
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => setEditedDescription(buildSeoTemplate())}
-                                        >
-                                            Usar Template SEO
-                                        </Button>
+                                            // Mapa de atributos existentes para busca rápida
+                                            const existingMap = new Map(existingAttrsMock.map((a: any) => [a.id, a]));
+
+                                            // Lista final combinada
+                                            const combinedAttrs = [...catAttrs];
+
+                                            // Adicionar atributos que o produto tem mas não estão na lista da categoria (casos raros)
+                                            existingAttrsMock.forEach((attr: any) => {
+                                                if (!combinedAttrs.find(ca => ca.id === attr.id)) {
+                                                    combinedAttrs.push(attr);
+                                                }
+                                            });
+
+                                            // Ordenar: Obrigatórios primeiro, depois alfabético
+                                            combinedAttrs.sort((a: any, b: any) => {
+                                                const aReq = a.tags?.required || false;
+                                                const bReq = b.tags?.required || false;
+                                                if (aReq && !bReq) return -1;
+                                                if (!aReq && bReq) return 1;
+                                                return (a.name || a.id).localeCompare(b.name || b.id);
+                                            });
+
+                                            if (combinedAttrs.length === 0) {
+                                                return (
+                                                    <div className="col-span-full text-center py-12 text-gray-500">
+                                                        <div className="text-4xl mb-4">📋</div>
+                                                        <div className="text-lg font-medium">Nenhum atributo encontrado</div>
+                                                        <div className="text-sm">Faça uma análise do produto primeiro</div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return combinedAttrs.map((attr: any) => {
+                                                const attrId = attr.id;
+                                                const existingAttr = existingMap.get(attrId);
+                                                const originalValue = existingAttr?.value_name || existingAttr?.value_id || '';
+                                                const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
+                                                const isModified = currentValue !== originalValue;
+                                                const isRequired = attr.tags?.required || false;
+
+                                                return (
+                                                    <div key={attrId} className={`p-4 rounded-lg border-2 transition-all ${isModified ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-200'}`}>
+                                                        <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 flex justify-between">
+                                                            <span>
+                                                                {attr.name || attrId.replace(/_/g, ' ').toUpperCase()}
+                                                                {isRequired && <span className="text-red-500 ml-1">*</span>}
+                                                            </span>
+                                                            {isModified && <span className="text-blue-600 font-bold text-xs">Modificado</span>}
+                                                        </label>
+                                                        <Input
+                                                            value={currentValue}
+                                                            onChange={(e) => setAllAttributes(prev => ({
+                                                                ...prev,
+                                                                [attrId]: e.target.value
+                                                            }))}
+                                                            placeholder={originalValue || 'Vazio'}
+                                                            className={isModified ? 'border-blue-500' : ''}
+                                                        />
+                                                        <div className="mt-2 text-xs text-gray-500 flex justify-between">
+                                                            <span>Original: {originalValue || '-'}</span>
+                                                            <span className="opacity-70">{attr.value_type || 'text'}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                     </div>
                                 </CardContent>
                             </Card>
+
+                            {/* Descrição: original x otimizada */}
+                            <div className="grid md:grid-cols-2 gap-4">
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Descrição atual (capturada)</CardTitle>
+                                        <CardDescription>
+                                            Texto do anúncio no Mercado Livre
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-2">
+                                            {loadingItem && (
+                                                <div className="text-sm text-gray-500">Carregando descrição...</div>
+                                            )}
+                                            {!loadingItem && !itemDesc?.plain_text && !itemDesc?.text && (
+                                                <div className="text-sm text-gray-500">
+                                                    Nenhuma descrição capturada para este anúncio.
+                                                </div>
+                                            )}
+                                            {(itemDesc?.plain_text || itemDesc?.text) && (
+                                                <div className="text-sm text-gray-800 whitespace-pre-line bg-gray-50 border rounded-lg p-3 max-h-64 overflow-auto">
+                                                    {itemDesc?.plain_text || itemDesc?.text}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Descrição SEO</CardTitle>
+                                        <CardDescription>
+                                            Descrição otimizada para melhor rankeamento
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-4">
+                                            <Textarea
+                                                value={editedDescription}
+                                                onChange={(e) => setEditedDescription(e.target.value)}
+                                                rows={8}
+                                                placeholder="Digite a descrição otimizada..."
+                                                className="resize-none"
+                                            />
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => setEditedDescription(buildSeoTemplate())}
+                                            >
+                                                Usar Template SEO
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
 
                             {/* Upload de Imagens */}
                             <ImageUpload
@@ -676,14 +741,14 @@ export default function MercadoLivreAnalyzer() {
                                                 Selecione quais modificações você deseja aplicar no seu anúncio
                                             </p>
                                         </div>
-                                        
+
                                         {/* Checkboxes de seleção */}
                                         <div className="flex flex-col space-y-3 max-w-sm mx-auto text-left">
                                             <div className="flex justify-between items-center border-b pb-2 mb-1">
                                                 <span className="text-sm font-medium text-gray-700">Modificações a aplicar:</span>
                                                 <div className="flex gap-2">
-                                                    <Button 
-                                                        variant="ghost" 
+                                                    <Button
+                                                        variant="ghost"
                                                         size="sm"
                                                         onClick={() => {
                                                             setApplyAttributes(true);
@@ -694,8 +759,8 @@ export default function MercadoLivreAnalyzer() {
                                                     >
                                                         Selecionar tudo
                                                     </Button>
-                                                    <Button 
-                                                        variant="ghost" 
+                                                    <Button
+                                                        variant="ghost"
                                                         size="sm"
                                                         onClick={() => {
                                                             setApplyAttributes(false);
@@ -712,22 +777,23 @@ export default function MercadoLivreAnalyzer() {
                                                 <Checkbox
                                                     id="apply-attributes"
                                                     checked={applyAttributes}
-                                                    onCheckedChange={setApplyAttributes}
+                                                    onCheckedChange={(c) => setApplyAttributes(c === true)}
                                                 />
                                                 <label htmlFor="apply-attributes" className="text-sm font-medium cursor-pointer">
-                                                    Aplicar atributos modificados ({Object.keys(allAttributes).filter(k => 
-                                                        currentAnalysis?.product_data?.attributes?.some((attr: any) => 
-                                                            attr.id === k && (allAttributes[k] !== (attr.value_name || attr.value_id || ''))
-                                                        )
-                                                    ).length})
+                                                    Aplicar atributos modificados ({Object.keys(allAttributes).filter(attrId => {
+                                                        const existingAttr = currentAnalysis?.product_data?.attributes?.find((a: any) => a.id === attrId);
+                                                        const originalValue = existingAttr?.value_name || existingAttr?.value_id || '';
+                                                        const currentValue = allAttributes[attrId];
+                                                        return currentValue !== originalValue && currentValue !== undefined;
+                                                    }).length})
                                                 </label>
                                             </div>
-                                            
+
                                             <div className="flex items-center space-x-2">
                                                 <Checkbox
                                                     id="apply-model"
                                                     checked={applyModel}
-                                                    onCheckedChange={setApplyModel}
+                                                    onCheckedChange={(c) => setApplyModel(c === true)}
                                                 />
                                                 <label htmlFor="apply-model" className="text-sm font-medium cursor-pointer">
                                                     Aplicar modelo: {(() => {
@@ -739,30 +805,30 @@ export default function MercadoLivreAnalyzer() {
                                                     })()}
                                                 </label>
                                             </div>
-                                            
+
                                             <div className="flex items-center space-x-2">
                                                 <Checkbox
                                                     id="apply-description"
                                                     checked={applyDescription}
-                                                    onCheckedChange={setApplyDescription}
+                                                    onCheckedChange={(c) => setApplyDescription(c === true)}
                                                 />
                                                 <label htmlFor="apply-description" className="text-sm font-medium cursor-pointer">
                                                     Aplicar descrição SEO ({editedDescription.trim().length} caracteres)
                                                 </label>
                                             </div>
-                                            
+
                                             <div className="flex items-center space-x-2">
                                                 <Checkbox
                                                     id="apply-images"
                                                     checked={applyImages}
-                                                    onCheckedChange={setApplyImages}
+                                                    onCheckedChange={(c) => setApplyImages(c === true)}
                                                 />
                                                 <label htmlFor="apply-images" className="text-sm font-medium cursor-pointer">
                                                     Adicionar novas imagens ({newImagePictureIds.length} imagens)
                                                 </label>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="flex gap-3 justify-center">
                                             <Button
                                                 size="lg"
@@ -770,7 +836,7 @@ export default function MercadoLivreAnalyzer() {
                                                 disabled={isApplying}
                                                 onClick={async () => {
                                                     if (!currentAnalysis) return;
-                                                    
+
                                                     // Verificar se pelo menos uma opção está selecionada
                                                     if (!applyAttributes && !applyModel && !applyDescription && !applyImages) {
                                                         toast({
@@ -780,22 +846,25 @@ export default function MercadoLivreAnalyzer() {
                                                         });
                                                         return;
                                                     }
-                                                    
+
                                                     // Preparar atributos modificados (apenas se checkbox estiver marcado)
                                                     const modifiedAttrs: Record<string, string> = {};
-                                                    if (applyAttributes && currentAnalysis?.product_data?.attributes) {
-                                                        for (const attr of currentAnalysis.product_data.attributes) {
-                                                            const originalValue = attr.value_name || attr.value_id || '';
-                                                            const currentValue = allAttributes[attr.id];
-                                                            if (currentValue && currentValue !== originalValue) {
-                                                                modifiedAttrs[attr.id] = currentValue;
+                                                    if (applyAttributes) {
+                                                        // Iterar sobre todos os atributos editados em allAttributes
+                                                        Object.entries(allAttributes).forEach(([attrId, currentValue]) => {
+                                                            const existingAttr = currentAnalysis?.product_data?.attributes?.find((a: any) => a.id === attrId);
+                                                            const originalValue = existingAttr?.value_name || existingAttr?.value_id || '';
+
+                                                            // Se o valor for diferente do original (ou se for novo e não vazio), incluir para envio
+                                                            if (currentValue !== originalValue && currentValue !== undefined) {
+                                                                modifiedAttrs[attrId] = currentValue;
                                                             }
-                                                        }
+                                                        });
                                                     }
 
                                                     // Se o atributo MODEL foi modificado, usar ele ao invés do editedModel
                                                     const finalModel = modifiedAttrs['MODEL'] || editedModel.trim();
-                                                    
+
                                                     const optimizations: OptimizationPayload = {
                                                         description: applyDescription ? editedDescription.trim() : undefined,
                                                         model: applyModel ? finalModel : undefined,
@@ -803,7 +872,7 @@ export default function MercadoLivreAnalyzer() {
                                                     };
 
                                                     const allResults = [];
-                                                    
+
                                                     // Aplicar otimizações básicas
                                                     if (applyAttributes || applyModel || applyDescription) {
                                                         const result = await applyOptimizations(currentAnalysis.mlb_id, optimizations);
@@ -811,7 +880,7 @@ export default function MercadoLivreAnalyzer() {
                                                             allResults.push(`Otimizações: ${result.changes_applied.length} mudanças`);
                                                         }
                                                     }
-                                                    
+
                                                     // Aplicar imagens se selecionado
                                                     if (applyImages && newImagePictureIds.length > 0) {
                                                         try {
@@ -824,7 +893,7 @@ export default function MercadoLivreAnalyzer() {
                                                                     pictureIds: newImagePictureIds
                                                                 })
                                                             });
-                                                            
+
                                                             const imageResult = await imageResponse.json();
                                                             if (imageResult.success) {
                                                                 allResults.push(`Imagens: ${imageResult.added_pictures.length} adicionadas`);
@@ -833,7 +902,7 @@ export default function MercadoLivreAnalyzer() {
                                                             console.error('Erro ao adicionar imagens:', err);
                                                         }
                                                     }
-                                                    
+
                                                     // Toast final
                                                     if (allResults.length > 0) {
                                                         toast({
@@ -867,7 +936,7 @@ export default function MercadoLivreAnalyzer() {
                                                 Ver Anúncio
                                             </Button>
                                         </div>
-                                        
+
                                         {/* Resultado */}
                                         {lastApplication && (
                                             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -879,7 +948,7 @@ export default function MercadoLivreAnalyzer() {
                                                 </div>
                                             </div>
                                         )}
-                                        
+
                                         {applyError && (
                                             <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
                                                 <div className="font-medium text-red-800 mb-2">
