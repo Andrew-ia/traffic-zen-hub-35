@@ -1,5 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+// Helper para obter headers com autenticação
+const getAuthHeaders = (): HeadersInit => {
+    const token = localStorage.getItem('token');
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+};
+
 // Interface para métricas do Mercado Livre
 export interface MercadoLivreMetrics {
     totalSales: number;
@@ -78,7 +87,8 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
             }
 
             const response = await fetch(
-                `/api/integrations/mercadolivre/metrics?workspaceId=${workspaceId}&days=${days}`
+                `/api/integrations/mercadolivre/metrics?workspaceId=${workspaceId}&days=${days}`,
+                { headers: getAuthHeaders() }
             );
 
             if (!response.ok) {
@@ -130,7 +140,8 @@ export function useMercadoLivreProducts(
             });
 
             const response = await fetch(
-                `/api/integrations/mercadolivre/products?${params}`
+                `/api/integrations/mercadolivre/products?${params}`,
+                { headers: getAuthHeaders() }
             );
 
             if (!response.ok) {
@@ -170,7 +181,9 @@ export function useMercadoLivreListings(
                 limit: String(limit),
             });
 
-            const response = await fetch(`/api/integrations/mercadolivre/products?${params}`);
+            const response = await fetch(`/api/integrations/mercadolivre/products?${params}`, {
+                headers: getAuthHeaders()
+            });
             if (!response.ok) {
                 throw new Error("Failed to fetch Mercado Livre products");
             }
@@ -200,7 +213,8 @@ export function useMercadoLivreQuestions(
             }
 
             const response = await fetch(
-                `/api/integrations/mercadolivre/questions?workspaceId=${workspaceId}&days=${days}`
+                `/api/integrations/mercadolivre/questions?workspaceId=${workspaceId}&days=${days}`,
+                { headers: getAuthHeaders() }
             );
 
             if (!response.ok) {
@@ -226,9 +240,7 @@ export function useSyncMercadoLivre() {
                 `/api/integrations/mercadolivre/sync`,
                 {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ workspaceId }),
                 }
             );
@@ -274,9 +286,7 @@ export function useAnswerMercadoLivreQuestion() {
                 `/api/integrations/mercadolivre/questions/${questionId}/answer`,
                 {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ answer, workspaceId }),
                 }
             );
@@ -315,9 +325,7 @@ export function useUpdateMercadoLivreProductPrice() {
                 `/api/integrations/mercadolivre/products/${productId}/price`,
                 {
                     method: "PUT",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ price, workspaceId }),
                 }
             );
@@ -356,9 +364,7 @@ export function useToggleMercadoLivreProduct() {
                 `/api/integrations/mercadolivre/products/${productId}/status`,
                 {
                     method: "PUT",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ status, workspaceId }),
                 }
             );
