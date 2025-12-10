@@ -5199,12 +5199,22 @@ router.get("/orders/daily-sales", async (req, res) => {
             }
         }
 
-        console.log(`[Daily Sales] Total de ${allOrders.length} pedidos encontrados`);
+        console.log(`[Daily Sales] Total de ${allOrders.length} pedidos encontrados (antes da deduplicação)`);
+
+        // ⚠️ DEDUPLICAR PEDIDOS POR ID (API pode retornar duplicados)
+        const uniqueOrdersMap = new Map();
+        for (const order of allOrders) {
+            if (!uniqueOrdersMap.has(order.id)) {
+                uniqueOrdersMap.set(order.id, order);
+            }
+        }
+        const uniqueOrders = Array.from(uniqueOrdersMap.values());
+        console.log(`[Daily Sales] ${uniqueOrders.length} pedidos únicos após deduplicação`);
 
         // Agregar por dia
         const salesByDay = new Map<string, { date: string; sales: number; revenue: number; orders: number }>();
 
-        for (const order of allOrders) {
+        for (const order of uniqueOrders) {
             if (order.status === "cancelled") continue; // Ignorar pedidos cancelados
 
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
@@ -5225,10 +5235,28 @@ router.get("/orders/daily-sales", async (req, res) => {
             dayData.sales += totalQuantity;
             dayData.revenue += totalAmount;
             dayData.orders += 1;
+
+            // Log detalhado para debug (apenas para hoje)
+            const today = new Date().toISOString().split("T")[0];
+            if (dateKey === today) {
+                console.log(`[Daily Sales DEBUG - ${dateKey}] Pedido ${order.id}:`, {
+                    quantity: totalQuantity,
+                    amount: totalAmount,
+                    items: order.order_items?.length || 0,
+                    status: order.status
+                });
+            }
         }
 
         // Converter para array e ordenar por data
         const dailySalesArray = Array.from(salesByDay.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+        // Log resumo de hoje
+        const today = new Date().toISOString().split("T")[0];
+        const todayData = salesByDay.get(today);
+        if (todayData) {
+            console.log(`[Daily Sales RESUMO HOJE - ${today}]:`, todayData);
+        }
 
         return res.json({
             dailySales: dailySalesArray,
