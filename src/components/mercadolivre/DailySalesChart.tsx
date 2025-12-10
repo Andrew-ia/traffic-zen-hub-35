@@ -46,6 +46,9 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
         );
     }
 
+    const totalUnits = data.reduce((sum, item) => sum + item.sales, 0);
+    const totalOrdersCount = data.reduce((sum, item) => sum + item.orders, 0);
+
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
             style: "currency",
@@ -60,7 +63,24 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
     };
 
     return (
-        <ResponsiveContainer width="100%" height={300}>
+        <div className="space-y-3">
+            {/* Info Card */}
+            <div className="flex items-center justify-center gap-6 p-3 rounded-lg bg-muted/30 border border-border/50 text-sm">
+                <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[hsl(var(--primary))]"></div>
+                    <span className="font-medium">{totalUnits} unidades</span>
+                    <span className="text-muted-foreground">vendidas em</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[hsl(47.9_95.8%_53.1%)]"></div>
+                    <span className="font-medium">{totalOrdersCount} pedidos</span>
+                </div>
+                <span className="text-xs text-muted-foreground italic">
+                    (1 pedido pode ter várias unidades)
+                </span>
+            </div>
+
+            <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
@@ -90,11 +110,11 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     labelStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(value: any, name: string) => {
                         if (name === "revenue") {
-                            return [formatCurrency(value), "Receita"];
+                            return [formatCurrency(value), "Receita Total"];
                         } else if (name === "sales") {
-                            return [formatNumber(value), "Vendas (unidades)"];
+                            return [formatNumber(value), "Unidades Vendidas"];
                         } else if (name === "orders") {
-                            return [formatNumber(value), "Pedidos"];
+                            return [formatNumber(value), "Nº de Pedidos"];
                         }
                         return [value, name];
                     }}
@@ -112,9 +132,9 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     wrapperStyle={{ paddingTop: "20px" }}
                     formatter={(value) => {
                         const labels: Record<string, string> = {
-                            sales: "Vendas (unidades)",
-                            revenue: "Receita (R$)",
-                            orders: "Pedidos",
+                            sales: "Unidades Vendidas",
+                            revenue: "Receita Total (R$)",
+                            orders: "Nº de Pedidos",
                         };
                         return labels[value] || value;
                     }}
@@ -151,5 +171,6 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                 />
             </LineChart>
         </ResponsiveContainer>
+        </div>
     );
 }
