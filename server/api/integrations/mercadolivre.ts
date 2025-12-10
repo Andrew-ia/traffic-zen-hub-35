@@ -4034,6 +4034,45 @@ router.get("/analyze/:mlbId", async (req, res) => {
 });
 
 /**
+ * POST /api/integrations/mercadolivre/smart-suggestions
+ * Gera sugestões inteligentes baseadas em análise de mercado
+ */
+router.post("/smart-suggestions", async (req, res) => {
+    try {
+        const { mlbId, workspaceId } = req.body;
+
+        if (!mlbId) {
+            return res.status(400).json({
+                error: "MLB ID é obrigatório"
+            });
+        }
+
+        const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service.js");
+
+        // Buscar dados do produto
+        const accessToken = await getAccessToken(workspaceId || FALLBACK_WORKSPACE_ENV);
+        const productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+
+        // Gerar sugestões inteligentes baseadas em dados de mercado
+        const smartSuggestions = await mlbAnalyzerService.generateSmartSuggestions(productData);
+
+        return res.json({
+            success: true,
+            mlb_id: mlbId,
+            suggestions: smartSuggestions,
+            generated_at: new Date().toISOString()
+        });
+
+    } catch (error: any) {
+        console.error("Error generating smart suggestions:", error);
+        return res.status(500).json({
+            error: "Falha ao gerar sugestões inteligentes",
+            details: error.message
+        });
+    }
+});
+
+/**
  * POST /api/integrations/mercadolivre/optimize-title
  * Otimização específica de título
  */

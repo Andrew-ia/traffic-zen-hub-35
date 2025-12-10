@@ -8,6 +8,7 @@ import type { OptimizationPayload } from "@/hooks/useMLBOptimizations";
 import { toast } from "@/hooks/use-toast";
 import { MLBAnalyzerInput } from "@/components/analyzer/MLBAnalyzerInput";
 import { ImageUpload } from "@/components/analyzer/ImageUpload";
+import { SmartSuggestionsTab } from "@/components/analyzer/SmartSuggestionsTab";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1035,32 +1036,12 @@ export default function MercadoLivreAnalyzer() {
 
                     <TabsContent value="suggestions" className="space-y-6">
                         <div className="max-w-5xl mx-auto space-y-6">
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Sugestões rápidas de atributos</CardTitle>
-                                    <CardDescription>
-                                        Use estes valores base para preencher atributos obrigatórios e opcionais mais usados em ML.
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Campo ML</TableHead>
-                                                <TableHead>Como preencher</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {attributeSuggestions.map((item, idx) => (
-                                                <TableRow key={idx}>
-                                                    <TableCell className="font-medium">{item.campo}</TableCell>
-                                                    <TableCell>{item.como}</TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </CardContent>
-                            </Card>
+                            <SmartSuggestionsTab
+                                mlbId={currentAnalysis.mlb_id}
+                                workspaceId={currentWorkspace?.id}
+                                categoryId={currentAnalysis.product_data.category_id}
+                                currentAnalysis={currentAnalysis}
+                            />
 
                             <Card>
                                 <CardHeader>

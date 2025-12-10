@@ -893,6 +893,296 @@ export class MLBAnalyzerService {
             .map(attr => attr.value_name || '')
             .filter(value => value);
     }
+
+    /**
+     * Busca produtos top da mesma categoria para análise competitiva inteligente
+     */
+    async searchTopProducts(categoryId: string, limit: number = 20): Promise<any[]> {
+        try {
+            const searchUrl = `${MERCADO_LIVRE_API_BASE}/sites/MLB/search`;
+            const params = {
+                category: categoryId,
+                sort: 'sold_quantity_desc', // Produtos mais vendidos
+                limit: limit,
+                offset: 0
+            };
+
+            const response = await axios.get(searchUrl, {
+                params,
+                headers: { 'User-Agent': 'TrafficPro-MLB-Analyzer/1.0' }
+            });
+
+            return response.data.results || [];
+        } catch (error) {
+            console.error('Erro ao buscar produtos top:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Analisa padrões de atributos e títulos dos top produtos
+     */
+    async analyzeMarketPatterns(categoryId: string, currentProduct: MLBAnalysisData): Promise<{
+        common_attributes: Record<string, { values: string[], frequency: number }>,
+        title_patterns: { avg_length: number, common_words: string[], structures: string[] },
+        price_insights: { avg: number, min: number, max: number, recommended: number }
+    }> {
+        const topProducts = await this.searchTopProducts(categoryId, 20);
+
+        // Analisar atributos mais usados
+        const attributeMap = new Map<string, Map<string, number>>();
+        const titleWords = new Map<string, number>();
+        let titleLengthSum = 0;
+        const prices: number[] = [];
+
+        for (const product of topProducts) {
+            // Contar palavras nos títulos
+            const words = product.title.toLowerCase().split(/\s+/);
+            titleLengthSum += product.title.length;
+            words.forEach((word: string) => {
+                if (word.length > 3) { // Ignorar palavras muito curtas
+                    titleWords.set(word, (titleWords.get(word) || 0) + 1);
+                }
+            });
+
+            // Analisar preços
+            if (product.price) prices.push(product.price);
+
+            // Buscar atributos do produto
+            try {
+                const itemResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${product.id}`, {
+                    headers: { 'User-Agent': 'TrafficPro-MLB-Analyzer/1.0' }
+                });
+
+                const attributes = itemResponse.data.attributes || [];
+                attributes.forEach((attr: any) => {
+                    if (!attributeMap.has(attr.id)) {
+                        attributeMap.set(attr.id, new Map());
+                    }
+                    const valueMap = attributeMap.get(attr.id)!;
+                    const valueName = attr.value_name || String(attr.value_id || '');
+                    if (valueName) {
+                        valueMap.set(valueName, (valueMap.get(valueName) || 0) + 1);
+                    }
+                });
+            } catch (error) {
+                // Ignorar erros em produtos individuais
+                continue;
+            }
+        }
+
+        // Processar resultados
+        const common_attributes: Record<string, { values: string[], frequency: number }> = {};
+        attributeMap.forEach((valueMap, attrId) => {
+            const sortedValues = Array.from(valueMap.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            common_attributes[attrId] = {
+                values: sortedValues.map(([value]) => value),
+                frequency: sortedValues[0]?.[1] || 0
+            };
+        });
+
+        // Palavras mais comuns nos títulos
+        const commonWords = Array.from(titleWords.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 15)
+            .map(([word]) => word);
+
+        // Análise de preços
+        prices.sort((a, b) => a - b);
+        const avg = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+        const min = prices[0] || 0;
+        const max = prices[prices.length - 1] || 0;
+        const median = prices[Math.floor(prices.length / 2)] || avg;
+
+        return {
+            common_attributes,
+            title_patterns: {
+                avg_length: Math.round(titleLengthSum / topProducts.length),
+                common_words: commonWords,
+                structures: [] // Pode ser expandido para detectar padrões estruturais
+            },
+            price_insights: {
+                avg: Math.round(avg),
+                min: Math.round(min),
+                max: Math.round(max),
+                recommended: Math.round(median)
+            }
+        };
+    }
+
+    /**
+     * Gera sugestões inteligentes baseadas na análise de mercado
+     */
+    async generateSmartSuggestions(productData: MLBAnalysisData): Promise<{
+        attribute_suggestions: Array<{
+            attribute_id: string,
+            attribute_name: string,
+            suggested_values: string[],
+            reason: string,
+            priority: 'high' | 'medium' | 'low'
+        }>,
+        title_suggestions: Array<{
+            suggested_title: string,
+            reason: string,
+            keywords_used: string[]
+        }>,
+        market_positioning: {
+            price_recommendation: string,
+            competitive_advantages: string[],
+            improvement_areas: string[]
+        }
+    }> {
+        const marketData = await this.analyzeMarketPatterns(productData.category_id, productData);
+
+        // Gerar sugestões de atributos
+        const attribute_suggestions = [];
+        const currentAttrs = new Map(productData.attributes.map(a => [a.id, a.value_name || a.value_id]));
+
+        for (const [attrId, data] of Object.entries(marketData.common_attributes)) {
+            const currentValue = currentAttrs.get(attrId);
+            const isHighFrequency = data.frequency > 10; // Mais de 50% dos top produtos usa
+
+            if (!currentValue || !data.values.includes(String(currentValue))) {
+                attribute_suggestions.push({
+                    attribute_id: attrId,
+                    attribute_name: this.getAttributeName(attrId),
+                    suggested_values: data.values,
+                    reason: isHighFrequency
+                        ? `${data.frequency} dos top 20 produtos usam este atributo`
+                        : `Atributo usado pelos concorrentes de sucesso`,
+                    priority: isHighFrequency ? 'high' as const : 'medium' as const
+                });
+            }
+        }
+
+        // Gerar sugestões de título
+        const title_suggestions = [];
+        const currentTitle = productData.title.toLowerCase();
+        const missingKeywords = marketData.title_patterns.common_words.filter(
+            word => !currentTitle.includes(word)
+        ).slice(0, 5);
+
+        if (missingKeywords.length > 0) {
+            const categoryPath = productData.category_prediction?.path_from_root || [];
+            const categoryName = categoryPath[categoryPath.length - 1]?.name || '';
+
+            // Construir título otimizado
+            const brandAttr = productData.attributes.find(a => a.id === 'BRAND');
+            const colorAttr = productData.attributes.find(a => a.id === 'COLOR' || a.id === 'MAIN_COLOR');
+            const materialAttr = productData.attributes.find(a => a.id === 'MATERIAL');
+
+            const titleParts = [
+                categoryName,
+                materialAttr?.value_name,
+                colorAttr?.value_name,
+                brandAttr?.value_name,
+                ...missingKeywords.slice(0, 2)
+            ].filter(Boolean);
+
+            title_suggestions.push({
+                suggested_title: titleParts.join(' '),
+                reason: 'Inclui palavras-chave dos top produtos da categoria',
+                keywords_used: missingKeywords
+            });
+        }
+
+        // Análise de posicionamento de mercado
+        const currentPrice = productData.price;
+        const priceInsights = marketData.price_insights;
+        let priceRecommendation = '';
+
+        if (currentPrice < priceInsights.avg * 0.7) {
+            priceRecommendation = `Seu preço está ${Math.round((1 - currentPrice / priceInsights.avg) * 100)}% abaixo da média (R$ ${priceInsights.avg}). Considere aumentar.`;
+        } else if (currentPrice > priceInsights.avg * 1.3) {
+            priceRecommendation = `Seu preço está ${Math.round((currentPrice / priceInsights.avg - 1) * 100)}% acima da média (R$ ${priceInsights.avg}). Pode dificultar vendas.`;
+        } else {
+            priceRecommendation = `Preço competitivo (média: R$ ${priceInsights.avg})`;
+        }
+
+        return {
+            attribute_suggestions,
+            title_suggestions,
+            market_positioning: {
+                price_recommendation: priceRecommendation,
+                competitive_advantages: this.identifyAdvantages(productData, marketData),
+                improvement_areas: this.identifyImprovements(productData, marketData)
+            }
+        };
+    }
+
+    private getAttributeName(attrId: string): string {
+        const names: Record<string, string> = {
+            'BRAND': 'Marca',
+            'MODEL': 'Modelo',
+            'COLOR': 'Cor',
+            'MAIN_COLOR': 'Cor Principal',
+            'SIZE': 'Tamanho',
+            'MATERIAL': 'Material',
+            'GENDER': 'Gênero',
+            'STYLE': 'Estilo',
+            'FINISH': 'Acabamento',
+            'WITH_STONES': 'Com Pedras',
+            'STONE_TYPE': 'Tipo de Pedra',
+            'CLOSURE': 'Tipo de Fecho',
+            'OCCASION': 'Ocasião',
+            'WARRANTY_TYPE': 'Garantia',
+            'ITEM_CONDITION': 'Estado'
+        };
+        return names[attrId] || attrId.replace(/_/g, ' ');
+    }
+
+    private identifyAdvantages(productData: MLBAnalysisData, marketData: any): string[] {
+        const advantages = [];
+
+        if (productData.shipping?.free_shipping) {
+            advantages.push('Frete grátis - vantagem competitiva');
+        }
+
+        if ((productData.pictures?.length || 0) > 6) {
+            advantages.push(`${productData.pictures.length} fotos - acima da média`);
+        }
+
+        if (productData.video_id) {
+            advantages.push('Possui vídeo do produto');
+        }
+
+        const filledAttrs = productData.attributes.filter(a => a.value_name || a.value_id).length;
+        if (filledAttrs > 10) {
+            advantages.push(`Ficha técnica completa (${filledAttrs} atributos)`);
+        }
+
+        return advantages.length > 0 ? advantages : ['Nenhuma vantagem clara identificada'];
+    }
+
+    private identifyImprovements(productData: MLBAnalysisData, marketData: any): string[] {
+        const improvements = [];
+
+        if (!productData.shipping?.free_shipping) {
+            improvements.push('Ativar frete grátis');
+        }
+
+        if ((productData.pictures?.length || 0) < 5) {
+            improvements.push('Adicionar mais fotos (mínimo 8 recomendado)');
+        }
+
+        if (!productData.video_id) {
+            improvements.push('Adicionar vídeo do produto');
+        }
+
+        const filledAttrs = productData.attributes.filter(a => a.value_name || a.value_id).length;
+        if (filledAttrs < 8) {
+            improvements.push('Completar mais atributos da ficha técnica');
+        }
+
+        if (productData.title.length < 40) {
+            improvements.push('Expandir título com mais palavras-chave');
+        }
+
+        return improvements;
+    }
 }
 
 export const mlbAnalyzerService = new MLBAnalyzerService();
