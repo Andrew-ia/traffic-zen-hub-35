@@ -5282,7 +5282,11 @@ router.get("/orders/daily-sales", async (req, res) => {
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
             if (!dateCreated) continue;
 
-            const dateKey = dateCreated.toISOString().split("T")[0]; // YYYY-MM-DD
+            // IMPORTANTE: Usar o timestamp ORIGINAL do ML (com timezone) para extrair a data
+            // O ML retorna timestamps como "2025-12-09T21:30:56.000-04:00" (horário do Brasil)
+            // Não devemos converter para UTC antes de extrair a data, pois isso pode mudar o dia!
+            // Exemplo: 2025-12-09T21:30-04:00 vira 2025-12-10T01:30Z em UTC (dia errado!)
+            const dateKey = order.date_created.split("T")[0]; // Pegar data da string original
 
             // Filtro RIGOROSO de data (comparação por timestamp)
             const orderTimestamp = dateCreated.getTime();
@@ -5337,7 +5341,8 @@ router.get("/orders/daily-sales", async (req, res) => {
 
         return res.json({
             dailySales: dailySalesArray,
-            totalOrders: uniqueOrders.filter(o => o.status !== "cancelled").length,
+            // totalOrders deve somar APENAS os pedidos dentro do período (já calculados em dailySales)
+            totalOrders: dailySalesArray.reduce((sum, day) => sum + day.orders, 0),
             totalSales: dailySalesArray.reduce((sum, day) => sum + day.sales, 0),
             totalRevenue: dailySalesArray.reduce((sum, day) => sum + day.revenue, 0),
         });
