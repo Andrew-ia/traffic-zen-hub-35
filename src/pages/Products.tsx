@@ -303,7 +303,7 @@ export default function Products() {
                         </div>
                     ) : (
                         <ScrollArea className="h-[calc(100vh-350px)] w-full">
-                            <div className="min-w-[1500px]"> {/* Horizontal scroll */}
+                            <div className="min-w-[1200px]"> {/* Horizontal scroll */}
                                 <Table>
                                     <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
                                         <TableRow className="hover:bg-muted/50">
@@ -316,7 +316,6 @@ export default function Products() {
                                             <TableHead className="w-[100px] text-right">Receita</TableHead>
                                             <TableHead className="w-[100px] text-right">Visitas</TableHead>
                                             <TableHead className="w-[200px]">Tipo / Logística</TableHead>
-                                            <TableHead className="w-[450px]">Características</TableHead>
                                             <TableHead className="w-[100px] text-center pr-4">Ações</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -417,25 +416,6 @@ export default function Products() {
                                                                     <Truck className="h-3 w-3" />
                                                                     <span>{getDeliveryLabel(product)}</span>
                                                                 </div>
-                                                            </div>
-                                                        </TableCell>
-
-                                                        {/* Características (Atributos principais) */}
-                                                        <TableCell className="align-middle">
-                                                            <div className="flex flex-wrap gap-1 items-center">
-                                                                {sortedAttributes.length > 0 ? (
-                                                                    sortedAttributes.slice(0, 3).map((attr: any, idx: number) => (
-                                                                        <Badge
-                                                                            key={idx}
-                                                                            variant="outline"
-                                                                            className="text-[9px] h-4 px-1 bg-slate-50 text-slate-600 border-slate-200"
-                                                                        >
-                                                                            <span className="font-semibold mr-0.5 opacity-80">{attr.name}:</span> {attr.value_name}
-                                                                        </Badge>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-xs text-muted-foreground">-</span>
-                                                                )}
                                                             </div>
                                                         </TableCell>
 
