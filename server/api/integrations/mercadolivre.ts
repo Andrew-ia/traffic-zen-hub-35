@@ -5205,12 +5205,17 @@ router.get("/orders/daily-sales", async (req, res) => {
         const limit = 50;
         let hasMore = true;
 
+        console.log(`[Daily Sales] Buscando pedidos entre ${dateFrom} e ${dateTo}`);
+
         while (hasMore && allOrders.length < 1000) {
             try {
                 const params: any = {
                     seller: credentials.userId,
                     limit,
                     offset,
+                    // Filtrar por data DIRETO NA API do ML
+                    'order.date_created.from': dateFrom,
+                    'order.date_created.to': dateTo,
                 };
 
                 const ordersResponse = await axios.get(
@@ -5294,14 +5299,21 @@ router.get("/orders/daily-sales", async (req, res) => {
             dayData.revenue += totalAmount;
             dayData.orders += 1;
 
-            // Log detalhado para debug (apenas para hoje)
+            // Log detalhado para debug dos últimos 2 dias
             const today = new Date().toISOString().split("T")[0];
-            if (dateKey === today) {
+            const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+            if (dateKey === today || dateKey === yesterday) {
                 console.log(`[Daily Sales DEBUG - ${dateKey}] Pedido ${order.id}:`, {
                     quantity: totalQuantity,
                     amount: totalAmount,
                     items: order.order_items?.length || 0,
-                    status: order.status
+                    itemDetails: order.order_items?.map((i: any) => ({
+                        id: i.item?.id,
+                        title: i.item?.title?.substring(0, 30),
+                        qty: i.quantity
+                    })),
+                    status: order.status,
+                    date_created: order.date_created
                 });
             }
         }
@@ -5318,7 +5330,7 @@ router.get("/orders/daily-sales", async (req, res) => {
 
         return res.json({
             dailySales: dailySalesArray,
-            totalOrders: allOrders.filter(o => o.status !== "cancelled").length,
+            totalOrders: uniqueOrders.filter(o => o.status !== "cancelled").length,
             totalSales: dailySalesArray.reduce((sum, day) => sum + day.sales, 0),
             totalRevenue: dailySalesArray.reduce((sum, day) => sum + day.revenue, 0),
         });
