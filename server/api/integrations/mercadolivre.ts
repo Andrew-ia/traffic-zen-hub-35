@@ -4041,6 +4041,8 @@ router.post("/smart-suggestions", async (req, res) => {
     try {
         const { mlbId, workspaceId } = req.body;
 
+        console.log("[Smart Suggestions] Request:", { mlbId, workspaceId });
+
         if (!mlbId) {
             return res.status(400).json({
                 error: "MLB ID é obrigatório"
@@ -4049,13 +4051,53 @@ router.post("/smart-suggestions", async (req, res) => {
 
         const { mlbAnalyzerService } = await import("../../services/mlbAnalyzer.service.js");
 
-        // Buscar dados do produto
-        const accessToken = await getAccessToken(workspaceId || FALLBACK_WORKSPACE_ENV);
-        const productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+        // Buscar credenciais do Mercado Livre
+        console.log("[Smart Suggestions] Buscando credenciais...");
+        const effectiveWorkspaceId = workspaceId || FALLBACK_WORKSPACE_ENV;
+
+        let credentials = await getMercadoLivreCredentials(effectiveWorkspaceId);
+        if (!credentials) {
+            return res.status(401).json({
+                error: "Mercado Livre não conectado para este workspace"
+            });
+        }
+
+        // Refresh token se necessário
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(effectiveWorkspaceId);
+            if (refreshed) {
+                credentials = refreshed;
+            }
+        }
+
+        const accessToken = credentials.accessToken;
+
+        console.log("[Smart Suggestions] Buscando dados do produto...");
+        let productData;
+        try {
+            productData = await mlbAnalyzerService.getProductData(mlbId, accessToken);
+        } catch (productError: any) {
+            console.error("[Smart Suggestions] Erro ao buscar produto:", productError);
+            return res.status(404).json({
+                error: "Não foi possível buscar dados do produto",
+                details: productError.message
+            });
+        }
 
         // Gerar sugestões inteligentes baseadas em dados de mercado
-        const smartSuggestions = await mlbAnalyzerService.generateSmartSuggestions(productData);
+        console.log("[Smart Suggestions] Gerando sugestões inteligentes...");
+        let smartSuggestions;
+        try {
+            smartSuggestions = await mlbAnalyzerService.generateSmartSuggestions(productData);
+        } catch (suggestionsError: any) {
+            console.error("[Smart Suggestions] Erro ao gerar sugestões:", suggestionsError);
+            return res.status(500).json({
+                error: "Erro ao analisar mercado e gerar sugestões",
+                details: suggestionsError.message
+            });
+        }
 
+        console.log("[Smart Suggestions] Sugestões geradas com sucesso");
         return res.json({
             success: true,
             mlb_id: mlbId,
@@ -4064,10 +4106,11 @@ router.post("/smart-suggestions", async (req, res) => {
         });
 
     } catch (error: any) {
-        console.error("Error generating smart suggestions:", error);
+        console.error("[Smart Suggestions] Erro geral:", error);
         return res.status(500).json({
             error: "Falha ao gerar sugestões inteligentes",
-            details: error.message
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
