@@ -21,11 +21,13 @@ import {
     getEngagementRate
 } from '../api/integrations/instagram';
 import mercadoLivreRouter from '../api/integrations/mercadolivre';
+import mercadoLivreFulfillmentRouter from '../api/integrations/mercadolivre-fulfillment';
 
 const router = Router();
 
 // Mercado Livre routes (public OAuth callback)
 router.use('/mercadolivre', mercadoLivreRouter);
+router.use('/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
 
 // Apply auth middleware to other routes
 router.use(authMiddleware);

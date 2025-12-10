@@ -197,6 +197,83 @@ export interface CompetitorAnalysis {
     }>;
 }
 
+export interface MLBAnalysisResult {
+    mlb_id: string;
+    product_data: MLBAnalysisData & {
+        attributes?: Array<{ id: string; value_id?: string; value_name?: string }>;
+        permalink?: string;
+        thumbnail?: string;
+        description?: string;
+        plain_text?: string;
+        listing_type_id?: string;
+        shipping?: {
+            free_shipping?: boolean;
+            mode?: string;
+        };
+    };
+    quality_score: MLBQualityScore;
+    keyword_analysis: KeywordAnalysis;
+    title_optimization: TitleOptimization;
+    technical_analysis: {
+        total_attributes?: number;
+        filled_attributes?: number;
+        missing_important?: string[];
+        completion_percentage?: number;
+    };
+    image_analysis: {
+        total_images: number;
+        has_video?: boolean;
+        high_quality_images?: number;
+        has_variations_images?: boolean;
+    };
+    model_optimization?: {
+        current_model?: string;
+        current_score?: number;
+        optimized_models?: Array<{ model: string; score: number }>;
+    };
+    competitive_analysis: {
+        competitive_score?: number;
+        price_analysis: {
+            current_price: number;
+            market_average?: number;
+            price_position: 'lowest' | 'below_average' | 'average' | 'above_average' | 'highest';
+            optimal_price_range: { min: number; max: number; recommended: number };
+        };
+        top_competitors?: Array<{
+            id: string;
+            title: string;
+            price: number;
+            sold_quantity: number;
+            permalink?: string;
+            thumbnail?: string;
+            seller?: {
+                id: string;
+                nickname?: string;
+                reputation_level?: string;
+                transactions?: number;
+            };
+            shipping?: {
+                free_shipping?: boolean;
+                mode?: string;
+            };
+            attributes?: Array<{ id: string; value_name?: string }>;
+            score?: { overall?: number };
+        }>;
+        market_position?: 'leader' | 'strong' | 'average' | 'weak';
+    };
+    seo_description?: {
+        optimized_description: string;
+        structure?: any;
+        seo_keywords?: string[];
+        readability_score?: number;
+        call_to_action?: string;
+    };
+    success?: boolean;
+    analyzed_at?: string;
+    organic_delivery_prediction?: any;
+    recommendations?: any;
+}
+
 /**
  * Serviço principal para análise completa de produtos do Mercado Livre
  */
@@ -318,25 +395,34 @@ export class MLBAnalyzerService {
             variations_usage: this.scoreVariationsUsage(productData)
         };
 
-        // Calcular score geral (média ponderada)
+        // Calcular score geral (média ponderada) com pesos recalibrados para refletir o que mais importa no ML
         const weights = {
-            title_seo: 0.20,          // 20% - muito importante
-            technical_sheet: 0.15,    // 15% - importante
-            images_quality: 0.10,     // 10% - importante
-            keywords_density: 0.15,   // 15% - muito importante
-            model_optimization: 0.10, // 10% - importante
-            description_quality: 0.10, // 10% - importante
-            category_relevance: 0.05, // 5% - menos crítico
-            pricing_strategy: 0.05,   // 5% - menos crítico
-            shipping_optimization: 0.05, // 5% - menos crítico
-            variations_usage: 0.05    // 5% - menos crítico
+            title_seo: 0.25,             // título tem alto impacto
+            technical_sheet: 0.20,       // ficha técnica/atributos
+            images_quality: 0.15,        // fotos
+            description_quality: 0.10,   // descrição
+            keywords_density: 0.10,      // palavras-chave
+            category_relevance: 0.05,    // categoria coerente
+            shipping_optimization: 0.05, // frete/logística
+            pricing_strategy: 0.05,      // preço
+            variations_usage: 0.025,     // variações
+            model_optimization: 0.025    // modelo/sku
         };
 
-        const overall_score = Math.round(
-            Object.entries(breakdown).reduce((sum, [key, score]) => {
-                return sum + (score * weights[key as keyof typeof weights]);
-            }, 0)
-        );
+        // Bônus por atender requisitos básicos (evita notas muito baixas quando já está bom)
+        const attrCount = Array.isArray(productData.attributes) ? productData.attributes.length : 0;
+        const picturesCount = Array.isArray(productData.pictures) ? productData.pictures.length : 0;
+        const titleLength = (productData.title || '').length;
+        let baselineBoost = 0;
+        if (titleLength >= 20 && titleLength <= 60) baselineBoost += 4;
+        if (attrCount >= 5) baselineBoost += 4;
+        if (picturesCount >= 6) baselineBoost += 4;
+        if (productData.shipping?.free_shipping) baselineBoost += 2;
+
+        const weightedScore = Object.entries(breakdown).reduce((sum, [key, score]) => {
+            return sum + (score * weights[key as keyof typeof weights]);
+        }, 0);
+        const overall_score = Math.min(100, Math.round(weightedScore + baselineBoost));
 
         // Gerar alertas baseados no score
         const alerts = this.generateAlerts(breakdown, productData);

@@ -41,7 +41,7 @@ export function startMLNotificationsReplayWorker(opts: MLReplayOptions): StopFn 
           maxOrders,
         }),
       });
-      const json = await resp.json().catch(() => ({}));
+      const json: any = await resp.json().catch(() => ({} as any));
       if (!resp.ok || json?.error) {
         console.warn('[ML Replay Worker] Falha ao reenviar notificações:', resp.status, json?.error || json);
         return;

@@ -101,6 +101,7 @@
     "vaul": "^0.9.9",
     "vercel": "^48.9.2",
     "xlsx": "^0.18.5",
+    "pdfkit": "^0.15.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -113,6 +114,7 @@
     "@types/express": "^5.0.5",
     "@types/node": "^22.16.5",
     "@types/pg": "^8.15.6",
+    "@types/pdfkit": "^0.13.6",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@types/uuid": "^10.0.0",

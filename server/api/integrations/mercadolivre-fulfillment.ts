@@ -30,7 +30,19 @@ async function getMercadoLivreCredentials(workspaceId: string): Promise<(Mercado
             [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
         );
 
-        if (!result.rows.length) return null;
+        if (!result.rows.length) {
+            const accessToken = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
+            const refreshToken = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
+            const userId = process.env.MERCADO_LIVRE_USER_ID;
+            if (accessToken && userId) {
+                return {
+                    accessToken: String(accessToken),
+                    refreshToken: String(refreshToken || ""),
+                    userId: String(userId),
+                };
+            }
+            return null;
+        }
 
         const decrypted = decryptCredentials(
             result.rows[0].encrypted_credentials,

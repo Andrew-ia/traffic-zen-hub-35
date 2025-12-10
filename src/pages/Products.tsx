@@ -14,12 +14,6 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
     Dialog,
@@ -39,13 +33,15 @@ import {
     Box,
     Copy,
     Eye,
-    ListPlus
+    Info,
+    DownloadCloud
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Products() {
     const { currentWorkspace } = useWorkspace();
-    const workspaceId = currentWorkspace?.id || null;
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const workspaceId = currentWorkspace?.id || fallbackWorkspaceId;
     const { toast } = useToast();
 
     const [search, setSearch] = useState("");
@@ -130,6 +126,49 @@ export default function Products() {
         });
     };
 
+    const getAttributeValue = (product: any, keys: string[]) => {
+        const targets = keys.map((k) => k.toLowerCase());
+        const attr = (product.attributes || []).find((a: any) => {
+            const id = String(a.id || "").toLowerCase();
+            const name = String(a.name || "").toLowerCase();
+            return targets.includes(id) || targets.includes(name);
+        });
+        return attr?.value_name || attr?.value_id || "-";
+    };
+
+    const getListingTypeLabel = (listingType?: string | null) => {
+        if (!listingType) return "N/A";
+        if (listingType === "gold_special") return "Clássico";
+        if (listingType === "gold_pro") return "Premium";
+        return listingType;
+    };
+
+    const getDeliveryLabel = (product: any) => {
+        const base = product.isFull ? "Full" : "Normal";
+        const parts = [base];
+        if (product.shipping?.mode) parts.push(product.shipping.mode);
+        if (product.shipping?.free_shipping) parts.push("Frete grátis");
+        return parts.join(" • ");
+    };
+
+    const handleDownloadPdf = (productId: string) => {
+        if (!workspaceId) {
+            toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar", variant: "destructive" });
+            return;
+        }
+        const url = `/api/integrations/mercadolivre/products/${productId}/pdf?workspaceId=${workspaceId}`;
+        window.open(url, "_blank");
+    };
+
+    const handleDownloadXlsx = () => {
+        if (!workspaceId) {
+            toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar", variant: "destructive" });
+            return;
+        }
+        const url = `/api/integrations/mercadolivre/products/export/xlsx?workspaceId=${workspaceId}`;
+        window.open(url, "_blank");
+    };
+
     if (!workspaceId) {
         return (
             <div className="flex flex-col items-center justify-center h-[50vh] space-y-4">
@@ -157,6 +196,10 @@ export default function Products() {
                     <div className="bg-primary/10 text-primary px-4 py-2 rounded-lg font-medium text-sm border border-primary/20">
                         {totalProducts} produtos encontrados
                     </div>
+                    <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadXlsx}>
+                        <DownloadCloud className="h-4 w-4" />
+                        Exportar XLSX
+                    </Button>
                 </div>
             </div>
 
@@ -280,122 +323,108 @@ export default function Products() {
                                     <TableBody>
                                         {paginatedProducts.map((product: any) => {
                                             const sortedAttributes = getSortedAttributes(product.attributes);
-                                            const visibleAttributes = sortedAttributes.slice(0, 15);
-                                            const hasMoreAttributes = sortedAttributes.length > 15;
-
-                                            // Handle permalink safely
                                             const mlLink = product.permalink ||
                                                 (product.id ? `https://produto.mercadolivre.com.br/MLB-${product.id.replace(/^MLB/, '')}` : '#');
 
                                             return (
-                                                <TableRow key={product.id} className="hover:bg-muted/30 transition-colors group">
-                                                    {/* Img */}
-                                                    <TableCell className="pl-4 py-3 align-middle">
-                                                        <div className="h-12 w-12 rounded-md overflow-hidden border bg-white">
-                                                            {product.thumbnail ? (
-                                                                <img
-                                                                    src={product.thumbnail}
-                                                                    alt={product.title}
-                                                                    className="h-full w-full object-cover"
-                                                                />
-                                                            ) : (
-                                                                <Package className="h-full w-full p-2 text-muted-foreground" />
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-
-                                                    {/* Produto / ID */}
-                                                    <TableCell className="align-middle">
-                                                        <div className="space-y-1">
-                                                            <div className="font-medium text-sm line-clamp-2" title={product.title}>
-                                                                {product.title}
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">
-                                                                    {product.id}
-                                                                </code>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-4 w-4"
-                                                                    onClick={() => copyToClipboard(product.id, "ID")}
-                                                                    title="Copiar ID"
-                                                                >
-                                                                    <Copy className="h-2.5 w-2.5 text-muted-foreground" />
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    {/* Status */}
-                                                    <TableCell className="align-middle">
-                                                        {getStatusBadge(product.status)}
-                                                    </TableCell>
-
-                                                    {/* Preço */}
-                                                    <TableCell className="text-right align-middle font-semibold">
-                                                        {formatCurrency(product.price)}
-                                                    </TableCell>
-
-                                                    {/* Estoque */}
-                                                    <TableCell className="text-right align-middle">
-                                                        <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="font-mono">
-                                                            {formatNumber(product.stock)}
-                                                        </Badge>
-                                                    </TableCell>
-
-                                                    {/* Vendas */}
-                                                    <TableCell className="text-right align-middle">
-                                                        <div className="flex items-center justify-end gap-1 text-green-600 font-medium">
-                                                            <TrendingUp className="h-3 w-3" />
-                                                            {formatNumber(product.sales || 0)}
-                                                        </div>
-                                                    </TableCell>
-
-                                                    {/* Receita */}
-                                                    <TableCell className="text-right align-middle text-emerald-600 font-semibold">
-                                                        {formatCurrency(product.revenue || 0)}
-                                                    </TableCell>
-
-                                                    {/* Visitas */}
-                                                    <TableCell className="text-right align-middle">
-                                                        <div className="flex items-center justify-end gap-1 text-blue-600">
-                                                            <Eye className="h-3 w-3" />
-                                                            {formatNumber(product.visits || 0)}
-                                                        </div>
-                                                    </TableCell>
-
-                                                    {/* Tipo / Logística */}
-                                                    <TableCell className="align-middle">
-                                                        <div className="flex flex-col gap-1 text-xs">
-                                                            <div className="flex items-center gap-1">
-                                                                <Badge variant="secondary" className="h-5 text-[10px]">
-                                                                    {product.listing_type_id === 'gold_special' ? 'Clássico' :
-                                                                        product.listing_type_id === 'gold_pro' ? 'Premium' :
-                                                                            product.listing_type_id || 'N/A'}
-                                                                </Badge>
-                                                            </div>
-                                                            <div className="flex items-center gap-1 text-muted-foreground">
-                                                                <Truck className="h-3 w-3" />
-                                                                {product.isFull ? (
-                                                                    <span className="text-blue-600 font-bold">FULL</span>
+                                                <Dialog key={product.id}>
+                                                    <TableRow className="hover:bg-muted/30 transition-colors group">
+                                                        {/* Img */}
+                                                        <TableCell className="pl-4 py-3 align-middle">
+                                                            <div className="h-12 w-12 rounded-md overflow-hidden border bg-white">
+                                                                {product.thumbnail ? (
+                                                                    <img
+                                                                        src={product.thumbnail}
+                                                                        alt={product.title}
+                                                                        className="h-full w-full object-cover"
+                                                                    />
                                                                 ) : (
-                                                                    <span>Normal</span>
-                                                                )}
-                                                                {product.shipping?.free_shipping && (
-                                                                    <span className="text-green-600">• Grátis</span>
+                                                                    <Package className="h-full w-full p-2 text-muted-foreground" />
                                                                 )}
                                                             </div>
-                                                        </div>
-                                                    </TableCell>
+                                                        </TableCell>
 
-                                                    {/* Características (Atributos Completos) */}
-                                                    <TableCell className="align-middle">
-                                                        <div className="flex flex-wrap gap-1 items-center">
-                                                            {sortedAttributes.length > 0 ? (
-                                                                <>
-                                                                    {/* Mostrar os primeiros 3 atributos principais apenas para contexto rápido */}
-                                                                    {sortedAttributes.slice(0, 3).map((attr: any, idx: number) => (
+                                                        {/* Produto / ID */}
+                                                        <TableCell className="align-middle">
+                                                            <div className="space-y-1">
+                                                                <div className="font-medium text-sm line-clamp-2" title={product.title}>
+                                                                    {product.title}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">
+                                                                        {product.id}
+                                                                    </code>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-4 w-4"
+                                                                        onClick={() => copyToClipboard(product.id, "ID")}
+                                                                        title="Copiar ID"
+                                                                    >
+                                                                        <Copy className="h-2.5 w-2.5 text-muted-foreground" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        {/* Status */}
+                                                        <TableCell className="align-middle">
+                                                            {getStatusBadge(product.status)}
+                                                        </TableCell>
+
+                                                        {/* Preço */}
+                                                        <TableCell className="text-right align-middle font-semibold">
+                                                            {formatCurrency(product.price)}
+                                                        </TableCell>
+
+                                                        {/* Estoque */}
+                                                        <TableCell className="text-right align-middle">
+                                                            <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="font-mono">
+                                                                {formatNumber(product.stock)}
+                                                            </Badge>
+                                                        </TableCell>
+
+                                                        {/* Vendas */}
+                                                        <TableCell className="text-right align-middle">
+                                                            <div className="flex items-center justify-end gap-1 text-green-600 font-medium">
+                                                                <TrendingUp className="h-3 w-3" />
+                                                                {formatNumber(product.sales || 0)}
+                                                            </div>
+                                                        </TableCell>
+
+                                                        {/* Receita */}
+                                                        <TableCell className="text-right align-middle text-emerald-600 font-semibold">
+                                                            {formatCurrency(product.revenue || 0)}
+                                                        </TableCell>
+
+                                                        {/* Visitas */}
+                                                        <TableCell className="text-right align-middle">
+                                                            <div className="flex items-center justify-end gap-1 text-blue-600">
+                                                                <Eye className="h-3 w-3" />
+                                                                {formatNumber(product.visits || 0)}
+                                                            </div>
+                                                        </TableCell>
+
+                                                        {/* Tipo / Logística */}
+                                                        <TableCell className="align-middle">
+                                                            <div className="flex flex-col gap-1 text-xs">
+                                                                <div className="flex items-center gap-1">
+                                                                    <Badge variant="secondary" className="h-5 text-[10px]">
+                                                                        {getListingTypeLabel(product.listing_type_id)}
+                                                                    </Badge>
+                                                                </div>
+                                                                <div className="flex items-center gap-1 text-muted-foreground">
+                                                                    <Truck className="h-3 w-3" />
+                                                                    <span>{getDeliveryLabel(product)}</span>
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+
+                                                        {/* Características (Atributos principais) */}
+                                                        <TableCell className="align-middle">
+                                                            <div className="flex flex-wrap gap-1 items-center">
+                                                                {sortedAttributes.length > 0 ? (
+                                                                    sortedAttributes.slice(0, 3).map((attr: any, idx: number) => (
                                                                         <Badge
                                                                             key={idx}
                                                                             variant="outline"
@@ -403,59 +432,213 @@ export default function Products() {
                                                                         >
                                                                             <span className="font-semibold mr-0.5 opacity-80">{attr.name}:</span> {attr.value_name}
                                                                         </Badge>
-                                                                    ))}
+                                                                    ))
+                                                                ) : (
+                                                                    <span className="text-xs text-muted-foreground">-</span>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
 
-                                                                    {/* Botão para ver TODOS os atributos no modal */}
-                                                                    <Dialog>
-                                                                        <DialogTrigger asChild>
-                                                                            <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-blue-600 ml-1 hover:bg-blue-50">
-                                                                                <ListPlus className="w-3 h-3 mr-1" />
-                                                                                Ver todos ({sortedAttributes.length})
-                                                                            </Button>
-                                                                        </DialogTrigger>
-                                                                        <DialogContent className="w-[95vw] max-w-5xl h-[90vh] sm:h-auto sm:max-h-[85vh] flex flex-col p-0 gap-0">
-                                                                            <DialogHeader className="p-6 pb-4 border-b shrink-0">
-                                                                                <DialogTitle className="flex items-center gap-2">
-                                                                                    <Package className="w-5 h-5" />
-                                                                                    Características do Produto
-                                                                                </DialogTitle>
-                                                                                <DialogDescription>
-                                                                                    {product.title} (MLB{product.id.replace(/^MLB/, '')})
-                                                                                </DialogDescription>
-                                                                            </DialogHeader>
+                                                        {/* Ações */}
+                                                        <TableCell className="text-center align-middle pr-4">
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 text-xs text-blue-600 hover:text-blue-700"
+                                                                    onClick={() => window.open(mlLink, '_blank')}
+                                                                >
+                                                                    <ExternalLink className="h-3 w-3 mr-1" />
+                                                                    Abrir
+                                                                </Button>
+                                                                <DialogTrigger asChild>
+                                                                    <Button variant="outline" size="sm" className="h-8 text-xs">
+                                                                        <Info className="h-3 w-3 mr-1" />
+                                                                        Detalhes
+                                                                    </Button>
+                                                                </DialogTrigger>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
 
-                                                                            <div className="flex-1 overflow-y-auto p-6 min-h-0">
-                                                                                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-6">
-                                                                                    {sortedAttributes.map((attr: any, i: number) => (
-                                                                                        <div key={i} className="p-2 rounded border bg-slate-50/50 text-xs shadow-sm">
-                                                                                            <div className="font-semibold text-slate-500 mb-0.5">{attr.name}</div>
-                                                                                            <div className="text-slate-900 font-medium break-words">{attr.value_name}</div>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
+                                                    <DialogContent className="max-w-6xl w-[95vw]">
+                                                        <DialogHeader className="pb-2">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <div>
+                                                                    <DialogTitle className="flex items-center gap-2">
+                                                                        <Package className="w-5 h-5" />
+                                                                        {product.title}
+                                                                    </DialogTitle>
+                                                                    <DialogDescription className="flex flex-wrap gap-2 items-center">
+                                                                        <Badge variant="outline" className="font-mono">MLB {product.id}</Badge>
+                                                                        {product.sku && <Badge variant="secondary">SKU: {product.sku}</Badge>}
+                                                                        {getStatusBadge(product.status)}
+                                                                    </DialogDescription>
+                                                                </div>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="gap-2"
+                                                                    onClick={() => handleDownloadPdf(product.id)}
+                                                                >
+                                                                    <DownloadCloud className="h-4 w-4" />
+                                                                    Baixar PDF
+                                                                </Button>
+                                                            </div>
+                                                        </DialogHeader>
+
+                                                        <div className="space-y-4">
+                                                            <Card>
+                                                                <CardHeader className="pb-2">
+                                                                    <CardTitle className="text-sm">Condições gerais</CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Código do anúncio</div>
+                                                                        <div className="font-medium">{product.id}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">SKU / variação</div>
+                                                                        <div className="font-medium">{product.sku || product.variation || "-"}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Título</div>
+                                                                        <div className="font-medium line-clamp-2">{product.title}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Quantidade (estoque)</div>
+                                                                        <div className="font-medium">{formatNumber(product.stock)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Preço</div>
+                                                                        <div className="font-medium">{formatCurrency(product.price)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Status</div>
+                                                                        <div>{getStatusBadge(product.status)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Garantia</div>
+                                                                        <div className="font-medium">{product.warranty || product.warranty_time || "-"}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Entrega / frete</div>
+                                                                        <div className="font-medium">{getDeliveryLabel(product)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Tipo de anúncio</div>
+                                                                        <div className="font-medium">{getListingTypeLabel(product.listing_type_id)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Categoria</div>
+                                                                        <div className="font-medium">{product.category || "-"}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+                                                                        <div className="text-muted-foreground text-xs">Descrição</div>
+                                                                        <div className="p-3 rounded border bg-muted/40 text-sm h-32 overflow-auto whitespace-pre-wrap">
+                                                                            {product.description || "Sem descrição disponível"}
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+
+                                                            <Card>
+                                                                <CardHeader className="pb-2">
+                                                                    <CardTitle className="text-sm">Características do produto</CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Cor principal</div>
+                                                                        <div className="font-medium">{product.color || getAttributeValue(product, ['color', 'cor'])}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Material</div>
+                                                                        <div className="font-medium">{product.material || getAttributeValue(product, ['material'])}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Estilo</div>
+                                                                        <div className="font-medium">{product.style || getAttributeValue(product, ['style', 'estilo'])}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Comprimento / Largura / Diâmetro</div>
+                                                                        <div className="font-medium">
+                                                                            {[product.length || getAttributeValue(product, ['length', 'comprimento']), product.width || getAttributeValue(product, ['width', 'largura']), product.diameter || getAttributeValue(product, ['diameter', 'diâmetro'])].filter(Boolean).join(" x ") || "-"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Tipo de brinco</div>
+                                                                        <div className="font-medium">{product.earring_type || getAttributeValue(product, ['earring_type', 'tipo de brinco'])}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Com pedra / Tipo de pedras</div>
+                                                                        <div className="font-medium">
+                                                                            {product.has_stones || product.stone_type
+                                                                                ? [product.has_stones, product.stone_type].filter(Boolean).join(" • ")
+                                                                                : "-"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Peças no kit</div>
+                                                                        <div className="font-medium">{product.kit_pieces || "-"}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Código universal (EAN/GTIN)</div>
+                                                                        <div className="font-medium">{product.universal_code || product.fiscal?.ean || "-"}</div>
+                                                                    </div>
+                                                                    <div className="sm:col-span-2 lg:col-span-3">
+                                                                        <div className="text-xs text-muted-foreground mb-2">Atributos</div>
+                                                                        {sortedAttributes.length === 0 ? (
+                                                                            <div className="text-sm text-muted-foreground">Sem atributos informados</div>
+                                                                        ) : (
+                                                                            <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                                                                {sortedAttributes.map((attr: any, i: number) => (
+                                                                                    <div key={i} className="p-2 rounded border bg-muted/30 text-xs">
+                                                                                        <div className="text-muted-foreground font-semibold">{attr.name}</div>
+                                                                                        <div className="font-medium break-words">{attr.value_name}</div>
+                                                                                    </div>
+                                                                                ))}
                                                                             </div>
-                                                                        </DialogContent>
-                                                                    </Dialog>
-                                                                </>
-                                                            ) : (
-                                                                <span className="text-xs text-muted-foreground">-</span>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
+                                                                        )}
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
 
-                                                    {/* Ações */}
-                                                    <TableCell className="text-center align-middle pr-4">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 text-xs text-blue-600 hover:text-blue-700"
-                                                            onClick={() => window.open(mlLink, '_blank')}
-                                                        >
-                                                            <ExternalLink className="h-3 w-3 mr-1" />
-                                                            Abrir
-                                                        </Button>
-                                                    </TableCell>
-                                                </TableRow>
+                                                            <Card>
+                                                                <CardHeader className="pb-2">
+                                                                    <CardTitle className="text-sm">Dados fiscais</CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">NCM</div>
+                                                                        <div className="font-medium">{product.fiscal?.ncm || "-"}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Origem</div>
+                                                                        <div className="font-medium">{product.fiscal?.origin || "-"}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">CFOP</div>
+                                                                        <div className="font-medium">{product.fiscal?.cfop || "-"}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">CST / CSOSN</div>
+                                                                        <div className="font-medium">
+                                                                            {[product.fiscal?.cst, product.fiscal?.csosn].filter(Boolean).join(" / ") || "-"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-xs text-muted-foreground">Estado de origem</div>
+                                                                        <div className="font-medium">{product.fiscal?.state || "-"}</div>
+                                                                    </div>
+                                                                    <div className="sm:col-span-2 lg:col-span-3">
+                                                                        <div className="text-xs text-muted-foreground">Informações adicionais</div>
+                                                                        <div className="font-medium">{product.fiscal?.additionalInfo || "-"}</div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        </div>
+                                                    </DialogContent>
+                                                </Dialog>
                                             );
                                         })}
                                     </TableBody>

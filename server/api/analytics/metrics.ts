@@ -292,7 +292,7 @@ export async function getAggregateMetrics(req: Request, res: Response) {
         order by platform_account_id, campaign_id, metric_date, spend desc nulls last
       )
       select
-        sum(pm_agg.spend)::float8 as spend,
+        sum(kpi_data.spend)::float8 as spend,
         sum(kpi_data.result_value)::float8 as results,
         sum(kpi_data.revenue)::float8 as revenue,
         sum(coalesce(kpi_data.roas, 0) * coalesce(kpi_data.spend, 0))::float8 as roas_weighted_spend,

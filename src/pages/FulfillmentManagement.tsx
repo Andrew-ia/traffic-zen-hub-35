@@ -4,6 +4,7 @@ import { useFulfillmentSummary } from "@/hooks/useFulfillment";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Package,
     Search,
@@ -32,6 +33,8 @@ export default function FulfillmentManagement() {
     const { currentWorkspace } = useWorkspace();
     const workspaceId = currentWorkspace?.id || null;
     const [search, setSearch] = useState("");
+    const [lowStockThreshold, setLowStockThreshold] = useState(5);
+    const [activeTab, setActiveTab] = useState("all");
 
     const {
         data: summary,
@@ -58,6 +61,17 @@ export default function FulfillmentManagement() {
             product.itemId?.toLowerCase().includes(search.toLowerCase()) ||
             product.inventoryId?.toLowerCase().includes(search.toLowerCase())
     ) || [];
+
+    const outOfStockProducts = filteredProducts.filter((p) => (p.available || 0) === 0);
+    const lowStockProducts = filteredProducts.filter(
+        (p) => (p.available || 0) > 0 && (p.available || 0) <= lowStockThreshold
+    );
+    const productsToShow =
+        activeTab === "all"
+            ? filteredProducts
+            : activeTab === "zero"
+            ? outOfStockProducts
+            : lowStockProducts;
 
     const formatNumber = (value: number) => {
         return new Intl.NumberFormat("pt-BR").format(value || 0);
@@ -241,14 +255,45 @@ export default function FulfillmentManagement() {
             {/* Search */}
             <Card>
                 <CardContent className="p-4">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Buscar por produto, MLB ID ou Inventory ID..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="pl-10"
-                        />
+                    <div className="flex flex-col gap-3">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Buscar por produto, MLB ID ou Inventory ID..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="pl-10"
+                            />
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v)}>
+                                <TabsList>
+                                    <TabsTrigger value="all">
+                                        Todos
+                                        <Badge variant="outline" className="ml-2">{filteredProducts.length}</Badge>
+                                    </TabsTrigger>
+                                    <TabsTrigger value="zero">
+                                        Zerados
+                                        <Badge variant="destructive" className="ml-2">{outOfStockProducts.length}</Badge>
+                                    </TabsTrigger>
+                                    <TabsTrigger value="low">
+                                        Baixa
+                                        <Badge variant="outline" className="ml-2">{lowStockProducts.length}</Badge>
+                                    </TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">Limite de baixa</span>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={lowStockThreshold}
+                                    onChange={(e) => setLowStockThreshold(Number(e.target.value) || 1)}
+                                    className="w-24"
+                                />
+                                <span className="text-sm text-muted-foreground">unid.</span>
+                            </div>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -265,12 +310,16 @@ export default function FulfillmentManagement() {
                                 <Skeleton key={i} className="h-16 w-full" />
                             ))}
                         </div>
-                    ) : filteredProducts.length === 0 ? (
+                    ) : productsToShow.length === 0 ? (
                         <div className="text-center py-12">
                             <PackageX className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                             <p className="text-muted-foreground">
                                 {search
                                     ? "Nenhum produto encontrado com esse termo de busca"
+                                    : activeTab === "zero"
+                                    ? "Nenhum produto zerado"
+                                    : activeTab === "low"
+                                    ? "Nenhum produto em baixa"
                                     : "Nenhum produto no Mercado Envios Full"}
                             </p>
                         </div>
@@ -289,7 +338,7 @@ export default function FulfillmentManagement() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredProducts.map((product) => {
+                                    {productsToShow.map((product) => {
                                         const healthPercentage = product.total
                                             ? (product.available / product.total) * 100
                                             : 0;

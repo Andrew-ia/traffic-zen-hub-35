@@ -446,9 +446,10 @@ export async function optimizedInstagramSync(req: Request, res: Response) {
     instagramSync.sync(totalDays, batchDays).catch(async (error) => {
       console.error('❌ Background Instagram sync failed:', error);
       await instagramSync.updateSyncProgress(syncId, 0, 'failed');
-      await instagramSync.pool.query(
+      const pool = getPool();
+      await pool.query(
         `UPDATE sync_metadata SET error_message = $1 WHERE platform_key = 'instagram' AND workspace_id = $2`,
-        [error.message, normalizedWorkspaceId]
+        [error instanceof Error ? error.message : String(error), normalizedWorkspaceId]
       );
     });
 

@@ -66,7 +66,7 @@ export class TelegramNotificationService {
                     disable_web_page_preview: false,
                 }),
             });
-            const json = await response.json().catch(() => ({}));
+            const json: any = await response.json().catch(() => ({} as any));
             const ok = Boolean(json?.ok === true);
             const description = typeof json?.description === "string" ? json.description : undefined;
             return { ok, response: json, error: ok ? undefined : description };
@@ -108,6 +108,67 @@ export class TelegramNotificationService {
             );
         } catch (error) {
             console.error("[Telegram] Erro ao salvar log:", error);
+        }
+    }
+
+    /**
+     * Verifica se já enviamos uma notificação igual recentemente para evitar duplicados
+     */
+    private static async hasRecentNotification(
+        workspaceId: string,
+        type: string,
+        referenceId: string | null | undefined,
+        windowMinutes = 5
+    ): Promise<boolean> {
+        if (!referenceId) return false;
+
+        try {
+            const pool = getPool();
+            const result = await pool.query(
+                `SELECT 1
+                 FROM notification_logs
+                 WHERE workspace_id = $1
+                   AND platform = 'telegram'
+                   AND notification_type = $2
+                   AND reference_id = $3
+                   AND status = 'sent'
+                   AND created_at >= NOW() - ($4 * INTERVAL '1 minute')
+                 LIMIT 1`,
+                [workspaceId, type, String(referenceId), windowMinutes]
+            );
+            return result.rows.length > 0;
+        } catch (error) {
+            console.warn(`[Telegram] Falha ao verificar duplicidade (${type}):`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Verifica se já existe notificação registrada para o mesmo recurso (sem janela de tempo)
+     */
+    private static async hasNotification(
+        workspaceId: string,
+        type: string,
+        referenceId: string | null | undefined
+    ): Promise<boolean> {
+        if (!referenceId) return false;
+
+        try {
+            const pool = getPool();
+            const result = await pool.query(
+                `SELECT 1
+                 FROM notification_logs
+                 WHERE workspace_id = $1
+                   AND platform = 'telegram'
+                   AND notification_type = $2
+                   AND reference_id = $3
+                 LIMIT 1`,
+                [workspaceId, type, String(referenceId)]
+            );
+            return result.rows.length > 0;
+        } catch (error) {
+            console.warn(`[Telegram] Falha ao verificar histórico (${type}):`, error);
+            return false;
         }
     }
 
@@ -245,6 +306,20 @@ export class TelegramNotificationService {
                 return false;
             }
 
+            const referenceId = itemData?.id || itemData?.item_id || null;
+            const dedupWindowMinutes = 5;
+            const isDuplicate = await this.hasRecentNotification(
+                workspaceId,
+                "item_updated",
+                referenceId,
+                dedupWindowMinutes
+            );
+
+            if (isDuplicate) {
+                console.log(`[Telegram] Ignorando notificação duplicada de item ${referenceId} (últimos ${dedupWindowMinutes} min)`);
+                return false;
+            }
+
             const message = this.formatItemUpdateMessage(itemData);
             const result = await this.sendTelegramMessage(
                 config.botToken,
@@ -256,7 +331,7 @@ export class TelegramNotificationService {
             await this.logNotification(
                 workspaceId,
                 "item_updated",
-                itemData?.id || null,
+                referenceId,
                 result.ok ? "sent" : "failed",
                 itemData,
                 result.response || null,
@@ -335,6 +410,18 @@ export class TelegramNotificationService {
                 return false;
             }
 
+            const referenceId = orderData?.id || null;
+            const alreadySent = await this.hasNotification(
+                workspaceId,
+                "order_created",
+                referenceId
+            );
+
+            if (alreadySent) {
+                console.log(`[Telegram] Ignorando venda já notificada ${referenceId}`);
+                return false;
+            }
+
             const message = this.formatOrderMessage(orderData);
             const result = await this.sendTelegramMessage(
                 config.botToken,
@@ -346,7 +433,7 @@ export class TelegramNotificationService {
             await this.logNotification(
                 workspaceId,
                 "order_created",
-                orderData.id,
+                referenceId,
                 result.ok ? "sent" : "failed",
                 orderData,
                 result.response || null,

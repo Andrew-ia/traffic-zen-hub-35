@@ -28,6 +28,7 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export default function MercadoLivreAnalyzer() {
     const {
@@ -89,6 +90,69 @@ export default function MercadoLivreAnalyzer() {
     const [categoryError, setCategoryError] = useState<string | null>(null);
     const [allAttributes, setAllAttributes] = useState<Record<string, string>>({});
     const [showAdvancedAttrs, setShowAdvancedAttrs] = useState(false);
+    const getAttrValue = useCallback(
+        (keys: string[], contains?: string[]) => {
+            const attrs = currentAnalysis?.product_data?.attributes || [];
+            return (
+                attrs.find((a: any) => {
+                    const id = String(a.id || "").toLowerCase();
+                    const name = String(a.name || "").toLowerCase();
+                    if (keys.map((k) => k.toLowerCase()).includes(id)) return true;
+                    if (keys.map((k) => k.toLowerCase()).includes(name)) return true;
+                    if (contains && contains.some((c) => name.includes(c.toLowerCase()))) return true;
+                    return false;
+                })?.value_name ||
+                attrs.find((a: any) => {
+                    const name = String(a.name || "").toLowerCase();
+                    if (contains && contains.some((c) => name.includes(c.toLowerCase()))) return true;
+                    return false;
+                })?.value_name ||
+                ""
+            );
+        },
+        [currentAnalysis?.product_data?.attributes]
+    );
+
+    const getCategoryName = () => {
+        if (categoryData?.name) return categoryData.name;
+        const path = currentAnalysis?.product_data?.category_prediction?.path_from_root;
+        if (Array.isArray(path) && path.length > 0) return path[path.length - 1]?.name;
+        return "";
+    };
+
+    const categoryName = getCategoryName() || currentAnalysis?.product_data?.category_id || "";
+    const material = getAttrValue(['MATERIAL'], ['material']);
+    const styleAttr = getAttrValue(['STYLE', 'MODEL'], ['estilo', 'modelo']);
+    const finish = getAttrValue(['FINISH'], ['acabamento', 'finish', 'coating']);
+    const color = getAttrValue(['MAIN_COLOR', 'COLOR'], ['cor', 'color']);
+    const hasStone = getAttrValue(['WITH_STONES'], ['pedra', 'stone']);
+    const stoneType = getAttrValue(['STONE_TYPE'], ['tipo de pedra', 'stone']);
+    const clasp = getAttrValue(['CLOSURE', 'FECHO'], ['fecho', 'closure', 'zíper', 'ziper']);
+    const audience = getAttrValue(['GENDER', 'TARGET_AUDIENCE'], ['público', 'feminino', 'masculino', 'unissex']);
+    const occasion = getAttrValue(['OCCASION'], ['ocasi']);
+    const accessoryType = getAttrValue(['ACCESSORY_TYPE'], ['acessório', 'acessorio', 'tipo']);
+    const guarantee =
+        getAttrValue(['WARRANTY_TYPE', 'GARANTIA'], ['garantia']) ||
+        getAttrValue(['WARRANTY_TIME'], ['garantia']);
+    const origin = getAttrValue(['ORIGEM', 'ORIGIN'], ['origem']);
+    const state = getAttrValue(['ITEM_CONDITION', 'ESTADO'], ['condição', 'estado']) || currentAnalysis?.product_data?.condition;
+
+    const attributeSuggestions = [
+        { campo: "Categoria", como: categoryName || "Preencha a categoria ex: Brinco / Anel / Bolsa" },
+        { campo: "Material", como: material || "Ex: Aço inox, Metal nobre, Couro sintético" },
+        { campo: "Estilo", como: styleAttr || "Ex: Moderno, Clássico, Minimalista" },
+        { campo: "Acabamento", como: finish || "Ex: Polido, Fosco, Texturizado" },
+        { campo: "Cor principal", como: color || "Defina a cor principal (ex: Dourado, Prateado)" },
+        { campo: "Com pedra?", como: hasStone || "Sim ou Não" },
+        { campo: "Tipo de pedras", como: stoneType || "Ex: Zircônia, Cristal" },
+        { campo: "Tipo de fecho", como: clasp || "Ex: Garra, Imã, Zíper, Sem fecho" },
+        { campo: "Público", como: audience || "Ex: Feminino, Masculino, Unissex" },
+        { campo: "Ocasião", como: occasion || "Ex: Dia a dia, Festa, Presente" },
+        { campo: "Tipo de acessório", como: accessoryType || categoryName || "Ex: Argola, Transversal, Carteira" },
+        { campo: "Garantia", como: guarantee || "Ex: 7 dias, 90 dias" },
+        { campo: "Origem", como: origin || "Ex: Nacional, Importado" },
+        { campo: "Estado", como: state || "Novo / Usado" },
+    ];
 
 
     const baseColorOptions = [
@@ -431,10 +495,14 @@ export default function MercadoLivreAnalyzer() {
             {/* Conteúdo Principal */}
             {currentAnalysis ? (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="grid w-full grid-cols-1">
+                    <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="apply" className="flex items-center gap-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
                             <Zap className="h-4 w-4" />
                             <span className="hidden sm:inline font-bold">Aplicar</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="suggestions" className="flex items-center gap-2">
+                            <Target className="h-4 w-4" />
+                            <span className="hidden sm:inline font-bold">Sugestões de atributos</span>
                         </TabsTrigger>
                     </TabsList>
 
@@ -960,6 +1028,89 @@ export default function MercadoLivreAnalyzer() {
                                             </div>
                                         )}
                                     </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="suggestions" className="space-y-6">
+                        <div className="max-w-5xl mx-auto space-y-6">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Sugestões rápidas de atributos</CardTitle>
+                                    <CardDescription>
+                                        Use estes valores base para preencher atributos obrigatórios e opcionais mais usados em ML.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Campo ML</TableHead>
+                                                <TableHead>Como preencher</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {attributeSuggestions.map((item, idx) => (
+                                                <TableRow key={idx}>
+                                                    <TableCell className="font-medium">{item.campo}</TableCell>
+                                                    <TableCell>{item.como}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Modelo de título otimizado</CardTitle>
+                                    <CardDescription>
+                                        Formato recomendado para SEO interno do ML. Adapte usando os dados reais do produto.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {(() => {
+                                        const baseCategoria = categoryName || "Produto";
+                                        const baseEstilo = styleAttr || accessoryType || "Modelo";
+                                        const baseMaterial = material || "Material";
+                                        const baseCor = color || "Cor";
+                                        const basePublico = audience || "Público";
+                                        const diferencial = finish || hasStone || stoneType || "";
+
+                                        const recommendedTitle = [
+                                            baseCategoria,
+                                            baseEstilo,
+                                            baseMaterial,
+                                            baseCor,
+                                            basePublico ? `para ${basePublico}` : "",
+                                            diferencial
+                                        ].filter(Boolean).join(" ");
+
+                                        const originalTitle = currentAnalysis?.product_data?.title || "";
+
+                                        return (
+                                            <>
+                                                <div className="p-4 rounded-lg bg-muted text-sm leading-relaxed">
+                                                    <div className="font-semibold mb-1">Formato:</div>
+                                                    <div>[Categoria] + [Estilo/Modelo] + [Material] + [Diferencial] + [Público]</div>
+                                                </div>
+
+                                                <div className="space-y-3 text-sm">
+                                                    <div className="space-y-1">
+                                                        <div className="font-semibold text-red-600">❌ Antes:</div>
+                                                        <div>{originalTitle || "Título atual vazio"}</div>
+                                                        <div className="font-semibold text-green-700">✅ Depois:</div>
+                                                        <div className="font-bold text-green-700">{recommendedTitle}</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-xs text-muted-foreground">
+                                                    Dica: o “Depois” usa os atributos detectados (categoria/material/estilo/cor/público). Ajuste se faltar alguma informação específica do produto.
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </CardContent>
                             </Card>
                         </div>

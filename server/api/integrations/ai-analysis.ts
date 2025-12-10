@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { MLBAnalysisResult } from '../../services/mlbAnalyzer.service';
+import type { MLBAnalysisResult } from '../../services/mlbAnalyzer.service.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

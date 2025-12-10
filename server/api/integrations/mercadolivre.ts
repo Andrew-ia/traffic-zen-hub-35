@@ -1,6 +1,8 @@
 import { Router } from "express";
 import axios from "axios";
 import FormData from "form-data";
+import PDFDocument from "pdfkit";
+import * as XLSX from "xlsx";
 import { getPool } from "../../config/database.js";
 import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
 // import { authMiddleware } from "../auth";
@@ -18,6 +20,8 @@ const categoriesCache = new Map<string, { data: any[]; ts: number }>();
 // Cache simples para resultados de busca avançada
 const ADV_SEARCH_TTL_MS = 30 * 60 * 1000; // 30 minutos
 const advancedSearchCache = new Map<string, { data: any; ts: number }>();
+const ML_ITEM_NOTIFICATIONS_ENABLED = process.env.ML_NOTIFY_ITEM_UPDATES === "true";
+const FALLBACK_WORKSPACE_ENV = (process.env.VITE_WORKSPACE_ID || process.env.WORKSPACE_ID || "").trim();
 
 /**
  * Interface para credenciais do Mercado Livre
@@ -753,6 +757,39 @@ router.get("/metrics", async (req, res) => {
  * GET /api/integrations/mercadolivre/products
  * Retorna lista de produtos do vendedor
  */
+const normalizeAttributes = (attrs: any[] | undefined) => {
+    if (!Array.isArray(attrs)) return [];
+    return attrs.map((attr: any) => ({
+        id: attr.id,
+        name: attr.name,
+        value_id: attr.value_id,
+        value_name: attr.value_name,
+        value_struct: attr.value_struct,
+    }));
+};
+
+const getAttrValue = (attrs: any[], keys: string[]): string | undefined => {
+    const targets = keys.map((k) => k.toLowerCase());
+    const found = attrs.find((a: any) => {
+        const id = String(a.id || "").toLowerCase();
+        const name = String(a.name || "").toLowerCase();
+        return targets.includes(id) || targets.includes(name);
+    });
+    return found?.value_name || found?.value_id;
+};
+
+const parseDimensions = (dimensions?: string) => {
+    if (!dimensions || typeof dimensions !== "string") return {};
+    const [dimsPart, weightPart] = dimensions.split(",");
+    const [height, width, length] = (dimsPart || "").split("x");
+    return {
+        height,
+        width,
+        length,
+        weight: weightPart,
+    };
+};
+
 router.get("/products", async (req, res) => {
     try {
         const { workspaceId, category } = req.query;
@@ -850,25 +887,38 @@ router.get("/products", async (req, res) => {
         for (const itemId of pageItemIds) {
             const item = detailsMap.get(itemId);
             if (!item) continue;
+            const attributes = normalizeAttributes(item.attributes);
+            const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
             let visits = 0;
+            let description = "";
             try {
                 const dateFrom = new Date();
                 dateFrom.setDate(dateFrom.getDate() - 30);
-                const visitsResponse = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
-                    {
-                        params: {
-                            date_from: dateFrom.toISOString().split("T")[0],
-                            date_to: new Date().toISOString().split("T")[0],
-                        },
-                        headers: {
-                            Authorization: `Bearer ${credentials.accessToken}`,
-                        },
-                    }
-                );
-                visits = visitsResponse.data.total_visits || 0;
+                const [visitsResponse, descResponse] = await Promise.allSettled([
+                    axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
+                        {
+                            params: {
+                                date_from: dateFrom.toISOString().split("T")[0],
+                                date_to: new Date().toISOString().split("T")[0],
+                            },
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                        }
+                    ),
+                    axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`, {
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    })
+                ]);
+                if (visitsResponse.status === "fulfilled") {
+                    visits = visitsResponse.value.data.total_visits || 0;
+                }
+                if (descResponse.status === "fulfilled") {
+                    description = descResponse.value.data?.plain_text || descResponse.value.data?.text || "";
+                }
             } catch (error) {
-                console.error(`Error fetching visits for item ${itemId}:`, error);
+                console.error(`Error fetching visits/description for item ${itemId}:`, error);
             }
 
             const sales = item.sold_quantity || 0;
@@ -877,6 +927,32 @@ router.get("/products", async (req, res) => {
             const logisticType = item?.shipping?.logistic_type || null;
             const tags: string[] = Array.isArray(item?.tags) ? item.tags : [];
             const isFull = String(logisticType || '').toLowerCase() === 'fulfillment' || tags.includes('is_fulfillment');
+
+            const sku =
+                item.seller_custom_field ||
+                getAttrValue(attributes, ['SELLER_SKU', 'SKU']) ||
+                (item.variations?.[0]?.seller_custom_field || undefined);
+
+            const warrantyTerm = saleTerms.find((st: any) => st.id === 'WARRANTY_TYPE');
+            const warrantyTime = saleTerms.find((st: any) => st.id === 'WARRANTY_TIME');
+
+            const color = getAttrValue(attributes, ['MAIN_COLOR', 'COLOR']);
+            const material = getAttrValue(attributes, ['MATERIAL']);
+            const style = getAttrValue(attributes, ['STYLE']);
+            const lengthAttr = getAttrValue(attributes, ['LENGTH', 'COMPRIMENTO']);
+            const widthAttr = getAttrValue(attributes, ['WIDTH', 'LARGURA']);
+            const diameter = getAttrValue(attributes, ['DIAMETER', 'DIÂMETRO']);
+            const earringType = getAttrValue(attributes, ['EARRING_TYPE', 'TIPO DE BRINCO']);
+            const hasStones = getAttrValue(attributes, ['WITH_STONES', 'COM PEDRAS']);
+            const stoneType = getAttrValue(attributes, ['STONE_TYPE', 'TIPO DE PEDRAS']);
+            const kitPieces = getAttrValue(attributes, ['KIT_UNITS', 'UNIDADES NO KIT']);
+            const universalCode = getAttrValue(attributes, ['GTIN', 'GTIN13', 'EAN', 'UPC', 'JAN', 'BARCODE']);
+            const ncm = getAttrValue(attributes, ['NCM']);
+            const origin = getAttrValue(attributes, ['ORIGIN']);
+            const cfop = getAttrValue(attributes, ['CFOP']);
+            const cst = getAttrValue(attributes, ['CST']);
+            const csosn = getAttrValue(attributes, ['CSOSN']);
+            const state = getAttrValue(attributes, ['STATE', 'UF', 'STATE_CODE']);
 
             items.push({
                 id: item.id,
@@ -892,6 +968,8 @@ router.get("/products", async (req, res) => {
                 stock: item.available_quantity,
                 logisticType,
                 isFull,
+                sku,
+                variation: item.variations?.[0]?.id ? String(item.variations[0].id) : undefined,
                 listing_type_id: item.listing_type_id,
                 condition: item.condition,
                 shipping: {
@@ -901,9 +979,34 @@ router.get("/products", async (req, res) => {
                     local_pick_up: item.shipping?.local_pick_up || false,
                     dimensions: item.shipping?.dimensions,
                 },
+                description,
+                warranty: item.warranty || warrantyTerm?.value_name,
+                warranty_time: warrantyTime?.value_name,
                 tags: tags,
                 pictures: item.pictures?.map((pic: any) => ({ url: pic.url || pic.secure_url, id: pic.id })) || [],
-                attributes: item.attributes?.map((attr: any) => ({ name: attr.name, value_name: attr.value_name })) || [],
+                attributes,
+                dimensions: parseDimensions(item.shipping?.dimensions),
+                color,
+                material,
+                style,
+                length: lengthAttr,
+                width: widthAttr,
+                diameter,
+                earring_type: earringType,
+                has_stones: hasStones,
+                stone_type: stoneType,
+                kit_pieces: kitPieces,
+                universal_code: universalCode,
+                fiscal: {
+                    ncm,
+                    origin,
+                    cfop,
+                    cst,
+                    csosn,
+                    state,
+                    ean: universalCode,
+                    additionalInfo: undefined,
+                },
             });
         }
 
@@ -939,6 +1042,692 @@ router.get("/products", async (req, res) => {
             error: "Failed to fetch products",
             details: error.response?.data || error.message,
         });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/products/export/xlsx
+ * Exporta um XLSX com todos os produtos e informações detalhadas.
+ */
+router.get("/products/export/xlsx", async (req, res) => {
+    try {
+        const { workspaceId } = req.query as { workspaceId?: string };
+        const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
+        if (!targetWorkspace) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        let credentials = await getMercadoLivreCredentials(targetWorkspace);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        const cleanText = (value: string | undefined, limit = 300) => {
+            const normalized = (value || "").replace(/\s+/g, " ").trim();
+            if (!normalized) return "";
+            return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
+        };
+
+        // Buscar todos os IDs de itens
+        const allItemIds: string[] = [];
+        let offset = 0;
+        const limit = 50;
+        let more = true;
+        while (more) {
+            try {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    {
+                        params: { limit, offset },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }
+                );
+                const ids = resp.data.results || [];
+                allItemIds.push(...ids);
+                more = ids.length === limit;
+                offset += limit;
+            } catch (err: any) {
+                if (err?.response?.status === 401) {
+                    const refreshed = await refreshAccessToken(targetWorkspace);
+                    if (refreshed) {
+                        credentials = refreshed;
+                        continue;
+                    }
+                }
+                console.error("[Export XLSX] Falha ao buscar IDs:", err?.message || err);
+                break;
+            }
+        }
+
+        // Buscar detalhes + descrição
+        const rows: any[] = [];
+        for (const itemId of allItemIds) {
+            try {
+                const item = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+                const attributes = normalizeAttributes(item.attributes);
+                const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
+                let description = "";
+                try {
+                    const descResp = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`);
+                    description = descResp?.plain_text || descResp?.text || "";
+                } catch (descErr) {
+                    console.warn(`[Export XLSX] Descrição indisponível para ${itemId}:`, (descErr as any)?.message || descErr);
+                }
+
+                const sku =
+                    item.seller_custom_field ||
+                    getAttrValue(attributes, ['SELLER_SKU', 'SKU']) ||
+                    (item.variations?.[0]?.seller_custom_field || undefined);
+
+                const warrantyTerm = saleTerms.find((st: any) => st.id === 'WARRANTY_TYPE');
+                const warrantyTime = saleTerms.find((st: any) => st.id === 'WARRANTY_TIME');
+                const color = getAttrValue(attributes, ['MAIN_COLOR', 'COLOR']);
+                const material = getAttrValue(attributes, ['MATERIAL']);
+                const style = getAttrValue(attributes, ['STYLE']);
+                const lengthAttr = getAttrValue(attributes, ['LENGTH', 'COMPRIMENTO']);
+                const widthAttr = getAttrValue(attributes, ['WIDTH', 'LARGURA']);
+                const diameter = getAttrValue(attributes, ['DIAMETER', 'DIÂMETRO']);
+                const earringType = getAttrValue(attributes, ['EARRING_TYPE', 'TIPO DE BRINCO']);
+                const hasStones = getAttrValue(attributes, ['WITH_STONES', 'COM PEDRAS']);
+                const stoneType = getAttrValue(attributes, ['STONE_TYPE', 'TIPO DE PEDRAS']);
+                const kitPieces = getAttrValue(attributes, ['KIT_UNITS', 'UNIDADES NO KIT']);
+                const universalCode = getAttrValue(attributes, ['GTIN', 'GTIN13', 'EAN', 'UPC', 'JAN', 'BARCODE']);
+                const ncm = getAttrValue(attributes, ['NCM']);
+                const origin = getAttrValue(attributes, ['ORIGIN']);
+                const cfop = getAttrValue(attributes, ['CFOP']);
+                const cst = getAttrValue(attributes, ['CST']);
+                const csosn = getAttrValue(attributes, ['CSOSN']);
+                const state = getAttrValue(attributes, ['STATE', 'UF', 'STATE_CODE']);
+                const dimensions = parseDimensions(item.shipping?.dimensions);
+
+                const attributesMap: Record<string, string> = {};
+                attributes.forEach((attr: any) => {
+                    const key = attr.id || attr.name;
+                    if (!key) return;
+                    attributesMap[key] = attr.value_name || attr.value_id || "";
+                });
+
+                rows.push({
+                    id: item.id,
+                    sku: sku || "",
+                    variation: item.variations?.[0]?.id ? String(item.variations[0].id) : "",
+                    title: item.title,
+                    stock: item.available_quantity,
+                    price: item.price,
+                    status: item.status,
+                    warranty: item.warranty || warrantyTerm?.value_name || "",
+                    warranty_time: warrantyTime?.value_name || "",
+                    delivery: item.shipping?.logistic_type || "",
+                    free_shipping: item.shipping?.free_shipping ? "Sim" : "Não",
+                    listing_type: item.listing_type_id,
+                    category: item.category_id,
+                    description: cleanText(description, 260),
+                    color,
+                    material,
+                    style,
+                    length: lengthAttr,
+                    width: widthAttr,
+                    diameter,
+                    earring_type: earringType,
+                    has_stones: hasStones,
+                    stone_type: stoneType,
+                    kit_pieces: kitPieces,
+                    universal_code: universalCode,
+                    ncm,
+                    origin,
+                    cfop,
+                    cst,
+                    csosn,
+                    state,
+                    dimensions: `${dimensions.height || ""} x ${dimensions.width || ""} x ${dimensions.length || ""}`,
+                    weight: dimensions.weight || "",
+                    attributes: attributesMap,
+                });
+            } catch (err: any) {
+                console.error(`[Export XLSX] Erro ao processar ${itemId}:`, err?.message || err);
+            }
+        }
+
+        // Mapeia todos os atributos presentes para criar colunas dedicadas
+        const attributeKeys: string[] = [];
+        const attrSet = new Set<string>();
+        rows.forEach((r) => {
+            Object.keys(r.attributes || {}).forEach((key) => {
+                if (!attrSet.has(key)) {
+                    attrSet.add(key);
+                    attributeKeys.push(key);
+                }
+            });
+        });
+
+        const baseHeader = [
+            "MLB",
+            "SKU",
+            "Variação",
+            "Título",
+            "Estoque",
+            "Preço",
+            "Status",
+            "Garantia",
+            "Garantia (Tempo)",
+            "Entrega/Logística",
+            "Frete Grátis",
+            "Tipo anúncio",
+            "Categoria",
+            "Descrição",
+            "Cor",
+            "Material",
+            "Estilo",
+            "Comprimento",
+            "Largura",
+            "Diâmetro",
+            "Tipo de Brinco",
+            "Com Pedra",
+            "Tipo de Pedras",
+            "Peças no Kit",
+            "Código Universal",
+            "NCM",
+            "Origem",
+            "CFOP",
+            "CST",
+            "CSOSN",
+            "Estado",
+            "Dimensões (A x L x C)",
+            "Peso",
+        ];
+
+        const worksheetData = [
+            [...baseHeader, ...attributeKeys],
+            ...rows.map((r) => {
+                const baseRow = [
+                    r.id,
+                    r.sku,
+                    r.variation,
+                    r.title,
+                    r.stock,
+                    r.price,
+                    r.status,
+                    r.warranty,
+                    r.warranty_time,
+                    r.delivery,
+                    r.free_shipping,
+                    r.listing_type,
+                    r.category,
+                    r.description,
+                    r.color,
+                    r.material,
+                    r.style,
+                    r.length,
+                    r.width,
+                    r.diameter,
+                    r.earring_type,
+                    r.has_stones,
+                    r.stone_type,
+                    r.kit_pieces,
+                    r.universal_code,
+                    r.ncm,
+                    r.origin,
+                    r.cfop,
+                    r.cst,
+                    r.csosn,
+                    r.state,
+                    r.dimensions,
+                    r.weight,
+                ];
+
+                const attrValues = attributeKeys.map((key) => cleanText(r.attributes?.[key] || "", 120));
+                return [...baseRow, ...attrValues];
+            }),
+        ];
+
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+        const baseWidths = [
+            { wch: 12 }, // MLB
+            { wch: 12 }, // SKU
+            { wch: 12 }, // Variação
+            { wch: 32 }, // Título
+            { wch: 10 }, // Estoque
+            { wch: 12 }, // Preço
+            { wch: 12 }, // Status
+            { wch: 14 }, // Garantia
+            { wch: 16 }, // Garantia tempo
+            { wch: 18 }, // Entrega
+            { wch: 12 }, // Frete
+            { wch: 14 }, // Tipo anúncio
+            { wch: 20 }, // Categoria
+            { wch: 60 }, // Descrição
+            { wch: 12 }, // Cor
+            { wch: 14 }, // Material
+            { wch: 14 }, // Estilo
+            { wch: 14 }, // Comprimento
+            { wch: 14 }, // Largura
+            { wch: 14 }, // Diâmetro
+            { wch: 16 }, // Tipo de brinco
+            { wch: 14 }, // Com pedra
+            { wch: 16 }, // Tipo de pedras
+            { wch: 12 }, // Peças no kit
+            { wch: 18 }, // Código universal
+            { wch: 12 }, // NCM
+            { wch: 12 }, // Origem
+            { wch: 12 }, // CFOP
+            { wch: 12 }, // CST
+            { wch: 12 }, // CSOSN
+            { wch: 12 }, // Estado
+            { wch: 16 }, // Dimensões
+            { wch: 10 }, // Peso
+        ];
+        const attrWidths = attributeKeys.map(() => ({ wch: 18 }));
+        worksheet["!cols"] = [...baseWidths, ...attrWidths];
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
+        const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+        res.setHeader("Content-Disposition", "attachment; filename=mercado_livre_produtos.xlsx");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        return res.send(buffer);
+    } catch (error: any) {
+        console.error("[Export XLSX] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar XLSX", details: error?.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/products/:productId/pdf
+ * Exporta um PDF de um único produto com detalhes.
+ */
+router.get("/products/:productId/pdf", async (req, res) => {
+    try {
+        const { productId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
+        if (!targetWorkspace) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const credentials = await getMercadoLivreCredentials(targetWorkspace);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        const item = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${productId}`);
+        const attributes = normalizeAttributes(item.attributes);
+        const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
+        let description = "";
+        try {
+            const descResp = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${productId}/description`);
+            description = descResp?.plain_text || descResp?.text || "";
+        } catch (err) {
+            description = "";
+        }
+
+        const sku =
+            item.seller_custom_field ||
+            getAttrValue(attributes, ['SELLER_SKU', 'SKU']) ||
+            (item.variations?.[0]?.seller_custom_field || undefined);
+        const warrantyTerm = saleTerms.find((st: any) => st.id === 'WARRANTY_TYPE');
+        const warrantyTime = saleTerms.find((st: any) => st.id === 'WARRANTY_TIME');
+        const color = getAttrValue(attributes, ['MAIN_COLOR', 'COLOR']);
+        const material = getAttrValue(attributes, ['MATERIAL']);
+        const style = getAttrValue(attributes, ['STYLE']);
+        const lengthAttr = getAttrValue(attributes, ['LENGTH', 'COMPRIMENTO']);
+        const widthAttr = getAttrValue(attributes, ['WIDTH', 'LARGURA']);
+        const diameter = getAttrValue(attributes, ['DIAMETER', 'DIÂMETRO']);
+        const earringType = getAttrValue(attributes, ['EARRING_TYPE', 'TIPO DE BRINCO']);
+        const hasStones = getAttrValue(attributes, ['WITH_STONES', 'COM PEDRAS']);
+        const stoneType = getAttrValue(attributes, ['STONE_TYPE', 'TIPO DE PEDRAS']);
+        const kitPieces = getAttrValue(attributes, ['KIT_UNITS', 'UNIDADES NO KIT']);
+        const universalCode = getAttrValue(attributes, ['GTIN', 'GTIN13', 'EAN', 'UPC', 'JAN', 'BARCODE']);
+        const ncm = getAttrValue(attributes, ['NCM']);
+        const origin = getAttrValue(attributes, ['ORIGIN']);
+        const cfop = getAttrValue(attributes, ['CFOP']);
+        const cst = getAttrValue(attributes, ['CST']);
+        const csosn = getAttrValue(attributes, ['CSOSN']);
+        const state = getAttrValue(attributes, ['STATE', 'UF', 'STATE_CODE']);
+        const dimensions = parseDimensions(item.shipping?.dimensions);
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename=${productId}.pdf`);
+
+        const doc = new PDFDocument({ margin: 42 });
+        doc.pipe(res);
+
+        // Helpers para layout
+        const divider = () => {
+            doc.moveDown(0.3);
+            const lineY = doc.y;
+            doc
+                .moveTo(doc.page.margins.left, lineY)
+                .lineTo(doc.page.width - doc.page.margins.right, lineY)
+                .lineWidth(0.5)
+                .strokeColor("#e5e7eb")
+                .stroke();
+            doc.moveDown(0.6);
+        };
+
+        const section = (title: string, entries: Array<[string, string]>) => {
+            doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text(title);
+            doc.moveDown(0.3);
+            entries.forEach(([label, value]) => {
+                doc
+                    .font("Helvetica-Bold")
+                    .fontSize(10)
+                    .fillColor("#4b5563")
+                    .text(`${label}: `, { continued: true });
+                doc
+                    .font("Helvetica")
+                    .fillColor("#111827")
+                    .text(value || "-");
+            });
+            doc.moveDown(0.4);
+            divider();
+        };
+
+        // Cabeçalho
+        doc
+            .font("Helvetica-Bold")
+            .fontSize(18)
+            .fillColor("#111827")
+            .text(item.title || "Produto", { align: "left", width: doc.page.width - doc.page.margins.left - doc.page.margins.right });
+        doc.moveDown(0.3);
+        doc
+            .font("Helvetica")
+            .fontSize(10)
+            .fillColor("#374151")
+            .text(`MLB: ${item.id}`, { continued: true })
+            .text(`   SKU: ${sku || "-"}`, { continued: true })
+            .text(`   Variação: ${item.variations?.[0]?.id ? String(item.variations[0].id) : "-"}`);
+        divider();
+
+        // Seções
+        section("Condições gerais", [
+            ["Preço", item.price ? `R$ ${item.price}` : "-"],
+            ["Status", item.status || "-"],
+            ["Estoque", String(item.available_quantity ?? "-")],
+            ["Garantia", item.warranty || warrantyTerm?.value_name || "-"],
+            ["Garantia (Tempo)", warrantyTime?.value_name || "-"],
+            ["Entrega / Logística", item.shipping?.logistic_type || "-"],
+            ["Frete grátis", item.shipping?.free_shipping ? "Sim" : "Não"],
+            ["Tipo de anúncio", item.listing_type_id || "-"],
+            ["Categoria", item.category_id || "-"],
+        ]);
+
+        section("Características do produto", [
+            ["Cor", color || "-"],
+            ["Material", material || "-"],
+            ["Estilo", style || "-"],
+            ["Dimensões (A x L x C)", `${dimensions.height || "-"} x ${dimensions.width || "-"} x ${dimensions.length || "-"}`],
+            ["Peso", dimensions.weight || "-"],
+            ["Comprimento", lengthAttr || "-"],
+            ["Largura", widthAttr || "-"],
+            ["Diâmetro", diameter || "-"],
+            ["Tipo de brinco", earringType || "-"],
+            ["Com pedra", hasStones || "-"],
+            ["Tipo de pedras", stoneType || "-"],
+            ["Peças no kit", kitPieces || "-"],
+            ["Código universal", universalCode || "-"],
+        ]);
+
+        section("Dados fiscais", [
+            ["NCM", ncm || "-"],
+            ["Origem", origin || "-"],
+            ["CFOP", cfop || "-"],
+            ["CST", cst || "-"],
+            ["CSOSN", csosn || "-"],
+            ["Estado de origem", state || "-"],
+        ]);
+
+        // Descrição
+        doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text("Descrição");
+        doc.moveDown(0.3);
+        doc
+            .font("Helvetica")
+            .fontSize(10)
+            .fillColor("#111827")
+            .text(description || "Sem descrição disponível", {
+                width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+                lineGap: 2,
+            });
+        doc.moveDown(0.6);
+        divider();
+
+        // Atributos
+        doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text("Atributos");
+        doc.moveDown(0.3);
+        const attrsText = attributes
+            .map((attr: any) => `${attr.name}: ${attr.value_name || attr.value_id || "-"}`)
+            .join("\n");
+        doc
+            .font("Helvetica")
+            .fontSize(10)
+            .fillColor("#111827")
+            .text(attrsText || "Sem atributos disponíveis", {
+                width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+                columns: 2,
+                columnGap: 12,
+                lineGap: 2,
+            });
+
+        doc.end();
+    } catch (error: any) {
+        console.error("[Export PDF] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar PDF", details: error?.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/export/csv
+ * Exporta uma planilha CSV com métricas por anúncio:
+ * Produto | Preço | Custo produto | Taxa ML (%) | Imposto (%) | Embalagem | Custo envio | Vendas semana | Gasto anúncio | ACOS
+ */
+router.get("/export/csv", async (req, res) => {
+    try {
+        const { workspaceId } = req.query as any;
+        const days = Math.max(1, Number((req.query as any).days) || 7);
+        const mlFeePercent = Math.max(0, Number((req.query as any).mlFeePercent) || 0);
+        const taxPercent = Math.max(0, Number((req.query as any).taxPercent) || 0);
+        const packagingCost = Math.max(0, Number((req.query as any).packagingCost) || 0);
+        const shippingCostPerOrder = Math.max(0, Number((req.query as any).shippingCostPerOrder) || 0);
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        let credentials = await getMercadoLivreCredentials(String(workspaceId));
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        // Buscar todos os IDs dos itens do vendedor
+        const allItemIds: string[] = [];
+        let searchOffset = 0;
+        const searchLimit = 50;
+        let hasMore = true;
+        while (hasMore) {
+            try {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    {
+                        params: { limit: searchLimit, offset: searchOffset },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }
+                );
+                const ids = resp.data.results || [];
+                allItemIds.push(...ids);
+                hasMore = ids.length === searchLimit;
+                searchOffset += searchLimit;
+            } catch (err: any) {
+                if (err?.response?.status === 401) {
+                    const refreshed = await refreshAccessToken(String(workspaceId));
+                    if (refreshed) {
+                        credentials = refreshed;
+                        continue;
+                    }
+                }
+                console.error("[Export CSV] Erro ao buscar IDs de itens:", err?.message || err);
+                break;
+            }
+        }
+
+        // Buscar detalhes de cada item
+        const itemDetailsMap = new Map<string, any>();
+        for (const itemId of allItemIds) {
+            try {
+                const item = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+                itemDetailsMap.set(itemId, item);
+            } catch (err) {
+                console.error(`[Export CSV] Erro ao buscar detalhes do item ${itemId}:`, (err as any)?.message || err);
+            }
+        }
+
+        // Agregar vendas por item nos últimos N dias
+        const dateTo = new Date();
+        dateTo.setHours(23, 59, 59, 999);
+        const dateFrom = new Date();
+        dateFrom.setHours(0, 0, 0, 0);
+        dateFrom.setDate(dateFrom.getDate() - (days - 1));
+
+        const weeklySalesByItem = new Map<string, number>();
+        try {
+            const allOrders: any[] = [];
+            let offset = 0;
+            const limit = 50;
+            let more = true;
+            while (more && allOrders.length < 1000) {
+                try {
+                    const ordersResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/orders/search`, {
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                        params: { seller: credentials.userId, limit, offset },
+                    });
+                    const orders = ordersResp.data.results || [];
+                    allOrders.push(...orders);
+                    more = orders.length === limit;
+                    offset += limit;
+                } catch (apiErr: any) {
+                    if (apiErr?.response?.status === 401) {
+                        const refreshed = await refreshAccessToken(String(workspaceId));
+                        if (refreshed) {
+                            credentials = refreshed;
+                            continue;
+                        }
+                    }
+                    console.error("[Export CSV] Erro ao buscar pedidos:", apiErr?.message || apiErr);
+                    more = false;
+                }
+            }
+
+            const fromKey = dateFrom.toISOString().split("T")[0];
+            const toKey = dateTo.toISOString().split("T")[0];
+            for (const order of allOrders) {
+                const created = order.date_created ? new Date(order.date_created) : null;
+                if (!created) continue;
+                const key = created.toISOString().split("T")[0];
+                if (key < fromKey || key > toKey) continue;
+                if (String(order.status || "").toLowerCase() === "cancelled") continue;
+                const items: any[] = Array.isArray(order.order_items) ? order.order_items : [];
+                for (const it of items) {
+                    const iid = String(it.item?.id || "");
+                    const qty = Number(it.quantity || 0);
+                    if (!iid || qty <= 0) continue;
+                    weeklySalesByItem.set(iid, (weeklySalesByItem.get(iid) || 0) + qty);
+                }
+            }
+        } catch (err) {
+            console.error("[Export CSV] Falha ao agregar vendas semanais:", (err as any)?.message || err);
+        }
+
+        // Buscar custos dos produtos no banco
+        const db = getPool();
+        const prodRes = await db.query(
+            `SELECT sku, ml_item_id, cost_price FROM products WHERE workspace_id = $1`,
+            [workspaceId]
+        );
+        const costBySku = new Map<string, number>();
+        const costByItemId = new Map<string, number>();
+        for (const row of prodRes.rows) {
+            if (row.sku) costBySku.set(String(row.sku), Number(row.cost_price || 0));
+            if (row.ml_item_id) costByItemId.set(String(row.ml_item_id), Number(row.cost_price || 0));
+        }
+
+        // Montar CSV
+        const header = [
+            "Produto",
+            "Preço",
+            "Custo produto",
+            "Taxa ML (%)",
+            "Imposto (%)",
+            "Embalagem",
+            "Custo envio",
+            "Vendas semana",
+            "Gasto anúncio",
+            "ACOS"
+        ].join(",");
+
+        const escape = (val: any) => {
+            const s = String(val ?? "");
+            if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        };
+
+        const adSpendByItem = new Map<string, number>();
+        for (const itemId of allItemIds) {
+            try {
+                const adsResp = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/advertising/product_ads/items/${itemId}`, { headers: { 'api-version': '2' } });
+                const metrics = adsResp?.metrics_summary || {};
+                const cost = Number(metrics?.cost || metrics?.consumed_budget || 0);
+                adSpendByItem.set(itemId, cost);
+            } catch (err) {
+                adSpendByItem.set(itemId, 0);
+            }
+        }
+
+        const rows: string[] = [header];
+        for (const itemId of allItemIds) {
+            const item = itemDetailsMap.get(itemId);
+            if (!item) continue;
+            const title = String(item.title || "");
+            const price = Number(item.price || 0);
+            const sku = String(item.seller_custom_field || "");
+            const weeklySales = Number(weeklySalesByItem.get(itemId) || 0);
+
+            let costPrice = 0;
+            if (sku && costBySku.has(sku)) {
+                costPrice = Number(costBySku.get(sku) || 0);
+            } else if (costByItemId.has(itemId)) {
+                costPrice = Number(costByItemId.get(itemId) || 0);
+            }
+
+            const mlFee = mlFeePercent;
+            const tax = taxPercent;
+            const packaging = packagingCost;
+            const shipping = shippingCostPerOrder;
+            const adSpend = Number(adSpendByItem.get(itemId) || 0);
+            const revenue = price * weeklySales;
+            const acos = revenue > 0 ? (adSpend / revenue) * 100 : 0;
+
+            const row = [
+                escape(title),
+                price.toFixed(2),
+                costPrice.toFixed(2),
+                mlFee.toFixed(2),
+                tax.toFixed(2),
+                packaging.toFixed(2),
+                shipping.toFixed(2),
+                String(weeklySales),
+                adSpend.toFixed(2),
+                acos.toFixed(2)
+            ].join(",");
+            rows.push(row);
+        }
+
+        const csv = rows.join("\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", "attachment; filename=mercado_livre_export.csv");
+        return res.status(200).send(csv);
+    } catch (error: any) {
+        console.error("[Export CSV] Erro ao gerar CSV:", error);
+        return res.status(500).json({ error: "Falha ao gerar CSV", details: error?.response?.data || error?.message });
     }
 });
 
@@ -2238,6 +3027,113 @@ router.post("/search-categories", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/items/:mlbId/category-suggestions
+ * Sugere categorias compatíveis com base no título e cobertura de atributos do item
+ */
+router.get("/items/:mlbId/category-suggestions", async (req, res) => {
+    try {
+        const { mlbId } = req.params;
+        const { workspaceId, country = 'MLB' } = req.query as { workspaceId?: string; country?: string };
+
+        if (!workspaceId || typeof workspaceId !== 'string') {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        // Buscar o item atual
+        let item: any = null;
+        try {
+            item = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${mlbId}`);
+        } catch (e: any) {
+            return res.status(404).json({ error: "Item não encontrado", details: e?.message || 'Not Found' });
+        }
+
+        const title = String(item?.title || '').trim();
+        const itemAttrs: any[] = Array.isArray(item?.attributes) ? item.attributes : [];
+        const variations: any[] = Array.isArray(item?.variations) ? item.variations : [];
+
+        // Predição de categorias pelo título
+        const predResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/sites/${country}/category_predictor/predict`, {
+            params: { q: title }
+        });
+        const predictions: Array<{ id: string; name?: string; probability?: number }> = Array.isArray(predResp.data) ? predResp.data : [];
+
+        // Avaliar compatibilidade por cobertura de atributos obrigatórios
+        const suggestions = await Promise.all(predictions.slice(0, 8).map(async (pred) => {
+            try {
+                const catResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${pred.id}`);
+                const details = catResp.data;
+                let attrs: any[] = [];
+                try {
+                    const attrsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${pred.id}/attributes`);
+                    attrs = Array.isArray(attrsResp.data) ? attrsResp.data : [];
+                } catch { attrs = []; }
+
+                const required = attrs.filter((a: any) => Boolean(a?.tags?.required));
+                const itemAttrIds = new Set(itemAttrs.map((a: any) => a.id));
+                const variationAttrIds = new Set(
+                    variations.flatMap((v: any) => (Array.isArray(v?.attribute_combinations) ? v.attribute_combinations : [])).map((c: any) => c.id)
+                );
+
+                let covered = 0;
+                const missing: string[] = [];
+                for (const r of required) {
+                    const id = String(r.id || '');
+                    const has = itemAttrIds.has(id) || variationAttrIds.has(id);
+                    if (has) covered++; else missing.push(id);
+                }
+                const compatibility = required.length > 0 ? Number(((covered / required.length) * 100).toFixed(1)) : 100;
+
+                return {
+                    id: pred.id,
+                    name: pred.name || details?.name,
+                    probability: pred.probability ?? null,
+                    compatibility,
+                    required_count: required.length,
+                    covered_count: covered,
+                    missing_required: missing,
+                    path_from_root: details?.path_from_root || [],
+                    settings: details?.settings || {},
+                };
+            } catch {
+                return {
+                    id: pred.id,
+                    name: pred.name || pred.id,
+                    probability: pred.probability ?? null,
+                    compatibility: null,
+                    required_count: null,
+                    covered_count: null,
+                    missing_required: [],
+                    path_from_root: [],
+                    settings: {},
+                };
+            }
+        }));
+
+        const sorted = suggestions.sort((a: any, b: any) => {
+            const pa = Number(a.probability || 0);
+            const pb = Number(b.probability || 0);
+            const ca = Number(a.compatibility || 0);
+            const cb = Number(b.compatibility || 0);
+            return cb - ca || pb - pa;
+        });
+
+        return res.json({
+            success: true,
+            mlb_id: mlbId,
+            title,
+            suggestions: sorted,
+            recommended: sorted[0] || null,
+        });
+    } catch (error: any) {
+        console.error("Error getting category suggestions:", error);
+        return res.status(500).json({
+            error: "Failed to get category suggestions",
+            details: error.response?.data || error.message,
+        });
+    }
+});
+
+/**
  * Função auxiliar para melhorar predição de categoria com IA própria
  */
 async function enhanceCategoryPrediction(title: string, mlPredictions: any[]) {
@@ -2376,6 +3272,10 @@ router.post("/notifications", async (req, res) => {
                 break;
 
             case "items":
+                if (!ML_ITEM_NOTIFICATIONS_ENABLED) {
+                    console.log("[Mercado Livre Webhook] Notificação de item ignorada (ML_NOTIFY_ITEM_UPDATES!=true)");
+                    break;
+                }
                 await handleItemNotification(notification);
                 break;
 
@@ -2683,6 +3583,12 @@ async function handleOrderNotification(notification: any) {
 
         console.log(`[Order Notification] Detalhes do pedido ${orderId} obtidos com sucesso`);
 
+        const status = String(orderDetails.data?.status || "").toLowerCase();
+        if (!["paid", "confirmed"].includes(status)) {
+            console.log(`[Order Notification] Ignorado status ${status} para pedido ${orderId}`);
+            return;
+        }
+
         // Enviar notificação Telegram
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyNewOrder(workspaceId, orderDetails.data);
@@ -2751,6 +3657,12 @@ async function handleQuestionNotification(notification: any) {
 async function handleItemNotification(notification: any) {
     try {
         console.log(`[Item Notification] Item: ${notification.resource}`);
+
+        if (!ML_ITEM_NOTIFICATIONS_ENABLED) {
+            console.log("[Item Notification] Ignorado porque ML_NOTIFY_ITEM_UPDATES!=true");
+            return;
+        }
+
         const itemId = notification.resource.split('/').pop();
         const userId = notification.user_id;
 
@@ -3309,6 +4221,7 @@ router.post("/apply-optimizations", async (req, res) => {
         if (optimizations.attributes) {
             if (!currentProduct.attributes) currentProduct.attributes = [];
             const { COLOR, SIZE } = optimizations.attributes as { COLOR?: string; SIZE?: string };
+            const SELLER_SKU = (optimizations.attributes as any)?.SELLER_SKU as string | undefined;
 
             // Helper: normalizar strings para comparação
             const normalize = (s: string) => s
@@ -3457,6 +4370,33 @@ router.post("/apply-optimizations", async (req, res) => {
 
             if (hasAnyAttributes) {
                 updates.attributes = currentProduct.attributes;
+            }
+
+            const hasVariations = Array.isArray(currentProduct?.variations) && currentProduct.variations.length > 0;
+            if (hasVariations && (COLOR || SIZE)) {
+                const variationsPayload = currentProduct.variations.map((v: any) => {
+                    const combos = Array.isArray(v?.attribute_combinations) ? [...v.attribute_combinations] : [];
+                    const upsertCombo = (id: string, valueName?: string) => {
+                        if (!valueName) return;
+                        const valueId = findValueId(id, valueName);
+                        const idx = combos.findIndex((c: any) => c.id === id);
+                        const entry = valueId ? { id, value_id: valueId } : { id, value_name: valueName };
+                        if (idx >= 0) {
+                            combos[idx] = entry;
+                        } else {
+                            combos.push(entry);
+                        }
+                    };
+                    upsertCombo('COLOR', COLOR);
+                    upsertCombo('SIZE', SIZE);
+                    return { id: v.id, attribute_combinations: combos };
+                });
+                updates.variations = variationsPayload;
+            }
+            // Mapear SELLER_SKU para o campo correto do item (seller_custom_field)
+            if (SELLER_SKU && typeof SELLER_SKU === 'string' && SELLER_SKU.trim().length > 0) {
+                updates.seller_custom_field = SELLER_SKU.trim();
+                appliedChanges.push('SKU do vendedor atualizado');
             }
         }
 

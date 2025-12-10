@@ -95,6 +95,23 @@ export default function MercadoLivre() {
         }
     };
 
+    const handleExportCsv = () => {
+        if (!workspaceId) {
+            toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar." });
+            return;
+        }
+        const params = new URLSearchParams({
+            workspaceId,
+            days: String(7),
+            mlFeePercent: String(0),
+            taxPercent: String(0),
+            packagingCost: String(0),
+            shippingCostPerOrder: String(0),
+        });
+        const url = `/api/integrations/mercadolivre/export/csv?${params.toString()}`;
+        window.open(url, '_blank');
+    };
+
     if (!workspaceId) {
         return (
             <div className="space-y-4">
@@ -160,6 +177,15 @@ export default function MercadoLivre() {
                     >
                         <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                         {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
+                    </Button>
+                    <Button
+                        onClick={handleExportCsv}
+                        size="sm"
+                        variant="outline"
+                        className="gap-2"
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                        Exportar CSV
                     </Button>
                 </div>
             </div>

@@ -1,4 +1,4 @@
-import { MLBAnalysisResult } from "./mlbAnalyzer.service";
+import { MLBAnalysisResult } from "./mlbAnalyzer.service.js";
 
 export interface AISuggestion {
     id: string;

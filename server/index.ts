@@ -22,7 +22,7 @@ import {
 import { directInstagramSync } from './api/integrations/directSync.js';
 import { optimizedMetaSync, getMetaSyncStatus } from './api/integrations/optimizedMetaSync.js';
 import { createMetaCampaign, mirrorCreativeAsset } from './api/integrations/meta/create-campaign.js';
-import { getMetaCustomAudiences, getMetaPageInfo, getEngagementRate } from './api/integrations/meta/stubs.js';
+import { getMetaCustomAudiences, getMetaPageInfo } from './api/integrations/meta/stubs.js';
 import { optimizedInstagramSync, getInstagramSyncStatus } from './api/integrations/optimizedInstagramSync.js';
 import { simpleInstagramSync } from './api/integrations/simpleInstagramSync.js';
 import { syncMetaBilling } from './api/integrations/billing.js';

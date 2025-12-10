@@ -46,6 +46,9 @@ export interface MercadoLivreProduct {
     price: number;
     thumbnail?: string;
     permalink?: string;
+    description?: string;
+    sku?: string;
+    variation?: string;
     sales: number;
     visits: number;
     conversionRate: number;
@@ -55,6 +58,8 @@ export interface MercadoLivreProduct {
     stock: number;
     logisticType?: string | null;
     isFull?: boolean;
+    warranty?: string;
+    warranty_time?: string;
     shipping?: {
         mode?: string;
         free_shipping?: boolean;
@@ -64,9 +69,36 @@ export interface MercadoLivreProduct {
     };
     tags?: string[];
     pictures?: Array<{ url: string; id: string }>;
-    attributes?: Array<{ name: string; value_name: string }>;
+    attributes?: Array<{ id?: string; name: string; value_name?: string; value_id?: string }>;
     listing_type_id?: string;
     condition?: string;
+    dimensions?: {
+        height?: string;
+        width?: string;
+        length?: string;
+        weight?: string;
+    };
+    color?: string;
+    material?: string;
+    style?: string;
+    length?: string;
+    width?: string;
+    diameter?: string;
+    earring_type?: string;
+    has_stones?: string;
+    stone_type?: string;
+    kit_pieces?: string;
+    universal_code?: string;
+    fiscal?: {
+        ncm?: string;
+        origin?: string;
+        cfop?: string;
+        cst?: string;
+        csosn?: string;
+        state?: string;
+        ean?: string;
+        additionalInfo?: string;
+    };
 }
 
 // Interface para perguntas
@@ -118,8 +150,11 @@ export function useMercadoLivreProducts(
     workspaceId: string | null,
     category: string = "all"
 ) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
     return useQuery({
-        queryKey: ["mercadolivre", "products", workspaceId, category],
+        queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category],
         queryFn: async (): Promise<{
             items: MercadoLivreProduct[];
             totalCount: number;
@@ -137,12 +172,12 @@ export function useMercadoLivreProducts(
             page?: number;
             limit?: number;
         }> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
             const params = new URLSearchParams({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
                 ...(category !== "all" && { category }),
                 page: String(1),
                 limit: String(1000), // Buscar até 1000 produtos
@@ -159,7 +194,7 @@ export function useMercadoLivreProducts(
 
             return response.json();
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId,
         staleTime: 5 * 60 * 1000,
     });
 }
@@ -170,8 +205,11 @@ export function useMercadoLivreListings(
     limit: number = 20,
     category: string = "all"
 ) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
     return useQuery({
-        queryKey: ["mercadolivre", "listings", workspaceId, category, page, limit],
+        queryKey: ["mercadolivre", "listings", effectiveWorkspaceId, category, page, limit],
         queryFn: async (): Promise<{
             items: MercadoLivreProduct[];
             totalCount: number;
@@ -179,12 +217,12 @@ export function useMercadoLivreListings(
             page: number;
             limit: number;
         }> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
             const params = new URLSearchParams({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
                 ...(category !== "all" && { category }),
                 page: String(page),
                 limit: String(limit),

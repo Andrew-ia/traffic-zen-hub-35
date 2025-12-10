@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
                 continue;
             }
 
-            let accessToken = params.accessToken;
+            const accessToken = params.accessToken;
 
             // 4. Fetch recent orders (last 20 mins to be safe)
             const now = new Date();
@@ -135,19 +135,26 @@ Deno.serve(async (req) => {
                 const orderId = String(order.id);
                 const status = order.status;
 
-                // Skip cancelled orders for notifications
-                if (status === 'cancelled') continue;
+                // Skip cancelled orders and non-sale statuses
+                const normalizedStatus = String(status || '').toLowerCase();
+                if (normalizedStatus === 'cancelled') continue;
+                if (!['paid', 'confirmed'].includes(normalizedStatus)) continue;
 
-                // Check if already sent
-                const { data: logs } = await supabase
+                // Check if already sent (tolerant to multiple existing rows)
+                const { data: logs, error: logError } = await supabase
                     .from('notification_logs')
                     .select('id')
                     .eq('platform', 'telegram')
                     .eq('notification_type', 'order_created')
                     .eq('reference_id', orderId)
-                    .single();
+                    .limit(1);
 
-                if (logs) continue; // Already processed
+                if (logError) {
+                    console.error(`Failed to check notification logs for order ${orderId}:`, logError);
+                    continue;
+                }
+
+                if (Array.isArray(logs) && logs.length > 0) continue; // Already processed
 
                 // Format Message
                 const total = order.total_amount || order.paid_amount || 0;
