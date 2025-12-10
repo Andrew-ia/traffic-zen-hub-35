@@ -5244,6 +5244,21 @@ router.get("/orders/daily-sales", async (req, res) => {
 
         console.log(`[Daily Sales] Total de ${allOrders.length} pedidos encontrados (antes da deduplicação)`);
 
+        // Log todos os IDs de pedidos para debug
+        const allOrderIds = allOrders.map(o => o.id);
+        const orderIdCounts = new Map<string, number>();
+        allOrderIds.forEach(id => {
+            orderIdCounts.set(id, (orderIdCounts.get(id) || 0) + 1);
+        });
+
+        const duplicateIds = Array.from(orderIdCounts.entries())
+            .filter(([_, count]) => count > 1)
+            .map(([id, count]) => `${id}(x${count})`);
+
+        if (duplicateIds.length > 0) {
+            console.log(`[Daily Sales] ⚠️  Pedidos duplicados encontrados:`, duplicateIds);
+        }
+
         // ⚠️ DEDUPLICAR PEDIDOS POR ID (API pode retornar duplicados)
         const uniqueOrdersMap = new Map();
         for (const order of allOrders) {
@@ -5252,7 +5267,7 @@ router.get("/orders/daily-sales", async (req, res) => {
             }
         }
         const uniqueOrders = Array.from(uniqueOrdersMap.values());
-        console.log(`[Daily Sales] ${uniqueOrders.length} pedidos únicos após deduplicação`);
+        console.log(`[Daily Sales] ${uniqueOrders.length} pedidos únicos após deduplicação (removidos ${allOrders.length - uniqueOrders.length})`);
 
         // Agregar por dia
         const salesByDay = new Map<string, { date: string; sales: number; revenue: number; orders: number }>();
