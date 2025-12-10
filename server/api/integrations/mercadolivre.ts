@@ -5213,9 +5213,8 @@ router.get("/orders/daily-sales", async (req, res) => {
                     seller: credentials.userId,
                     limit,
                     offset,
-                    // Filtrar por data DIRETO NA API do ML
-                    'order.date_created.from': dateFrom,
-                    'order.date_created.to': dateTo,
+                    // REMOVIDO: Filtro de data na API do ML não está confiável
+                    // Vamos filtrar rigorosamente no código
                 };
 
                 const ordersResponse = await axios.get(
@@ -5284,8 +5283,16 @@ router.get("/orders/daily-sales", async (req, res) => {
             if (!dateCreated) continue;
 
             const dateKey = dateCreated.toISOString().split("T")[0]; // YYYY-MM-DD
-            if (dateFrom && dateKey < String(dateFrom).slice(0, 10)) continue;
-            if (dateTo && dateKey > String(dateTo).slice(0, 10)) continue;
+
+            // Filtro RIGOROSO de data (comparação por timestamp)
+            const orderTimestamp = dateCreated.getTime();
+            const dateFromTimestamp = dateFrom ? new Date(String(dateFrom)).getTime() : 0;
+            const dateToTimestamp = dateTo ? new Date(String(dateTo)).getTime() : Date.now();
+
+            if (orderTimestamp < dateFromTimestamp || orderTimestamp > dateToTimestamp) {
+                console.log(`[Daily Sales] Pedido ${order.id} FORA DO PERÍODO: ${order.date_created} (período: ${dateFrom} - ${dateTo})`);
+                continue;
+            }
 
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
             const totalAmount = order.paid_amount || order.total_amount || 0;
