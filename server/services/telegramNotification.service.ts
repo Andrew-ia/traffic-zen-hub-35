@@ -16,6 +16,8 @@ interface NotificationPayload {
  * Serviço para enviar notificações via Telegram
  */
 export class TelegramNotificationService {
+    // Lock em memória para prevenir processamento concorrente do mesmo pedido
+    private static processingOrders = new Set<string>();
     /**
      * Busca configuração do Telegram para um workspace
      */
@@ -185,6 +187,7 @@ export class TelegramNotificationService {
             date_created,
             buyer,
             order_items,
+            shipping,
         } = orderData;
 
         const formatCurrency = (value: number) => {
@@ -201,13 +204,20 @@ export class TelegramNotificationService {
                 year: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
+                timeZone: "America/Sao_Paulo", // Forçar timezone do Brasil
             });
         };
+
+        // Determinar tipo de envio (Full ou Padrão)
+        const shippingType = shipping?.logistic_type === "fulfillment" || shipping?.tags?.includes("fulfillment")
+            ? "🚀 Full"
+            : "📮 Padrão";
 
         let message = `🎉 <b>NOVA VENDA NO MERCADO LIVRE!</b>\n\n`;
         message += `📦 <b>Pedido:</b> #${id}\n`;
         message += `💰 <b>Valor:</b> ${formatCurrency(paid_amount || total_amount)}\n`;
         message += `📊 <b>Status:</b> ${status}\n`;
+        message += `🚚 <b>Envio:</b> ${shippingType}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;
 
         if (buyer) {
@@ -403,6 +413,22 @@ export class TelegramNotificationService {
      * Envia notificação de nova venda
      */
     public static async notifyNewOrder(workspaceId: string, orderData: any): Promise<boolean> {
+        const referenceId = orderData?.id || null;
+        if (!referenceId) {
+            console.warn("[Telegram] Pedido sem ID, ignorando notificação");
+            return false;
+        }
+
+        // Lock para prevenir processamento concorrente do mesmo pedido
+        const lockKey = `${workspaceId}:${referenceId}`;
+        if (this.processingOrders.has(lockKey)) {
+            console.log(`[Telegram] 🔒 Pedido ${referenceId} já está sendo processado, ignorando duplicata`);
+            return false;
+        }
+
+        // Adicionar ao lock
+        this.processingOrders.add(lockKey);
+
         try {
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
@@ -410,15 +436,16 @@ export class TelegramNotificationService {
                 return false;
             }
 
-            const referenceId = orderData?.id || null;
-            const alreadySent = await this.hasNotification(
+            // Verificar se já foi enviado (com janela de tempo de 30 minutos)
+            const isDuplicate = await this.hasRecentNotification(
                 workspaceId,
                 "order_created",
-                referenceId
+                referenceId,
+                30
             );
 
-            if (alreadySent) {
-                console.log(`[Telegram] Ignorando venda já notificada ${referenceId}`);
+            if (isDuplicate) {
+                console.log(`[Telegram] Ignorando venda já notificada ${referenceId} (últimos 30 min)`);
                 return false;
             }
 
@@ -452,13 +479,18 @@ export class TelegramNotificationService {
             await this.logNotification(
                 workspaceId,
                 "order_created",
-                orderData.id,
+                referenceId,
                 "failed",
                 orderData,
                 null,
                 error.message
             );
             return false;
+        } finally {
+            // Remover do lock após 5 segundos para prevenir memory leak
+            setTimeout(() => {
+                this.processingOrders.delete(lockKey);
+            }, 5000);
         }
     }
 
