@@ -848,7 +848,9 @@ router.get("/products", async (req, res) => {
 
         // Buscar detalhes e construir mapa para reuso na página
         const detailsMap = new Map<string, any>();
-        for (const itemId of allItemIds) {
+        const uniqueItemIds = Array.from(new Set(allItemIds));
+
+        for (const itemId of uniqueItemIds) {
             try {
                 const itemResponse = await axios.get(
                     `${MERCADO_LIVRE_API_BASE}/items/${itemId}`,
@@ -965,6 +967,8 @@ router.get("/products", async (req, res) => {
                 revenue,
                 status: item.status,
                 category: item.category_id,
+                category_name: undefined,
+                category_path: undefined,
                 stock: item.available_quantity,
                 logisticType,
                 isFull,
@@ -1010,6 +1014,35 @@ router.get("/products", async (req, res) => {
             });
         }
 
+        // Enriquecer categorias com nomes/path (consulta única por categoria)
+        const categoryDetailsMap = new Map<string, { name: string; path: string }>();
+        const uniqueCategories = Array.from(new Set(items.map((it) => it.category).filter(Boolean)));
+        for (const catId of uniqueCategories) {
+            try {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/categories/${catId}`,
+                    { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+                );
+                const path = Array.isArray(resp.data?.path_from_root)
+                    ? resp.data.path_from_root.map((p: any) => p?.name).filter(Boolean).join(" > ")
+                    : resp.data?.name || "";
+                categoryDetailsMap.set(catId, {
+                    name: resp.data?.name || catId,
+                    path,
+                });
+            } catch (err) {
+                console.warn(`[Products] Falha ao buscar categoria ${catId}:`, (err as any)?.message);
+            }
+        }
+
+        items.forEach((it) => {
+            const cat = it.category ? categoryDetailsMap.get(it.category) : null;
+            if (cat) {
+                it.category_name = cat.name;
+                it.category_path = cat.path;
+            }
+        });
+
         // Filtrar por categoria se especificado
         let filteredItems = items;
         if (category && category !== "all") {
@@ -1051,7 +1084,7 @@ router.get("/products", async (req, res) => {
  */
 router.get("/products/export/xlsx", async (req, res) => {
     try {
-        const { workspaceId } = req.query as { workspaceId?: string };
+        const { workspaceId, category } = req.query as { workspaceId?: string; category?: string };
         const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
         if (!targetWorkspace) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
@@ -1101,9 +1134,21 @@ router.get("/products/export/xlsx", async (req, res) => {
 
         // Buscar detalhes + descrição
         const rows: any[] = [];
+        let categoryName = "";
+        if (category && category !== "all") {
+            try {
+                const catResp = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/categories/${category}`);
+                categoryName = catResp?.name || category;
+            } catch {
+                categoryName = category;
+            }
+        }
         for (const itemId of allItemIds) {
             try {
                 const item = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+                if (category && category !== "all" && item.category_id !== category) {
+                    continue; // pular itens de outras categorias
+                }
                 const attributes = normalizeAttributes(item.attributes);
                 const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
                 let description = "";
@@ -1236,48 +1281,54 @@ router.get("/products/export/xlsx", async (req, res) => {
             "Peso",
         ];
 
+        const dataRows = rows.map((r) => {
+            const baseRow = [
+                r.id,
+                r.sku,
+                r.variation,
+                r.title,
+                r.stock,
+                r.price,
+                r.status,
+                r.warranty,
+                r.warranty_time,
+                r.delivery,
+                r.free_shipping,
+                r.listing_type,
+                r.category,
+                r.description,
+                r.color,
+                r.material,
+                r.style,
+                r.length,
+                r.width,
+                r.diameter,
+                r.earring_type,
+                r.has_stones,
+                r.stone_type,
+                r.kit_pieces,
+                r.universal_code,
+                r.ncm,
+                r.origin,
+                r.cfop,
+                r.cst,
+                r.csosn,
+                r.state,
+                r.dimensions,
+                r.weight,
+            ];
+
+            const attrValues = attributeKeys.map((key) => cleanText(r.attributes?.[key] || "", 120));
+            return [...baseRow, ...attrValues];
+        });
+
+        const filteredRows = dataRows.filter((row) =>
+            row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== "")
+        );
+
         const worksheetData = [
             [...baseHeader, ...attributeKeys],
-            ...rows.map((r) => {
-                const baseRow = [
-                    r.id,
-                    r.sku,
-                    r.variation,
-                    r.title,
-                    r.stock,
-                    r.price,
-                    r.status,
-                    r.warranty,
-                    r.warranty_time,
-                    r.delivery,
-                    r.free_shipping,
-                    r.listing_type,
-                    r.category,
-                    r.description,
-                    r.color,
-                    r.material,
-                    r.style,
-                    r.length,
-                    r.width,
-                    r.diameter,
-                    r.earring_type,
-                    r.has_stones,
-                    r.stone_type,
-                    r.kit_pieces,
-                    r.universal_code,
-                    r.ncm,
-                    r.origin,
-                    r.cfop,
-                    r.cst,
-                    r.csosn,
-                    r.state,
-                    r.dimensions,
-                    r.weight,
-                ];
-
-                const attrValues = attributeKeys.map((key) => cleanText(r.attributes?.[key] || "", 120));
-                return [...baseRow, ...attrValues];
-            }),
+            ...filteredRows,
         ];
 
         const workbook = XLSX.utils.book_new();
@@ -1322,7 +1373,15 @@ router.get("/products/export/xlsx", async (req, res) => {
         XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
         const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
-        res.setHeader("Content-Disposition", "attachment; filename=mercado_livre_produtos.xlsx");
+        const dateLabel = new Date().toISOString().split("T")[0];
+        const categoryLabel = categoryName || "todas-categorias";
+        const safeCategory = categoryLabel
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9_-]/g, "");
+        const filename = `mercado_livre_${safeCategory}_${dateLabel}.xlsx`;
+
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         return res.send(buffer);
     } catch (error: any) {
@@ -3303,7 +3362,7 @@ router.post("/notifications", async (req, res) => {
  */
 router.post("/notifications/test", async (req, res) => {
     try {
-        const { workspaceId, type = "order" } = req.body || {};
+        const { workspaceId, type = "order", id: customId } = req.body || {};
         if (!workspaceId) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
         }
@@ -3311,8 +3370,9 @@ router.post("/notifications/test", async (req, res) => {
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
 
         if (type === "order") {
+            const sampleId = customId || `TEST-ORDER-${Date.now()}`;
             const sampleOrder = {
-                id: "TEST-ORDER-123",
+                id: sampleId,
                 total_amount: 199.9,
                 paid_amount: 199.9,
                 currency_id: "BRL",
@@ -3329,7 +3389,7 @@ router.post("/notifications/test", async (req, res) => {
 
         if (type === "question") {
             const sampleQuestion = {
-                id: "Q-TEST-123",
+                id: customId || `Q-TEST-${Date.now()}`,
                 text: "Ainda tem disponível?",
                 from: { id: "user123", nickname: "Interessado" },
                 item_id: "MLB123456789",
@@ -3341,7 +3401,7 @@ router.post("/notifications/test", async (req, res) => {
 
         if (type === "item") {
             const sampleItem = {
-                id: "MLB123456789",
+                id: customId || `MLB-TEST-${Date.now()}`,
                 title: "Produto Exemplo",
                 status: "active",
                 price: 149.9,
@@ -3352,7 +3412,7 @@ router.post("/notifications/test", async (req, res) => {
 
         if (type === "message") {
             const sampleMsg = {
-                id: "MSG-TEST-123",
+                id: customId || `MSG-TEST-${Date.now()}`,
                 text: "Boa noite! Tenho uma dúvida.",
                 from: { id: "user123", nickname: "Cliente" },
                 date_created: new Date().toISOString(),
@@ -3373,6 +3433,7 @@ router.get("/notifications/test", async (req, res) => {
     try {
         const workspaceId = String((req.query?.workspaceId || '')).trim();
         const type = String((req.query?.type || 'order')).trim();
+        const customId = String((req.query?.id || '')).trim();
         if (!workspaceId) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
         }
@@ -3380,8 +3441,9 @@ router.get("/notifications/test", async (req, res) => {
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
 
         if (type === "order") {
+            const sampleId = customId || `TEST-ORDER-${Date.now()}`;
             const sampleOrder = {
-                id: "TEST-ORDER-123",
+                id: sampleId,
                 total_amount: 199.9,
                 paid_amount: 199.9,
                 currency_id: "BRL",
@@ -3398,7 +3460,7 @@ router.get("/notifications/test", async (req, res) => {
 
         if (type === "question") {
             const sampleQuestion = {
-                id: "Q-TEST-123",
+                id: customId || `Q-TEST-${Date.now()}`,
                 text: "Ainda tem disponível?",
                 from: { id: "user123", nickname: "Interessado" },
                 item_id: "MLB123456789",
@@ -3410,7 +3472,7 @@ router.get("/notifications/test", async (req, res) => {
 
         if (type === "item") {
             const sampleItem = {
-                id: "MLB123456789",
+                id: customId || `MLB-TEST-${Date.now()}`,
                 title: "Produto Exemplo",
                 status: "active",
                 price: 149.9,
@@ -3421,7 +3483,7 @@ router.get("/notifications/test", async (req, res) => {
 
         if (type === "message") {
             const sampleMsg = {
-                id: "MSG-TEST-123",
+                id: customId || `MSG-TEST-${Date.now()}`,
                 text: "Boa noite! Tenho uma dúvida.",
                 from: { id: "user123", nickname: "Cliente" },
                 date_created: new Date().toISOString(),
@@ -3434,6 +3496,71 @@ router.get("/notifications/test", async (req, res) => {
     } catch (error: any) {
         console.error("[Notifications Test GET] Erro:", error);
         return res.status(500).json({ error: error?.message || "Erro ao enviar teste" });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/notifications/test-direct/:workspaceId
+ * Envia uma notificação de teste no Telegram usando workspaceId direto
+ * Bypass total das credenciais do ML (usa payload mockado)
+ */
+router.post("/notifications/test-direct/:workspaceId", async (req, res) => {
+    try {
+        const workspaceId = String(req.params?.workspaceId || "").trim();
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const pool = getPool();
+        const { rows: workspaceRows } = await pool.query(
+            `SELECT id, name FROM workspaces WHERE id = $1 LIMIT 1`,
+            [workspaceId]
+        );
+
+        if (!workspaceRows.length) {
+            return res.status(404).json({ error: "Workspace não encontrado" });
+        }
+
+        const { rows: notifRows } = await pool.query(
+            `SELECT 1 FROM notification_settings WHERE workspace_id = $1 AND platform = 'telegram' AND enabled = true LIMIT 1`,
+            [workspaceId]
+        );
+
+        if (!notifRows.length) {
+            return res.status(400).json({ error: "Configuração do Telegram não encontrada para este workspace" });
+        }
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        const now = Date.now();
+        const sampleOrder = {
+            id: `TEST-${now}`,
+            total_amount: 199.9,
+            paid_amount: 199.9,
+            currency_id: "BRL",
+            status: "paid",
+            date_created: new Date(now).toISOString(),
+            buyer: { id: "tester", nickname: `${workspaceRows[0].name || "Workspace"} (teste direto)` },
+            shipping: { logistic_type: "drop_off" },
+            order_items: [
+                {
+                    item: { title: "Notificação de teste (bypass ML)" },
+                    quantity: 1,
+                    unit_price: 199.9,
+                },
+            ],
+        };
+
+        const ok = await TelegramNotificationService.notifyNewOrder(workspaceId, sampleOrder);
+
+        return res.json({
+            success: ok,
+            workspace: workspaceRows[0],
+            type: "order",
+            sentAt: new Date(now).toISOString(),
+        });
+    } catch (error: any) {
+        console.error("[Notifications Direct Test] Erro:", error);
+        return res.status(500).json({ error: error?.message || "Erro ao enviar teste direto" });
     }
 });
 
@@ -3974,6 +4101,7 @@ router.post("/analyze", async (req, res) => {
                 available_quantity: productData.available_quantity,
                 permalink: productData.permalink,
                 thumbnail: productData.thumbnail,
+                description_text: (productData as any).description_text,
                 attributes: productData.attributes || [],
                 pictures: productData.pictures || []
             },
@@ -4332,6 +4460,12 @@ router.post("/apply-optimizations", async (req, res) => {
                 return target?.id || null;
             };
 
+            const findAttrMeta = (attrId: string) => categoryAttributes.find((a) => a.id === attrId);
+            const getDefaultUnit = (meta: any): string => {
+                const allowed = Array.isArray(meta?.allowed_units) ? meta.allowed_units : [];
+                return meta?.default_unit || allowed?.[0]?.id || allowed?.[0]?.name || 'cm';
+            };
+
             if (COLOR) {
                 const valueId = findValueId('COLOR', COLOR);
                 const existing = currentProduct.attributes.find((attr: any) => attr.id === 'COLOR');
@@ -4427,23 +4561,81 @@ router.post("/apply-optimizations", async (req, res) => {
                 if (processedAttributes.includes(attrId) || !attrValue) continue;
 
                 const existing = currentProduct.attributes.find((attr: any) => attr.id === attrId);
-                const currentValue = existing?.value_name || existing?.value_id || '';
-                const changed = !existing || String(currentValue).toLowerCase().trim() !== String(attrValue).toLowerCase().trim();
+                const meta = findAttrMeta(attrId);
+                const isNumberUnit = meta?.value_type === 'number_unit';
+
+                const allowedUnitsRaw = Array.isArray(meta?.allowed_units) ? meta.allowed_units : [];
+                const normalizeUnit = (u: any) => String(u || '').trim().toLowerCase();
+                const allowedUnits = allowedUnitsRaw.map((u: any) => ({
+                    id: normalizeUnit(u.id),
+                    name: normalizeUnit(u.name)
+                }));
+
+                const existingUnit = normalizeUnit(existing?.value_struct?.unit || existing?.value_name?.split(' ')?.slice(-1)[0] || '');
+                const defaultUnit = normalizeUnit(meta?.default_unit) || allowedUnits[0]?.id || allowedUnits[0]?.name || 'cm';
+
+                const parseNumberWithUnit = (val: any): { number: number | null; unit: string } => {
+                    const raw = String(val ?? '').trim();
+                    const match = raw.match(/([-+]?[0-9]+(?:[.,][0-9]+)?)/);
+                    const numStr = match ? match[1] : '';
+                    const number = numStr ? Number(numStr.replace(',', '.')) : NaN;
+                    const unitCandidateRaw = normalizeUnit(raw.replace(numStr, '').trim());
+                    const unitCandidate = allowedUnits.find((u) => u.id === unitCandidateRaw || u.name === unitCandidateRaw);
+                    const unit = unitCandidate?.id || unitCandidate?.name || existingUnit || defaultUnit;
+                    return { number: Number.isFinite(number) ? number : null, unit };
+                };
+
+                const currentStruct = isNumberUnit ? {
+                    number: Number.isFinite(Number(existing?.value_struct?.number)) ? Number(existing?.value_struct?.number) : null,
+                    unit: existingUnit || defaultUnit
+                } : null;
+
+                const currentValue = existing?.value_name || existing?.value_id || (currentStruct?.number !== null ? String(currentStruct.number) : '');
+
+                const parsed = isNumberUnit ? parseNumberWithUnit(attrValue) : null;
+                const changed = isNumberUnit
+                    ? (parsed?.number !== null && (parsed.number !== currentStruct?.number || normalizeUnit(parsed.unit) !== normalizeUnit(currentStruct?.unit)))
+                    : (!existing || String((existing?.value_name || existing?.value_id || '')).toLowerCase().trim() !== String(attrValue).toLowerCase().trim());
 
                 console.log(`[Apply Optimizations] ${attrId} - Original: "${currentValue}" -> Novo: "${attrValue}"`);
 
-                if (existing) {
-                    existing.value_name = attrValue;
-                    delete existing.value_id; // Usar value_name para atributos customizados
-                } else {
-                    currentProduct.attributes.push({
+                let formattedValueName: string | undefined;
+                if (isNumberUnit) {
+                    if (!parsed || parsed.number === null) {
+                        console.warn(`[Apply Optimizations] ${attrId} ignorado: valor numérico inválido (${attrValue})`);
+                        continue;
+                    }
+                    formattedValueName = `${parsed.number} ${parsed.unit || ''}`.trim();
+                    const payload: any = {
                         id: attrId,
-                        value_name: attrValue
-                    });
+                        value_struct: { number: parsed.number, unit: parsed.unit || defaultUnit },
+                        value_name: formattedValueName
+                    };
+                    if (existing) {
+                        existing.value_struct = payload.value_struct;
+                        existing.value_name = payload.value_name;
+                        delete existing.value_id;
+                    } else {
+                        currentProduct.attributes.push(payload);
+                    }
+                } else {
+                    if (existing) {
+                        existing.value_name = attrValue;
+                        delete existing.value_id; // Usar value_name para atributos customizados
+                        delete existing.value_struct;
+                    } else {
+                        currentProduct.attributes.push({
+                            id: attrId,
+                            value_name: attrValue
+                        });
+                    }
                 }
 
                 if (changed) {
-                    appliedChanges.push(`${attrId} atualizado: "${attrValue}"`);
+                    const changeLabel = isNumberUnit && parsed?.number !== null
+                        ? `${attrId} atualizado: "${formattedValueName}"`
+                        : `${attrId} atualizado: "${attrValue}"`;
+                    appliedChanges.push(changeLabel);
                 }
             }
 
@@ -5353,6 +5545,42 @@ router.get("/orders/daily-sales", async (req, res) => {
             error: "Erro ao agregar vendas diárias",
             details: error?.message || "Erro interno do servidor",
         });
+    }
+});
+
+// Debug endpoint para verificar configuração
+router.get("/debug/config", async (req, res) => {
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT workspace_id, encrypted_credentials, encryption_iv
+             FROM integration_credentials
+             WHERE platform_key = $1`,
+            [MERCADO_LIVRE_PLATFORM_KEY]
+        );
+
+        const configs = [];
+        for (const row of result.rows) {
+            try {
+                const dec = decryptCredentials(row.encrypted_credentials, row.encryption_iv) as any;
+                configs.push({
+                    workspaceId: row.workspace_id,
+                    userId: dec.userId || dec.user_id,
+                    hasAccessToken: !!dec.accessToken,
+                    hasRefreshToken: !!dec.refreshToken,
+                    expiresAt: dec.expiresAt
+                });
+            } catch (e: any) {
+                configs.push({
+                    workspaceId: row.workspace_id,
+                    error: e.message
+                });
+            }
+        }
+
+        return res.json({ configs });
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
     }
 });
 

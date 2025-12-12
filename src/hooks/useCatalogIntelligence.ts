@@ -163,6 +163,7 @@ export function useCatalogIntelligence() {
         if (currentWorkspace?.id) {
             fetchCatalogIntelligence();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentWorkspace?.id]);
 
     return {

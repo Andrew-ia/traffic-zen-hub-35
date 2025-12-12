@@ -40,6 +40,7 @@ export default function MercadoLivreCallback() {
         setWorkspaceId(state);
         // Trocar código por tokens
         exchangeCodeForTokens(code, state);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
     const runPostAuthSync = async (workspaceId: string) => {

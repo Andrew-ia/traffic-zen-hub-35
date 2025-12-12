@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ShoppingBag, Zap, Target, ExternalLink } from "lucide-react";
 import { useMLBAnalyzer } from "@/hooks/useMLBAnalyzer";
@@ -8,7 +8,6 @@ import type { OptimizationPayload } from "@/hooks/useMLBOptimizations";
 import { toast } from "@/hooks/use-toast";
 import { MLBAnalyzerInput } from "@/components/analyzer/MLBAnalyzerInput";
 import { ImageUpload } from "@/components/analyzer/ImageUpload";
-import { SmartSuggestionsTab } from "@/components/analyzer/SmartSuggestionsTab";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -60,6 +59,7 @@ export default function MercadoLivreAnalyzer() {
     const [editedDescription, setEditedDescription] = useState("");
     const [editedColor, setEditedColor] = useState("");
     const [editedSize, setEditedSize] = useState("");
+    const [attrUnits, setAttrUnits] = useState<Record<string, string>>({});
     const [showColorCustom, setShowColorCustom] = useState(false);
     const [showSizeCustom, setShowSizeCustom] = useState(false);
 
@@ -114,68 +114,64 @@ export default function MercadoLivreAnalyzer() {
         [currentAnalysis?.product_data?.attributes]
     );
 
-    const getCategoryName = () => {
-        if (categoryData?.name) return categoryData.name;
-        const path = currentAnalysis?.product_data?.category_prediction?.path_from_root;
-        if (Array.isArray(path) && path.length > 0) return path[path.length - 1]?.name;
-        return "";
-    };
-
-    const categoryName = getCategoryName() || currentAnalysis?.product_data?.category_id || "";
     const material = getAttrValue(['MATERIAL'], ['material']);
-    const styleAttr = getAttrValue(['STYLE', 'MODEL'], ['estilo', 'modelo']);
-    const finish = getAttrValue(['FINISH'], ['acabamento', 'finish', 'coating']);
     const color = getAttrValue(['MAIN_COLOR', 'COLOR'], ['cor', 'color']);
-    const hasStone = getAttrValue(['WITH_STONES'], ['pedra', 'stone']);
-    const stoneType = getAttrValue(['STONE_TYPE'], ['tipo de pedra', 'stone']);
-    const clasp = getAttrValue(['CLOSURE', 'FECHO'], ['fecho', 'closure', 'zíper', 'ziper']);
-    const audience = getAttrValue(['GENDER', 'TARGET_AUDIENCE'], ['público', 'feminino', 'masculino', 'unissex']);
-    const occasion = getAttrValue(['OCCASION'], ['ocasi']);
-    const accessoryType = getAttrValue(['ACCESSORY_TYPE'], ['acessório', 'acessorio', 'tipo']);
-    const guarantee =
-        getAttrValue(['WARRANTY_TYPE', 'GARANTIA'], ['garantia']) ||
-        getAttrValue(['WARRANTY_TIME'], ['garantia']);
-    const origin = getAttrValue(['ORIGEM', 'ORIGIN'], ['origem']);
-    const state = getAttrValue(['ITEM_CONDITION', 'ESTADO'], ['condição', 'estado']) || currentAnalysis?.product_data?.condition;
 
-    const attributeSuggestions = [
-        { campo: "Categoria", como: categoryName || "Preencha a categoria ex: Brinco / Anel / Bolsa" },
-        { campo: "Material", como: material || "Ex: Aço inox, Metal nobre, Couro sintético" },
-        { campo: "Estilo", como: styleAttr || "Ex: Moderno, Clássico, Minimalista" },
-        { campo: "Acabamento", como: finish || "Ex: Polido, Fosco, Texturizado" },
-        { campo: "Cor principal", como: color || "Defina a cor principal (ex: Dourado, Prateado)" },
-        { campo: "Com pedra?", como: hasStone || "Sim ou Não" },
-        { campo: "Tipo de pedras", como: stoneType || "Ex: Zircônia, Cristal" },
-        { campo: "Tipo de fecho", como: clasp || "Ex: Garra, Imã, Zíper, Sem fecho" },
-        { campo: "Público", como: audience || "Ex: Feminino, Masculino, Unissex" },
-        { campo: "Ocasião", como: occasion || "Ex: Dia a dia, Festa, Presente" },
-        { campo: "Tipo de acessório", como: accessoryType || categoryName || "Ex: Argola, Transversal, Carteira" },
-        { campo: "Garantia", como: guarantee || "Ex: 7 dias, 90 dias" },
-        { campo: "Origem", como: origin || "Ex: Nacional, Importado" },
-        { campo: "Estado", como: state || "Novo / Usado" },
-    ];
+    // Preencher unidades padrão para atributos number_unit
+    useEffect(() => {
+        const map: Record<string, string> = {};
+        const attrs = currentAnalysis?.product_data?.attributes || [];
+        const catAttrs = categoryAttrs || [];
+
+        attrs.forEach((attr: any) => {
+            if (attr?.value_struct?.unit) {
+                map[attr.id] = String(attr.value_struct.unit);
+            }
+        });
+
+        catAttrs.forEach((attr: any) => {
+            if (attr?.value_type === 'number_unit' && !map[attr.id]) {
+                const defaultUnit = attr?.default_unit || attr?.allowed_units?.[0]?.id || attr?.allowed_units?.[0]?.name;
+                if (defaultUnit) map[attr.id] = String(defaultUnit);
+            }
+        });
+
+        setAttrUnits((prev) => ({ ...map, ...prev }));
+    }, [currentAnalysis?.product_data?.attributes, categoryAttrs]);
 
 
-    const baseColorOptions = [
+    const baseColorOptions = useMemo(() => [
         'Preto', 'Branco', 'Cinza', 'Prata', 'Vermelho', 'Azul', 'Verde', 'Amarelo', 'Marrom', 'Rosa', 'Roxo', 'Laranja', 'Bege', 'Dourado'
-    ];
-    const baseSizeOptions = {
+    ], []);
+    const baseSizeOptions = useMemo(() => ({
         padrao: ['PP', 'P', 'M', 'G', 'GG', 'XG'],
         numerico: ['30', '32', '34', '36', '38', '40', '42', '44', '46', '48'],
         unico: ['Único']
-    };
-    const colorOptionsByCategory: Record<string, string[]> = {
+    }), []);
+    const colorOptionsByCategory = useMemo<Record<string, string[]>>(() => ({
         MLB1051: ['Preto', 'Branco', 'Cinza', 'Prata', 'Azul', 'Vermelho', 'Verde', 'Amarelo'],
         MLB1430: ['Preto', 'Branco', 'Cinza', 'Vermelho', 'Azul', 'Verde', 'Amarelo', 'Rosa', 'Roxo', 'Bege'],
-    };
-    const sizeOptionsByCategory: Record<string, { padrao?: string[]; numerico?: string[]; unico?: string[] }> = {
+    }), []);
+    const sizeOptionsByCategory = useMemo<Record<string, { padrao?: string[]; numerico?: string[]; unico?: string[] }>>(() => ({
         MLB1051: { numerico: baseSizeOptions.numerico },
         MLB1430: { padrao: baseSizeOptions.padrao, unico: baseSizeOptions.unico },
-    };
+    }), [baseSizeOptions]);
 
     const categoryId = currentAnalysis?.product_data?.category_id as string | undefined;
     const colorOptions = (categoryId && colorOptionsByCategory[categoryId]) || baseColorOptions;
     const sizeOptions = (categoryId && sizeOptionsByCategory[categoryId]) || baseSizeOptions;
+    const attrLabels = useMemo(() => ({
+        BRAND: "Marca",
+        MODEL: "Modelo",
+        COLOR: "Cor",
+        SIZE: "Tamanho",
+        MATERIAL: "Material",
+        GTIN: "GTIN/EAN",
+        WEIGHT: "Peso",
+        DIMENSIONS: "Dimensões"
+    }), []);
+
+    // Checklist de score removido (tab desativada)
 
     useEffect(() => {
         if (currentAnalysis) {
@@ -317,38 +313,6 @@ export default function MercadoLivreAnalyzer() {
             .sort((a, b) => b[1] - a[1])
             .map(([name]) => name);
         return sorted.slice(0, limit);
-    }
-
-    function buildSeoTemplate(): string {
-        const title = (editedTitle || currentAnalysis?.product_data?.title || '').trim();
-        const color = (editedColor.trim() || (currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'COLOR')?.value_name || '').trim();
-        const size = (editedSize.trim() || (currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'SIZE')?.value_name || '').trim();
-        const material = ((currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'MATERIAL')?.value_name || '').trim();
-        const brandVal = (editedBrand || (currentAnalysis?.product_data?.attributes || []).find((a: any) => a.id === 'BRAND')?.value_name || '').trim();
-
-        const lines: string[] = [];
-        lines.push(title);
-        const details: string[] = [];
-        if (brandVal) details.push(`Marca: ${brandVal}`);
-        if (material) details.push(`Material: ${material}`);
-        if (color) details.push(`Cor: ${color}`);
-        if (size) details.push(`Tamanho: ${size}`);
-        if (details.length > 0) {
-            lines.push('');
-            lines.push('CARACTERÍSTICAS:');
-            lines.push(...details);
-        }
-        const isEarring = title.toLowerCase().includes('brinco') || (currentAnalysis?.product_data?.category_id === 'MLB1432');
-        lines.push('');
-        lines.push('ACOMPANHA:');
-        lines.push(`${isEarring ? '02' : '01'} ${title}`);
-        lines.push('Nota Fiscal');
-        lines.push('Embalagem');
-        lines.push('');
-        lines.push('ENVIO:');
-        lines.push('SEG A SEXTA: Pedidos até meio dia, envio no mesmo dia.');
-        lines.push('SÁB, DOM E FERIADOS: Envio no próximo dia útil.');
-        return lines.join('\n');
     }
 
     const handleAnalyze = async (mlbId: string) => {
@@ -496,14 +460,10 @@ export default function MercadoLivreAnalyzer() {
             {/* Conteúdo Principal */}
             {currentAnalysis ? (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="grid w-full grid-cols-2">
+                    <TabsList className="grid w-full grid-cols-1">
                         <TabsTrigger value="apply" className="flex items-center gap-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
                             <Zap className="h-4 w-4" />
                             <span className="hidden sm:inline font-bold">Aplicar</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="suggestions" className="flex items-center gap-2">
-                            <Target className="h-4 w-4" />
-                            <span className="hidden sm:inline font-bold">Sugestões de atributos</span>
                         </TabsTrigger>
                     </TabsList>
 
@@ -698,7 +658,11 @@ export default function MercadoLivreAnalyzer() {
                                             return combinedAttrs.map((attr: any) => {
                                                 const attrId = attr.id;
                                                 const existingAttr = existingMap.get(attrId);
-                                                const originalValue = existingAttr?.value_name || existingAttr?.value_id || '';
+                                                const optionValues = Array.isArray(attr.values) ? attr.values.filter((v: any) => v?.name) : [];
+                                                const optionMap = new Map(optionValues.map((v: any) => [String(v.id), String(v.name)]));
+                                                const originalValue = existingAttr?.value_name
+                                                    || (existingAttr?.value_id ? optionMap.get(String(existingAttr.value_id)) || existingAttr.value_id : '')
+                                                    || '';
                                                 const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
                                                 const isModified = currentValue !== originalValue;
                                                 const isRequired = attr.tags?.required || false;
@@ -721,6 +685,28 @@ export default function MercadoLivreAnalyzer() {
                                                             placeholder={originalValue || 'Vazio'}
                                                             className={isModified ? 'border-blue-500' : ''}
                                                         />
+                                                        {optionValues.length > 0 && (
+                                                            <div className="mt-2 flex items-center gap-2">
+                                                                <Select
+                                                                    value=""
+                                                                    onValueChange={(val) => setAllAttributes(prev => ({
+                                                                        ...prev,
+                                                                        [attrId]: val
+                                                                    }))}
+                                                                >
+                                                                    <SelectTrigger className="h-9 w-full">
+                                                                        <SelectValue placeholder="Escolher valor da categoria" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {optionValues.map((opt: any) => (
+                                                                            <SelectItem key={opt.id || opt.name} value={opt.name}>
+                                                                                {opt.name}
+                                                                            </SelectItem>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                        )}
                                                         <div className="mt-2 text-xs text-gray-500 flex justify-between">
                                                             <span>Original: {originalValue || '-'}</span>
                                                             <span className="opacity-70">{attr.value_type || 'text'}</span>
@@ -1034,68 +1020,6 @@ export default function MercadoLivreAnalyzer() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="suggestions" className="space-y-6">
-                        <div className="max-w-5xl mx-auto space-y-6">
-                            <SmartSuggestionsTab
-                                mlbId={currentAnalysis.mlb_id}
-                                workspaceId={currentWorkspace?.id}
-                                categoryId={currentAnalysis.product_data.category_id}
-                                currentAnalysis={currentAnalysis}
-                            />
-
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Modelo de título otimizado</CardTitle>
-                                    <CardDescription>
-                                        Formato recomendado para SEO interno do ML. Adapte usando os dados reais do produto.
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    {(() => {
-                                        const baseCategoria = categoryName || "Produto";
-                                        const baseEstilo = styleAttr || accessoryType || "Modelo";
-                                        const baseMaterial = material || "Material";
-                                        const baseCor = color || "Cor";
-                                        const basePublico = audience || "Público";
-                                        const diferencial = finish || hasStone || stoneType || "";
-
-                                        const recommendedTitle = [
-                                            baseCategoria,
-                                            baseEstilo,
-                                            baseMaterial,
-                                            baseCor,
-                                            basePublico ? `para ${basePublico}` : "",
-                                            diferencial
-                                        ].filter(Boolean).join(" ");
-
-                                        const originalTitle = currentAnalysis?.product_data?.title || "";
-
-                                        return (
-                                            <>
-                                                <div className="p-4 rounded-lg bg-muted text-sm leading-relaxed">
-                                                    <div className="font-semibold mb-1">Formato:</div>
-                                                    <div>[Categoria] + [Estilo/Modelo] + [Material] + [Diferencial] + [Público]</div>
-                                                </div>
-
-                                                <div className="space-y-3 text-sm">
-                                                    <div className="space-y-1">
-                                                        <div className="font-semibold text-red-600">❌ Antes:</div>
-                                                        <div>{originalTitle || "Título atual vazio"}</div>
-                                                        <div className="font-semibold text-green-700">✅ Depois:</div>
-                                                        <div className="font-bold text-green-700">{recommendedTitle}</div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="text-xs text-muted-foreground">
-                                                    Dica: o “Depois” usa os atributos detectados (categoria/material/estilo/cor/público). Ajuste se faltar alguma informação específica do produto.
-                                                </div>
-                                            </>
-                                        );
-                                    })()}
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </TabsContent>
                 </Tabs>
             ) : (
                 <Card className="text-center py-12">

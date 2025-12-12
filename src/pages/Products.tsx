@@ -1,9 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMercadoLivreProducts } from "@/hooks/useMercadoLivre";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -45,6 +52,7 @@ export default function Products() {
     const { toast } = useToast();
 
     const [search, setSearch] = useState("");
+    const [categoryFilter, setCategoryFilter] = useState<string>("all");
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
 
@@ -54,10 +62,28 @@ export default function Products() {
         error
     } = useMercadoLivreProducts(workspaceId, "all");
 
-    const filteredProducts = productsData?.items?.filter((product: any) =>
-        product.title?.toLowerCase().includes(search.toLowerCase()) ||
-        product.id?.toLowerCase().includes(search.toLowerCase())
-    ) || [];
+    const categoryOptions = useMemo(() => {
+        const map = new Map<string, string>();
+        (productsData?.items || []).forEach((product: any) => {
+            const id = String(product.category || "").trim();
+            const name = (product.category_name || product.category_path || "").trim();
+            if (id && name) {
+                map.set(id, name);
+            }
+        });
+        return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
+    }, [productsData]);
+
+    const filteredProducts = productsData?.items?.filter((product: any) => {
+        const matchesSearch =
+            product.title?.toLowerCase().includes(search.toLowerCase()) ||
+            product.id?.toLowerCase().includes(search.toLowerCase());
+
+        const productCategory = String(product.category || "").trim();
+        const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
+
+        return matchesSearch && matchesCategory;
+    }) || [];
 
     const totalProducts = filteredProducts.length;
     const totalPages = Math.ceil(totalProducts / itemsPerPage);
@@ -76,6 +102,10 @@ export default function Products() {
 
     const formatNumber = (value: number) => {
         return new Intl.NumberFormat("pt-BR").format(value || 0);
+    };
+
+    const getCategoryDisplay = (product: any) => {
+        return product.category_name || product.category_path || product.category || "Categoria não informada";
     };
 
     const getStatusBadge = (status: string | undefined) => {
@@ -160,12 +190,16 @@ export default function Products() {
         window.open(url, "_blank");
     };
 
-    const handleDownloadXlsx = () => {
+    const handleDownloadXlsx = (opts?: { category?: string }) => {
         if (!workspaceId) {
             toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar", variant: "destructive" });
             return;
         }
-        const url = `/api/integrations/mercadolivre/products/export/xlsx?workspaceId=${workspaceId}`;
+        const params = new URLSearchParams({ workspaceId });
+        if (opts?.category && opts.category !== "all") {
+            params.set("category", opts.category);
+        }
+        const url = `/api/integrations/mercadolivre/products/export/xlsx?${params.toString()}`;
         window.open(url, "_blank");
     };
 
@@ -196,9 +230,19 @@ export default function Products() {
                     <div className="bg-primary/10 text-primary px-4 py-2 rounded-lg font-medium text-sm border border-primary/20">
                         {totalProducts} produtos encontrados
                     </div>
-                    <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadXlsx}>
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => handleDownloadXlsx()}>
                         <DownloadCloud className="h-4 w-4" />
                         Exportar XLSX
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        disabled={categoryFilter === "all"}
+                        onClick={() => handleDownloadXlsx({ category: categoryFilter })}
+                    >
+                        <DownloadCloud className="h-4 w-4" />
+                        Exportar XLSX (categoria)
                     </Button>
                 </div>
             </div>
@@ -248,11 +292,11 @@ export default function Products() {
             {/* Filters & Search */}
             <Card className="bg-card/50 backdrop-blur-sm">
                 <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-col md:flex-row md:items-center gap-3">
                         <div className="relative flex-1 max-w-md">
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Buscar por título ou MLB ID..."
+                                placeholder="Buscar por título..."
                                 value={search}
                                 onChange={(e) => {
                                     setSearch(e.target.value);
@@ -260,6 +304,27 @@ export default function Products() {
                                 }}
                                 className="pl-10"
                             />
+                        </div>
+                        <div className="w-full md:w-60">
+                            <Select
+                                value={categoryFilter}
+                                onValueChange={(value) => {
+                                    setCategoryFilter(value);
+                                    setCurrentPage(1);
+                                }}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Filtrar por categoria" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Todas categorias</SelectItem>
+                                    {categoryOptions.map(([id, name]) => (
+                                        <SelectItem key={id} value={id}>
+                                            {name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
                 </CardContent>
@@ -308,7 +373,7 @@ export default function Products() {
                                     <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
                                         <TableRow className="hover:bg-muted/50">
                                             <TableHead className="w-[70px] pl-4">Img</TableHead>
-                                            <TableHead className="w-[300px]">Produto / ID</TableHead>
+                                            <TableHead className="w-[300px]">Produto / Categoria</TableHead>
                                             <TableHead className="w-[100px]">Status</TableHead>
                                             <TableHead className="w-[120px] text-right">Preço</TableHead>
                                             <TableHead className="w-[100px] text-right">Estoque</TableHead>
@@ -343,22 +408,22 @@ export default function Products() {
                                                             </div>
                                                         </TableCell>
 
-                                                        {/* Produto / ID */}
+                                                        {/* Produto / Categoria */}
                                                         <TableCell className="align-middle">
                                                             <div className="space-y-1">
                                                                 <div className="font-medium text-sm line-clamp-2" title={product.title}>
                                                                     {product.title}
                                                                 </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">
-                                                                        {product.id}
-                                                                    </code>
+                                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                                    <Badge variant="outline" className="text-[11px]">
+                                                                        {getCategoryDisplay(product)}
+                                                                    </Badge>
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="icon"
                                                                         className="h-4 w-4"
-                                                                        onClick={() => copyToClipboard(product.id, "ID")}
-                                                                        title="Copiar ID"
+                                                                        onClick={() => copyToClipboard(getCategoryDisplay(product), "Categoria")}
+                                                                        title="Copiar categoria"
                                                                     >
                                                                         <Copy className="h-2.5 w-2.5 text-muted-foreground" />
                                                                     </Button>
@@ -450,7 +515,21 @@ export default function Products() {
                                                                         {product.title}
                                                                     </DialogTitle>
                                                                     <DialogDescription className="flex flex-wrap gap-2 items-center">
-                                                                        <Badge variant="outline" className="font-mono">MLB {product.id}</Badge>
+                                                                        <Badge variant="outline" className="text-[11px]">
+                                                                            {product.category || product.category_name || "Categoria não informada"}
+                                                                        </Badge>
+                                                                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                                                            ID: {product.id}
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                className="h-4 w-4"
+                                                                                onClick={() => copyToClipboard(product.id, "ID")}
+                                                                                title="Copiar ID"
+                                                                            >
+                                                                                <Copy className="h-2.5 w-2.5 text-muted-foreground" />
+                                                                            </Button>
+                                                                        </span>
                                                                         {product.sku && <Badge variant="secondary">SKU: {product.sku}</Badge>}
                                                                         {getStatusBadge(product.status)}
                                                                     </DialogDescription>

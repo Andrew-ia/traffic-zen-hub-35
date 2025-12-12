@@ -262,7 +262,7 @@ export class TelegramNotificationService {
         message += `👤 <b>De:</b> ${from?.nickname || "Cliente"}\n`;
         message += `📦 <b>Produto ID:</b> ${item_id}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;
-        message += `🔗 <a href="https://www.mercadolivre.com.br/vendas/questions/${id}">Responder Pergunta</a>`;
+        message += `🔗 <a href="https://questions.mercadolivre.com.br/question/${id}">Responder Pergunta</a>`;
 
         return message;
     }
@@ -419,6 +419,13 @@ export class TelegramNotificationService {
             return false;
         }
 
+        // Se já temos notificação registrada para este pedido, evitar duplicar (mesmo que seja outro dia)
+        const alreadyNotified = await this.hasNotification(workspaceId, "order_created", referenceId);
+        if (alreadyNotified) {
+            console.log(`[Telegram] Ignorando venda já notificada (histórico) ${referenceId}`);
+            return false;
+        }
+
         // Lock para prevenir processamento concorrente do mesmo pedido
         const lockKey = `${workspaceId}:${referenceId}`;
         if (this.processingOrders.has(lockKey)) {
@@ -505,6 +512,32 @@ export class TelegramNotificationService {
                 return false;
             }
 
+            const referenceId = String(questionData.id || "");
+
+            // Evitar duplicatas em janela curta e histórico
+            const isRecentDuplicate = await this.hasRecentNotification(
+                workspaceId,
+                "question_received",
+                referenceId,
+                10 // minutos
+            );
+
+            if (isRecentDuplicate) {
+                console.log(`[Telegram] Ignorando pergunta duplicada (últimos 10 min): ${referenceId}`);
+                return false;
+            }
+
+            const alreadyNotified = await this.hasNotification(
+                workspaceId,
+                "question_received",
+                referenceId
+            );
+
+            if (alreadyNotified) {
+                console.log(`[Telegram] Ignorando pergunta já notificada anteriormente: ${referenceId}`);
+                return false;
+            }
+
             const message = this.formatQuestionMessage(questionData);
             const result = await this.sendTelegramMessage(
                 config.botToken,
@@ -516,7 +549,7 @@ export class TelegramNotificationService {
             await this.logNotification(
                 workspaceId,
                 "question_received",
-                questionData.id,
+                referenceId,
                 result.ok ? "sent" : "failed",
                 questionData,
                 result.response || null,

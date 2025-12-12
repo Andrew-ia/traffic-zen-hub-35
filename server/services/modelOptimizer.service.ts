@@ -206,7 +206,6 @@ export class ModelOptimizerService {
      * Gera modelos otimizados usando as palavras estratégicas
      */
     private generateOptimizedModels(keywords: ModelKeywordStrategy[], productData: MLBAnalysisData): Array<any> {
-        const brand = this.extractBrand(productData);
         const category = this.getCategoryName(productData.category_id);
         const color = this.extractColor(productData);
         const models: Array<any> = [];
@@ -238,8 +237,8 @@ export class ModelOptimizerService {
         const purchaseKeywords = keywords.filter(k => k.type === 'purchase').slice(0, 2);
         
         if (trendingKeywords.length > 0) {
-            const model1Raw = `${brand || category} ${trendingKeywords.map(k => k.keyword).join(' ')} ${purchaseKeywords[0]?.keyword || ''}`.trim();
-            const model1 = sanitizeModel(model1Raw || `${brand || category}`);
+            const model1Raw = `${category} ${trendingKeywords.map(k => k.keyword).join(' ')} ${purchaseKeywords[0]?.keyword || ''}`.trim();
+            const model1 = sanitizeModel(model1Raw || `${category}`);
             models.push({
                 model: model1,
                 score: this.calculateModelScore(model1, keywords),
@@ -255,7 +254,7 @@ export class ModelOptimizerService {
         const emotionalKeywords = keywords.filter(k => k.type === 'emotional' && k.ctr_potential >= 7).slice(0, 2);
         
         if (characteristicKeywords.length > 0) {
-            const model2Raw = `${characteristicKeywords.map(k => k.keyword).join(' ')} ${emotionalKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model2Raw = `${characteristicKeywords.map(k => k.keyword).join(' ')} ${emotionalKeywords.map(k => k.keyword).join(' ')}`.trim();
             const model2 = sanitizeModel(model2Raw);
             models.push({
                 model: model2,
@@ -271,7 +270,7 @@ export class ModelOptimizerService {
         const searchBehaviorKeywords = keywords.filter(k => k.type === 'search_behavior').slice(0, 3);
         
         if (searchBehaviorKeywords.length > 0) {
-            const model3Raw = `${searchBehaviorKeywords.map(k => k.keyword).join(' ')} ${brand || category}`.trim();
+            const model3Raw = `${searchBehaviorKeywords.map(k => k.keyword).join(' ')} ${category}`.trim();
             const model3 = sanitizeModel(model3Raw);
             models.push({
                 model: model3,
@@ -308,7 +307,7 @@ export class ModelOptimizerService {
         const highCTRKeywords = keywords.filter(k => k.ctr_potential >= 8 && k.conversion_impact >= 7).slice(0, 4);
         
         if (highCTRKeywords.length >= 2) {
-            const model5Raw = `${highCTRKeywords.map(k => k.keyword).join(' ')} ${brand || ''}`.trim();
+            const model5Raw = `${highCTRKeywords.map(k => k.keyword).join(' ')}`.trim();
             const model5 = sanitizeModel(model5Raw);
             models.push({
                 model: model5,
@@ -442,26 +441,35 @@ export class ModelOptimizerService {
     private scoreCurrentModel(model: string | null, productData: MLBAnalysisData): number {
         if (!model) return 0;
         
-        let score = 20; // Base por ter modelo
+        let score = 30; // Base por ter modelo
+        const normalized = model.toLowerCase();
         
         // Comprimento ideal
-        if (model.length >= 10 && model.length <= 50) score += 20;
+        if (model.length >= 10 && model.length <= 60) score += 25;
         
         // Palavras descritivas
-        const descriptiveWords = ['premium', 'professional', 'deluxe', 'especial', 'original'];
-        if (descriptiveWords.some(word => model.toLowerCase().includes(word))) score += 15;
+        const descriptiveWords = ['premium', 'professional', 'profissional', 'deluxe', 'especial', 'original', 'uso diário', 'uso diario', 'resistente', 'compacto', 'multiuso'];
+        if (descriptiveWords.some(word => normalized.includes(word))) score += 15;
         
         // Números/versões
-        if (/\d/.test(model)) score += 10;
-        
-        // Brand presence
-        const brand = this.extractBrand(productData);
-        if (brand && model.toLowerCase().includes(brand.toLowerCase())) score += 15;
+        if (/\d/.test(model)) score += 8;
         
         // Trending keywords
         const trending = this.getTrendingKeywords(productData.category_id);
-        const hastrending = trending.some(keyword => model.toLowerCase().includes(keyword.toLowerCase()));
+        const hastrending = trending.some(keyword => normalized.includes(keyword.toLowerCase()));
         if (hastrending) score += 20;
+
+        // Benefícios/uso
+        const benefitWords = ['uso', 'diario', 'diário', 'profissional', 'pessoal', 'organizador', 'cartões', 'porta cartoes', 'porta cartões'];
+        const benefitMatches = benefitWords.filter(word => normalized.includes(word));
+        if (benefitMatches.length >= 2) score += 10;
+        else if (benefitMatches.length === 1) score += 5;
+
+        // Palavra de material ou público
+        const materialAttr = productData.attributes.find(attr => attr.id === 'MATERIAL')?.value_name?.toLowerCase() || '';
+        const audienceAttr = productData.attributes.find(attr => attr.id === 'GENDER' || attr.id === 'TARGET_AUDIENCE')?.value_name?.toLowerCase() || '';
+        if (materialAttr && normalized.includes(materialAttr)) score += 5;
+        if (audienceAttr && normalized.includes(audienceAttr)) score += 5;
         
         return Math.min(100, score);
     }

@@ -25,8 +25,8 @@ import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
 import MercadoLivre from "./pages/MercadoLivre";
 import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
+import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
-import CatalogIntelligence from "./pages/CatalogIntelligence";
 import MercadoLivreAdvancedSearch from "./pages/MercadoLivreAdvancedSearch";
 import Products from "./pages/Products";
 import FulfillmentManagement from "./pages/FulfillmentManagement";
@@ -95,8 +95,8 @@ const App = () => (
                 <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
                 <Route path="/mercado-livre" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
+                <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-busca-avancada" element={<RequireAuth><MercadoLivreAdvancedSearch /></RequireAuth>} />
-                <Route path="/catalog-intelligence" element={<RequireAuth><CatalogIntelligence /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
                 <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />

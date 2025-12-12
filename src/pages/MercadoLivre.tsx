@@ -629,14 +629,6 @@ export default function MercadoLivre() {
                                 <Button
                                     variant="outline"
                                     className="w-full justify-start"
-                                    onClick={() => navigate('/catalog-intelligence')}
-                                >
-                                    <TrendingUp className="h-4 w-4 mr-2" />
-                                    Ver Relatório Completo
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    className="w-full justify-start"
                                     onClick={() => {
                                         const url = 'https://www.mercadolivre.com.br/vendas/perguntas';
                                         window.open(url, '_blank');

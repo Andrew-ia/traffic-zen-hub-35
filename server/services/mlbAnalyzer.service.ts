@@ -18,6 +18,7 @@ export interface MLBAnalysisData {
     // Dados SEO e otimização
     permalink: string;
     thumbnail: string;
+    description_text?: string;
     pictures: Array<{
         url: string;
         secure_url: string;
@@ -302,6 +303,7 @@ export class MLBAnalyzerService {
 
             // Buscar descrições
             let descriptions = [];
+            let descriptionText: string | undefined = undefined;
             try {
                 const descriptionsResponse = await axios.get(
                     `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/descriptions`,
@@ -310,6 +312,27 @@ export class MLBAnalyzerService {
                 descriptions = descriptionsResponse.data;
             } catch (error) {
                 console.warn(`Não foi possível buscar descrições para ${mlbId}:`, error);
+            }
+            try {
+                const descResp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/description`,
+                    { headers }
+                );
+                descriptionText = descResp.data?.plain_text || descResp.data?.text || undefined;
+            } catch (error) {
+                // Se falhar, tentamos extrair plain_text do array de descriptions
+                try {
+                    const first = Array.isArray(descriptions) ? descriptions[0] : undefined;
+                    if (first?.id) {
+                        const descDetail = await axios.get(
+                            `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/descriptions/${first.id}`,
+                            { headers }
+                        );
+                        descriptionText = descDetail.data?.plain_text || descDetail.data?.text || undefined;
+                    }
+                } catch (e) {
+                    console.warn(`Não foi possível obter plain_text da descrição para ${mlbId}:`, e);
+                }
             }
 
             // Buscar dados da categoria
@@ -353,6 +376,7 @@ export class MLBAnalyzerService {
                 status: itemData.status,
                 permalink: itemData.permalink,
                 thumbnail: itemData.thumbnail,
+                description_text: descriptionText,
                 pictures: itemData.pictures || [],
                 attributes: itemData.attributes || [],
                 descriptions,
@@ -590,15 +614,19 @@ export class MLBAnalyzerService {
 
         if (!modelAttribute?.value_name) return 0;
 
-        let score = 30; // Base por ter o campo preenchido
+        let score = 40; // Base por ter o campo preenchido
         const modelValue = modelAttribute.value_name.toLowerCase();
+        const brandValue = productData.attributes.find(attr => attr.id === 'BRAND')?.value_name?.toLowerCase() || '';
 
         // Comprimento ideal (10-50 caracteres)
-        if (modelValue.length >= 10 && modelValue.length <= 50) score += 25;
-        else if (modelValue.length >= 5) score += 15;
+        if (modelValue.length >= 10 && modelValue.length <= 60) score += 30;
+        else if (modelValue.length >= 5) score += 20;
 
         // Palavras descritivas
-        const descriptiveWords = ['premium', 'professional', 'deluxe', 'especial', 'plus', 'pro'];
+        const descriptiveWords = [
+            'premium', 'professional', 'profissional', 'deluxe', 'especial', 'plus', 'pro',
+            'diario', 'diário', 'daily', 'pessoal', 'personal', 'uso diario', 'uso diário'
+        ];
         if (descriptiveWords.some(word => modelValue.includes(word))) score += 15;
 
         // Números/versões
@@ -609,6 +637,15 @@ export class MLBAnalyzerService {
         const keywordsInModel = categoryKeywords.filter(kw => modelValue.includes(kw.toLowerCase()));
         score += Math.min(20, keywordsInModel.length * 5);
 
+        // Presença de marca dentro do modelo
+        if (brandValue && modelValue.includes(brandValue)) {
+            score += 10;
+        }
+
+        // Recompensar modelos com múltiplas palavras
+        const wordCount = modelValue.split(/\s+/).filter(Boolean).length;
+        if (wordCount >= 3) score += 5;
+
         return Math.max(0, Math.min(100, score));
     }
 
@@ -616,7 +653,7 @@ export class MLBAnalyzerService {
      * Score da qualidade da descrição (0-100)
      */
     private scoreDescriptionQuality(productData: MLBAnalysisData): number {
-        const description = productData.descriptions?.[0]?.plain_text || '';
+        const description = productData.description_text || productData.descriptions?.[0]?.plain_text || '';
 
         if (!description.trim()) return 0;
 

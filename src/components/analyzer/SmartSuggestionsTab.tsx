@@ -51,6 +51,7 @@ export function SmartSuggestionsTab({ mlbId, workspaceId, categoryId, currentAna
 
     useEffect(() => {
         loadSmartSuggestions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mlbId]);
 
     if (loading) {

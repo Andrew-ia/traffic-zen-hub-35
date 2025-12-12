@@ -32,7 +32,7 @@ export const mainNavigation: NavigationItem[] = [
   { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   { name: "Mercado Livre", href: "/mercado-livre", icon: ShoppingBag, keywords: ["mercado livre", "ecommerce", "vendas", "marketplace"] },
   { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
-  { name: "Inteligência de Catálogo", href: "/catalog-intelligence", icon: Trophy, keywords: ["catalogo", "ranking", "posicao", "competidores", "vencedor", "mercado livre"] },
+  { name: "Calc. de Preço ML", href: "/mercado-livre-price-calculator", icon: Trophy, keywords: ["preco", "fee", "margem", "mercado livre", "calculadora"] },
   { name: "Produtos", href: "/products", icon: Package, keywords: ["produtos", "catalogo", "estoque", "ml"] },
   { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
   { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },

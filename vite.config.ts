@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: [".ngrok-free.dev", ".trycloudflare.com"],
     proxy: {
       '/api': {
         target: devProxyTarget,
