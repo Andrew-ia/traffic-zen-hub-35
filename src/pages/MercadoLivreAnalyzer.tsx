@@ -666,6 +666,23 @@ export default function MercadoLivreAnalyzer() {
                                                 const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
                                                 const isModified = currentValue !== originalValue;
                                                 const isRequired = attr.tags?.required || false;
+                                                const isNumberUnit = attr.value_type === 'number_unit';
+
+                                                const allowedUnits = Array.isArray(attr.allowed_units)
+                                                    ? attr.allowed_units.map((u: any) => u?.id || u?.name).filter(Boolean)
+                                                    : [];
+                                                const unitValue = attrUnits[attrId] || existingAttr?.value_struct?.unit || attr.default_unit || allowedUnits[0] || '';
+                                                const originalUnit = existingAttr?.value_struct?.unit || '';
+
+                                                const numberValue = isNumberUnit
+                                                    ? (allAttributes[attrId] !== undefined
+                                                        ? allAttributes[attrId]
+                                                        : (existingAttr?.value_struct?.number !== undefined
+                                                            ? String(existingAttr.value_struct.number)
+                                                            : String(originalValue).replace(/[^\d.,-]/g, '').replace(',', '.')))
+                                                    : currentValue;
+
+                                                const showUnitSelect = isNumberUnit && allowedUnits.length > 0;
 
                                                 return (
                                                     <div key={attrId} className={`p-4 rounded-lg border-2 transition-all ${isModified ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-200'}`}>
@@ -676,16 +693,52 @@ export default function MercadoLivreAnalyzer() {
                                                             </span>
                                                             {isModified && <span className="text-blue-600 font-bold text-xs">Modificado</span>}
                                                         </label>
-                                                        <Input
-                                                            value={currentValue}
-                                                            onChange={(e) => setAllAttributes(prev => ({
-                                                                ...prev,
-                                                                [attrId]: e.target.value
-                                                            }))}
-                                                            placeholder={originalValue || 'Vazio'}
-                                                            className={isModified ? 'border-blue-500' : ''}
-                                                        />
-                                                        {optionValues.length > 0 && (
+                                                        {isNumberUnit ? (
+                                                            <div className="flex gap-2">
+                                                                <Input
+                                                                    value={numberValue}
+                                                                    onChange={(e) => setAllAttributes(prev => ({
+                                                                        ...prev,
+                                                                        [attrId]: e.target.value
+                                                                    }))}
+                                                                    placeholder={originalValue || 'Vazio'}
+                                                                    className={`${isModified ? 'border-blue-500' : ''} flex-1`}
+                                                                />
+                                                                {showUnitSelect ? (
+                                                                    <Select
+                                                                        value={unitValue}
+                                                                        onValueChange={(val) => setAttrUnits((prev) => ({ ...prev, [attrId]: val }))}
+                                                                    >
+                                                                        <SelectTrigger className="w-28">
+                                                                            <SelectValue placeholder={unitValue || 'unidade'} />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {allowedUnits.map((u) => (
+                                                                                <SelectItem key={u} value={u}>{u}</SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                ) : (
+                                                                    <Input
+                                                                        value={unitValue}
+                                                                        onChange={(e) => setAttrUnits((prev) => ({ ...prev, [attrId]: e.target.value }))}
+                                                                        placeholder="unidade"
+                                                                        className="w-28"
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <Input
+                                                                value={currentValue}
+                                                                onChange={(e) => setAllAttributes(prev => ({
+                                                                    ...prev,
+                                                                    [attrId]: e.target.value
+                                                                }))}
+                                                                placeholder={originalValue || 'Vazio'}
+                                                                className={isModified ? 'border-blue-500' : ''}
+                                                            />
+                                                        )}
+                                                        {optionValues.length > 0 && !isNumberUnit && (
                                                             <div className="mt-2 flex items-center gap-2">
                                                                 <Select
                                                                     value=""
@@ -708,7 +761,7 @@ export default function MercadoLivreAnalyzer() {
                                                             </div>
                                                         )}
                                                         <div className="mt-2 text-xs text-gray-500 flex justify-between">
-                                                            <span>Original: {originalValue || '-'}</span>
+                                                            <span>Original: {originalValue ? `${originalValue}${originalUnit ? ` ${originalUnit}` : ''}` : '-'}</span>
                                                             <span className="opacity-70">{attr.value_type || 'text'}</span>
                                                         </div>
                                                     </div>
@@ -909,10 +962,18 @@ export default function MercadoLivreAnalyzer() {
                                                         Object.entries(allAttributes).forEach(([attrId, currentValue]) => {
                                                             const existingAttr = currentAnalysis?.product_data?.attributes?.find((a: any) => a.id === attrId);
                                                             const originalValue = existingAttr?.value_name || existingAttr?.value_id || '';
+                                                            const attrMeta = (categoryAttrs || []).find((a) => a.id === attrId);
+
+                                                            let finalValue: string | undefined = currentValue;
+
+                                                            if (attrMeta?.value_type === 'number_unit') {
+                                                                const unit = attrUnits[attrId] || attrMeta?.default_unit || attrMeta?.allowed_units?.[0]?.id || attrMeta?.allowed_units?.[0]?.name || '';
+                                                                finalValue = `${currentValue} ${unit}`.trim();
+                                                            }
 
                                                             // Se o valor for diferente do original (ou se for novo e não vazio), incluir para envio
-                                                            if (currentValue !== originalValue && currentValue !== undefined) {
-                                                                modifiedAttrs[attrId] = currentValue;
+                                                            if (finalValue !== originalValue && finalValue !== undefined) {
+                                                                modifiedAttrs[attrId] = finalValue;
                                                             }
                                                         });
                                                     }
