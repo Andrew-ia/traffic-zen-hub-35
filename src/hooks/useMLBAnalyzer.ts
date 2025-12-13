@@ -20,6 +20,14 @@ export interface MLBAnalysisResult {
             value_id?: string;
             value_name: string;
         }>;
+        pictures?: Array<{
+            id: string;
+            url?: string;
+            secure_url?: string;
+            size?: string;
+            max_size?: string;
+            quality?: string;
+        }>;
     };
     quality_score: {
         overall_score: number;

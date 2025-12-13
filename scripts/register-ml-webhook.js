@@ -20,9 +20,27 @@ const APP_ID = process.env.MERCADO_LIVRE_CLIENT_ID;
 const ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
 const USER_ID = process.env.MERCADO_LIVRE_USER_ID;
 
-// URL de produção - ajustar conforme necessário
-const PRODUCTION_URL = 'https://traffic-zen-hub-35-ok1hoszcp-andrews-projects-9f7566af.vercel.app';
-const CALLBACK_URL = `${PRODUCTION_URL}/api/integrations/mercadolivre/notifications`;
+// Definir base URL dinâmica:
+// Prioridade:
+// 1) WEBHOOK_BASE_URL explícito
+// 2) NGROK_DOMAIN (https://<domain>)
+// 3) VERCEL_URL (https://<vercel_url>)
+// 4) FRONTEND_URL substituído para API (se for vercel/produção)
+// 5) Fallback padrão vercel estável
+const WEBHOOK_BASE_URL = (process.env.WEBHOOK_BASE_URL || '').trim();
+const NGROK_DOMAIN = (process.env.NGROK_DOMAIN || '').trim();
+const VERCEL_URL = (process.env.VERCEL_URL || '').trim();
+const DEFAULT_VERCEL = 'https://traffic-zen-hub-35.vercel.app';
+
+const resolveBaseUrl = () => {
+  if (WEBHOOK_BASE_URL) return WEBHOOK_BASE_URL.replace(/\/+$/, '');
+  if (NGROK_DOMAIN) return `https://${NGROK_DOMAIN.replace(/\/+$/, '')}`;
+  if (VERCEL_URL) return `https://${VERCEL_URL.replace(/\/+$/, '')}`;
+  return DEFAULT_VERCEL;
+};
+
+const BASE_URL = resolveBaseUrl();
+const CALLBACK_URL = `${BASE_URL}/api/integrations/mercadolivre/notifications`;
 
 // Tópicos a serem registrados
 const TOPICS = [

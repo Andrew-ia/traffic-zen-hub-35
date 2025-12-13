@@ -414,16 +414,25 @@ export default function Products() {
                                                                 <div className="font-medium text-sm line-clamp-2" title={product.title}>
                                                                     {product.title}
                                                                 </div>
-                                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                                    <Badge variant="outline" className="text-[11px]">
+                                                                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                                                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal">
                                                                         {getCategoryDisplay(product)}
+                                                                    </Badge>
+
+                                                                    <span className="text-border mx-1">|</span>
+
+                                                                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-mono">
+                                                                        {product.id}
                                                                     </Badge>
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="icon"
-                                                                        className="h-4 w-4"
-                                                                        onClick={() => copyToClipboard(getCategoryDisplay(product), "Categoria")}
-                                                                        title="Copiar categoria"
+                                                                        className="h-5 w-5 hover:bg-muted"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            copyToClipboard(product.id, "MLB ID");
+                                                                        }}
+                                                                        title="Copiar MLB ID"
                                                                     >
                                                                         <Copy className="h-2.5 w-2.5 text-muted-foreground" />
                                                                     </Button>

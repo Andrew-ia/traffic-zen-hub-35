@@ -164,6 +164,7 @@ export class TelegramNotificationService {
                    AND platform = 'telegram'
                    AND notification_type = $2
                    AND reference_id = $3
+                   AND status = 'sent'
                  LIMIT 1`,
                 [workspaceId, type, String(referenceId)]
             );

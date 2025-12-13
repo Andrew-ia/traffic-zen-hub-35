@@ -553,6 +553,197 @@ router.post("/auth/refresh", async (req, res) => {
 });
 
 
+async function fetchMetricsInternal(workspaceId: string, days: number = 30, dateFrom?: string, dateTo?: string) {
+    let credentials = await getMercadoLivreCredentials(workspaceId);
+
+    if (!credentials) {
+        throw new Error("ml_not_connected");
+    }
+
+    const now = new Date();
+    const dateToFinal = dateTo ? new Date(dateTo) : new Date(now);
+    dateToFinal.setHours(23, 59, 59, 999); // fim do dia local
+    const dateFromFinal = dateFrom ? new Date(dateFrom) : new Date(now);
+    dateFromFinal.setHours(0, 0, 0, 0); // início do dia local
+    if (!dateFrom) {
+        dateFromFinal.setDate(dateFromFinal.getDate() - (Number(days) - 1)); // janela inclusiva
+    }
+
+    const dateFromStr = dateFromFinal.toISOString().split("T")[0];
+    const dateToStr = dateToFinal.toISOString().split("T")[0];
+
+    // Buscar métricas do vendedor (dados corretos)
+    const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
+
+    const sellerMetrics = userResponse.seller_reputation?.metrics || {};
+
+    let totalRevenue = 0;
+    let totalSales = 0; // unidades vendidas (não pedidos)
+    let totalVisits = 0;
+    let totalOrders = 0;
+    let canceledOrders = 0;
+    const daysCount = Math.max(1, Number(days));
+    const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
+    const hourlySales: Array<{ date: string; sales: number; revenue: number }> = [];
+
+    // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
+    try {
+        const allOrders: any[] = [];
+        let offset = 0;
+        const limit = 50;
+        let hasMore = true;
+
+        while (hasMore && allOrders.length < 1000) {
+            try {
+                const params: any = {
+                    seller: credentials.userId,
+                    limit,
+                    offset,
+                };
+
+                const ordersResponse = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                        params,
+                    }
+                );
+
+                const orders = ordersResponse.data.results || [];
+                allOrders.push(...orders);
+
+                hasMore = orders.length === limit;
+                offset += limit;
+            } catch (apiError: any) {
+                if (apiError.response?.status === 401) {
+                    console.error("[Metrics] Token expirado, tentando refresh...");
+                    const refreshed = await refreshAccessToken(workspaceId as string);
+                    if (refreshed) {
+                        credentials = refreshed;
+                        continue; // Retry com o novo token
+                    }
+                }
+                console.error("[Metrics] Erro ao buscar pedidos:", apiError.message);
+                hasMore = false;
+            }
+        }
+
+        const salesByDay = new Map<string, { sales: number; revenue: number; orders: number }>();
+
+        for (const order of allOrders) {
+            const dateCreated = order.date_created ? new Date(order.date_created) : null;
+            if (!dateCreated) continue;
+            const dateKey = dateCreated.toISOString().split("T")[0];
+            if (dateKey < dateFromStr || dateKey > dateToStr) continue;
+
+            const status = String(order.status || "").toLowerCase();
+            if (status === "cancelled") {
+                canceledOrders += 1;
+                continue; // Ignorar cancelados nas métricas principais
+            }
+
+            const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+            const totalAmount = order.paid_amount || order.total_amount || 0;
+
+            // Hourly aggregation
+            // We want to keep the full timestamp but maybe rounded to hour for easier client-side logic, 
+            // or just push every order as an entry if volume is low. 
+            // Aggregating by hour usually safer for size.
+            // Let's create an ISO string for the hour: "2023-10-10T14:00:00.000Z"
+            const d = new Date(dateCreated);
+            d.setMinutes(0, 0, 0);
+            // We can just push this specific order occurrence to a map then flat to array
+            hourlySales.push({
+                date: order.date_created, // Use full original timestamp for max precision
+                sales: totalQuantity,
+                revenue: totalAmount
+            });
+
+            if (!salesByDay.has(dateKey)) {
+                salesByDay.set(dateKey, { sales: 0, revenue: 0, orders: 0 });
+            }
+            const dayData = salesByDay.get(dateKey)!;
+            dayData.sales += totalQuantity;
+            dayData.revenue += totalAmount;
+            dayData.orders += 1;
+            totalOrders += 1;
+        }
+
+        // Converter para série temporal, preenchendo dias faltantes com zero
+        for (let i = daysCount - 1; i >= 0; i--) {
+            const d = new Date(dateToFinal);
+            d.setDate(d.getDate() - i);
+            const ds = d.toISOString().split("T")[0];
+            const dayData = salesByDay.get(ds) || { sales: 0, revenue: 0, orders: 0 };
+            salesTimeSeries.push({ date: ds, sales: dayData.sales, revenue: dayData.revenue, visits: 0 });
+            totalSales += dayData.sales;
+            totalRevenue += dayData.revenue;
+        }
+    } catch (err) {
+        console.error("[Metrics] Erro ao agregar pedidos:", err);
+        for (let i = daysCount - 1; i >= 0; i--) {
+            const d = new Date(dateToFinal);
+            d.setDate(d.getDate() - i);
+            const ds = d.toISOString().split('T')[0];
+            salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: 0 });
+        }
+    }
+
+    // --------- Visitas (melhor esforço) ----------
+    try {
+        let visitsSum = 0;
+        const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 200, offset: 0 } });
+        const itemIds = itemsSearch.results || [];
+        for (const itemId of itemIds) {
+            try {
+                const vdata = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, { params: { date_from: dateFromStr, date_to: dateToStr } });
+                visitsSum += Number(vdata.total_visits || 0);
+            } catch (e) { void e; }
+        }
+        totalVisits = visitsSum;
+        // distribuir visitas pelos dias (uniforme) para manter gráfico coerente
+        const baseVisits = Math.floor((totalVisits || 0) / daysCount);
+        const rem = (totalVisits || 0) % daysCount;
+        for (let i = 0; i < salesTimeSeries.length; i++) {
+            salesTimeSeries[i].visits = baseVisits + (i < rem ? 1 : 0);
+        }
+    } catch (e) { void e; }
+
+    const conversionRate = totalVisits > 0 ? (totalSales / totalVisits) * 100 : 0;
+    const averageUnitPrice = totalSales > 0 ? totalRevenue / totalSales : 0;
+    const averageOrderPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    // Buscar reputação do vendedor
+    let reputation = "-";
+    try {
+        const reputationData = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
+        reputation = reputationData.seller_reputation?.power_seller_status || "-";
+    } catch (error) {
+        console.error("Error fetching reputation:", error);
+    }
+
+    return {
+        totalSales,
+        totalRevenue,
+        totalVisits,
+        totalOrders,
+        canceledOrders,
+        averageUnitPrice,
+        averageOrderPrice,
+        conversionRate,
+        responseRate: 85.5,
+        reputation,
+        lastSync: new Date().toISOString(),
+        sellerId: credentials.userId,
+        salesTimeSeries,
+        hourlySales,
+        alerts: [],
+    };
+}
+
+
 /**
  * GET /api/integrations/mercadolivre/metrics
  * Retorna métricas agregadas do Mercado Livre
@@ -570,182 +761,21 @@ router.get("/metrics", async (req, res) => {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        let credentials = await getMercadoLivreCredentials(workspaceId as string);
+        const metrics = await fetchMetricsInternal(
+            String(workspaceId),
+            Number(days),
+            dateFrom,
+            dateTo
+        );
 
-        if (!credentials) {
+        return res.json(metrics);
+    } catch (error: any) {
+        console.error("Error fetching Mercado Livre metrics:", error);
+        if (error.message === "ml_not_connected") {
             return res.status(401).json({
                 error: "Mercado Livre not connected for this workspace",
             });
         }
-
-        const now = new Date();
-        const dateToFinal = dateTo ? new Date(dateTo) : new Date(now);
-        dateToFinal.setHours(23, 59, 59, 999); // fim do dia local
-        const dateFromFinal = dateFrom ? new Date(dateFrom) : new Date(now);
-        dateFromFinal.setHours(0, 0, 0, 0); // início do dia local
-        if (!dateFrom) {
-            dateFromFinal.setDate(dateFromFinal.getDate() - (Number(days) - 1)); // janela inclusiva
-        }
-
-        const dateFromStr = dateFromFinal.toISOString().split("T")[0];
-        const dateToStr = dateToFinal.toISOString().split("T")[0];
-
-        // Buscar métricas do vendedor (dados corretos)
-        const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
-
-        const sellerMetrics = userResponse.seller_reputation?.metrics || {};
-
-        let totalRevenue = 0;
-        let totalSales = 0; // unidades vendidas (não pedidos)
-        let totalVisits = 0;
-        let totalOrders = 0;
-        let canceledOrders = 0;
-        const daysCount = Math.max(1, Number(days));
-        const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
-
-        // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
-        try {
-            const allOrders: any[] = [];
-            let offset = 0;
-            const limit = 50;
-            let hasMore = true;
-
-            while (hasMore && allOrders.length < 1000) {
-                try {
-                    const params: any = {
-                        seller: credentials.userId,
-                        limit,
-                        offset,
-                    };
-
-                    const ordersResponse = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                            params,
-                        }
-                    );
-
-                    const orders = ordersResponse.data.results || [];
-                    allOrders.push(...orders);
-
-                    hasMore = orders.length === limit;
-                    offset += limit;
-                } catch (apiError: any) {
-                    if (apiError.response?.status === 401) {
-                        console.error("[Metrics] Token expirado, tentando refresh...");
-                        const refreshed = await refreshAccessToken(workspaceId as string);
-                        if (refreshed) {
-                            credentials = refreshed;
-                            continue; // Retry com o novo token
-                        }
-                    }
-                    console.error("[Metrics] Erro ao buscar pedidos:", apiError.message);
-                    hasMore = false;
-                }
-            }
-
-            const salesByDay = new Map<string, { sales: number; revenue: number; orders: number }>();
-
-            for (const order of allOrders) {
-                const dateCreated = order.date_created ? new Date(order.date_created) : null;
-                if (!dateCreated) continue;
-                const dateKey = dateCreated.toISOString().split("T")[0];
-                if (dateKey < dateFromStr || dateKey > dateToStr) continue;
-
-                const status = String(order.status || "").toLowerCase();
-                if (status === "cancelled") {
-                    canceledOrders += 1;
-                    continue; // Ignorar cancelados nas métricas principais
-                }
-
-                const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
-                const totalAmount = order.paid_amount || order.total_amount || 0;
-                if (!salesByDay.has(dateKey)) {
-                    salesByDay.set(dateKey, { sales: 0, revenue: 0, orders: 0 });
-                }
-                const dayData = salesByDay.get(dateKey)!;
-                dayData.sales += totalQuantity;
-                dayData.revenue += totalAmount;
-                dayData.orders += 1;
-                totalOrders += 1;
-            }
-
-            // Converter para série temporal, preenchendo dias faltantes com zero
-            for (let i = daysCount - 1; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const ds = d.toISOString().split("T")[0];
-                const dayData = salesByDay.get(ds) || { sales: 0, revenue: 0, orders: 0 };
-                salesTimeSeries.push({ date: ds, sales: dayData.sales, revenue: dayData.revenue, visits: 0 });
-                totalSales += dayData.sales;
-                totalRevenue += dayData.revenue;
-            }
-        } catch (err) {
-            console.error("[Metrics] Erro ao agregar pedidos:", err);
-            for (let i = daysCount - 1; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const ds = d.toISOString().split('T')[0];
-                salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: 0 });
-            }
-        }
-
-        // --------- Visitas (melhor esforço) ----------
-        try {
-            let visitsSum = 0;
-            const itemsSearch = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`, { params: { limit: 200, offset: 0 } });
-            const itemIds = itemsSearch.results || [];
-            for (const itemId of itemIds) {
-                try {
-                    const vdata = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, { params: { date_from: dateFromStr, date_to: dateToStr } });
-                    visitsSum += Number(vdata.total_visits || 0);
-                } catch (e) { void e; }
-            }
-            totalVisits = visitsSum;
-            // distribuir visitas pelos dias (uniforme) para manter gráfico coerente
-            const baseVisits = Math.floor((totalVisits || 0) / daysCount);
-            const rem = (totalVisits || 0) % daysCount;
-            for (let i = 0; i < salesTimeSeries.length; i++) {
-                salesTimeSeries[i].visits = baseVisits + (i < rem ? 1 : 0);
-            }
-        } catch (e) { void e; }
-
-        const conversionRate = totalVisits > 0 ? (totalSales / totalVisits) * 100 : 0;
-        const averageUnitPrice = totalSales > 0 ? totalRevenue / totalSales : 0;
-        const averageOrderPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-        // Buscar reputação do vendedor
-        let reputation = "-";
-        try {
-            const reputationData = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
-            reputation = reputationData.seller_reputation?.power_seller_status || "-";
-        } catch (error) {
-            console.error("Error fetching reputation:", error);
-        }
-
-
-
-        return res.json({
-            totalSales,
-            totalRevenue,
-            totalVisits,
-            totalOrders,
-            canceledOrders,
-            averageUnitPrice,
-            averageOrderPrice,
-            conversionRate,
-            responseRate: 85.5,
-            reputation,
-            lastSync: new Date().toISOString(),
-            sellerId: credentials.userId,
-            salesTimeSeries,
-            alerts: [],
-        });
-    } catch (error: any) {
-        console.error("Error fetching Mercado Livre metrics:", error);
         return res.status(500).json({
             error: "Failed to fetch metrics",
             details: error.response?.data || error.message,
@@ -1570,6 +1600,168 @@ router.get("/products/:productId/pdf", async (req, res) => {
     } catch (error: any) {
         console.error("[Export PDF] Erro:", error);
         return res.status(500).json({ error: "Falha ao gerar PDF", details: error?.message });
+    }
+});
+
+
+/**
+ * GET /api/integrations/mercadolivre/export/pdf
+ * Exporta um relatório PDF com as métricas do dashboard
+ */
+router.get("/export/pdf", async (req, res) => {
+    try {
+        const { workspaceId, days = 30 } = req.query as any;
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const metrics = await fetchMetricsInternal(String(workspaceId), Number(days));
+
+        const doc = new PDFDocument({ margin: 50 });
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename=relatorio-ml-${new Date().toISOString().split("T")[0]}.pdf`);
+        doc.pipe(res);
+
+        // Header
+        doc.fillColor("#444444").fontSize(20).text("Relatório Mercado Livre", 110, 57)
+            .fontSize(10).text(`Período dos últimos ${days} dias (${new Date().toLocaleDateString('pt-BR')})`, 200, 65, { align: "right" })
+            .moveDown();
+
+        // Divider
+        doc.moveTo(50, 90).lineTo(550, 90).stroke();
+
+        doc.moveDown();
+
+        // Key Metrics
+        doc.fontSize(14).text("Métricas Principais", 50, 110);
+        doc.moveDown(0.5);
+
+        const currentY = doc.y;
+
+        doc.fontSize(12).text("Receita Total:", 50, currentY);
+        doc.font("Helvetica-Bold").text(`R$ ${metrics.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 150, currentY);
+
+        doc.font("Helvetica").text("Vendas:", 300, currentY);
+        doc.font("Helvetica-Bold").text(String(metrics.totalSales), 400, currentY);
+
+        doc.moveDown();
+        const y2 = doc.y;
+
+        doc.font("Helvetica").text("Visitas:", 50, y2);
+        doc.font("Helvetica-Bold").text(metrics.totalVisits.toLocaleString('pt-BR'), 150, y2);
+
+        doc.font("Helvetica").text("Ticket Médio:", 300, y2);
+        doc.font("Helvetica-Bold").text(`R$ ${metrics.averageOrderPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 400, y2);
+
+        doc.moveDown();
+        const y3 = doc.y;
+
+        doc.font("Helvetica").text("Conversão:", 50, y3);
+        doc.font("Helvetica-Bold").text(`${metrics.conversionRate.toFixed(2)}%`, 150, y3);
+
+        doc.font("Helvetica").text("Reputação:", 300, y3);
+        doc.font("Helvetica-Bold").text(metrics.reputation, 400, y3);
+
+        doc.moveDown(2);
+
+        // Daily Sales Table
+        doc.fontSize(14).font("Helvetica-Bold").text("Vendas por Dia", 50);
+        doc.moveDown(0.5);
+
+        // Table Header
+        let y = doc.y;
+        doc.fontSize(10).font("Helvetica-Bold");
+        doc.text("Data", 50, y);
+        doc.text("Vendas", 200, y);
+        doc.text("Receita", 350, y);
+        doc.moveTo(50, y + 15).lineTo(550, y + 15).stroke();
+        y += 25;
+
+        // Table Rows
+        doc.font("Helvetica");
+        metrics.salesTimeSeries.reverse().forEach((day: any) => {
+            if (y > 700) {
+                doc.addPage();
+                y = 50;
+            }
+            const dateStr = new Date(day.date).toLocaleDateString("pt-BR", { day: '2-digit', month: '2-digit' });
+            doc.text(dateStr, 50, y);
+            doc.text(String(day.sales), 200, y);
+            doc.text(`R$ ${day.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 350, y);
+            y += 20;
+        });
+
+        doc.end();
+
+    } catch (error: any) {
+        console.error("[Export PDF] Erro:", error);
+        if (error.message === "ml_not_connected") {
+            return res.status(401).json({ error: "Conexão perdida. Reconecte o Mercado Livre." });
+        }
+        return res.status(500).json({ error: "Falha ao gerar PDF", details: error?.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/export/excel
+ * Exporta um relatório Excel com as métricas
+ */
+router.get("/export/excel", async (req, res) => {
+    try {
+        const { workspaceId, days = 30 } = req.query as any;
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        const metrics = await fetchMetricsInternal(String(workspaceId), Number(days));
+
+        const wb = XLSX.utils.book_new();
+
+        // Sheet 1: Resumo
+        const summaryData = [
+            ["Métrica", "Valor"],
+            ["Período (dias)", days],
+            ["Data Geração", new Date().toLocaleString("pt-BR")],
+            ["", ""],
+            ["Receita Total", metrics.totalRevenue],
+            ["Vendas Totais", metrics.totalSales],
+            ["Pedidos Totais", metrics.totalOrders],
+            ["Visitas Totais", metrics.totalVisits],
+            ["Ticket Médio (Venda)", metrics.averageUnitPrice],
+            ["Ticket Médio (Pedido)", metrics.averageOrderPrice],
+            ["Taxa de Conversão (%)", metrics.conversionRate],
+            ["Reputação", metrics.reputation],
+        ];
+        const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(wb, summaryWs, "Resumo");
+
+        // Sheet 2: Diário
+        const dailyData = [["Data", "Vendas (qtd)", "Receita (R$)", "Visitas"]];
+        metrics.salesTimeSeries.forEach((day: any) => {
+            dailyData.push([
+                day.date,
+                day.sales,
+                day.revenue,
+                day.visits
+            ]);
+        });
+        const dailyWs = XLSX.utils.aoa_to_sheet(dailyData);
+        XLSX.utils.book_append_sheet(wb, dailyWs, "Dados Diários");
+
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename=relatorio-ml-${new Date().toISOString().split("T")[0]}.xlsx`);
+        res.send(buf);
+
+    } catch (error: any) {
+        console.error("[Export Excel] Erro:", error);
+        if (error.message === "ml_not_connected") {
+            return res.status(401).json({ error: "Conexão perdida." });
+        }
+        return res.status(500).json({ error: "Falha ao gerar Excel", details: error?.message });
     }
 });
 
@@ -3627,8 +3819,11 @@ router.post("/notifications/replay", async (req, res) => {
         if (ids.length) {
             const q = await pool.query(
                 `SELECT reference_id FROM notification_logs
-                 WHERE workspace_id = $1 AND platform = 'telegram' AND notification_type = 'order_created'
-                 AND reference_id = ANY($2::text[])`,
+                 WHERE workspace_id = $1
+                   AND platform = 'telegram'
+                   AND notification_type = 'order_created'
+                   AND status = 'sent'
+                   AND reference_id = ANY($2::text[])`,
                 [workspaceId, ids]
             );
             alreadySent = new Set(q.rows.map((r: any) => String(r.reference_id)));
@@ -4580,7 +4775,7 @@ router.post("/apply-optimizations", async (req, res) => {
                     const numStr = match ? match[1] : '';
                     const number = numStr ? Number(numStr.replace(',', '.')) : NaN;
                     const unitCandidateRaw = normalizeUnit(raw.replace(numStr, '').trim());
-                    const unitCandidate = allowedUnits.find((u) => u.id === unitCandidateRaw || u.name === unitCandidateRaw);
+                    const unitCandidate = allowedUnits.find((u: any) => u.id === unitCandidateRaw || u.name === unitCandidateRaw);
                     const unit = unitCandidate?.id || unitCandidate?.name || existingUnit || defaultUnit;
                     return { number: Number.isFinite(number) ? number : null, unit };
                 };
@@ -4590,11 +4785,11 @@ router.post("/apply-optimizations", async (req, res) => {
                     unit: existingUnit || defaultUnit
                 } : null;
 
-                const currentValue = existing?.value_name || existing?.value_id || (currentStruct?.number !== null ? String(currentStruct.number) : '');
+                const currentValue = existing?.value_name || existing?.value_id || (currentStruct && currentStruct.number !== null ? String(currentStruct.number) : '');
 
                 const parsed = isNumberUnit ? parseNumberWithUnit(attrValue) : null;
                 const changed = isNumberUnit
-                    ? (parsed?.number !== null && (parsed.number !== currentStruct?.number || normalizeUnit(parsed.unit) !== normalizeUnit(currentStruct?.unit)))
+                    ? (parsed && parsed.number !== null && (parsed.number !== currentStruct?.number || normalizeUnit(parsed.unit) !== normalizeUnit(currentStruct?.unit)))
                     : (!existing || String((existing?.value_name || existing?.value_id || '')).toLowerCase().trim() !== String(attrValue).toLowerCase().trim());
 
                 console.log(`[Apply Optimizations] ${attrId} - Original: "${currentValue}" -> Novo: "${attrValue}"`);

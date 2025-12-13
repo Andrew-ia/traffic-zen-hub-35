@@ -64,9 +64,10 @@ export default function MercadoLivreAnalyzer() {
     const [showSizeCustom, setShowSizeCustom] = useState(false);
 
     // Estados dos checkboxes para controlar o que será aplicado
-    const [applyAttributes, setApplyAttributes] = useState(true);
-    const [applyModel, setApplyModel] = useState(true);
-    const [applyDescription, setApplyDescription] = useState(true);
+    // Estados dos checkboxes para controlar o que será aplicado
+    const [applyAttributes, setApplyAttributes] = useState(false);
+    const [applyModel, setApplyModel] = useState(false);
+    const [applyDescription, setApplyDescription] = useState(false);
     const [applyImages, setApplyImages] = useState(false);
 
     // Estados para upload de imagens
@@ -433,8 +434,44 @@ export default function MercadoLivreAnalyzer() {
     const trends: string[] = currentAnalysis?.competitive_analysis?.market_insights?.category_trends || [];
     const preferences: string[] = currentAnalysis?.competitive_analysis?.market_insights?.consumer_preferences || [];
 
+    const buildSeoTemplate = () => {
+        const title = editedTitle || currentAnalysis?.product_data?.title || "Produto";
+
+        // Helpers para capitalizar
+        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+        // Atributos
+        const brand = allAttributes['BRAND'] || editedBrand || "Outras";
+        const material = allAttributes['MATERIAL'] || "Verifique nas características";
+        const color = allAttributes['COLOR'] || allAttributes['MAIN_COLOR'] || editedColor || "Verifique nas características";
+        const model = allAttributes['MODEL'] || editedModel || "Exclusivo";
+        const size = allAttributes['SIZE'] || editedSize || "Único";
+
+        // Valores padrão para template
+        const fit = "Ajustável";
+        const comfort = "Leve";
+        const usage = "Uso diário, Presente";
+
+        // Cabeçalho da descrição
+        // Tentativa de limpar o título para usar como "nome do produto" se possível, senão usa o título todo
+        // Ex: "Seu Anel Dourado..."
+        const head = `Seu ${title} ${model !== "Exclusivo" ? model : ""} em ${material}, ${color}; ${fit}, ${comfort}; ideal para ${usage}.`;
+
+        const sections = [
+            head,
+            `Características:\n• Marca: ${brand}\n• Material: ${material}\n• Cor/Acabamento: ${color}\n• Formato/Design: ${model}\n• Tamanhos/Medidas: ${size}\n• Ajuste/Conforto: ${fit}, ${comfort}`,
+            `Acompanha:\n• 01 unidade embalada e pronta para presente.`,
+            `Diferenciais:\n• Não escurece fácil\n• Ajustável\n• Antialérgico`,
+            `Cuidados:\n• Evite contato direto com água, suor intenso e produtos químicos\n• Após usar, limpe com flanela seca\n• Guarde separado de outras peças para evitar atrito.`,
+            `Envio:\n• Seg a sex: pedidos até 12h saem no mesmo dia\n• Sáb/Dom/Feriados: envio no próximo dia útil`
+        ];
+
+        return sections.join('\n\n');
+    };
+
+
     return (
-        <div className="space-y-6 pb-4 container mx-auto max-w-6xl px-4 md:px-6 overflow-x-hidden">
+        <div className="space-y-6 pb-4 container mx-auto w-full max-w-[1800px] px-4 md:px-6 overflow-x-hidden">
             {/* Header */}
             <div className="flex flex-col gap-3 sm:gap-4">
                 <div className="space-y-1">
@@ -591,7 +628,7 @@ export default function MercadoLivreAnalyzer() {
 
                     <TabsContent value="apply" className="space-y-6">
                         {/* ABA APLICAR COMPLETAMENTE NOVA */}
-                        <div className="max-w-5xl mx-auto space-y-6">
+                        <div className="w-full mx-auto space-y-6">
                             {/* Header */}
                             <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/20">
                                 <CardHeader className="text-center">
@@ -617,138 +654,112 @@ export default function MercadoLivreAnalyzer() {
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-                                        {(() => {
-                                            // Combinar atributos do produto com atributos da categoria
-                                            const existingAttrsMock = currentAnalysis?.product_data?.attributes || [];
-                                            const catAttrs = categoryAttrs || [];
+                                    <div className="bg-white dark:bg-zinc-900 rounded-lg p-6 border border-gray-100 dark:border-zinc-800 shadow-sm">
+                                        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+                                            Ficha técnica
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-6 gap-y-8">
+                                            {(() => {
+                                                const existingAttrsMock = currentAnalysis?.product_data?.attributes || [];
+                                                const catAttrs = categoryAttrs || [];
+                                                const existingMap = new Map(existingAttrsMock.map((a: any) => [a.id, a]));
+                                                const combinedAttrs = [...catAttrs];
 
-                                            // Mapa de atributos existentes para busca rápida
-                                            const existingMap = new Map(existingAttrsMock.map((a: any) => [a.id, a]));
+                                                existingAttrsMock.forEach((attr: any) => {
+                                                    if (!combinedAttrs.find(ca => ca.id === attr.id)) {
+                                                        combinedAttrs.push(attr);
+                                                    }
+                                                });
 
-                                            // Lista final combinada
-                                            const combinedAttrs = [...catAttrs];
+                                                combinedAttrs.sort((a: any, b: any) => {
+                                                    const aReq = a.tags?.required || false;
+                                                    const bReq = b.tags?.required || false;
+                                                    if (aReq && !bReq) return -1;
+                                                    if (!aReq && bReq) return 1;
+                                                    return (a.name || a.id).localeCompare(b.name || b.id);
+                                                });
 
-                                            // Adicionar atributos que o produto tem mas não estão na lista da categoria (casos raros)
-                                            existingAttrsMock.forEach((attr: any) => {
-                                                if (!combinedAttrs.find(ca => ca.id === attr.id)) {
-                                                    combinedAttrs.push(attr);
+                                                if (combinedAttrs.length === 0) {
+                                                    return (
+                                                        <div className="col-span-full py-12 text-center text-gray-400">
+                                                            Nenhum atributo disponível.
+                                                        </div>
+                                                    );
                                                 }
-                                            });
 
-                                            // Ordenar: Obrigatórios primeiro, depois alfabético
-                                            combinedAttrs.sort((a: any, b: any) => {
-                                                const aReq = a.tags?.required || false;
-                                                const bReq = b.tags?.required || false;
-                                                if (aReq && !bReq) return -1;
-                                                if (!aReq && bReq) return 1;
-                                                return (a.name || a.id).localeCompare(b.name || b.id);
-                                            });
+                                                return combinedAttrs.map((attr: any) => {
+                                                    const attrId = attr.id;
+                                                    const existingAttr = existingMap.get(attrId);
+                                                    const optionValues = Array.isArray(attr.values) ? attr.values.filter((v: any) => v?.name) : [];
+                                                    const optionMap = new Map(optionValues.map((v: any) => [String(v.id), String(v.name)]));
+                                                    const originalValue = existingAttr?.value_name
+                                                        || (existingAttr?.value_id ? optionMap.get(String(existingAttr.value_id)) || existingAttr.value_id : '')
+                                                        || '';
+                                                    const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
+                                                    const isRequired = attr.tags?.required || false;
+                                                    const isNumberUnit = attr.value_type === 'number_unit';
 
-                                            if (combinedAttrs.length === 0) {
-                                                return (
-                                                    <div className="col-span-full text-center py-12 text-gray-500">
-                                                        <div className="text-4xl mb-4">📋</div>
-                                                        <div className="text-lg font-medium">Nenhum atributo encontrado</div>
-                                                        <div className="text-sm">Faça uma análise do produto primeiro</div>
-                                                    </div>
-                                                );
-                                            }
+                                                    const allowedUnits = Array.isArray(attr.allowed_units)
+                                                        ? attr.allowed_units.map((u: any) => u?.id || u?.name).filter(Boolean)
+                                                        : [];
+                                                    const unitValue = attrUnits[attrId] || existingAttr?.value_struct?.unit || attr.default_unit || allowedUnits[0] || '';
 
-                                            return combinedAttrs.map((attr: any) => {
-                                                const attrId = attr.id;
-                                                const existingAttr = existingMap.get(attrId);
-                                                const optionValues = Array.isArray(attr.values) ? attr.values.filter((v: any) => v?.name) : [];
-                                                const optionMap = new Map(optionValues.map((v: any) => [String(v.id), String(v.name)]));
-                                                const originalValue = existingAttr?.value_name
-                                                    || (existingAttr?.value_id ? optionMap.get(String(existingAttr.value_id)) || existingAttr.value_id : '')
-                                                    || '';
-                                                const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
-                                                const isModified = currentValue !== originalValue;
-                                                const isRequired = attr.tags?.required || false;
-                                                const isNumberUnit = attr.value_type === 'number_unit';
+                                                    const numberValue = isNumberUnit
+                                                        ? (allAttributes[attrId] !== undefined
+                                                            ? allAttributes[attrId]
+                                                            : (existingAttr?.value_struct?.number !== undefined
+                                                                ? String(existingAttr.value_struct.number)
+                                                                : String(originalValue).replace(/[^\d.,-]/g, '').replace(',', '.')))
+                                                        : currentValue;
 
-                                                const allowedUnits = Array.isArray(attr.allowed_units)
-                                                    ? attr.allowed_units.map((u: any) => u?.id || u?.name).filter(Boolean)
-                                                    : [];
-                                                const unitValue = attrUnits[attrId] || existingAttr?.value_struct?.unit || attr.default_unit || allowedUnits[0] || '';
-                                                const originalUnit = existingAttr?.value_struct?.unit || '';
+                                                    return (
+                                                        <div key={attrId} className="flex flex-col gap-2">
+                                                            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1 min-h-[1.25rem]" title={attr.name}>
+                                                                <span className="line-clamp-2 leading-tight">{attr.name || attrId}</span>
+                                                                {isRequired && <span className="text-red-500 font-bold shrink-0">*</span>}
+                                                            </label>
 
-                                                const numberValue = isNumberUnit
-                                                    ? (allAttributes[attrId] !== undefined
-                                                        ? allAttributes[attrId]
-                                                        : (existingAttr?.value_struct?.number !== undefined
-                                                            ? String(existingAttr.value_struct.number)
-                                                            : String(originalValue).replace(/[^\d.,-]/g, '').replace(',', '.')))
-                                                    : currentValue;
-
-                                                const showUnitSelect = isNumberUnit && allowedUnits.length > 0;
-
-                                                return (
-                                                    <div key={attrId} className={`p-4 rounded-lg border-2 transition-all ${isModified ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-200'}`}>
-                                                        <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 flex justify-between">
-                                                            <span>
-                                                                {attr.name || attrId.replace(/_/g, ' ').toUpperCase()}
-                                                                {isRequired && <span className="text-red-500 ml-1">*</span>}
-                                                            </span>
-                                                            {isModified && <span className="text-blue-600 font-bold text-xs">Modificado</span>}
-                                                        </label>
-                                                        {isNumberUnit ? (
-                                                            <div className="flex gap-2">
-                                                                <Input
-                                                                    value={numberValue}
-                                                                    onChange={(e) => setAllAttributes(prev => ({
-                                                                        ...prev,
-                                                                        [attrId]: e.target.value
-                                                                    }))}
-                                                                    placeholder={originalValue || 'Vazio'}
-                                                                    className={`${isModified ? 'border-blue-500' : ''} flex-1`}
-                                                                />
-                                                                {showUnitSelect ? (
-                                                                    <Select
-                                                                        value={unitValue}
-                                                                        onValueChange={(val) => setAttrUnits((prev) => ({ ...prev, [attrId]: val }))}
-                                                                    >
-                                                                        <SelectTrigger className="w-28">
-                                                                            <SelectValue placeholder={unitValue || 'unidade'} />
-                                                                        </SelectTrigger>
-                                                                        <SelectContent>
-                                                                            {allowedUnits.map((u) => (
-                                                                                <SelectItem key={u} value={u}>{u}</SelectItem>
-                                                                            ))}
-                                                                        </SelectContent>
-                                                                    </Select>
-                                                                ) : (
-                                                                    <Input
-                                                                        value={unitValue}
-                                                                        onChange={(e) => setAttrUnits((prev) => ({ ...prev, [attrId]: e.target.value }))}
-                                                                        placeholder="unidade"
-                                                                        className="w-28"
-                                                                    />
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <Input
-                                                                value={currentValue}
-                                                                onChange={(e) => setAllAttributes(prev => ({
-                                                                    ...prev,
-                                                                    [attrId]: e.target.value
-                                                                }))}
-                                                                placeholder={originalValue || 'Vazio'}
-                                                                className={isModified ? 'border-blue-500' : ''}
-                                                            />
-                                                        )}
-                                                        {optionValues.length > 0 && !isNumberUnit && (
-                                                            <div className="mt-2 flex items-center gap-2">
+                                                            {isNumberUnit ? (
+                                                                <div className="flex gap-2 w-full">
+                                                                    <div className="relative flex-1">
+                                                                        <Input
+                                                                            value={numberValue}
+                                                                            onChange={(e) => setAllAttributes(prev => ({ ...prev, [attrId]: e.target.value }))}
+                                                                            className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="w-[80px]">
+                                                                        {allowedUnits.length > 0 ? (
+                                                                            <Select
+                                                                                value={unitValue}
+                                                                                onValueChange={(val) => setAttrUnits((prev) => ({ ...prev, [attrId]: val }))}
+                                                                            >
+                                                                                <SelectTrigger className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 rounded-md px-2">
+                                                                                    <SelectValue placeholder="un." />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent>
+                                                                                    {allowedUnits.map((u) => (
+                                                                                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                                                                                    ))}
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        ) : (
+                                                                            <Input
+                                                                                value={unitValue}
+                                                                                onChange={(e) => setAttrUnits((prev) => ({ ...prev, [attrId]: e.target.value }))}
+                                                                                placeholder="un."
+                                                                                className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 rounded-md text-center"
+                                                                            />
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ) : optionValues.length > 0 ? (
                                                                 <Select
-                                                                    value=""
-                                                                    onValueChange={(val) => setAllAttributes(prev => ({
-                                                                        ...prev,
-                                                                        [attrId]: val
-                                                                    }))}
+                                                                    value={currentValue}
+                                                                    onValueChange={(val) => setAllAttributes(prev => ({ ...prev, [attrId]: val }))}
                                                                 >
-                                                                    <SelectTrigger className="h-9 w-full">
-                                                                        <SelectValue placeholder="Escolher valor da categoria" />
+                                                                    <SelectTrigger className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md">
+                                                                        <SelectValue placeholder="Selecionar" />
                                                                     </SelectTrigger>
                                                                     <SelectContent>
                                                                         {optionValues.map((opt: any) => (
@@ -758,16 +769,23 @@ export default function MercadoLivreAnalyzer() {
                                                                         ))}
                                                                     </SelectContent>
                                                                 </Select>
+                                                            ) : (
+                                                                <Input
+                                                                    value={currentValue}
+                                                                    onChange={(e) => setAllAttributes(prev => ({ ...prev, [attrId]: e.target.value }))}
+                                                                    className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md"
+                                                                />
+                                                            )}
+
+                                                            {/* Checkbox N/A mock visual (apenas visual para conformidade com ref) */}
+                                                            <div className="flex justify-end">
+                                                                <span className="text-[10px] text-gray-400 dark:text-zinc-600 cursor-not-allowed select-none">□ N/A</span>
                                                             </div>
-                                                        )}
-                                                        <div className="mt-2 text-xs text-gray-500 flex justify-between">
-                                                            <span>Original: {originalValue ? `${originalValue}${originalUnit ? ` ${originalUnit}` : ''}` : '-'}</span>
-                                                            <span className="opacity-70">{attr.value_type || 'text'}</span>
                                                         </div>
-                                                    </div>
-                                                );
-                                            });
-                                        })()}
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>

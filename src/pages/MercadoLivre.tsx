@@ -11,6 +11,14 @@ import { CompactKPICard } from "@/components/platform/CompactKPICard";
 import { MetricCard } from "@/components/platform/MetricCard";
 import { PerformanceChart } from "@/components/platform/PerformanceChart";
 import { DailySalesChart } from "@/components/mercadolivre/DailySalesChart";
+import { TopProductsChart } from "@/components/mercadolivre/TopProductsChart";
+import { ConversionFunnel } from "@/components/mercadolivre/ConversionFunnel";
+
+import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
+import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
+import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
+import { SalesHeatmap } from "@/components/mercadolivre/SalesHeatmap";
+import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -82,34 +90,41 @@ export default function MercadoLivre() {
         isLoading: dailySalesLoading
     } = useMercadoLivreDailySales(workspaceId, dateFrom, dateTo);
 
+    // Calcular período anterior para comparação
+    const { previousDateFrom, previousDateTo } = useMemo(() => {
+        const days = Number(dateRange);
+        const previousDateTo = new Date();
+        previousDateTo.setHours(23, 59, 59, 999);
+        previousDateTo.setDate(previousDateTo.getDate() - days);
+
+        const previousDateFrom = new Date(previousDateTo);
+        previousDateFrom.setHours(0, 0, 0, 0);
+        previousDateFrom.setDate(previousDateFrom.getDate() - (days - 1));
+
+        return {
+            previousDateFrom: previousDateFrom.toISOString(),
+            previousDateTo: previousDateTo.toISOString(),
+        };
+    }, [dateRange]);
+
+    // Buscar métricas do período anterior
+    const { data: previousMetrics, isLoading: previousMetricsLoading } = useMercadoLivreMetrics(
+        workspaceId,
+        Number(dateRange),
+        { dateFrom: previousDateFrom, dateTo: previousDateTo }
+    );
+
     const syncMutation = useSyncMercadoLivre();
 
     const handleSyncData = async () => {
         if (!workspaceId) return;
-        
+
         try {
             await syncMutation.mutateAsync(workspaceId);
             // As queries serão automaticamente invalidadas pelo hook
         } catch (error) {
             console.error('Erro ao sincronizar dados do Mercado Livre:', error);
         }
-    };
-
-    const handleExportCsv = () => {
-        if (!workspaceId) {
-            toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar." });
-            return;
-        }
-        const params = new URLSearchParams({
-            workspaceId,
-            days: String(7),
-            mlFeePercent: String(0),
-            taxPercent: String(0),
-            packagingCost: String(0),
-            shippingCostPerOrder: String(0),
-        });
-        const url = `/api/integrations/mercadolivre/export/csv?${params.toString()}`;
-        window.open(url, '_blank');
     };
 
     if (!workspaceId) {
@@ -178,15 +193,12 @@ export default function MercadoLivre() {
                         <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                         {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
                     </Button>
-                    <Button
-                        onClick={handleExportCsv}
-                        size="sm"
-                        variant="outline"
-                        className="gap-2"
-                    >
-                        <ExternalLink className="h-4 w-4" />
-                        Exportar CSV
-                    </Button>
+                    {workspaceId && (
+                        <ExportReportButton
+                            workspaceId={workspaceId}
+                            dateRange={dateRange}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -315,6 +327,52 @@ export default function MercadoLivre() {
                 </CardContent>
             </Card>
 
+            {/* Comparação de Períodos */}
+            <Card className="border-border/50 shadow-sm">
+                <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" />
+                        Comparação vs Período Anterior ({dateRange} dias)
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <MetricComparison
+                            title="Receita"
+                            currentValue={totalRevenue}
+                            previousValue={previousMetrics?.totalRevenue || 0}
+                            format="currency"
+                            loading={metricsLoading || previousMetricsLoading}
+                            icon={<DollarSign className="h-4 w-4" />}
+                        />
+                        <MetricComparison
+                            title="Vendas"
+                            currentValue={totalSales}
+                            previousValue={previousMetrics?.totalSales || 0}
+                            format="number"
+                            loading={metricsLoading || previousMetricsLoading}
+                            icon={<ShoppingBag className="h-4 w-4" />}
+                        />
+                        <MetricComparison
+                            title="Visitas"
+                            currentValue={totalVisits}
+                            previousValue={previousMetrics?.totalVisits || 0}
+                            format="number"
+                            loading={metricsLoading || previousMetricsLoading}
+                            icon={<Eye className="h-4 w-4" />}
+                        />
+                        <MetricComparison
+                            title="Taxa de Conversão"
+                            currentValue={conversionRate}
+                            previousValue={previousMetrics?.conversionRate || 0}
+                            format="percentage"
+                            loading={metricsLoading || previousMetricsLoading}
+                            icon={<TrendingUp className="h-4 w-4" />}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
             {/* Layout Principal em 2 Colunas */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Coluna Esquerda - mais ampla */}
@@ -332,200 +390,56 @@ export default function MercadoLivre() {
                         </CardContent>
                     </Card>
 
-                    {/* Lista de Produtos com Paginação */}
-                    <Card className="border-border/50 shadow-sm">
-                        <CardHeader className="border-b border-border/50 bg-muted/20 flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle className="text-base font-semibold">Todos os Produtos</CardTitle>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {products?.items ? `${products.items.length} produtos encontrados` : 'Carregando...'}
-                                </p>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-6">
-                            {productsLoading ? (
-                                <div className="space-y-3">
-                                    {[...Array(itemsPerPage)].map((_, i) => (
-                                        <Skeleton key={i} className="h-16 w-full" />
-                                    ))}
-                                </div>
-                            ) : products?.items && products.items.length > 0 ? (
-                                <>
-                                    <div className="overflow-x-auto">
-                                        <Table className="w-full min-w-[800px]">
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>Produto</TableHead>
-                                                    <TableHead>MLB ID</TableHead>
-                                                    <TableHead className="text-right">Vendas</TableHead>
-                                                    <TableHead className="text-right">Visitas</TableHead>
-                                                    <TableHead className="text-right">Taxa Conv.</TableHead>
-                                                    <TableHead className="text-right">Receita</TableHead>
-                                                    <TableHead className="text-center">Ações</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {products.items
-                                                    .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                                                    .map((product: any) => (
-                                                <TableRow key={product.id}>
-                                                    <TableCell className="font-medium">
-                                                        <div className="flex items-center gap-2">
-                                                            {product.thumbnail && (
-                                                                <img
-                                                                    src={product.thumbnail}
-                                                                    alt={product.title}
-                                                                    className="h-10 w-10 rounded object-cover"
-                                                                />
-                                                            )}
-                                                            <span className="truncate max-w-2xl">{product.title}</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex items-center gap-2">
-                                                            <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
-                                                                {product.id || product.mlb_id || 'N/A'}
-                                                            </code>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-6 w-6 p-0"
-                                                                onClick={async () => {
-                                                                    try {
-                                                                        await navigator.clipboard.writeText(product.id || product.mlb_id || '');
-                                                                        toast({ title: "Copiado!", description: "MLB ID copiado para a área de transferência" });
-                                                                    } catch (e) {
-                                                                        toast({ title: "Não foi possível copiar", variant: "destructive" });
-                                                                    }
-                                                                }}
-                                                                title="Copiar MLB ID"
-                                                            >
-                                                                <Copy className="h-3 w-3" />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">{product.sales ?? 0}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        {new Intl.NumberFormat("pt-BR").format(product.visits ?? 0)}
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        {product.conversionRate ? `${product.conversionRate.toFixed(1)}%` : "-"}
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        {new Intl.NumberFormat("pt-BR", {
-                                                            style: "currency",
-                                                            currency: "BRL",
-                                                        }).format(product.revenue ?? 0)}
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                        <div className="flex items-center justify-center gap-1">
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="h-8 px-2 text-xs"
-                                                                onClick={() => {
-                                                                    const mlbId = product.id || product.mlb_id;
-                                                                    if (mlbId) {
-                                                                        navigate(`/mercado-livre-analyzer?mlb=${mlbId}`);
-                                                                    }
-                                                                }}
-                                                                disabled={!product.id && !product.mlb_id}
-                                                            >
-                                                                <Search className="h-3 w-3 mr-1" />
-                                                                Analisar
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-8 px-2 text-xs"
-                                                                onClick={() => {
-                                                                    const permalink = product.permalink || `https://mercadolivre.com.br/p/${product.id || product.mlb_id}`;
-                                                                    window.open(permalink, '_blank');
-                                                                }}
-                                                                title="Ver no Mercado Livre"
-                                                            >
-                                                                <ExternalLink className="h-3 w-3" />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
+                    {/* Funil de Conversão */}
+                    <ConversionFunnel
+                        visits={totalVisits}
+                        questions={totalQuestions}
+                        sales={totalSales}
+                        loading={metricsLoading || questionsLoading}
+                    />
 
-                                {/* Controles de Paginação */}
-                                {products.items.length > itemsPerPage && (
-                                    <div className="flex items-center justify-between mt-6 pt-4 border-t border-border/50">
-                                        <div className="text-sm text-muted-foreground">
-                                            Mostrando {((currentPage - 1) * itemsPerPage) + 1} a {Math.min(currentPage * itemsPerPage, products.items.length)} de {products.items.length} produtos
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                                disabled={currentPage === 1}
-                                            >
-                                                Anterior
-                                            </Button>
+                    {/* Grid com 2 colunas para Top Products */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* Top 5 Produtos por Vendas */}
+                        <TopProductsChart
+                            products={products?.items || []}
+                            loading={productsLoading}
+                            type="sales"
+                        />
 
-                                            <div className="flex items-center gap-1">
-                                                {Array.from({ length: Math.ceil(products.items.length / itemsPerPage) }, (_, i) => i + 1)
-                                                    .filter(page => {
-                                                        // Mostrar primeira, última e páginas próximas à atual
-                                                        const totalPages = Math.ceil(products.items.length / itemsPerPage);
-                                                        return (
-                                                            page === 1 ||
-                                                            page === totalPages ||
-                                                            (page >= currentPage - 1 && page <= currentPage + 1)
-                                                        );
-                                                    })
-                                                    .map((page, index, array) => (
-                                                        <div key={page} className="flex items-center">
-                                                            {index > 0 && array[index - 1] !== page - 1 && (
-                                                                <span className="px-2 text-muted-foreground">...</span>
-                                                            )}
-                                                            <Button
-                                                                variant={currentPage === page ? "default" : "outline"}
-                                                                size="sm"
-                                                                onClick={() => setCurrentPage(page)}
-                                                                className="min-w-[2.5rem]"
-                                                            >
-                                                                {page}
-                                                            </Button>
-                                                        </div>
-                                                    ))
-                                                }
-                                            </div>
+                        {/* Top 5 Produtos por Visitas */}
+                        <TopProductsChart
+                            products={products?.items || []}
+                            loading={productsLoading}
+                            type="visits"
+                        />
+                    </div>
 
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(products.items.length / itemsPerPage), prev + 1))}
-                                                disabled={currentPage === Math.ceil(products.items.length / itemsPerPage)}
-                                            >
-                                                Próximo
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                            ) : (
-                                <div className="text-center py-12">
-                                    <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                                    <p className="text-muted-foreground">Nenhum produto encontrado</p>
-                                    <Button variant="outline" size="sm" className="mt-4">
-                                        Conectar Mercado Livre
-                                    </Button>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+
+
+                    {/* Heatmap de Vendas */}
+                    <SalesHeatmap
+                        data={dailySales?.dailySales || []}
+                        loading={dailySalesLoading}
+                    />
                 </div>
 
                 {/* Coluna Direita - ajustada */}
                 <div className="lg:col-span-3 space-y-6">
+                    {/* Análise Financeira */}
+                    <FinancialAnalysis
+                        totalRevenue={totalRevenue}
+                        totalSales={totalSales}
+                        loading={metricsLoading}
+                    />
+
+                    {/* Alertas de Estoque Baixo */}
+                    <LowStockAlerts
+                        products={products?.items || []}
+                        loading={productsLoading}
+                        threshold={5}
+                    />
+
                     {/* Status da Integração */}
                     <Card className="border-border/50 shadow-sm">
                         <CardHeader className="border-b border-border/50 bg-muted/20">
@@ -671,6 +585,8 @@ export default function MercadoLivre() {
                     )}
                 </div>
             </div>
+
+
         </div>
     );
 }

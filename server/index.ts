@@ -32,6 +32,7 @@ import { generateCreative } from './api/ai/generate-creative.js';
 import { analyzeCreative } from './api/ai/analyze-creative.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
 import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
+import { generateMLDescription } from './api/ai/ml-description.js';
 import { downloadProxy } from './api/creatives/download-proxy.js';
 import aiAnalysisHandler from './api/integrations/ai-analysis.js';
 import { google } from 'googleapis';
@@ -296,6 +297,7 @@ app.post('/api/ai/generate-creative', generateCreative);
 app.post('/api/ai/analyze-creative', analyzeCreative);
 app.post('/api/ai/virtual-tryon', virtualTryOn);
 app.post('/api/ai/generate-look-caption', generateLookCaption);
+app.post('/api/ai/ml-description-suggest', generateMLDescription);
 app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
 
 // Creatives endpoints

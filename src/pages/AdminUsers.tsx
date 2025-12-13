@@ -19,7 +19,9 @@ import { supabase } from '@/lib/supabaseClient';
 const API_BASE = resolveApiBase();
 
 export default function AdminUsers() {
-  const { data: members, refetch } = useWorkspaceMembers();
+  const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
+  
+  const { data: members, refetch } = useWorkspaceMembers(WORKSPACE_ID || null);
   const { token, user } = useAuth();
   const { toast } = useToast();
   const location = useLocation();
@@ -40,9 +42,6 @@ const [pendingOverrides, setPendingOverrides] = useState<Record<string, boolean>
   // Estados para remoção e edição de usuário
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [userToRemove, setUserToRemove] = useState<any>(null);
-  
-
-const WORKSPACE_ID = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim();
   const storageKey = useMemo(() => {
     return selectedUserId && WORKSPACE_ID
       ? `trafficpro.page_access_overrides:${WORKSPACE_ID}:${selectedUserId}`
