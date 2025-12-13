@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { mainNavigation, findNavigationLabel } from "@/data/navigation";
+import { mainNavigation, findNavigationLabel, flattenNavigation } from "@/data/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -225,7 +225,7 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
 
         {showAllGroups && (
           <CommandGroup heading="Navegação">
-            {mainNavigation.map((item) => (
+            {flattenNavigation(mainNavigation).map((item) => (
               <CommandItem
                 key={item.href}
                 value={`${item.name} ${item.keywords?.join(" ") ?? ""}`}

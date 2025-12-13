@@ -2,7 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { mainNavigation } from "@/data/navigation";
+import { mainNavigation, NavigationEntry } from "@/data/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useResponsive } from "@/hooks/use-responsive";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -56,30 +56,78 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
           </Button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-          {(mainNavigation.filter((item) => {
-            if (!user) return false;
-            if (item.href === "/campaigns") return false;
-            return hasAccess(item.href);
-          })).map((item) => (
-            <NavLink
-              key={item.name}
-              to={item.href}
-              end={item.href === "/" || item.href === "/campaigns"}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
-                    : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                )
-              }
-              onClick={() => isMobile && onClose()}
-            >
-              <item.icon className="h-5 w-5 flex-shrink-0" />
-              {!isCollapsed && <span className="truncate">{item.name}</span>}
-            </NavLink>
-          ))}
+        <nav className="flex-1 space-y-2 px-3 py-4 overflow-y-auto">
+          {mainNavigation.map((entry: NavigationEntry) => {
+            if (!user) return null;
+            if ("children" in entry) {
+              const parentAllowed = hasAccess(entry.href);
+              const childrenAllowed = entry.children.filter((child) => hasAccess(child.href));
+              if (!parentAllowed && childrenAllowed.length === 0) return null;
+              return (
+                <div key={entry.name} className="space-y-1">
+                  <NavLink
+                    to={entry.href}
+                    end={entry.href === "/" || entry.href === "/campaigns"}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                        isActive
+                          ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
+                          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                      )
+                    }
+                    onClick={() => isMobile && onClose()}
+                  >
+                    <entry.icon className="h-5 w-5 flex-shrink-0" />
+                    {!isCollapsed && <span className="truncate">{entry.name}</span>}
+                  </NavLink>
+                  {childrenAllowed.length > 0 && (
+                    <div className="ml-6 space-y-1">
+                      {childrenAllowed.map((child) => (
+                        <NavLink
+                          key={child.href}
+                          to={child.href}
+                          className={({ isActive }) =>
+                            cn(
+                              "flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all hover:bg-secondary/60",
+                              isActive
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            )
+                          }
+                          onClick={() => isMobile && onClose()}
+                        >
+                          <child.icon className="h-4 w-4 flex-shrink-0" />
+                          {!isCollapsed && <span className="truncate">{child.name}</span>}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            if (entry.href === "/campaigns") return null;
+            if (!hasAccess(entry.href)) return null;
+            return (
+              <NavLink
+                key={entry.name}
+                to={entry.href}
+                end={entry.href === "/" || entry.href === "/campaigns"}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
+                      : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                  )
+                }
+                onClick={() => isMobile && onClose()}
+              >
+                <entry.icon className="h-5 w-5 flex-shrink-0" />
+                {!isCollapsed && <span className="truncate">{entry.name}</span>}
+              </NavLink>
+            );
+          })}
         </nav>
 
 
