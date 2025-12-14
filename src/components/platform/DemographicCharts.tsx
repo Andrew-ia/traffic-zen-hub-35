@@ -103,6 +103,7 @@ export function DemographicCharts({ ageData = [], genderData = [], loading = fal
                         borderRadius: "var(--radius)",
                         fontSize: "12px",
                         boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        color: "hsl(var(--foreground))",
                       }}
                       formatter={(value: number, name: string, props: any) => [
                         `${value.toLocaleString("pt-BR")} (${formatPercentage(props.payload.percentage || 0)})`,
@@ -173,6 +174,7 @@ export function DemographicCharts({ ageData = [], genderData = [], loading = fal
                         borderRadius: "var(--radius)",
                         fontSize: "12px",
                         boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        color: "hsl(var(--foreground))",
                       }}
                       formatter={(value: number, name: string, props: any) => [
                         `${value.toLocaleString("pt-BR")} (${formatPercentage(props.payload.percentage || 0)})`,

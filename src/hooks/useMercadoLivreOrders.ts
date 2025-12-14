@@ -69,15 +69,17 @@ export function useMercadoLivreOrders(
         offset?: number;
     }
 ) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     return useQuery({
-        queryKey: ["mercadolivre", "orders", workspaceId, options],
+        queryKey: ["mercadolivre", "orders", effectiveWorkspaceId, options],
         queryFn: async (): Promise<OrdersResponse> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID é obrigatório");
             }
 
             const params = new URLSearchParams({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
             });
 
             if (options?.dateFrom) params.append("dateFrom", options.dateFrom);
@@ -95,7 +97,7 @@ export function useMercadoLivreOrders(
 
             return response.json();
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId,
         staleTime: 5 * 60 * 1000, // 5 minutos
     });
 }
@@ -108,15 +110,17 @@ export function useMercadoLivreDailySales(
     dateFrom?: string,
     dateTo?: string
 ) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     return useQuery({
-        queryKey: ["mercadolivre", "daily-sales", workspaceId, dateFrom, dateTo],
+        queryKey: ["mercadolivre", "daily-sales", effectiveWorkspaceId, dateFrom, dateTo],
         queryFn: async (): Promise<DailySalesResponse> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID é obrigatório");
             }
 
             const params = new URLSearchParams({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
             });
 
             if (dateFrom) params.append("dateFrom", dateFrom);
@@ -137,7 +141,7 @@ export function useMercadoLivreDailySales(
 
             return data;
         },
-        enabled: !!workspaceId && !!dateFrom && !!dateTo,
+        enabled: !!effectiveWorkspaceId && !!dateFrom && !!dateTo,
         staleTime: 10 * 60 * 1000, // 10 minutos
         gcTime: 15 * 60 * 1000, // 15 minutos
         refetchOnWindowFocus: false,

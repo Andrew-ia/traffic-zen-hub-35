@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
@@ -21,6 +22,60 @@ console.log('🌐 Iniciando ngrok para expor a API:', {
 const proc = spawn('ngrok', args, {
   stdio: 'inherit',
 });
+
+async function resolvePublicUrl() {
+  if (domain) {
+    const fixed = `https://${domain.replace(/\/+$/, '')}`;
+    return fixed;
+  }
+  const api = 'http://127.0.0.1:4040/api/tunnels';
+  for (let i = 0; i < 20; i++) {
+    try {
+      const res = await fetch(api);
+      if (!res.ok) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      const data = await res.json();
+      const httpTunnel = (data.tunnels || []).find(t => /https?:/.test(t.public_url));
+      if (httpTunnel?.public_url) {
+        return String(httpTunnel.public_url).replace(/^http:/, 'https:');
+      }
+    } catch {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  return null;
+}
+
+async function autoRegisterWebhook() {
+  const publicUrl = await resolvePublicUrl();
+  if (!publicUrl) {
+    console.warn('⚠️  Não foi possível obter a URL pública do ngrok para auto registro do webhook.');
+    return;
+  }
+  console.log('🔗 URL pública detectada:', publicUrl);
+  console.log('🪝 Registrando webhook do Mercado Livre com baseUrl:', publicUrl);
+  const child = spawn(process.execPath, ['scripts/register-ml-webhook.js'], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      WEBHOOK_BASE_URL: publicUrl,
+    },
+  });
+  child.on('exit', (code) => {
+    if (code === 0) {
+      console.log('✅ Webhook registrado/validado com sucesso.');
+    } else {
+      console.warn('⚠️  Falha ao registrar webhook via script (exit code', code, '). Verifique manualmente no painel do ML.');
+    }
+  });
+}
+
+// Disparar auto registro após inicializar o ngrok
+setTimeout(() => {
+  autoRegisterWebhook().catch(() => {});
+}, 3000);
 
 proc.on('error', (err) => {
   if (err.code === 'ENOENT') {

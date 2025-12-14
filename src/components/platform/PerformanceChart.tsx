@@ -95,6 +95,7 @@ export function PerformanceChart({
               backgroundColor: "hsl(var(--background))",
               border: "1px solid hsl(var(--border))",
               borderRadius: "var(--radius)",
+              color: "hsl(var(--foreground))",
             }}
             labelStyle={{ color: "hsl(var(--foreground))" }}
             formatter={(value: number) => [config.format(value), lineLabel]}
@@ -147,6 +148,7 @@ export function PerformanceChart({
                   backgroundColor: "hsl(var(--background))",
                   border: "1px solid hsl(var(--border))",
                   borderRadius: "var(--radius)",
+                  color: "hsl(var(--foreground))",
                 }}
                 labelStyle={{ color: "hsl(var(--foreground))" }}
                 formatter={(value: number) => [config.format(value), lineLabel]}

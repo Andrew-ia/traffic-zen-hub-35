@@ -1,146 +1,155 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useWorkspace } from "@/hooks/useWorkspace";
-import { useMercadoLivreMetrics, useMercadoLivreProducts, useMercadoLivreQuestions, useSyncMercadoLivre } from "../hooks/useMercadoLivre";
-import { useMercadoLivreDailySales } from "@/hooks/useMercadoLivreOrders";
-import { PlatformFilters } from "@/components/platform/PlatformFilters";
-import { CompactKPICard } from "@/components/platform/CompactKPICard";
-import { MetricCard } from "@/components/platform/MetricCard";
-import { PerformanceChart } from "@/components/platform/PerformanceChart";
-import { DailySalesChart } from "@/components/mercadolivre/DailySalesChart";
-import { TopProductsChart } from "@/components/mercadolivre/TopProductsChart";
-import { ConversionFunnel } from "@/components/mercadolivre/ConversionFunnel";
-
-import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
-import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
-import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
-import { SalesHeatmap } from "@/components/mercadolivre/SalesHeatmap";
-import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
-import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
-import { toast } from "@/hooks/use-toast";
+import { useState, useMemo, useEffect } from "react";
 import {
     ShoppingBag,
-    Eye,
-    MessageCircle,
+    DollarSign,
     TrendingUp,
     Package,
-    DollarSign,
-    RefreshCcw,
-    ExternalLink,
     AlertCircle,
     Search,
-    Copy
+    RefreshCcw,
+    ExternalLink,
+    Filter,
+    ArrowUpRight,
+    ArrowDownRight,
+    Minus,
+    Eye,
+    MessageCircle,
+    Calendar,
+    ChevronDown,
 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+    useMercadoLivreMetrics,
+    useMercadoLivreProducts,
+    useMercadoLivreQuestions,
+    useSyncMercadoLivre
+} from "@/hooks/useMercadoLivre";
+import { useMercadoLivreDailySales } from "@/hooks/useMercadoLivreOrders";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PlatformFilters } from "@/components/platform/PlatformFilters";
+import { DailySalesChart } from "@/components/mercadolivre/DailySalesChart";
+import { TopProductsChart } from "@/components/mercadolivre/TopProductsChart";
+import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
+import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
+import { CompactKPICard } from "@/components/platform/CompactKPICard";
+import { format, subDays } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
+import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
+import { supabase } from "@/lib/supabaseClient";
+import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
+import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 
 export default function MercadoLivre() {
     const navigate = useNavigate();
-    const { currentWorkspace } = useWorkspace();
-    const workspaceId = currentWorkspace?.id || null;
-
     const [dateRange, setDateRange] = useState("30");
-    const [selectedCategory, setSelectedCategory] = useState("all");
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage] = useState(10);
+    const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+    const [replaying, setReplaying] = useState(false);
 
-    // Calcular intervalo de datas para vendas diárias (memorizado e estável)
-    const { dateFrom, dateTo } = useMemo(() => {
-        const dateTo = new Date();
-        dateTo.setHours(23, 59, 59, 999); // Fim do dia
+    // Obter workspace_id
+    useEffect(() => {
+        const fetchWorkspace = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: memberData } = await supabase
+                    .from('workspace_members')
+                    .select('workspace_id')
+                    .eq('user_id', user.id)
+                    .single();
 
-        const dateFrom = new Date();
-        dateFrom.setHours(0, 0, 0, 0); // Início do dia
-        dateFrom.setDate(dateFrom.getDate() - (Number(dateRange) - 1)); // janela inclusiva
-
-        return {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
+                if (memberData) {
+                    setWorkspaceId(memberData.workspace_id);
+                }
+            }
         };
-    }, [dateRange]);
+        fetchWorkspace();
+    }, []);
 
-    // Hooks para buscar dados do Mercado Livre
-    const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useMercadoLivreMetrics(
+    // Datas para comparação
+    const dateRangeNumber = parseInt(dateRange);
+    const currentDate = new Date();
+    const startDate = subDays(currentDate, dateRangeNumber);
+    const previousStartDate = subDays(startDate, dateRangeNumber);
+
+    const period = useMemo(() => ({
+        start_date: format(startDate, 'yyyy-MM-dd'),
+        end_date: format(currentDate, 'yyyy-MM-dd')
+    }), [startDate, currentDate]);
+
+    const previousPeriod = useMemo(() => ({
+        start_date: format(previousStartDate, 'yyyy-MM-dd'),
+        end_date: format(startDate, 'yyyy-MM-dd')
+    }), [previousStartDate, startDate]);
+
+    // Hooks de dados
+    const { data: metrics, isLoading: metricsLoading } = useMercadoLivreMetrics(
         workspaceId,
-        Number(dateRange)
+        dateRangeNumber,
+        { dateFrom: period.start_date, dateTo: period.end_date }
     );
-
-    const {
-        data: products,
-        isLoading: productsLoading,
-        refetch: refetchProducts
-    } = useMercadoLivreProducts(workspaceId, selectedCategory);
-
-    const {
-        data: questions,
-        isLoading: questionsLoading
-    } = useMercadoLivreQuestions(workspaceId, Number(dateRange));
-
-    const {
-        data: dailySales,
-        isLoading: dailySalesLoading
-    } = useMercadoLivreDailySales(workspaceId, dateFrom, dateTo);
-
-    // Calcular período anterior para comparação
-    const { previousDateFrom, previousDateTo } = useMemo(() => {
-        const days = Number(dateRange);
-        const previousDateTo = new Date();
-        previousDateTo.setHours(23, 59, 59, 999);
-        previousDateTo.setDate(previousDateTo.getDate() - days);
-
-        const previousDateFrom = new Date(previousDateTo);
-        previousDateFrom.setHours(0, 0, 0, 0);
-        previousDateFrom.setDate(previousDateFrom.getDate() - (days - 1));
-
-        return {
-            previousDateFrom: previousDateFrom.toISOString(),
-            previousDateTo: previousDateTo.toISOString(),
-        };
-    }, [dateRange]);
-
-    // Buscar métricas do período anterior
     const { data: previousMetrics, isLoading: previousMetricsLoading } = useMercadoLivreMetrics(
         workspaceId,
-        Number(dateRange),
-        { dateFrom: previousDateFrom, dateTo: previousDateTo }
+        dateRangeNumber,
+        { dateFrom: previousPeriod.start_date, dateTo: previousPeriod.end_date }
     );
-
+    const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
+    const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, dateRangeNumber);
+    const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
+        workspaceId,
+        period.start_date,
+        period.end_date
+    );
     const syncMutation = useSyncMercadoLivre();
 
     const handleSyncData = async () => {
         if (!workspaceId) return;
-
         try {
             await syncMutation.mutateAsync(workspaceId);
-            // As queries serão automaticamente invalidadas pelo hook
+            toast.success("Sincronização iniciada com sucesso!");
         } catch (error) {
-            console.error('Erro ao sincronizar dados do Mercado Livre:', error);
+            toast.error("Erro ao iniciar sincronização.");
         }
     };
 
-    if (!workspaceId) {
-        return (
-            <div className="space-y-4">
-                <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Mercado Livre</h1>
-                <p className="text-muted-foreground">Selecione um workspace no topo para ver os dados.</p>
-            </div>
-        );
-    }
+    const handleReplayNotifications = async () => {
+        if (!workspaceId) {
+            toast.error("Workspace não identificado para reenviar notificações.");
+            return;
+        }
+        setReplaying(true);
+        try {
+            const resp = await fetch("/api/integrations/mercadolivre/notifications/replay", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    workspaceId,
+                    days: 1,
+                    maxOrders: 200,
+                    dryRun: false
+                })
+            });
+            const data = await resp.json();
+            if (!resp.ok || data?.error) {
+                throw new Error(data?.error || "Falha ao reenviar notificações");
+            }
+            const sent = Number(data?.sent || 0);
+            const skipped = Number(data?.skippedAlreadySent || 0);
+            const period = data?.period ? `${data.period.from} até ${data.period.to}` : "hoje";
+            toast.success(`Reenvio concluído: enviados ${sent}, ignorados ${skipped} (${period})`);
+        } catch (e: any) {
+            toast.error(e?.message || "Erro ao reenviar notificações.");
+        } finally {
+            setReplaying(false);
+        }
+    };
 
-    // Dados mockados enquanto não há integração real
-    const totalSales = metrics?.totalSales ?? 0;
-    const totalOrders = metrics?.totalOrders ?? metrics?.totalSales ?? 0;
+    // Cálculos de totais
     const totalRevenue = metrics?.totalRevenue ?? 0;
+    const totalSales = metrics?.totalSales ?? 0;
     const totalVisits = metrics?.totalVisits ?? 0;
+    const totalOrders = metrics?.totalOrders ?? 0;
     const conversionRate = metrics?.conversionRate ?? 0;
     const totalQuestions = questions?.total ?? 0;
     const activeProducts = products?.activeCount ?? 0;
@@ -149,19 +158,21 @@ export default function MercadoLivre() {
     const canceledOrders = metrics?.canceledOrders ?? 0;
 
     return (
-        <div className="space-y-6 pb-4">
+        <div className="space-y-8 pb-8 animate-in fade-in duration-500">
             {/* Header */}
-            <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 sm:gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border/40 pb-6">
                 <div className="space-y-1">
-                    <h1 className="text-4xl sm:text-5xl font-bold tracking-tight flex items-center gap-3">
-                        <ShoppingBag className="h-10 w-10 text-yellow-500" />
+                    <h1 className="text-3xl sm:text-4xl font-bold tracking-tight flex items-center gap-3 text-foreground/90">
+                        <div className="p-2 bg-yellow-500/10 rounded-lg">
+                            <ShoppingBag className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+                        </div>
                         Mercado Livre
                     </h1>
-                    <p className="text-sm sm:text-base text-muted-foreground">
+                    <p className="text-sm sm:text-base text-muted-foreground ml-1">
                         Dashboard de vendas e analytics do Mercado Livre
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <PlatformFilters
                         dateRange={dateRange}
                         onDateRangeChange={setDateRange}
@@ -173,70 +184,96 @@ export default function MercadoLivre() {
                         search=""
                         onSearchChange={() => { }}
                     />
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-2"
-                        onClick={() => navigate('/mercado-livre-busca-avancada')}
-                    >
-                        <Search className="h-4 w-4" />
-                        Busca Avançada
-                    </Button>
-                    <MercadoLivreConnectButton size="sm" variant="outline" />
-                    <Button
-                        onClick={handleSyncData}
-                        size="sm"
-                        variant="outline"
-                        className="gap-2"
-                        disabled={syncMutation.isPending}
-                    >
-                        <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                        {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
-                    </Button>
-                    {workspaceId && (
-                        <ExportReportButton
-                            workspaceId={workspaceId}
-                            dateRange={dateRange}
-                        />
-                    )}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-2 h-9"
+                            onClick={() => navigate('/mercado-livre-busca-avancada')}
+                        >
+                            <Search className="h-4 w-4" />
+                            <span className="hidden sm:inline">Busca Avançada</span>
+                        </Button>
+                        <MercadoLivreConnectButton size="sm" variant="outline" className="h-9" />
+                        <Button
+                            onClick={handleSyncData}
+                            size="sm"
+                            variant="default"
+                            className="gap-2 h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                            disabled={syncMutation.isPending}
+                        >
+                            <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                            {syncMutation.isPending ? 'Sync' : 'Sincronizar'}
+                        </Button>
+                        <Button
+                            onClick={handleReplayNotifications}
+                            size="sm"
+                            variant="outline"
+                            className="gap-2 h-9"
+                            disabled={replaying || !workspaceId}
+                            title="Reenviar notificações de vendas do dia atual para o Telegram"
+                        >
+                            <RefreshCcw className={`h-4 w-4 ${replaying ? 'animate-spin' : ''}`} />
+                            {replaying ? 'Reenviando...' : 'Reenviar notificações (hoje)'}
+                        </Button>
+                        {workspaceId && (
+                            <ExportReportButton
+                                workspaceId={workspaceId}
+                                dateRange={dateRange}
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Loading State */}
-            {metricsLoading && (
-                <div className="space-y-6">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {[...Array(4)].map((_, i) => (
-                            <Card key={i} className="border-border/50 shadow-sm">
-                                <CardContent className="p-4">
-                                    <Skeleton className="h-3 w-20 mb-2" />
-                                    <Skeleton className="h-6 w-16" />
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* KPIs Principais */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {metricsLoading ? (
+                    [...Array(4)].map((_, i) => (
+                        <Card key={i} className="border-border/50 shadow-sm h-32">
+                            <CardContent className="p-6">
+                                <Skeleton className="h-4 w-24 mb-4" />
+                                <Skeleton className="h-8 w-32" />
+                            </CardContent>
+                        </Card>
+                    ))
+                ) : (
+                    <>
+                        <CompactKPICard
+                            title="Vendas brutas"
+                            value={new Intl.NumberFormat("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                                maximumFractionDigits: 0,
+                            }).format(totalRevenue)}
+                            icon={DollarSign}
+                            loading={metricsLoading}
+                        />
+                        <CompactKPICard
+                            title="Unidades vendidas"
+                            value={new Intl.NumberFormat("pt-BR").format(totalSales)}
+                            icon={ShoppingBag}
+                            loading={metricsLoading}
+                        />
+                        <CompactKPICard
+                            title="Visitas"
+                            value={new Intl.NumberFormat("pt-BR").format(totalVisits)}
+                            icon={Eye}
+                            loading={metricsLoading}
+                        />
+                        <CompactKPICard
+                            title="Conversão"
+                            value={conversionRate ? `${conversionRate.toFixed(2)}%` : "-"}
+                            icon={TrendingUp}
+                            loading={metricsLoading}
+                        />
+                    </>
+                )}
+            </div>
+
+            {/* Secondary KPIs */}
             {!metricsLoading && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <CompactKPICard
-                        title="Vendas brutas"
-                        value={new Intl.NumberFormat("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                            maximumFractionDigits: 0,
-                        }).format(totalRevenue)}
-                        icon={DollarSign}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Unidades vendidas"
-                        value={new Intl.NumberFormat("pt-BR").format(totalSales)}
-                        icon={ShoppingBag}
-                        loading={metricsLoading}
-                    />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <CompactKPICard
                         title="Preço médio por unidade"
                         value={new Intl.NumberFormat("pt-BR", {
@@ -245,24 +282,6 @@ export default function MercadoLivre() {
                             maximumFractionDigits: 2,
                         }).format(averageUnitPrice || 0)}
                         icon={DollarSign}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Visitas"
-                        value={new Intl.NumberFormat("pt-BR").format(totalVisits)}
-                        icon={Eye}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Quantidade de vendas"
-                        value={new Intl.NumberFormat("pt-BR").format(totalOrders)}
-                        icon={ShoppingBag}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Conversão"
-                        value={conversionRate ? `${conversionRate.toFixed(2)}%` : "-"}
-                        icon={TrendingUp}
                         loading={metricsLoading}
                     />
                     <CompactKPICard
@@ -276,6 +295,12 @@ export default function MercadoLivre() {
                         loading={metricsLoading}
                     />
                     <CompactKPICard
+                        title="Quantidade de vendas"
+                        value={new Intl.NumberFormat("pt-BR").format(totalOrders)}
+                        icon={Package}
+                        loading={metricsLoading}
+                    />
+                    <CompactKPICard
                         title="Vendas canceladas"
                         value={new Intl.NumberFormat("pt-BR").format(canceledOrders)}
                         icon={AlertCircle}
@@ -284,103 +309,32 @@ export default function MercadoLivre() {
                 </div>
             )}
 
-            {/* Métricas Secundárias */}
-            <Card className="border-border/50 shadow-sm">
-                <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
-                    <CardTitle className="text-base font-semibold">Métricas de Performance</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                        <MetricCard
-                            label="Taxa de Conversão"
-                            value={conversionRate ? `${conversionRate.toFixed(2)}%` : "-"}
-                            loading={metricsLoading}
+            {/* Main Content Layout - 2 Columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                {/* Main Column (Sales & Products) - 2/3 width */}
+                <div className="lg:col-span-8 space-y-6">
+                    {/* Top Products Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <TopProductsChart
+                            products={products?.items || []}
+                            loading={productsLoading}
+                            type="sales"
                         />
-                        <MetricCard
-                            label="Perguntas Recebidas"
-                            value={totalQuestions ? new Intl.NumberFormat("pt-BR").format(totalQuestions) : "-"}
-                            loading={questionsLoading}
-                        />
-                        <MetricCard
-                            label="Ticket Médio"
-                            value={
-                                totalSales > 0
-                                    ? new Intl.NumberFormat("pt-BR", {
-                                        style: "currency",
-                                        currency: "BRL",
-                                    }).format(totalRevenue / totalSales)
-                                    : "-"
-                            }
-                            loading={metricsLoading}
-                        />
-                        <MetricCard
-                            label="Taxa de Resposta"
-                            value={metrics?.responseRate ? `${metrics.responseRate.toFixed(1)}%` : "-"}
-                            loading={metricsLoading}
-                        />
-                        <MetricCard
-                            label="Reputação"
-                            value={metrics?.reputation ?? "-"}
-                            loading={metricsLoading}
+                        <TopProductsChart
+                            products={products?.items || []}
+                            loading={productsLoading}
+                            type="visits"
                         />
                     </div>
-                </CardContent>
-            </Card>
 
-            {/* Comparação de Períodos */}
-            <Card className="border-border/50 shadow-sm">
-                <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4" />
-                        Comparação vs Período Anterior ({dateRange} dias)
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <MetricComparison
-                            title="Receita"
-                            currentValue={totalRevenue}
-                            previousValue={previousMetrics?.totalRevenue || 0}
-                            format="currency"
-                            loading={metricsLoading || previousMetricsLoading}
-                            icon={<DollarSign className="h-4 w-4" />}
-                        />
-                        <MetricComparison
-                            title="Vendas"
-                            currentValue={totalSales}
-                            previousValue={previousMetrics?.totalSales || 0}
-                            format="number"
-                            loading={metricsLoading || previousMetricsLoading}
-                            icon={<ShoppingBag className="h-4 w-4" />}
-                        />
-                        <MetricComparison
-                            title="Visitas"
-                            currentValue={totalVisits}
-                            previousValue={previousMetrics?.totalVisits || 0}
-                            format="number"
-                            loading={metricsLoading || previousMetricsLoading}
-                            icon={<Eye className="h-4 w-4" />}
-                        />
-                        <MetricComparison
-                            title="Taxa de Conversão"
-                            currentValue={conversionRate}
-                            previousValue={previousMetrics?.conversionRate || 0}
-                            format="percentage"
-                            loading={metricsLoading || previousMetricsLoading}
-                            icon={<TrendingUp className="h-4 w-4" />}
-                        />
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Layout Principal em 2 Colunas */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Coluna Esquerda - mais ampla */}
-                <div className="lg:col-span-9 space-y-6">
-                    {/* Gráfico de Vendas Diárias (Real) */}
+                    {/* Vendas Diárias */}
                     <Card className="border-border/50 shadow-sm">
-                        <CardHeader className="border-b border-border/50 bg-muted/20">
-                            <CardTitle className="text-base font-semibold">Vendas Diárias</CardTitle>
+                        <CardHeader className="border-b border-border/50 bg-muted/10 pb-4">
+                            <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4 text-blue-500" />
+                                Vendas Diárias
+                            </CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
                             <DailySalesChart
@@ -389,204 +343,172 @@ export default function MercadoLivre() {
                             />
                         </CardContent>
                     </Card>
-
-                    {/* Funil de Conversão */}
-                    <ConversionFunnel
-                        visits={totalVisits}
-                        questions={totalQuestions}
-                        sales={totalSales}
-                        loading={metricsLoading || questionsLoading}
-                    />
-
-                    {/* Grid com 2 colunas para Top Products */}
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {/* Top 5 Produtos por Vendas */}
-                        <TopProductsChart
-                            products={products?.items || []}
-                            loading={productsLoading}
-                            type="sales"
-                        />
-
-                        {/* Top 5 Produtos por Visitas */}
-                        <TopProductsChart
-                            products={products?.items || []}
-                            loading={productsLoading}
-                            type="visits"
-                        />
-                    </div>
-
-
-
-                    {/* Heatmap de Vendas */}
-                    <SalesHeatmap
-                        data={dailySales?.dailySales || []}
-                        loading={dailySalesLoading}
-                    />
                 </div>
 
-                {/* Coluna Direita - ajustada */}
-                <div className="lg:col-span-3 space-y-6">
-                    {/* Análise Financeira */}
+                {/* Side Column (Financials & Stock) - 1/3 width */}
+                <div className="lg:col-span-4 space-y-6">
                     <FinancialAnalysis
                         totalRevenue={totalRevenue}
                         totalSales={totalSales}
                         loading={metricsLoading}
                     />
 
-                    {/* Alertas de Estoque Baixo */}
                     <LowStockAlerts
                         products={products?.items || []}
                         loading={productsLoading}
                         threshold={5}
                     />
+                </div>
+            </div>
 
-                    {/* Status da Integração */}
-                    <Card className="border-border/50 shadow-sm">
-                        <CardHeader className="border-b border-border/50 bg-muted/20">
-                            <CardTitle className="text-base font-semibold">Status da Integração</CardTitle>
+            {/* Bottom Section (Status & Operations) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Period Comparison - 2/3 width */}
+                <div className="lg:col-span-8">
+                    <Card className="border-border/50 shadow-sm h-full flex flex-col">
+                        <CardHeader className="pb-3 border-b border-border/50 bg-muted/10">
+                            <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                <RefreshCcw className="h-4 w-4 text-purple-500" />
+                                Comparação vs Período Anterior ({dateRange} dias)
+                            </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-6">
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                                    <div className="flex items-center gap-2">
-                                        <div className="h-3 w-3 bg-green-500 rounded-full animate-pulse" />
-                                        <span className="text-sm font-medium">Conectado</span>
-                                    </div>
-                                    <Button variant="ghost" size="sm">
-                                        Configurar
-                                    </Button>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Última sincronização:</span>
-                                        <span className="font-medium">{metrics?.lastSync ?? "Nunca"}</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">ID do Vendedor:</span>
-                                        <span className="font-medium font-mono">{metrics?.sellerId ?? "-"}</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Produtos sincronizados:</span>
-                                        <span className="font-medium">{products?.totalCount ?? 0}</span>
-                                    </div>
-                                </div>
+                        <CardContent className="p-6 flex-1 flex flex-col justify-center">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                <MetricComparison
+                                    title="Receita"
+                                    currentValue={totalRevenue}
+                                    previousValue={previousMetrics?.totalRevenue || 0}
+                                    format="currency"
+                                    loading={metricsLoading || previousMetricsLoading}
+                                    icon={<DollarSign className="h-4 w-4" />}
+                                />
+                                <MetricComparison
+                                    title="Vendas"
+                                    currentValue={totalSales}
+                                    previousValue={previousMetrics?.totalSales || 0}
+                                    format="number"
+                                    loading={metricsLoading || previousMetricsLoading}
+                                    icon={<ShoppingBag className="h-4 w-4" />}
+                                />
+                                <MetricComparison
+                                    title="Visitas"
+                                    currentValue={totalVisits}
+                                    previousValue={previousMetrics?.totalVisits || 0}
+                                    format="number"
+                                    loading={metricsLoading || previousMetricsLoading}
+                                    icon={<Eye className="h-4 w-4" />}
+                                />
+                                <MetricComparison
+                                    title="Taxa de Conversão"
+                                    currentValue={conversionRate}
+                                    previousValue={previousMetrics?.conversionRate || 0}
+                                    format="percentage"
+                                    loading={metricsLoading || previousMetricsLoading}
+                                    icon={<TrendingUp className="h-4 w-4" />}
+                                />
                             </div>
                         </CardContent>
                     </Card>
+                </div>
 
-                    {/* Perguntas Recentes */}
-                    <Card className="border-border/50 shadow-sm">
-                        <CardHeader className="border-b border-border/50 bg-muted/20">
+                {/* Status Column - 1/3 width */}
+                <div className="lg:col-span-4 space-y-6">
+                    {/* Recent Questions */}
+                    <Card className="border-border/50 shadow-sm flex flex-col">
+                        <CardHeader className="border-b border-border/50 bg-muted/10 pb-3">
                             <CardTitle className="text-base font-semibold flex items-center gap-2">
-                                <MessageCircle className="h-4 w-4" />
+                                <MessageCircle className="h-4 w-4 text-blue-500" />
                                 Perguntas Recentes
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-6">
+                        <CardContent className="p-4 flex-1">
                             {questionsLoading ? (
                                 <div className="space-y-3">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Skeleton key={i} className="h-20 w-full" />
+                                    {[...Array(3)].map((_, i) => (
+                                        <Skeleton key={i} className="h-16 w-full" />
                                     ))}
                                 </div>
                             ) : questions?.items && questions.items.length > 0 ? (
-                                <div className="space-y-4">
-                                    {questions.items.slice(0, 5).map((question: any) => (
+                                <div className="space-y-3">
+                                    {questions.items.slice(0, 3).map((question: any) => (
                                         <div
                                             key={question.id}
-                                            className="p-3 bg-muted/30 rounded-lg border border-border/50"
+                                            className="p-3 bg-muted/30 rounded-lg border border-border/50 transition-colors hover:bg-muted/50"
                                         >
-                                            <div className="flex items-start justify-between mb-2">
-                                                <span className="text-xs text-muted-foreground">
+                                            <div className="flex items-start justify-between mb-1">
+                                                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                                                     {question.date}
                                                 </span>
                                                 {question.answered ? (
-                                                    <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded">
-                                                        Respondida
-                                                    </span>
+                                                    <div className="h-1.5 w-1.5 rounded-full bg-green-500" title="Respondida" />
                                                 ) : (
-                                                    <span className="text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-2 py-0.5 rounded">
-                                                        Pendente
-                                                    </span>
+                                                    <div className="h-1.5 w-1.5 rounded-full bg-yellow-500 animate-pulse" title="Pendente" />
                                                 )}
                                             </div>
-                                            <p className="text-sm font-medium mb-1">{question.text}</p>
-                                            <p className="text-xs text-muted-foreground truncate">
-                                                {question.productTitle}
-                                            </p>
+                                            <p className="text-xs font-medium mb-1 line-clamp-2">{question.text}</p>
                                         </div>
                                     ))}
+                                    <Button variant="ghost" className="w-full text-xs h-8" size="sm">
+                                        Ver todas
+                                    </Button>
                                 </div>
                             ) : (
-                                <div className="text-center py-8">
-                                    <MessageCircle className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nenhuma pergunta recente</p>
+                                <div className="text-center py-8 h-full flex flex-col items-center justify-center">
+                                    <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                                    <p className="text-sm text-muted-foreground">Nenhuma pergunta</p>
                                 </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    {/* Ações Rápidas */}
-                    <Card className="border-border/50 shadow-sm">
-                        <CardHeader className="border-b border-border/50 bg-muted/20">
-                            <CardTitle className="text-base font-semibold">Ações Rápidas</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-6">
-                            <div className="space-y-2">
-                                <Button variant="outline" className="w-full justify-start" asChild>
-                                    <a href="https://www.mercadolivre.com.br/" target="_blank" rel="noopener noreferrer">
-                                        <ExternalLink className="h-4 w-4 mr-2" />
-                                        Abrir Mercado Livre
-                                    </a>
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                        const url = 'https://www.mercadolivre.com.br/vendas/perguntas';
-                                        window.open(url, '_blank');
-                                    }}
-                                >
-                                    <MessageCircle className="h-4 w-4 mr-2" />
-                                    Responder Perguntas
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Avisos/Alertas */}
-                    {metrics?.alerts && metrics.alerts.length > 0 && (
-                        <Card className="border-orange-200 dark:border-orange-800 shadow-sm">
-                            <CardHeader className="border-b border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20">
-                                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                                    <AlertCircle className="h-4 w-4 text-orange-600" />
-                                    Avisos
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-6">
-                                <div className="space-y-3">
-                                    {metrics.alerts.map((alert: any, index: number) => (
-                                        <div
-                                            key={index}
-                                            className="p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800"
-                                        >
-                                            <p className="text-sm font-medium text-orange-900 dark:text-orange-100">
-                                                {alert.title}
-                                            </p>
-                                            <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
-                                                {alert.message}
-                                            </p>
-                                        </div>
-                                    ))}
-                                </div>
+                    {/* Status Sections Grid */}
+                    <div className="flex gap-4">
+                        <Card className="border-border/50 shadow-sm flex-1">
+                            <CardContent className="p-4 flex flex-col items-center justify-center text-center gap-2">
+                                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                                <span className="text-xs font-medium text-green-700 dark:text-green-400">Integração Ativa</span>
+                                <span className="text-[10px] text-muted-foreground">{metrics?.lastSync ? metrics.lastSync.split(' ')[1] : ''}</span>
                             </CardContent>
                         </Card>
-                    )}
+                        <Card className="border-border/50 shadow-sm flex-1 hover:bg-muted/50 cursor-pointer" onClick={() => window.open('https://www.mercadolivre.com.br/vendas/perguntas', '_blank')}>
+                            <CardContent className="p-4 flex flex-col items-center justify-center text-center gap-2">
+                                <MessageCircle className="h-4 w-4 text-blue-500" />
+                                <span className="text-xs font-medium">Responder</span>
+                                <span className="text-[10px] text-muted-foreground">Perguntas</span>
+                            </CardContent>
+                        </Card>
+                    </div>
                 </div>
             </div>
 
-
+            {/* Avisos/Alertas Full Width if any */}
+            {metrics?.alerts && metrics.alerts.length > 0 && (
+                <Card className="border-orange-200 dark:border-orange-900 shadow-sm">
+                    <CardHeader className="border-b border-orange-100 dark:border-orange-900/50 bg-orange-50 dark:bg-orange-900/10">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2 text-orange-800 dark:text-orange-400">
+                            <AlertCircle className="h-4 w-4" />
+                            Avisos do Sistema
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {metrics.alerts.map((alert: any, index: number) => (
+                                <div
+                                    key={index}
+                                    className="p-3 bg-background rounded-lg border border-orange-100 dark:border-orange-900/50 shadow-sm"
+                                >
+                                    <p className="text-sm font-medium text-orange-900 dark:text-orange-200">
+                                        {alert.title}
+                                    </p>
+                                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">
+                                        {alert.message}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 }

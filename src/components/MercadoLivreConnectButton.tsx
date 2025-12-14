@@ -7,11 +7,13 @@ import { useToast } from "@/hooks/use-toast";
 interface MercadoLivreConnectButtonProps {
     size?: "default" | "sm" | "lg" | "icon";
     variant?: "default" | "outline" | "secondary" | "ghost" | "link" | "destructive";
+    className?: string;
 }
 
 export default function MercadoLivreConnectButton({
     size = "default",
-    variant = "default"
+    variant = "default",
+    className
 }: MercadoLivreConnectButtonProps) {
     const { currentWorkspace } = useWorkspace();
     const { toast } = useToast();
@@ -53,6 +55,7 @@ export default function MercadoLivreConnectButton({
             disabled={isLoading || !currentWorkspace?.id}
             size={size}
             variant={variant}
+            className={className}
         >
             {isLoading ? (
                 <>

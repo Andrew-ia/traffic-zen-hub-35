@@ -16,6 +16,7 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     const [mlFeePercent, setMlFeePercent] = useState(16.5); // Taxa ML clássico
     const [shippingCostPercent, setShippingCostPercent] = useState(10); // Estimativa de frete
     const [packagingCostPercent, setPackagingCostPercent] = useState(3); // Embalagem
+    const [productCostPercent, setProductCostPercent] = useState(50); // Custo dos produtos
     const [showCalculator, setShowCalculator] = useState(false);
 
     if (loading) {
@@ -38,14 +39,15 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     const mlFee = totalRevenue * (mlFeePercent / 100);
     const shippingCost = totalRevenue * (shippingCostPercent / 100);
     const packagingCost = totalRevenue * (packagingCostPercent / 100);
-    const totalCosts = mlFee + shippingCost + packagingCost;
+    const productCost = totalRevenue * (productCostPercent / 100);
+    const totalCosts = mlFee + shippingCost + packagingCost + productCost;
     const netRevenue = totalRevenue - totalCosts;
     const netMargin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
 
     // Projeção mensal (baseado em 30 dias)
     const dailyRevenue = totalRevenue / 30;
     const monthlyProjection = dailyRevenue * 30;
-    const monthlyNetProjection = monthlyProjection - (monthlyProjection * (mlFeePercent + shippingCostPercent + packagingCostPercent) / 100);
+    const monthlyNetProjection = monthlyProjection - (monthlyProjection * (mlFeePercent + shippingCostPercent + packagingCostPercent + productCostPercent) / 100);
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
@@ -117,6 +119,19 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                                     className="h-8 text-sm"
                                 />
                             </div>
+                            <div>
+                                <Label htmlFor="productCost" className="text-xs">
+                                    Custo dos Produtos (% da receita)
+                                </Label>
+                                <Input
+                                    id="productCost"
+                                    type="number"
+                                    step="0.1"
+                                    value={productCostPercent}
+                                    onChange={(e) => setProductCostPercent(Number(e.target.value))}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
                         </div>
                     </div>
                 )}
@@ -154,6 +169,12 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                                 <span className="text-muted-foreground">Embalagem ({packagingCostPercent}%)</span>
                                 <span className="font-medium text-red-600 dark:text-red-400">
                                     -{formatCurrency(packagingCost)}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
+                                <span className="text-muted-foreground">Custo dos Produtos ({productCostPercent}%)</span>
+                                <span className="font-medium text-red-600 dark:text-red-400">
+                                    -{formatCurrency(productCost)}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/50 font-semibold border-t border-border/50 mt-2 pt-2">

@@ -47,7 +47,7 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
             value: sales,
             icon: ShoppingBag,
             color: "bg-green-500",
-            percentage: visitToSaleRate,
+            percentage: questions > 0 ? questionToSaleRate : visitToSaleRate,
         },
     ];
 
@@ -77,7 +77,7 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                                         </div>
                                         {index > 0 && (
                                             <div className="text-xs text-muted-foreground">
-                                                {stage.percentage.toFixed(1)}% do total
+                                                {(index === 1 ? visitToQuestionRate : visitToSaleRate).toFixed(1)}% do total
                                             </div>
                                         )}
                                     </div>
@@ -105,7 +105,9 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                                             <span className="font-medium">
                                                 {index === 0
                                                     ? `${visitToQuestionRate.toFixed(1)}% fazem perguntas`
-                                                    : `${questionToSaleRate.toFixed(1)}% convertem`}
+                                                    : (questions > 0
+                                                        ? `${questionToSaleRate.toFixed(1)}% compram`
+                                                        : `${visitToSaleRate.toFixed(1)}% compram (sem perguntas no período)`)}
                                             </span>
                                         </div>
                                     </div>
@@ -127,7 +129,7 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                         <div>
                             <div className="text-xs text-muted-foreground mb-1">Taxa Pergunta → Venda</div>
                             <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                                {questionToSaleRate.toFixed(1)}%
+                                {questions > 0 ? `${questionToSaleRate.toFixed(1)}%` : "—"}
                             </div>
                         </div>
                         <div>

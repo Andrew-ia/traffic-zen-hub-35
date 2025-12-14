@@ -41,7 +41,7 @@ export function CompactKPICard({ title, value, icon: Icon, trend, trendUp, loadi
           <>
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">{title}</p>
-              <div className="text-2xl font-bold tracking-tight">{value}</div>
+              <div className="text-xl font-bold tracking-tight">{value}</div>
               {trend && (
                 <div className={`text-xs font-medium flex items-center gap-1 ${trendUp ? "text-green-600" : "text-red-600"}`}>
                   <span>{trendUp ? "↑" : "↓"}</span>
@@ -49,8 +49,8 @@ export function CompactKPICard({ title, value, icon: Icon, trend, trendUp, loadi
                 </div>
               )}
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${colors.bg} ${colors.text}`}>
-              <Icon className="h-5 w-5" />
+            <div className={`h-8 w-8 rounded-full flex items-center justify-center ${colors.bg} ${colors.text}`}>
+              <Icon className="h-4 w-4" />
             </div>
           </>
         )}

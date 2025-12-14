@@ -116,15 +116,17 @@ export interface MercadoLivreQuestion {
  * Hook para buscar métricas do Mercado Livre
  */
 export function useMercadoLivreMetrics(workspaceId: string | null, days: number = 30, range?: { dateFrom?: string; dateTo?: string }) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     return useQuery({
-        queryKey: ["mercadolivre", "metrics", workspaceId, days, range?.dateFrom, range?.dateTo],
+        queryKey: ["mercadolivre", "metrics", effectiveWorkspaceId, days, range?.dateFrom, range?.dateTo],
         queryFn: async (): Promise<MercadoLivreMetrics> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
             const params = new URLSearchParams({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
                 days: String(days),
                 ...(range?.dateFrom ? { dateFrom: range.dateFrom } : {}),
                 ...(range?.dateTo ? { dateTo: range.dateTo } : {}),
@@ -138,7 +140,7 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
 
             return response.json();
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId,
         staleTime: 5 * 60 * 1000, // 5 minutos
     });
 }
@@ -248,19 +250,21 @@ export function useMercadoLivreQuestions(
     workspaceId: string | null,
     days: number = 30
 ) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     return useQuery({
-        queryKey: ["mercadolivre", "questions", workspaceId, days],
+        queryKey: ["mercadolivre", "questions", effectiveWorkspaceId, days],
         queryFn: async (): Promise<{
             items: MercadoLivreQuestion[];
             total: number;
             unanswered: number;
         }> => {
-            if (!workspaceId) {
+            if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
             const response = await fetch(
-                `/api/integrations/mercadolivre/questions?workspaceId=${workspaceId}&days=${days}`,
+                `/api/integrations/mercadolivre/questions?workspaceId=${effectiveWorkspaceId}&days=${days}`,
                 { headers: getAuthHeaders() }
             );
 
@@ -270,7 +274,7 @@ export function useMercadoLivreQuestions(
 
             return response.json();
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId,
         staleTime: 2 * 60 * 1000, // 2 minutos (perguntas precisam de atualização mais frequente)
     });
 }

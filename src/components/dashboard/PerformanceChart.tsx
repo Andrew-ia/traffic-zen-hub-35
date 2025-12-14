@@ -99,6 +99,7 @@ function MiniChart({ data, dataKey, title, color, icon, formatter = formatNumber
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "var(--radius)",
                 fontSize: "12px",
+                color: "hsl(var(--foreground))",
               }}
               formatter={(value: number) => [formatter(value), title]}
               labelFormatter={(label) => label}

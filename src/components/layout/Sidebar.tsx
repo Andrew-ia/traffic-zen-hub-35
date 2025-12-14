@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { mainNavigation, NavigationEntry } from "@/data/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useResponsive } from "@/hooks/use-responsive";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -19,6 +19,23 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
   const location = useLocation();
   const { isMobile } = useResponsive();
   const { user, hasAccess } = useAuth();
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem("trafficpro.nav.groups");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return typeof parsed === "object" && parsed ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  const saveGroupOpen = (next: Record<string, boolean>) => {
+    setGroupOpen(next);
+    try {
+      localStorage.setItem("trafficpro.nav.groups", JSON.stringify(next));
+    } catch {
+      void 0;
+    }
+  };
 
   // Close sidebar on route change for mobile
   useEffect(() => {
@@ -60,28 +77,43 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
           {mainNavigation.map((entry: NavigationEntry) => {
             if (!user) return null;
             if ("children" in entry) {
+              const activeChild = entry.children.some((c) => location.pathname.startsWith(c.href));
               const parentAllowed = hasAccess(entry.href);
               const childrenAllowed = entry.children.filter((child) => hasAccess(child.href));
               if (!parentAllowed && childrenAllowed.length === 0) return null;
+              const isOpenGroup = groupOpen[entry.href] ?? true;
               return (
                 <div key={entry.name} className="space-y-1">
-                  <NavLink
-                    to={entry.href}
-                    end={entry.href === "/" || entry.href === "/campaigns"}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
-                        isActive
-                          ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
-                          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                      )
-                    }
-                    onClick={() => isMobile && onClose()}
+                  <div
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all",
+                      activeChild ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                    )}
                   >
-                    <entry.icon className="h-5 w-5 flex-shrink-0" />
-                    {!isCollapsed && <span className="truncate">{entry.name}</span>}
-                  </NavLink>
-                  {childrenAllowed.length > 0 && (
+                    <NavLink
+                      to={entry.href}
+                      end={entry.href === "/" || entry.href === "/campaigns"}
+                      className="flex items-center gap-3 flex-1"
+                      onClick={() => isMobile && onClose()}
+                    >
+                      <entry.icon className="h-5 w-5 flex-shrink-0" />
+                      {!isCollapsed && <span className="truncate">{entry.name}</span>}
+                    </NavLink>
+                    {!isCollapsed && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          const next = { ...groupOpen, [entry.href]: !isOpenGroup };
+                          saveGroupOpen(next);
+                        }}
+                      >
+                        {isOpenGroup ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </Button>
+                    )}
+                  </div>
+                  {childrenAllowed.length > 0 && isOpenGroup && (
                     <div className="ml-6 space-y-1">
                       {childrenAllowed.map((child) => (
                         <NavLink

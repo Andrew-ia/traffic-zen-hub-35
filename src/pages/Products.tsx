@@ -35,6 +35,7 @@ import {
     Search,
     ExternalLink,
     TrendingUp,
+    Target,
     AlertCircle,
     Truck,
     Box,
@@ -44,12 +45,14 @@ import {
     DownloadCloud
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
 export default function Products() {
     const { currentWorkspace } = useWorkspace();
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const workspaceId = currentWorkspace?.id || fallbackWorkspaceId;
     const { toast } = useToast();
+    const navigate = useNavigate();
 
     const [search, setSearch] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -504,6 +507,15 @@ export default function Products() {
                                                                 >
                                                                     <ExternalLink className="h-3 w-3 mr-1" />
                                                                     Abrir
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 text-xs text-purple-600 hover:text-purple-700"
+                                                                    onClick={() => navigate(`/mercado-livre-analyzer?mlb=${product.id}`)}
+                                                                >
+                                                                    <Target className="h-3 w-3 mr-1" />
+                                                                    Analisar
                                                                 </Button>
                                                                 <DialogTrigger asChild>
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs">

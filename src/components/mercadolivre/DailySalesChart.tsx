@@ -106,6 +106,7 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                         backgroundColor: "hsl(var(--background))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--foreground))",
                     }}
                     labelStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(value: any, name: string) => {

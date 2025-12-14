@@ -80,6 +80,35 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
         return new Intl.NumberFormat("pt-BR").format(value);
     };
 
+    function TopProductsTooltip({ active, payload }: any) {
+        if (!active || !payload || !payload.length) return null;
+        const d = payload[0]?.payload;
+        if (!d) return null;
+        return (
+            <div
+                style={{
+                    backgroundColor: "hsl(var(--background))",
+                    color: "hsl(var(--foreground))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    padding: "10px",
+                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.3)",
+                }}
+            >
+                <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "6px" }}>{d.fullName}</div>
+                <div style={{ fontSize: "12px", lineHeight: 1.6 }}>
+                    <div>Vendas: {new Intl.NumberFormat("pt-BR").format(d.sales)}</div>
+                    <div>Visitas: {new Intl.NumberFormat("pt-BR").format(d.visits)}</div>
+                    <div>
+                        Receita:{" "}
+                        {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(d.revenue)}
+                    </div>
+                    {typeof d.conversionRate === "number" && <div>Conversão: {d.conversionRate.toFixed(2)}%</div>}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <Card className="border-border/50 shadow-sm">
             <CardHeader className="border-b border-border/50 bg-muted/20">
@@ -101,36 +130,7 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
                                 fontSize={12}
                                 width={150}
                             />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: "hsl(var(--background))",
-                                    border: "1px solid hsl(var(--border))",
-                                    borderRadius: "8px",
-                                }}
-                                formatter={(value: any, name: string, props: any) => {
-                                    const { payload } = props;
-                                    return [
-                                        <div key="tooltip" className="space-y-1">
-                                            <div className="font-semibold text-sm">{payload.fullName}</div>
-                                            <div className="text-xs space-y-0.5">
-                                                <div>Vendas: {new Intl.NumberFormat("pt-BR").format(payload.sales)}</div>
-                                                <div>Visitas: {new Intl.NumberFormat("pt-BR").format(payload.visits)}</div>
-                                                <div>
-                                                    Receita:{" "}
-                                                    {new Intl.NumberFormat("pt-BR", {
-                                                        style: "currency",
-                                                        currency: "BRL",
-                                                    }).format(payload.revenue)}
-                                                </div>
-                                                {payload.conversionRate !== undefined && (
-                                                    <div>Conversão: {payload.conversionRate.toFixed(2)}%</div>
-                                                )}
-                                            </div>
-                                        </div>,
-                                    ];
-                                }}
-                                labelFormatter={() => ""}
-                            />
+                            <Tooltip content={<TopProductsTooltip />} />
                             <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                                 {chartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={colors[index]} />

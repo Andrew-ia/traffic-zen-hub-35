@@ -5,6 +5,7 @@ import PDFDocument from "pdfkit";
 import * as XLSX from "xlsx";
 import { getPool } from "../../config/database.js";
 import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
+import { resolveWorkspaceId } from "../../utils/workspace.js";
 // import { authMiddleware } from "../auth";
 
 const router = Router();
@@ -750,19 +751,19 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
  */
 router.get("/metrics", async (req, res) => {
     try {
-        const { workspaceId, days = 30, dateFrom, dateTo } = req.query as {
-            workspaceId?: string;
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        const { days = 30, dateFrom, dateTo } = req.query as {
             days?: string | number;
             dateFrom?: string;
             dateTo?: string;
         };
 
-        if (!workspaceId) {
+        if (!targetWorkspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
         const metrics = await fetchMetricsInternal(
-            String(workspaceId),
+            String(targetWorkspaceId),
             Number(days),
             dateFrom,
             dateTo
@@ -822,16 +823,17 @@ const parseDimensions = (dimensions?: string) => {
 
 router.get("/products", async (req, res) => {
     try {
-        const { workspaceId, category } = req.query;
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        const { category } = req.query;
         const page = Math.max(1, Number((req.query as any).page) || 1);
         const limit = Math.min(50, Math.max(1, Number((req.query as any).limit) || 20));
         const offset = (page - 1) * limit;
 
-        if (!workspaceId) {
+        if (!targetWorkspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const credentials = await getMercadoLivreCredentials(workspaceId as string);
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
 
         if (!credentials) {
             return res.status(401).json({
@@ -890,7 +892,6 @@ router.get("/products", async (req, res) => {
                         },
                     }
                 );
-
                 const item = itemResponse.data;
                 detailsMap.set(itemId, item);
 
@@ -2180,13 +2181,14 @@ router.get("/search/advanced", async (req, res) => {
  */
 router.get("/questions", async (req, res) => {
     try {
-        const { workspaceId, days = 30 } = req.query;
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        const { days = 30 } = req.query as any;
 
-        if (!workspaceId) {
+        if (!targetWorkspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const credentials = await getMercadoLivreCredentials(workspaceId as string);
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
 
         if (!credentials) {
             return res.status(401).json({
@@ -5677,8 +5679,17 @@ router.get("/orders/daily-sales", async (req, res) => {
 
             // Filtro RIGOROSO de data (comparação por timestamp)
             const orderTimestamp = dateCreated.getTime();
-            const dateFromTimestamp = dateFrom ? new Date(String(dateFrom)).getTime() : 0;
-            const dateToTimestamp = dateTo ? new Date(String(dateTo)).getTime() : Date.now();
+            const toLocalDayTimestamp = (dateStr: string, endOfDay: boolean) => {
+                const [y, m, d] = String(dateStr).split("-").map((n) => Number(n));
+                const dt = endOfDay ? new Date(y, (m - 1), d, 23, 59, 59, 999) : new Date(y, (m - 1), d, 0, 0, 0, 0);
+                return dt.getTime();
+            };
+            const dateFromTimestamp = dateFrom ? toLocalDayTimestamp(String(dateFrom), false) : 0;
+            const dateToTimestamp = dateTo ? toLocalDayTimestamp(String(dateTo), true) : (() => {
+                const now = new Date();
+                now.setHours(23, 59, 59, 999);
+                return now.getTime();
+            })();
 
             if (orderTimestamp < dateFromTimestamp || orderTimestamp > dateToTimestamp) {
                 console.log(`[Daily Sales] Pedido ${order.id} FORA DO PERÍODO: ${order.date_created} (período: ${dateFrom} - ${dateTo})`);

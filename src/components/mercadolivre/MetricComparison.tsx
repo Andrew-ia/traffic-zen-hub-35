@@ -71,7 +71,7 @@ export function MetricComparison({
                 {icon}
                 <span>{title}</span>
             </div>
-            <div className="text-2xl font-bold">{formatValue(currentValue)}</div>
+            <div className="text-xl font-bold">{formatValue(currentValue)}</div>
             <div className={`flex items-center gap-1.5 text-sm ${getTrendColor()}`}>
                 <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${getTrendBgColor()}`}>
                     {getTrendIcon()}
