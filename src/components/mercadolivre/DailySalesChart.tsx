@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import {
-    LineChart,
-    Line,
+    ComposedChart,
+    Area,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -81,8 +81,22 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
             </div>
 
             <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <ComposedChart data={chartData} margin={{ top: 10, right: 24, left: 0, bottom: 10 }}>
+                <defs>
+                    <linearGradient id="gradSales" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6D5EF7" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#6D5EF7" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#58C4DC" stopOpacity={0.30} />
+                        <stop offset="100%" stopColor="#58C4DC" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradOrders" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#F5D76E" stopOpacity={0.30} />
+                        <stop offset="100%" stopColor="#F5D76E" stopOpacity={0} />
+                    </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 6" className="stroke-muted" />
                 <XAxis
                     dataKey="dateFormatted"
                     className="text-xs"
@@ -130,7 +144,8 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     }}
                 />
                 <Legend
-                    wrapperStyle={{ paddingTop: "20px" }}
+                    wrapperStyle={{ paddingTop: "16px" }}
+                    iconType="circle"
                     formatter={(value) => {
                         const labels: Record<string, string> = {
                             sales: "Unidades Vendidas",
@@ -140,38 +155,41 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                         return labels[value] || value;
                     }}
                 />
-                <Line
+                <Area
                     yAxisId="left"
                     type="monotone"
                     dataKey="sales"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    dot={{ fill: "hsl(var(--primary))", r: 4 }}
-                    activeDot={{ r: 6 }}
+                    stroke="#6D5EF7"
+                    strokeWidth={2.5}
+                    fill="url(#gradSales)"
+                    dot={{ r: 3, stroke: "#6D5EF7", fill: "transparent", strokeWidth: 2 }}
+                    activeDot={{ r: 5 }}
                     name="sales"
                 />
-                <Line
+                <Area
                     yAxisId="right"
                     type="monotone"
                     dataKey="revenue"
-                    stroke="hsl(142.1 76.2% 36.3%)"
-                    strokeWidth={2}
-                    dot={{ fill: "hsl(142.1 76.2% 36.3%)", r: 4 }}
-                    activeDot={{ r: 6 }}
+                    stroke="#58C4DC"
+                    strokeWidth={2.5}
+                    fill="url(#gradRevenue)"
+                    dot={{ r: 3, stroke: "#58C4DC", fill: "transparent", strokeWidth: 2 }}
+                    activeDot={{ r: 5 }}
                     name="revenue"
                 />
-                <Line
+                <Area
                     yAxisId="left"
                     type="monotone"
                     dataKey="orders"
-                    stroke="hsl(47.9 95.8% 53.1%)"
+                    stroke="#F5D76E"
                     strokeWidth={2}
-                    dot={{ fill: "hsl(47.9 95.8% 53.1%)", r: 4 }}
-                    activeDot={{ r: 6 }}
+                    fill="url(#gradOrders)"
+                    dot={{ r: 3, stroke: "#F5D76E", fill: "transparent", strokeWidth: 2 }}
+                    activeDot={{ r: 5 }}
                     name="orders"
                 />
-            </LineChart>
-        </ResponsiveContainer>
+            </ComposedChart>
+            </ResponsiveContainer>
         </div>
     );
 }

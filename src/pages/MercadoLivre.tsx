@@ -157,7 +157,7 @@ export default function MercadoLivre() {
     const canceledOrders = metrics?.canceledOrders ?? 0;
 
     return (
-        <div className="space-y-8 pb-8 animate-in fade-in duration-500">
+        <div className="space-y-6 pb-6 animate-in fade-in duration-500">
             {/* Header */}
             <div className="flex flex-col gap-4 sm:gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border/40 pb-6">
                 <div className="space-y-1">
@@ -333,37 +333,17 @@ export default function MercadoLivre() {
                             />
                         </CardContent>
                     </Card>
-                </div>
 
-                {/* Side Column (Financials & Stock) - 1/3 width */}
-                <div className="lg:col-span-4 space-y-6">
-                    <FinancialAnalysis
-                        totalRevenue={totalRevenue}
-                        totalSales={totalSales}
-                        loading={metricsLoading}
-                    />
-
-                    <LowStockAlerts
-                        products={products?.items || []}
-                        loading={productsLoading}
-                        threshold={5}
-                    />
-                </div>
-            </div>
-
-            {/* Bottom Section (Status & Operations) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Period Comparison - 2/3 width */}
-                <div className="lg:col-span-8">
-                    <Card className="border-border/50 shadow-sm h-full flex flex-col">
+                    {/* Comparação vs Período Anterior - movido para logo abaixo das vendas diárias */}
+                    <Card className="border-border/50 shadow-sm">
                         <CardHeader className="pb-3 border-b border-border/50 bg-muted/10">
                             <CardTitle className="text-base font-semibold flex items-center gap-2">
                                 <RefreshCcw className="h-4 w-4 text-purple-500" />
                                 Comparação vs Período Anterior ({dateRange} dias)
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-6 flex-1 flex flex-col justify-center">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <CardContent className="p-6">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <MetricComparison
                                     title="Receita"
                                     currentValue={totalRevenue}
@@ -401,9 +381,21 @@ export default function MercadoLivre() {
                     </Card>
                 </div>
 
-                {/* Status Column - 1/3 width */}
+                {/* Side Column (Financials & Stock) - 1/3 width */}
                 <div className="lg:col-span-4 space-y-6">
-                    {/* Recent Questions */}
+                    <FinancialAnalysis
+                        totalRevenue={totalRevenue}
+                        totalSales={totalSales}
+                        loading={metricsLoading}
+                    />
+
+                    <LowStockAlerts
+                        products={products?.items || []}
+                        loading={productsLoading}
+                        threshold={5}
+                    />
+
+                    {/* Perguntas Recentes - movido para a coluna lateral */}
                     <Card className="border-border/50 shadow-sm flex flex-col">
                         <CardHeader className="border-b border-border/50 bg-muted/10 pb-3">
                             <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -470,6 +462,8 @@ export default function MercadoLivre() {
                     </div>
                 </div>
             </div>
+
+            {/* Bottom Section removida: comparação movida para cima; status permanece na coluna lateral */}
 
             {/* Avisos/Alertas Full Width if any */}
             {metrics?.alerts && metrics.alerts.length > 0 && (

@@ -79,20 +79,27 @@ const App = () => (
 
                 <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
 
-                <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>} />
+                <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>}>
+                  <Route path="drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
+                  <Route path="internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
+                </Route>
                 <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
                 <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
                 <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
-                <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>} />
+                <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>}>
+                  <Route path="reports" element={<RequireAuth><Reports /></RequireAuth>} />
+                </Route>
                 <Route path="/campaigns/new/meta" element={<RequireAuth><CreateMetaCampaign /></RequireAuth>} />
 
                 <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
                 <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-                <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
+                {/* legacy route kept for backward compatibility */}
+                {/* <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} /> */}
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
                 <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
                 <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
-                <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
+                {/* legacy route kept for backward compatibility */}
+                {/* <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} /> */}
                 <Route path="/mercado-livre" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />

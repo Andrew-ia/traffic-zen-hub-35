@@ -17,6 +17,7 @@ import {
   Menu,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import EmojiPicker from '@/components/pm/EmojiPicker';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -1553,6 +1554,9 @@ export default function ProjectManagementV3() {
 
       {/* Task Detail Modal */}
       <TaskDetailModal task={selectedTask} open={taskModalOpen} onOpenChange={setTaskModalOpen} workspaceId={WORKSPACE_ID} />
+
+      {/* Nested routes rendered here */}
+      <Outlet />
     </div>
   );
 }

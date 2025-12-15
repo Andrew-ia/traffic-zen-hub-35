@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 import { CampaignsTable } from "@/components/campaigns/CampaignsTable";
 import { useCampaigns, type CampaignStatusFilter } from "@/hooks/useCampaigns";
 import { TrendingUp, ShoppingCart, Target, DollarSign, Wallet } from "lucide-react";
@@ -587,6 +588,7 @@ export default function MetaAds() {
           )}
         </>
       )}
+      <Outlet />
     </div>
   );
 }

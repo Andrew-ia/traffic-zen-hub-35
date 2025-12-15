@@ -34,10 +34,6 @@ export type NavigationEntry = NavigationItem | NavigationGroup;
 
 export const mainNavigation: NavigationEntry[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
-  { name: "Projetos", href: "/projects", icon: Kanban, keywords: ["projetos", "tarefas", "kanban", "organização"] },
-  { name: "Meta Ads", href: "/meta-ads", icon: Facebook, keywords: ["facebook", "meta"] },
-  { name: "Criativos Drive", href: "/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
-  { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
   {
     name: "Mercado Livre",
     href: "/mercado-livre",
@@ -50,8 +46,27 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
     ],
   },
-  { name: "Relatórios", href: "/reports", icon: TrendingUp, keywords: ["reports", "relatorio"] },
-  { name: "Internal Chat", href: "/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
+  {
+    name: "Projetos",
+    href: "/projects",
+    icon: Kanban,
+    keywords: ["projetos", "tarefas", "kanban", "organização"],
+    children: [
+      { name: "Criativos Drive", href: "/projects/drive-creatives", icon: Folder, keywords: ["drive", "google drive", "criativos"] },
+      { name: "Internal Chat", href: "/projects/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
+    ],
+  },
+  {
+    name: "Meta Ads",
+    href: "/meta-ads",
+    icon: Facebook,
+    children: [
+      { name: "Relatórios", href: "/meta-ads/reports", icon: TrendingUp, keywords: ["reports", "relatorio", "meta"] },
+    ],
+    keywords: ["facebook", "meta"]
+  },
+  { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
+  // Relatórios agora como subpágina de Meta Ads
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
   { name: "Notificações", href: "/notifications", icon: Bell, keywords: ["notificações", "telegram", "alertas", "avisos"] },
   { name: "Usuários", href: "/admin/users", icon: Plug, keywords: ["admin", "usuários", "acesso"] },
@@ -77,6 +92,7 @@ export function findNavigationLabel(pathname: string): string | undefined {
 
   if (pathname.startsWith("/campaigns/")) return "Detalhes da Campanha";
   if (pathname.startsWith("/ads/")) return "Detalhes do Anúncio";
+  if (pathname.startsWith("/meta-ads/reports")) return "Relatórios";
   if (pathname.startsWith("/reports/")) return "Detalhes do Relatório";
   return undefined;
 }
