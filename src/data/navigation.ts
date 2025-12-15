@@ -16,7 +16,6 @@ import {
   Warehouse,
   Bell,
   PenTool,
-  Search,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -47,7 +46,6 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
       { name: "Calc. de Preço ML", href: "/mercado-livre-price-calculator", icon: Trophy, keywords: ["preco", "fee", "margem", "mercado livre", "calculadora"] },
       { name: "Descrições ML", href: "/mercado-livre-descricoes", icon: PenTool, keywords: ["descricao", "anuncio", "copy", "mercado livre"] },
-      { name: "Busca Avançada ML", href: "/mercado-livre-busca-avancada", icon: Search, keywords: ["busca", "pesquisa", "competição", "ml"] },
       { name: "Produtos", href: "/products", icon: Package, keywords: ["produtos", "catalogo", "estoque", "ml"] },
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
     ],

@@ -28,7 +28,6 @@ import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
 import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuilder";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
-import MercadoLivreAdvancedSearch from "./pages/MercadoLivreAdvancedSearch";
 import Products from "./pages/Products";
 import FulfillmentManagement from "./pages/FulfillmentManagement";
 import Notifications from "./pages/Notifications";
@@ -98,7 +97,6 @@ const App = () => (
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
-                <Route path="/mercado-livre-busca-avancada" element={<RequireAuth><MercadoLivreAdvancedSearch /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
                 <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />

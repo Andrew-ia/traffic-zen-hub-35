@@ -960,6 +960,7 @@ router.get("/products", async (req, res) => {
             const logisticType = item?.shipping?.logistic_type || null;
             const tags: string[] = Array.isArray(item?.tags) ? item.tags : [];
             const isFull = String(logisticType || '').toLowerCase() === 'fulfillment' || tags.includes('is_fulfillment');
+            // Sem sugestão de envio Full: manter apenas dados originais do item
 
             const sku =
                 item.seller_custom_field ||
@@ -1422,6 +1423,140 @@ router.get("/products/export/xlsx", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/products/export/xlsx-print
+ * Exporta um XLSX com uma folha A4 por produto (cada produto em uma aba).
+ */
+router.get("/products/export/xlsx-print", async (req, res) => {
+    try {
+        const { workspaceId, category } = req.query as { workspaceId?: string; category?: string };
+        const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
+        if (!targetWorkspace) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+        let credentials = await getMercadoLivreCredentials(targetWorkspace);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        const clean = (v: any, limit = 500) => {
+            const s = String(v ?? "").replace(/\s+/g, " ").trim();
+            return s.length > limit ? `${s.slice(0, limit)}…` : s;
+        };
+
+        // Coletar IDs
+        const allItemIds: string[] = [];
+        let offset = 0;
+        const limit = 50;
+        for (; ;) {
+            try {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    { params: { limit, offset }, headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+                );
+                const ids = resp.data.results || [];
+                allItemIds.push(...ids);
+                if (ids.length < limit) break;
+                offset += limit;
+            } catch (err: any) {
+                if (err?.response?.status === 401) {
+                    const refreshed = await refreshAccessToken(targetWorkspace);
+                    if (refreshed) {
+                        credentials = refreshed;
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+
+        const wb = XLSX.utils.book_new();
+
+        for (const itemId of allItemIds) {
+            // Detalhes
+            const item = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${itemId}`);
+            if (category && category !== "all" && item.category_id !== category) continue;
+            let description = "";
+            try {
+                const desc = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`);
+                description = desc?.plain_text || desc?.text || "";
+            } catch {
+                description = "";
+            }
+
+            const attributes = normalizeAttributes(item.attributes);
+            const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
+            const warrantyTerm = saleTerms.find((st: any) => st.id === 'WARRANTY_TYPE');
+            const warrantyTime = saleTerms.find((st: any) => st.id === 'WARRANTY_TIME');
+            const dimensions = parseDimensions(item.shipping?.dimensions);
+            const sku =
+                item.seller_custom_field ||
+                getAttrValue(attributes, ['SELLER_SKU', 'SKU']) ||
+                (item.variations?.[0]?.seller_custom_field || undefined);
+
+            // Monta linhas em 2 colunas (rótulo, valor)
+            const headerTitle = clean(item.title || "Produto", 120);
+            const rows: any[][] = [];
+            rows.push([headerTitle, ""]);
+            rows.push(["MLB", String(item.id)]);
+            rows.push(["SKU", sku || "-"]);
+            rows.push(["Variação", item.variations?.[0]?.id ? String(item.variations[0].id) : "-"]);
+            rows.push(["Preço", item.price != null ? String(item.price) : "-"]);
+            rows.push(["Status", item.status || "-"]);
+            rows.push(["Estoque", String(item.available_quantity ?? "-")]);
+            rows.push(["Garantia", item.warranty || warrantyTerm?.value_name || "-"]);
+            rows.push(["Garantia (Tempo)", warrantyTime?.value_name || "-"]);
+            rows.push(["Entrega / Logística", item.shipping?.logistic_type || "-"]);
+            rows.push(["Frete Grátis", item.shipping?.free_shipping ? "Sim" : "Não"]);
+            rows.push(["Tipo de anúncio", item.listing_type_id || "-"]);
+            rows.push(["Categoria", item.category_id || "-"]);
+            rows.push(["Peso", dimensions.weight || "-"]);
+            rows.push(["Dimensões (A x L x C)", `${dimensions.height || "-"} x ${dimensions.width || "-"} x ${dimensions.length || "-"}`]);
+            rows.push(["", ""]);
+            rows.push(["Descrição", clean(description, 1000)]);
+            rows.push(["", ""]);
+            rows.push(["Atributos", ""]);
+
+            // Limitar atributos para caber na A4
+            attributes.slice(0, 24).forEach((attr: any) => {
+                const name = attr.name || attr.id || "";
+                const val = attr.value_name || attr.value_id || "";
+                rows.push([clean(name, 60), clean(val, 120)]);
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet(rows);
+            // Merge título na primeira linha (A1:B1)
+            ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
+            // Larguras e margens pensadas para A4
+            ws["!cols"] = [{ wch: 28 }, { wch: 42 }];
+            ws["!margins"] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+            // Altura da primeira linha maior para destacar título
+            ws["!rows"] = [{ hpt: 24 }];
+
+            const safeTitle = headerTitle
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-+|-+$/g, "")
+                .slice(0, 28) || `Produto-${item.id}`;
+            XLSX.utils.book_append_sheet(wb, ws, safeTitle);
+        }
+
+        const dateLabel = new Date().toISOString().split("T")[0];
+        const safeCategory = String(category || "todos")
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9_-]/g, "");
+        const filename = `produtos-ml-a4-${safeCategory}-${dateLabel}.xlsx`;
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        return res.send(buf);
+    } catch (error: any) {
+        console.error("[Export XLSX (A4 por produto)] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar XLSX A4 por produto", details: error?.message });
+    }
+});
+
+/**
  * GET /api/integrations/mercadolivre/products/:productId/pdf
  * Exporta um PDF de um único produto com detalhes.
  */
@@ -1474,14 +1609,451 @@ router.get("/products/:productId/pdf", async (req, res) => {
         const csosn = getAttrValue(attributes, ['CSOSN']);
         const state = getAttrValue(attributes, ['STATE', 'UF', 'STATE_CODE']);
         const dimensions = parseDimensions(item.shipping?.dimensions);
+        const pageSizeParam = (((req.query as any).pageSize || (req.query as any).size || "") as string).toLowerCase();
+        const isLabel = pageSizeParam === "10x15" || pageSizeParam === "10x15cm" || String((req.query as any).label || "").toLowerCase() === "true";
+        const labelSize: [number, number] = [283.465, 425.197]; // 10x15 cm em pontos
+        const pdfSize = isLabel ? labelSize : "A4";
+        const pdfMargin = isLabel ? 16 : 36;
 
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename=${productId}.pdf`);
+        const safeTitle =
+            String(item.title || productId)
+                .toLowerCase()
+                .normalize("NFKD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/\s+/g, "-")
+                .replace(/[^a-z0-9_-]/g, "");
+        const fileName = `${safeTitle || productId}${isLabel ? "-10x15" : ""}.pdf`;
+        res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
 
-        const doc = new PDFDocument({ margin: 42 });
+        const doc = new PDFDocument({ size: pdfSize, margin: pdfMargin });
         doc.pipe(res);
 
         // Helpers para layout
+        const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const setLeft = () => {
+            doc.x = doc.page.margins.left;
+        };
+        const divider = () => {
+            setLeft();
+            doc.moveDown(0.2);
+            const lineY = doc.y;
+            doc
+                .moveTo(doc.page.margins.left, lineY)
+                .lineTo(doc.page.width - doc.page.margins.right, lineY)
+                .lineWidth(0.5)
+                .strokeColor("#e5e7eb")
+                .stroke();
+            doc.moveDown(0.4);
+            setLeft();
+        };
+
+        const renderCardGrid = (
+            title: string,
+            entries: Array<{ label: string; value: string | number | null | undefined }>,
+            columns = isLabel ? 2 : 3
+        ) => {
+            if (!entries.length) return;
+            setLeft();
+            doc.font("Helvetica-Bold").fontSize(isLabel ? 10 : 11).fillColor("#111827").text(title);
+            doc.moveDown(0.1);
+
+            const gap = isLabel ? 8 : 10;
+            const colWidth = (contentWidth - gap * (columns - 1)) / columns;
+            const cardHeight = isLabel ? 32 : 36;
+            const startX = doc.page.margins.left;
+            const startY = doc.y;
+
+            entries.forEach((entry, idx) => {
+                const col = idx % columns;
+                const row = Math.floor(idx / columns);
+                const cardX = startX + col * (colWidth + gap);
+                const cardY = startY + row * (cardHeight + gap);
+
+                doc.save();
+                doc.roundedRect(cardX, cardY, colWidth, cardHeight, 6).fillAndStroke("#f9fafb", "#e5e7eb");
+                doc.fillColor("#6b7280").font("Helvetica-Bold").fontSize(isLabel ? 7.5 : 8).text(entry.label, cardX + 8, cardY + 6, {
+                    width: colWidth - 16,
+                });
+                doc.fillColor("#111827").font("Helvetica").fontSize(isLabel ? 9 : 10).text(String(entry.value ?? "-"), cardX + 8, cardY + 18, {
+                    width: colWidth - 16,
+                });
+                doc.restore();
+            });
+
+            const rows = Math.ceil(entries.length / columns);
+            doc.y = startY + rows * (cardHeight + gap) + 1;
+            doc.moveDown(0.2);
+        };
+
+        const renderPairs = (title: string, entries: Array<[string, string]>, columns = isLabel ? 2 : 2) => {
+            if (!entries.length) return;
+            setLeft();
+            doc.font("Helvetica-Bold").fontSize(isLabel ? 10 : 11).fillColor("#111827").text(title);
+            doc.moveDown(0.1);
+
+            const gap = isLabel ? 10 : 14;
+            const colWidth = (contentWidth - gap * (columns - 1)) / columns;
+            const startX = doc.page.margins.left;
+            const startY = doc.y;
+
+            entries.forEach(([label, value], idx) => {
+                const col = idx % columns;
+                const row = Math.floor(idx / columns);
+                const x = startX + col * (colWidth + gap);
+                const y = startY + row * (isLabel ? 12 : 14);
+
+                doc.font("Helvetica-Bold").fontSize(isLabel ? 8.5 : 9).fillColor("#4b5563").text(`${label}: `, x, y, { continued: true });
+                doc.font("Helvetica").fontSize(isLabel ? 8.5 : 9).fillColor("#111827").text(value || "-");
+            });
+
+            const rows = Math.ceil(entries.length / columns);
+            doc.y = startY + rows * (isLabel ? 12 : 14);
+            doc.moveDown(0.2);
+        };
+
+        const renderDimensions = (dimensions: { height?: string; width?: string; length?: string; weight?: string }) => {
+            const blocks: Array<{ label: string; value: string }> = [
+                { label: "Peso", value: dimensions.weight || "-" },
+                { label: "Dimensões (A x L x C)", value: `${dimensions.height || "-"} x ${dimensions.width || "-"} x ${dimensions.length || "-"}` },
+            ];
+
+            setLeft();
+            doc.font("Helvetica-Bold").fontSize(isLabel ? 10 : 11).fillColor("#111827").text("Dimensões & peso");
+            doc.moveDown(0.2);
+
+            const gap = isLabel ? 8 : 12;
+            const colWidth = (contentWidth - gap) / 2;
+            const startX = doc.page.margins.left;
+            const startY = doc.y;
+            const boxHeight = isLabel ? 30 : 34;
+
+            blocks.forEach((block, idx) => {
+                const x = startX + idx * (colWidth + gap);
+                const y = startY;
+                doc.save();
+                doc.roundedRect(x, y, colWidth, boxHeight, 6).fillAndStroke("#f3f4f6", "#e5e7eb");
+                doc.fillColor("#6b7280").font("Helvetica-Bold").fontSize(isLabel ? 7.5 : 8).text(block.label, x + 8, y + 6, { width: colWidth - 16 });
+                doc.fillColor("#111827").font("Helvetica").fontSize(isLabel ? 9 : 10).text(block.value, x + 8, y + 18, { width: colWidth - 16 });
+                doc.restore();
+            });
+
+            doc.y = startY + boxHeight + 6;
+            divider();
+        };
+
+        const renderDescriptionAndImage = (descriptionText: string, imageBuffer: Buffer | null) => {
+            setLeft();
+            doc.font("Helvetica-Bold").fontSize(isLabel ? 10 : 11).fillColor("#111827").text("Descrição e mídia");
+            doc.moveDown(0.2);
+
+            const colGap = isLabel ? 10 : 16;
+            const col1Width = (contentWidth * 0.62) - (colGap / 2);
+            const col2Width = (contentWidth * 0.38) - (colGap / 2);
+            const rightX = doc.page.margins.left + col1Width + colGap;
+            const startY = doc.y;
+
+            const descText = descriptionText
+                ? descriptionText.slice(0, isLabel ? 550 : 1500)
+                : "Sem descrição disponível";
+
+            doc.font("Helvetica").fontSize(isLabel ? 9 : 10).fillColor("#111827").text(descText || "Sem descrição disponível", doc.page.margins.left, startY, {
+                width: col1Width,
+                lineGap: isLabel ? 1.2 : 1.5,
+                align: "justify",
+            });
+            const descEndY = doc.y;
+
+            let mediaBottomY = startY;
+            if (imageBuffer) {
+                try {
+                    doc.image(imageBuffer, rightX, startY, { fit: [col2Width, isLabel ? 140 : 180], align: "center" });
+                    mediaBottomY = startY + (isLabel ? 145 : 185);
+                } catch (imgErr) {
+                    console.warn("Falha ao renderizar imagem no PDF:", imgErr);
+                    doc.font("Helvetica").fontSize(isLabel ? 8 : 9).fillColor("#6b7280").text("[Imagem indisponível]", rightX, startY, { width: col2Width });
+                    mediaBottomY = startY + 20;
+                }
+            } else {
+                doc.font("Helvetica").fontSize(isLabel ? 8 : 9).fillColor("#6b7280").text("[Sem imagem disponível]", rightX, startY, { width: col2Width });
+                mediaBottomY = startY + 20;
+            }
+
+            doc.y = Math.max(descEndY, mediaBottomY) + 6;
+            divider();
+        };
+
+        const renderLabelTag = (opts: {
+            title: string;
+            id: string;
+            sku: string;
+            variation: string;
+            price: string;
+            imageBuffer: Buffer | null;
+            features: Array<[string, string]>;
+        }) => {
+            setLeft();
+            doc
+                .font("Helvetica-Bold")
+                .fontSize(14)
+                .fillColor("#111827")
+                .text(opts.title || "Produto", { width: contentWidth });
+            doc.moveDown(0.1);
+            setLeft();
+            doc
+                .font("Helvetica")
+                .fontSize(8.5)
+                .fillColor("#374151")
+                .text(`MLB: ${opts.id}`, { continued: true })
+                .text(`   SKU: ${opts.sku || "-"}`, { continued: true })
+                .text(`   Variação: ${opts.variation || "-"}`);
+            doc.moveDown(0.1);
+            setLeft();
+            doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text(`Preço: ${opts.price}`, { width: contentWidth });
+            divider();
+
+            const features = opts.features.length ? opts.features : [["Características", "Sem informações"]];
+            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text("Principais características");
+            doc.moveDown(0.1);
+
+            const colGap = 10;
+            const colWidth = (contentWidth - colGap) / 2;
+            const startX = doc.page.margins.left;
+            const startY = doc.y;
+
+            features.forEach(([label, value], idx) => {
+                const col = idx % 2;
+                const row = Math.floor(idx / 2);
+                const x = startX + col * (colWidth + colGap);
+                const y = startY + row * 12;
+
+                doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827").text(`${label}: `, x, y, { continued: true });
+                doc.font("Helvetica").fontSize(9).fillColor("#111827").text(value || "-", { width: colWidth - 8 });
+            });
+
+            const rows = Math.ceil(features.length / 2);
+            doc.y = startY + rows * 12 + 4;
+        };
+
+        const priceLabel = item.price ? `R$ ${item.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "-";
+
+        // Buscar imagem principal (antes de renderizar descrição ou etiqueta)
+        let imageBuffer: Buffer | null = null;
+        const imageUrl =
+            (Array.isArray(item.pictures) && (item.pictures[0]?.secure_url || item.pictures[0]?.url)) ||
+            item.thumbnail ||
+            null;
+        if (imageUrl) {
+            try {
+                const imgResp = await axios.get(imageUrl, { responseType: "arraybuffer" });
+                imageBuffer = Buffer.from(imgResp.data);
+            } catch (imgErr) {
+                console.warn("Falha ao baixar imagem do produto:", imgErr);
+            }
+        }
+
+        const descRaw = (description || "").replace(/\s+/g, " ").trim();
+        const mainFeatures: Array<[string, string]> = [
+            ["Material", material || "-"],
+            ["Cor", color || "-"],
+            ["Estilo", style || "-"],
+            ["Tipo de brinco", earringType || "-"],
+            ["Com pedra", hasStones || "-"],
+            ["Tipo de pedras", stoneType || "-"],
+            ["Peças no kit", kitPieces || "-"],
+            ["Comprimento", dimensions.length || "-"],
+            ["Largura", dimensions.width || "-"],
+            ["Altura", dimensions.height || "-"],
+            ["Diâmetro", diameter || "-"],
+            ["Peso", dimensions.weight || "-"],
+            ["Código universal", universalCode || "-"],
+        ]
+            .filter(([, v]) => String(v).trim() !== "-")
+            .slice(0, isLabel ? 10 : 999);
+
+        if (isLabel) {
+            renderLabelTag({
+                title: item.title || "Produto",
+                id: item.id,
+                sku: sku || "-",
+                variation: item.variations?.[0]?.id ? String(item.variations[0].id) : "-",
+                price: priceLabel,
+                imageBuffer,
+                features: mainFeatures.slice(0, 8),
+            });
+            doc.end();
+            return;
+        }
+
+        // Cabeçalho (apenas A4)
+        doc
+            .font("Helvetica-Bold")
+            .fontSize(18)
+            .fillColor("#111827")
+            .text(item.title || "Produto", { align: "left", width: doc.page.width - doc.page.margins.left - doc.page.margins.right });
+        doc.moveDown(0.3);
+        setLeft();
+        doc
+            .font("Helvetica")
+            .fontSize(9)
+            .fillColor("#374151")
+            .text(`MLB: ${item.id}`, { continued: true })
+            .text(`   SKU: ${sku || "-"}`, { continued: true })
+            .text(`   Variação: ${item.variations?.[0]?.id ? String(item.variations[0].id) : "-"}`);
+        doc.moveDown(0.1);
+        setLeft();
+        doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text(`Preço: ${priceLabel}`, doc.page.margins.left, doc.y, { width: contentWidth });
+        divider();
+
+        const summaryEntries = [
+            { label: "MLB", value: item.id },
+            { label: "SKU", value: sku || "-" },
+            { label: "Variação", value: item.variations?.[0]?.id ? String(item.variations[0].id) : "-" },
+            { label: "Estoque", value: String(item.available_quantity ?? "-") },
+            { label: "Categoria", value: item.category_id || "-" },
+            { label: "Tipo de anúncio", value: item.listing_type_id || "-" },
+            { label: "Logística", value: item.shipping?.logistic_type || "-" },
+            { label: "Frete grátis", value: item.shipping?.free_shipping ? "Sim" : "Não" },
+            { label: "Garantia", value: item.warranty || warrantyTerm?.value_name || "-" },
+        ];
+        renderCardGrid("Resumo do anúncio", summaryEntries, 3);
+        divider();
+
+        renderDescriptionAndImage(descRaw, imageBuffer);
+
+        renderPairs("Principais características", mainFeatures, 2);
+
+        renderDimensions(dimensions);
+
+        const fiscalPairs: Array<[string, string]> = [
+            ["NCM", ncm || "-"],
+            ["Origem", origin || "-"],
+            ["CFOP", cfop || "-"],
+            ["CST", cst || "-"],
+            ["CSOSN", csosn || "-"],
+            ["Estado", state || "-"],
+        ].filter(([, v]) => String(v).trim() !== "-");
+        renderPairs("Dados fiscais", fiscalPairs.length ? fiscalPairs : [["Dados fiscais", "Sem informações"]], isLabel ? 2 : 3);
+        divider();
+
+        // Atributos restantes separados dos principais para facilitar leitura
+        const usedAttrIds = new Set<string>([
+            "SELLER_SKU",
+            "SKU",
+            "MAIN_COLOR",
+            "COLOR",
+            "MATERIAL",
+            "STYLE",
+            "EARRING_TYPE",
+            "TIPO DE BRINCO",
+            "WITH_STONES",
+            "STONE_TYPE",
+            "TIPO DE PEDRAS",
+            "KIT_UNITS",
+            "UNIDADES NO KIT",
+            "LENGTH",
+            "COMPRIMENTO",
+            "WIDTH",
+            "LARGURA",
+            "HEIGHT",
+            "ALTURA",
+            "DIAMETER",
+            "DIÂMETRO",
+            "WEIGHT",
+            "GTIN",
+            "GTIN13",
+            "EAN",
+            "UPC",
+            "JAN",
+            "BARCODE",
+            "NCM",
+            "ORIGIN",
+            "CFOP",
+            "CST",
+            "CSOSN",
+            "STATE",
+            "STATE_CODE",
+        ]);
+        const remainingAttrsText = attributes
+            .filter((a: any) => !usedAttrIds.has(a.id))
+            .slice(0, isLabel ? 20 : 80)
+            .map((attr: any) => `${attr.name}: ${attr.value_name || attr.value_id || "-"}`)
+            .join("\n");
+
+        doc.font("Helvetica-Bold").fontSize(isLabel ? 10 : 11).fillColor("#111827").text("Atributos do anúncio");
+        doc.moveDown(0.2);
+        doc
+            .font("Helvetica")
+            .fontSize(isLabel ? 8.5 : 9)
+            .fillColor("#111827")
+            .text(remainingAttrsText || "Sem outros atributos", doc.page.margins.left, doc.y, {
+                width: contentWidth,
+                columns: 2,
+                columnGap: isLabel ? 12 : 16,
+                lineGap: isLabel ? 1.2 : 1.6,
+            });
+        doc.end();
+    } catch (error: any) {
+        console.error("[Export PDF] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar PDF", details: error?.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/products/export/pdf
+ * Exporta um PDF com uma página A4 por produto (filtrado por categoria opcional).
+ */
+router.get("/products/export/pdf", async (req, res) => {
+    try {
+        const { workspaceId, category } = req.query as { workspaceId?: string; category?: string };
+        const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
+        if (!targetWorkspace) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+        const credentials = await getMercadoLivreCredentials(targetWorkspace);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        // Buscar todos os IDs de itens do vendedor
+        const fetchIdsByStatus = async (status: string) => {
+            const collected: string[] = [];
+            let offset = 0;
+            const limit = 50;
+            for (; ;) {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    {
+                        params: { limit, offset, status },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }
+                );
+                const ids = resp.data.results || [];
+                collected.push(...ids);
+                if (ids.length < limit) break;
+                offset += limit;
+            }
+            return collected;
+        };
+        const statusesToInclude = ["active", "paused", "closed", "inactive"];
+        const collectedSets: string[][] = [];
+        for (const st of statusesToInclude) {
+            const ids = await fetchIdsByStatus(st);
+            collectedSets.push(ids);
+        }
+        const allItemIds = Array.from(new Set(collectedSets.flat()));
+
+        res.setHeader("Content-Type", "application/pdf");
+        const dateLabel = new Date().toISOString().slice(0, 10);
+        const safeCategory = String(category || "todos")
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9_-]/g, "");
+        res.setHeader("Content-Disposition", `attachment; filename=produtos-ml-${safeCategory}-${dateLabel}.pdf`);
+
+        const doc = new PDFDocument({ size: "A4", margin: 42 });
+        doc.pipe(res);
+
         const divider = () => {
             doc.moveDown(0.3);
             const lineY = doc.y;
@@ -1494,113 +2066,473 @@ router.get("/products/:productId/pdf", async (req, res) => {
             doc.moveDown(0.6);
         };
 
-        const section = (title: string, entries: Array<[string, string]>) => {
-            doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text(title);
-            doc.moveDown(0.3);
+        const section = (title: string, entries: Array<[string, string]>, width: number = 0) => {
+            const opts = width > 0 ? { width } : {};
+            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text(title, opts);
+            doc.moveDown(0.25);
             entries.forEach(([label, value]) => {
                 doc
                     .font("Helvetica-Bold")
-                    .fontSize(10)
+                    .fontSize(9)
                     .fillColor("#4b5563")
-                    .text(`${label}: `, { continued: true });
+                    .text(`${label}: `, { continued: true, ...opts });
                 doc
                     .font("Helvetica")
+                    .fontSize(9)
                     .fillColor("#111827")
-                    .text(value || "-");
+                    .text(value || "-", opts);
             });
-            doc.moveDown(0.4);
-            divider();
+            // Não desenhar divisória aqui pois estamos controlando manualmente ou é chamada interna
         };
 
-        // Cabeçalho
-        doc
-            .font("Helvetica-Bold")
-            .fontSize(18)
-            .fillColor("#111827")
-            .text(item.title || "Produto", { align: "left", width: doc.page.width - doc.page.margins.left - doc.page.margins.right });
-        doc.moveDown(0.3);
-        doc
-            .font("Helvetica")
-            .fontSize(10)
-            .fillColor("#374151")
-            .text(`MLB: ${item.id}`, { continued: true })
-            .text(`   SKU: ${sku || "-"}`, { continued: true })
-            .text(`   Variação: ${item.variations?.[0]?.id ? String(item.variations[0].id) : "-"}`);
-        divider();
+        const renderProductPage = (item: any, description: string, attributes: Array<any>, imageBuffer: Buffer | null) => {
+            const margin = 42;
+            const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+            const colGap = 20;
+            const col1Width = (pageWidth * 0.6) - (colGap / 2);
+            const col2Width = (pageWidth * 0.4) - (colGap / 2);
+            const col2X = doc.page.margins.left + col1Width + colGap;
 
-        // Seções
-        section("Condições gerais", [
-            ["Preço", item.price ? `R$ ${item.price}` : "-"],
-            ["Status", item.status || "-"],
-            ["Estoque", String(item.available_quantity ?? "-")],
-            ["Garantia", item.warranty || warrantyTerm?.value_name || "-"],
-            ["Garantia (Tempo)", warrantyTime?.value_name || "-"],
-            ["Entrega / Logística", item.shipping?.logistic_type || "-"],
-            ["Frete grátis", item.shipping?.free_shipping ? "Sim" : "Não"],
-            ["Tipo de anúncio", item.listing_type_id || "-"],
-            ["Categoria", item.category_id || "-"],
-        ]);
+            // --- Cabeçalho ---
+            doc
+                .font("Helvetica-Bold")
+                .fontSize(16)
+                .fillColor("#111827")
+                .text(item.title || "Produto", { align: "left", width: pageWidth });
+            doc.moveDown(0.2);
 
-        section("Características do produto", [
-            ["Cor", color || "-"],
-            ["Material", material || "-"],
-            ["Estilo", style || "-"],
-            ["Dimensões (A x L x C)", `${dimensions.height || "-"} x ${dimensions.width || "-"} x ${dimensions.length || "-"}`],
-            ["Peso", dimensions.weight || "-"],
-            ["Comprimento", lengthAttr || "-"],
-            ["Largura", widthAttr || "-"],
-            ["Diâmetro", diameter || "-"],
-            ["Tipo de brinco", earringType || "-"],
-            ["Com pedra", hasStones || "-"],
-            ["Tipo de pedras", stoneType || "-"],
-            ["Peças no kit", kitPieces || "-"],
-            ["Código universal", universalCode || "-"],
-        ]);
+            const sku =
+                item.seller_custom_field ||
+                getAttrValue(normalizeAttributes(item.attributes), ['SELLER_SKU', 'SKU']) ||
+                (item.variations?.[0]?.seller_custom_field || undefined);
+            const variation = item.variations?.[0]?.id ? String(item.variations[0].id) : "-";
 
-        section("Dados fiscais", [
-            ["NCM", ncm || "-"],
-            ["Origem", origin || "-"],
-            ["CFOP", cfop || "-"],
-            ["CST", cst || "-"],
-            ["CSOSN", csosn || "-"],
-            ["Estado de origem", state || "-"],
-        ]);
+            doc
+                .font("Helvetica")
+                .fontSize(9)
+                .fillColor("#374151")
+                .text(`MLB: ${item.id}   SKU: ${sku || "-"}   Variação: ${variation}`);
+            doc.moveDown(0.2);
 
-        // Descrição
-        doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text("Descrição");
-        doc.moveDown(0.3);
-        doc
-            .font("Helvetica")
-            .fontSize(10)
-            .fillColor("#111827")
-            .text(description || "Sem descrição disponível", {
-                width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-                lineGap: 2,
+            // Preço destacado
+            if (item.price) {
+                doc
+                    .font("Helvetica-Bold")
+                    .fontSize(14)
+                    .fillColor("#111827")
+                    .text(`Preço: R$ ${item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+            }
+            doc.moveDown(0.5);
+            divider();
+
+            // Guardar posição Y para as colunas
+            const startY = doc.y;
+
+            // --- Coluna 1: Condições Gerais ---
+            const dimensions = parseDimensions(item.shipping?.dimensions);
+            const warrantyTerm = (Array.isArray(item.sale_terms) ? item.sale_terms : []).find((st: any) => st.id === 'WARRANTY_TYPE');
+            const warrantyTime = (Array.isArray(item.sale_terms) ? item.sale_terms : []).find((st: any) => st.id === 'WARRANTY_TIME');
+
+            doc.y = startY;
+            section("Condições gerais", [
+                ["Status", item.status || "-"],
+                ["Estoque", String(item.available_quantity ?? "-")],
+                ["Garantia", item.warranty || warrantyTerm?.value_name || "-"],
+                ["Garantia (Tempo)", warrantyTime?.value_name || "-"],
+                ["Entrega / Logística", item.shipping?.logistic_type || "-"],
+                ["Frete grátis", item.shipping?.free_shipping ? "Sim" : "Não"],
+                ["Tipo de anúncio", item.listing_type_id || "-"],
+                ["Categoria", item.category_id || "-"],
+                // ["Peso", dimensions.weight || "-"], // Peso movido para Características
+                // ["Dimensões", ...], // Movido para Características
+            ], col1Width);
+
+            const col1EndY = doc.y;
+
+            // --- Coluna 2: Imagem e Características ---
+            doc.y = startY;
+
+            // Imagem
+            if (imageBuffer) {
+                try {
+                    // Ajustar tamanho da imagem para caber na coluna
+                    doc.image(imageBuffer, col2X, doc.y, { fit: [col2Width, 150], align: 'center' });
+                    // Adicionar espaço após imagem (150px altura reservada ou altura real)
+                    doc.y += 160;
+                } catch (e) {
+                    console.error("Erro ao renderizar imagem no PDF:", e);
+                    doc.text("[Imagem indisponível]", col2X, doc.y);
+                    doc.moveDown();
+                }
+            } else {
+                // Espaço reservado se não houver imagem
+                doc.y += 20;
+            }
+
+            // Características do Produto (extraídas dos atributos)
+            const targetFeatureIds = ['COLOR', 'MATERIAL', 'STYLE', 'DIMENSIONS', 'WEIGHT', 'GTIN', 'BRAND', 'MODEL', 'EAN'];
+            const features = attributes.filter(a => targetFeatureIds.includes(a.id) || ['peso', 'dimensões', 'cor', 'material'].includes(a.name.toLowerCase()));
+
+            // Adicionar Dimensões e Peso se não estiverem nos atributos mas estiverem no item
+            if (!features.find(f => f.id === 'WEIGHT') && dimensions.weight) {
+                features.push({ name: 'Peso', value_name: dimensions.weight });
+            }
+            if (!features.find(f => f.id === 'DIMENSIONS') && (dimensions.height || dimensions.width || dimensions.length)) {
+                features.push({ name: 'Dimensões (A x L x C)', value_name: `${dimensions.height || "-"} x ${dimensions.width || "-"} x ${dimensions.length || "-"}` });
+            }
+
+            // Renderizar seção Características na Coluna 2
+            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text("Características do produto", col2X, doc.y);
+            doc.moveDown(0.25);
+
+            features.forEach((attr: any) => {
+                const label = attr.name;
+                const value = attr.value_name || attr.value_id || "-";
+                // Checar se cabe na linha, simplificado
+                doc.font("Helvetica-Bold").fontSize(9).fillColor("#4b5563").text(`${label}: `, col2X, doc.y, { continued: true });
+                doc.font("Helvetica").fontSize(9).fillColor("#111827").text(value);
             });
-        doc.moveDown(0.6);
-        divider();
 
-        // Atributos
-        doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text("Atributos");
-        doc.moveDown(0.3);
-        const attrsText = attributes
-            .map((attr: any) => `${attr.name}: ${attr.value_name || attr.value_id || "-"}`)
-            .join("\n");
-        doc
-            .font("Helvetica")
-            .fontSize(10)
-            .fillColor("#111827")
-            .text(attrsText || "Sem atributos disponíveis", {
-                width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-                columns: 2,
-                columnGap: 12,
-                lineGap: 2,
+            const col2EndY = doc.y;
+
+            // Avançar para o maior Y das duas colunas
+            doc.y = Math.max(col1EndY, col2EndY) + 10;
+
+            // Divisória abaixo das colunas
+            doc
+                .moveTo(doc.page.margins.left, doc.y)
+                .lineTo(doc.page.width - doc.page.margins.right, doc.y)
+                .lineWidth(0.5)
+                .strokeColor("#e5e7eb")
+                .stroke();
+            doc.moveDown(0.6);
+
+            // --- Dados Fiscais ---
+            // Tentando encontrar dados fiscais. Geralmente não estão públicos, mas procuramos em attributes ou custom fields
+            const fiscalAttrs = attributes.filter(a => ['NCM', 'ORIGIN', 'CEC', 'CFOP'].includes(a.id));
+            section("Dados fiscais", [
+                ["NCM", getAttrValue(attributes, ['NCM']) || "-"],
+                ["Origem", getAttrValue(attributes, ['ORIGIN']) || "-"],
+                ["CFOP", "-"], // Placeholder
+                ["CST", "-"],  // Placeholder
+                ["CSOSN", "-"], // Placeholder
+            ], pageWidth);
+
+
+            // --- Descrição ---
+            const maxDesc = 1500; // Aumentado um pouco
+            const descText = (description || "Sem descrição disponível").slice(0, maxDesc);
+            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text("Descrição");
+            doc.moveDown(0.2);
+            doc
+                .font("Helvetica")
+                .fontSize(9)
+                .fillColor("#111827")
+                .text(descText, {
+                    width: pageWidth,
+                    align: 'justify',
+                    lineGap: 2,
+                });
+            doc.moveDown(0.4);
+            divider();
+
+            // --- Atributos Restantes ---
+            // Filtrar atributos que já mostramos em Características ou Dados Fiscais ou Cabeçalho
+            const usedAttrIds = [...targetFeatureIds, 'NCM', 'ORIGIN', 'SELLER_SKU', 'SKU'];
+            const remainingAttrs = attributes.filter(a => !usedAttrIds.includes(a.id));
+
+            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text("Atributos");
+            doc.moveDown(0.2);
+            const attrsText = remainingAttrs
+                .slice(0, 50)
+                .map((attr: any) => `${attr.name}: ${attr.value_name || attr.value_id || "-"}`)
+                .join("\n");
+
+            doc
+                .font("Helvetica")
+                .fontSize(9)
+                .fillColor("#111827")
+                .text(attrsText || "Sem outros atributos", {
+                    width: pageWidth,
+                    columns: 2,
+                    columnGap: 12,
+                    lineGap: 2,
+                });
+        };
+
+
+
+        let firstPage = true;
+        for (const itemId of allItemIds) {
+            // Buscar detalhes do item
+            const itemResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
+                headers: { Authorization: `Bearer ${credentials.accessToken}` },
             });
+            const item = itemResp.data;
+            if (category && category !== "all" && item.category_id !== category) {
+                continue;
+            }
+
+            let description = "";
+            try {
+                const descResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`, {
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                });
+                description = descResp.data?.plain_text || descResp.data?.text || "";
+            } catch {
+                description = "";
+            }
+            const attributes = normalizeAttributes(item.attributes);
+
+            // Fetch Image
+            let imageBuffer: Buffer | null = null;
+            if (item.pictures && item.pictures.length > 0) {
+                try {
+                    const imgUrl = item.pictures[0].secure_url || item.pictures[0].url;
+                    const imgResp = await axios.get(imgUrl, { responseType: 'arraybuffer' });
+                    imageBuffer = Buffer.from(imgResp.data);
+                } catch (e) {
+                    console.warn(`[PDF Export] Failed to fetch image for item ${itemId}`, e);
+                }
+            } else if (item.thumbnail) {
+                // Fallback thumbnail
+                try {
+                    const imgResp = await axios.get(item.thumbnail, { responseType: 'arraybuffer' });
+                    imageBuffer = Buffer.from(imgResp.data);
+                } catch (e) {
+                    console.warn(`[PDF Export] Failed to fetch thumbnail for item ${itemId}`, e);
+                }
+            }
+
+            if (!firstPage) {
+                doc.addPage({ size: "A4", margin: 42 });
+            }
+            renderProductPage(item, description, attributes, imageBuffer);
+            firstPage = false;
+        }
 
         doc.end();
     } catch (error: any) {
-        console.error("[Export PDF] Erro:", error);
-        return res.status(500).json({ error: "Falha ao gerar PDF", details: error?.message });
+        console.error("[Export PDF (bulk)] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar PDF de produtos", details: error?.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/products/export/purchase-list.pdf
+ * Exporta um PDF em formato de lista de compra (thumb, título, SKU, estoque) respeitando filtros.
+ */
+router.get("/products/export/purchase-list.pdf", async (req, res) => {
+    try {
+        const { workspaceId, category, search } = req.query as { workspaceId?: string; category?: string; search?: string };
+        const targetWorkspace = (workspaceId as string) || FALLBACK_WORKSPACE_ENV;
+        if (!targetWorkspace) {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+        const credentials = await getMercadoLivreCredentials(targetWorkspace);
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre não conectado para este workspace" });
+        }
+
+        const fetchIdsByStatus = async (status: string) => {
+            const collected: string[] = [];
+            let offset = 0;
+            const limit = 50;
+            for (; ;) {
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    {
+                        params: { limit, offset, status },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }
+                );
+                const ids = resp.data.results || [];
+                collected.push(...ids);
+                if (ids.length < limit) break;
+                offset += limit;
+            }
+            return collected;
+        };
+        const statusesToInclude = ["active", "paused", "closed", "inactive"];
+        const collectedSets: string[][] = [];
+        for (const st of statusesToInclude) {
+            const ids = await fetchIdsByStatus(st);
+            collectedSets.push(ids);
+        }
+        const allItemIds = Array.from(new Set(collectedSets.flat()));
+
+        const items: Array<{ title: string; sku: string; stock: number; imageUrl: string | null }> = [];
+        const searchNorm = String(search || "").trim().toLowerCase();
+        for (const itemId of allItemIds) {
+            const itemResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
+                headers: { Authorization: `Bearer ${credentials.accessToken}` },
+            });
+            const item = itemResp.data;
+            if (category && category !== "all" && item.category_id !== category) continue;
+            if (searchNorm) {
+                const t = String(item.title || "").toLowerCase();
+                const idStr = String(item.id || "").toLowerCase();
+                if (!t.includes(searchNorm) && !idStr.includes(searchNorm)) continue;
+            }
+
+            const attributes = normalizeAttributes(item.attributes);
+            const sku =
+                item.seller_custom_field ||
+                getAttrValue(attributes, ['SELLER_SKU', 'SKU']) ||
+                (item.variations?.[0]?.seller_custom_field || "") ||
+                "";
+            const imageUrl =
+                (Array.isArray(item.pictures) && (item.pictures[0]?.secure_url || item.pictures[0]?.url)) ||
+                item.thumbnail ||
+                null;
+
+            let stock = Number(item.available_quantity || 0);
+            const logisticType = item?.shipping?.logistic_type || null;
+            const tags: string[] = Array.isArray(item?.tags) ? item.tags : [];
+            const isFull = String(logisticType || '').toLowerCase() === 'fulfillment' || tags.includes('is_fulfillment');
+            const inventoryId = item?.inventory_id || null;
+            if (isFull && inventoryId) {
+                try {
+                    const fullResp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/inventories/${inventoryId}/stock/fulfillment`,
+                        { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
+                    );
+                    stock = Number(fullResp.data?.available_quantity || 0);
+                } catch (e: any) {
+                    stock = Number(item.available_quantity || 0);
+                }
+            }
+
+            items.push({
+                title: item.title || "-",
+                sku: sku || "",
+                stock,
+                imageUrl,
+            });
+        }
+
+        // Priorizar itens zerados de estoque primeiro
+        items.sort((a, b) => {
+            const aZero = a.stock === 0 ? 1 : 0;
+            const bZero = b.stock === 0 ? 1 : 0;
+            if (aZero !== bZero) return bZero - aZero; // zeros primeiro
+            // fallback: ordenar por título
+            return String(a.title).localeCompare(String(b.title), "pt-BR");
+        });
+
+        res.setHeader("Content-Type", "application/pdf");
+        const dateLabel = new Date().toISOString().slice(0, 10);
+        const safeCategory = String(category || "todos")
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9_-]/g, "");
+        res.setHeader("Content-Disposition", `attachment; filename=lista-compra-${safeCategory}-${dateLabel}.pdf`);
+
+        const doc = new PDFDocument({ size: "A4", margin: 36 });
+        doc.pipe(res);
+
+        const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const columns = 3;
+        const gap = 12;
+        const boxWidth = (pageWidth - gap * (columns - 1)) / columns;
+        const boxHeight = 82;
+
+        const divider = () => {
+            const y = doc.y;
+            doc
+                .moveTo(doc.page.margins.left, y)
+                .lineTo(doc.page.width - doc.page.margins.right, y)
+                .lineWidth(0.5)
+                .strokeColor("#e5e7eb")
+                .stroke();
+            doc.moveDown(0.4);
+        };
+
+        doc.font("Helvetica-Bold").fontSize(16).fillColor("#111827").text("Lista de Compra", { width: pageWidth });
+        doc.moveDown(0.2);
+        const metaParts = [
+            `Total: ${items.length} itens`,
+            category && category !== "all" ? `Categoria: ${safeCategory}` : "",
+            searchNorm ? `Filtro: "${searchNorm}"` : "",
+        ].filter(Boolean);
+        doc.font("Helvetica").fontSize(9).fillColor("#6b7280").text(metaParts.join(" • "), { width: pageWidth });
+        doc.moveDown(0.4);
+        divider();
+
+        let row = 0;
+        let col = 0;
+        let startY = doc.y;
+        const leftX = doc.page.margins.left;
+
+        const drawItem = async (it: { title: string; sku: string; stock: number; imageUrl: string | null }, i: number) => {
+            const x = leftX + col * (boxWidth + gap);
+            const y = startY + row * (boxHeight + gap);
+
+            if (y + boxHeight > doc.page.height - doc.page.margins.bottom) {
+                doc.addPage({ size: "A4", margin: 36 });
+                row = 0;
+                col = 0;
+                startY = doc.page.margins.top;
+            }
+
+            const bx = leftX + col * (boxWidth + gap);
+            const by = startY + row * (boxHeight + gap);
+
+            doc.save();
+            doc.roundedRect(bx, by, boxWidth, boxHeight, 8).strokeColor("#e5e7eb").lineWidth(0.8).stroke();
+            const imgSize = 64;
+            const imgX = bx + 10;
+            const imgY = by + 9;
+            let hadImage = false;
+            if (it.imageUrl) {
+                try {
+                    const imgResp = await axios.get(it.imageUrl, { responseType: "arraybuffer" });
+                    const buf = Buffer.from(imgResp.data);
+                    doc.image(buf, imgX, imgY, { fit: [imgSize, imgSize] });
+                    hadImage = true;
+                } catch {
+                    hadImage = false;
+                }
+            }
+            if (!hadImage) {
+                doc.roundedRect(imgX, imgY, imgSize, imgSize, 6).fillAndStroke("#ffffff", "#e5e7eb");
+            }
+
+            const textX = imgX + imgSize + 10;
+            const textWidth = boxWidth - (textX - bx) - 10;
+            doc.fillColor("#111827").font("Helvetica-Bold").fontSize(10);
+            let titleText = it.title || "-";
+            const maxTitleHeight = 40;
+            let titleHeight = doc.heightOfString(titleText, { width: textWidth });
+            if (titleHeight > maxTitleHeight) {
+                const ellipsis = "…";
+                while (titleText.length > 0 && doc.heightOfString(titleText + ellipsis, { width: textWidth }) > maxTitleHeight) {
+                    titleText = titleText.slice(0, -1);
+                }
+                titleText = titleText.trim() + ellipsis;
+                titleHeight = doc.heightOfString(titleText, { width: textWidth });
+            }
+            doc.text(titleText, textX, by + 10, { width: textWidth });
+            const skuLine = `SKU: ${it.sku || "-"} • Estoque: ${it.stock}`;
+            const skuY = by + 10 + titleHeight + 6;
+            doc.fillColor("#374151").font("Helvetica").fontSize(9).text(skuLine, textX, skuY, { width: textWidth });
+            doc.restore();
+
+            col++;
+            if (col >= columns) {
+                col = 0;
+                row++;
+            }
+        };
+
+        for (let i = 0; i < items.length; i++) {
+            await drawItem(items[i], i);
+        }
+
+        doc.end();
+    } catch (error: any) {
+        console.error("[Export Purchase List PDF] Erro:", error);
+        return res.status(500).json({ error: "Falha ao gerar PDF da lista de compra", details: error?.message });
     }
 });
 

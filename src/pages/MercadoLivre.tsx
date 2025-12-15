@@ -5,7 +5,6 @@ import {
     TrendingUp,
     Package,
     AlertCircle,
-    Search,
     RefreshCcw,
     ExternalLink,
     Filter,
@@ -69,7 +68,7 @@ export default function MercadoLivre() {
 
     // Datas para comparação
     const dateRangeNumber = parseInt(dateRange);
-    const currentDate = new Date();
+    const currentDate = useMemo(() => new Date(), []);
     const startDate = subDays(currentDate, dateRangeNumber);
     const previousStartDate = subDays(startDate, dateRangeNumber);
 
@@ -185,15 +184,6 @@ export default function MercadoLivre() {
                         onSearchChange={() => { }}
                     />
                     <div className="flex items-center gap-2">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-2 h-9"
-                            onClick={() => navigate('/mercado-livre-busca-avancada')}
-                        >
-                            <Search className="h-4 w-4" />
-                            <span className="hidden sm:inline">Busca Avançada</span>
-                        </Button>
                         <MercadoLivreConnectButton size="sm" variant="outline" className="h-9" />
                         <Button
                             onClick={handleSyncData}

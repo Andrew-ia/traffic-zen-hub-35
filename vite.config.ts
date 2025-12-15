@@ -40,7 +40,23 @@ export default defineConfig(({ mode }) => {
   },
   build: {
     sourcemap: true,
-    chunkSizeWarningLimit: 1600,
+    chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-router')) return 'router';
+            if (id.includes('@tanstack/react-query')) return 'query';
+            if (id.includes('@supabase/supabase-js')) return 'supabase';
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+            if (id.includes('date-fns') || id.includes('zod') || id.includes('clsx') || id.includes('uuid')) return 'utils';
+            if (id.includes('@radix-ui') || id.includes('cmdk') || id.includes('lucide-react') || id.includes('vaul')) return 'ui';
+            if (id.includes('next-themes') || id.includes('tailwindcss')) return 'theme';
+            return 'vendor';
+          }
+        },
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

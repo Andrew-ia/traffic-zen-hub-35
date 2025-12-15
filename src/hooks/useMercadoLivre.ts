@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 // Helper para obter headers com autenticação
 const getAuthHeaders = (): HeadersInit => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('trafficpro.auth.token');
     return {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -135,7 +135,12 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
             const response = await fetch(`/api/integrations/mercadolivre/metrics?${params.toString()}`, { headers: getAuthHeaders() });
 
             if (!response.ok) {
-                throw new Error("Failed to fetch Mercado Livre metrics");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch Mercado Livre metrics (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -191,7 +196,12 @@ export function useMercadoLivreProducts(
             );
 
             if (!response.ok) {
-                throw new Error("Failed to fetch Mercado Livre products");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch Mercado Livre products (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -234,11 +244,16 @@ export function useMercadoLivreListings(
                 headers: getAuthHeaders()
             });
             if (!response.ok) {
-                throw new Error("Failed to fetch Mercado Livre products");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch Mercado Livre products (HTTP ${response.status})`;
+                throw new Error(message);
             }
             return response.json();
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId,
         staleTime: 2 * 60 * 1000,
     });
 }
@@ -269,7 +284,12 @@ export function useMercadoLivreQuestions(
             );
 
             if (!response.ok) {
-                throw new Error("Failed to fetch Mercado Livre questions");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch Mercado Livre questions (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -297,7 +317,12 @@ export function useSyncMercadoLivre() {
             );
 
             if (!response.ok) {
-                throw new Error("Failed to sync Mercado Livre data");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to sync Mercado Livre data (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -343,7 +368,12 @@ export function useAnswerMercadoLivreQuestion() {
             );
 
             if (!response.ok) {
-                throw new Error("Failed to answer question");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to answer question (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -382,7 +412,12 @@ export function useUpdateMercadoLivreProductPrice() {
             );
 
             if (!response.ok) {
-                throw new Error("Failed to update product price");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to update product price (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();
@@ -421,7 +456,12 @@ export function useToggleMercadoLivreProduct() {
             );
 
             if (!response.ok) {
-                throw new Error("Failed to update product status");
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to update product status (HTTP ${response.status})`;
+                throw new Error(message);
             }
 
             return response.json();

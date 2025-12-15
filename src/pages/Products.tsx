@@ -42,7 +42,8 @@ import {
     Copy,
     Eye,
     Info,
-    DownloadCloud
+    DownloadCloud,
+    FileText
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
@@ -58,6 +59,7 @@ export default function Products() {
     const [categoryFilter, setCategoryFilter] = useState<string>("all");
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
+    const [pdfFormat, setPdfFormat] = useState<"a4" | "10x15">("a4");
 
     const {
         data: productsData,
@@ -184,12 +186,103 @@ export default function Products() {
         return parts.join(" • ");
     };
 
-    const handleDownloadPdf = (productId: string) => {
+    const handleExportPurchaseList = () => {
+        const items = filteredProducts.map((p: any) => ({
+            title: p.title || "-",
+            sku: p.sku || p.variation || "-",
+            thumb: p.thumbnail || (Array.isArray(p.pictures) ? p.pictures[0]?.url : undefined) || "",
+            stock: typeof p.stock === "number" ? p.stock : 0,
+        }));
+
+        const date = new Date();
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const fileName = `lista-compra_${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.html`;
+
+        const style = `
+            <style>
+            :root { color-scheme: light dark; }
+            body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
+            h1 { font-size: 20px; margin: 0 0 16px; }
+            .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+            .item { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+            .thumb { width: 64px; height: 64px; border-radius: 6px; object-fit: cover; background: #fff; border: 1px solid #e5e7eb; }
+            .title { font-size: 14px; font-weight: 600; line-height: 1.3; margin-bottom: 4px; }
+            .sku { font-size: 12px; color: #374151; }
+            @media print {
+              .item { break-inside: avoid; }
+              a { color: inherit; text-decoration: none; }
+            }
+            </style>
+        `;
+
+        const header = `
+            <h1>Lista de Compra</h1>
+            <div class="meta">
+              Total: ${items.length} itens
+              ${categoryFilter !== "all" ? ` • Categoria: ${categoryOptions.find(([id]) => id === categoryFilter)?.[1] || categoryFilter}` : ""}
+              ${search ? ` • Filtro: "${search}"` : ""}
+            </div>
+        `;
+
+        const grid = `
+            <div class="grid">
+              ${items.map(it => `
+                <div class="item">
+                  ${it.thumb ? `<img class="thumb" src="${it.thumb}" alt="${it.title}">` : `<div class="thumb"></div>`}
+                  <div>
+                    <div class="title">${it.title}</div>
+                    <div class="sku">SKU: ${it.sku} • Estoque: ${formatNumber(it.stock)}</div>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+        `;
+
+        const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${style}</head><body>${header}${grid}</body></html>`;
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast({
+            title: "Lista exportada",
+            description: "Arquivo HTML baixado com nome " + fileName,
+        });
+    };
+
+    const handleExportPurchaseListPdf = () => {
         if (!workspaceId) {
             toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar", variant: "destructive" });
             return;
         }
-        const url = `/api/integrations/mercadolivre/products/${productId}/pdf?workspaceId=${workspaceId}`;
+        const params = new URLSearchParams({ workspaceId });
+        if (categoryFilter && categoryFilter !== "all") {
+            params.set("category", categoryFilter);
+        }
+        if (search) {
+            params.set("search", search);
+        }
+        const url = `/api/integrations/mercadolivre/products/export/purchase-list.pdf?${params.toString()}`;
+        window.open(url, "_blank");
+    };
+
+    const handleDownloadPdf = (productId: string, size?: "a4" | "10x15") => {
+        if (!workspaceId) {
+            toast({ title: "Workspace não selecionado", description: "Selecione um workspace para exportar", variant: "destructive" });
+            return;
+        }
+        const params = new URLSearchParams({ workspaceId });
+        const chosenSize = size || pdfFormat;
+        if (chosenSize === "10x15") {
+            params.set("pageSize", "10x15");
+        }
+        const url = `/api/integrations/mercadolivre/products/${productId}/pdf?${params.toString()}`;
         window.open(url, "_blank");
     };
 
@@ -205,6 +298,8 @@ export default function Products() {
         const url = `/api/integrations/mercadolivre/products/export/xlsx?${params.toString()}`;
         window.open(url, "_blank");
     };
+    
+    // removido: exportação XLSX A4 por produto
 
     if (!workspaceId) {
         return (
@@ -247,6 +342,17 @@ export default function Products() {
                         <DownloadCloud className="h-4 w-4" />
                         Exportar XLSX (categoria)
                     </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleExportPurchaseListPdf}
+                        title="Exporta PDF com nome, SKU, estoque e thumb"
+                    >
+                        <FileText className="h-4 w-4" />
+                        Exportar Lista de Compra (PDF)
+                    </Button>
+                    {/* removido: botão XLSX (A4 por produto) */}
                 </div>
             </div>
 
@@ -341,6 +447,7 @@ export default function Products() {
                             <Box className="h-5 w-5" />
                             Lista Completa de Anúncios
                         </CardTitle>
+                        
                     </div>
                 </CardHeader>
                 <CardContent className="p-0 overflow-hidden relative h-full">
@@ -555,15 +662,29 @@ export default function Products() {
                                                                         {getStatusBadge(product.status)}
                                                                     </DialogDescription>
                                                                 </div>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    className="gap-2"
-                                                                    onClick={() => handleDownloadPdf(product.id)}
-                                                                >
-                                                                    <DownloadCloud className="h-4 w-4" />
-                                                                    Baixar PDF
-                                                                </Button>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Select
+                                                                        value={pdfFormat}
+                                                                        onValueChange={(v) => setPdfFormat(v as "a4" | "10x15")}
+                                                                    >
+                                                                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                                                                            <SelectValue placeholder="Formato" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="a4">PDF A4</SelectItem>
+                                                                            <SelectItem value="10x15">Etiqueta 10x15</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="gap-2"
+                                                                        onClick={() => handleDownloadPdf(product.id)}
+                                                                    >
+                                                                        <DownloadCloud className="h-4 w-4" />
+                                                                        Baixar PDF
+                                                                    </Button>
+                                                                </div>
                                                             </div>
                                                         </DialogHeader>
 
