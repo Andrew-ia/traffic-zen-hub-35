@@ -8,6 +8,9 @@ import { encryptCredentials, decryptCredentials } from "../../services/encryptio
 import { resolveWorkspaceId } from "../../utils/workspace.js";
 // import { authMiddleware } from "../auth";
 
+import { TelegramNotificationService } from "../../services/telegramNotification.service.js";
+import { subDays, startOfDay, format } from "date-fns";
+
 const router = Router();
 
 // Base URL da API do Mercado Livre
@@ -211,7 +214,7 @@ function tokenNeedsRefresh(creds: { expiresAt?: number }): boolean {
     return Date.now() >= (creds.expiresAt - marginMs);
 }
 
-async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCredentials | null> {
+export async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCredentials | null> {
     const current = await getMercadoLivreCredentials(workspaceId);
     if (!current || !current.refreshToken) return null;
     const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
@@ -1792,47 +1795,94 @@ router.get("/products/:productId/pdf", async (req, res) => {
             imageBuffer: Buffer | null;
             features: Array<[string, string]>;
         }) => {
+            // 1. Title (Centered, larger)
             setLeft();
             doc
                 .font("Helvetica-Bold")
                 .fontSize(14)
                 .fillColor("#111827")
-                .text(opts.title || "Produto", { width: contentWidth });
-            doc.moveDown(0.1);
+                .text(opts.title || "Produto", { 
+                    width: contentWidth,
+                    align: 'center',
+                    height: 40,
+                    ellipsis: true
+                });
+            doc.moveDown(0.5);
+
+            // 2. Image (Centered)
+            if (opts.imageBuffer) {
+                try {
+                    const imgHeight = 150;
+                    const imgWidth = 180;
+                    const x = doc.page.margins.left + (contentWidth - imgWidth) / 2;
+                    doc.image(opts.imageBuffer, x, doc.y, { 
+                        fit: [imgWidth, imgHeight], 
+                        align: "center" 
+                    });
+                    doc.y += imgHeight + 10;
+                } catch (e) {
+                    console.warn("Error rendering image in label", e);
+                    doc.moveDown(1);
+                }
+            } else {
+                 doc.moveDown(1);
+            }
+
+            // 3. Info Block (SKU Prominent)
+            const startInfoY = doc.y;
+            
+            // SKU Box
+            doc.roundedRect(doc.page.margins.left, startInfoY, contentWidth, 45, 4).fillAndStroke("#f9fafb", "#e5e7eb");
+            
+            doc.fillColor("#6b7280").font("Helvetica-Bold").fontSize(9).text("SKU / REFERÊNCIA", doc.page.margins.left + 10, startInfoY + 8);
+            doc.fillColor("#111827").font("Helvetica-Bold").fontSize(16).text(opts.sku || "-", doc.page.margins.left + 10, startInfoY + 22, { width: contentWidth - 20, ellipsis: true });
+
+            doc.y = startInfoY + 55;
+
+            // Secondary Info
             setLeft();
-            doc
-                .font("Helvetica")
-                .fontSize(8.5)
-                .fillColor("#374151")
-                .text(`MLB: ${opts.id}`, { continued: true })
-                .text(`   SKU: ${opts.sku || "-"}`, { continued: true })
-                .text(`   Variação: ${opts.variation || "-"}`);
-            doc.moveDown(0.1);
-            setLeft();
-            doc.font("Helvetica-Bold").fontSize(12).fillColor("#111827").text(`Preço: ${opts.price}`, { width: contentWidth });
+            doc.font("Helvetica").fontSize(9).fillColor("#374151")
+               .text(`MLB: ${opts.id}   |   Variação: ${opts.variation || "-"}`, { align: 'center' });
+            
+            doc.moveDown(0.5);
             divider();
+            doc.moveDown(0.5);
 
-            const features = opts.features.length ? opts.features : [["Características", "Sem informações"]];
-            doc.font("Helvetica-Bold").fontSize(11).fillColor("#111827").text("Principais características");
-            doc.moveDown(0.1);
+            // 4. Features (Compact Grid)
+            if (opts.features.length > 0) {
+                const colGap = 8;
+                const colWidth = (contentWidth - colGap) / 2;
+                const startX = doc.page.margins.left;
+                const startFeatY = doc.y;
+                
+                // Show up to 8 features
+                opts.features.slice(0, 8).forEach(([label, value], idx) => {
+                    const col = idx % 2;
+                    const row = Math.floor(idx / 2);
+                    const x = startX + col * (colWidth + colGap);
+                    const y = startFeatY + row * 20; 
+                    
+                    doc.font("Helvetica-Bold").fontSize(8).fillColor("#4b5563").text(label + ":", x, y, { continued: true });
+                    doc.font("Helvetica").fontSize(8).fillColor("#111827").text(" " + (value || "-"), { width: colWidth, lineBreak: false, ellipsis: true });
+                });
+                
+                doc.y = startFeatY + (Math.ceil(opts.features.slice(0, 8).length / 2) * 20) + 10;
+            }
 
-            const colGap = 10;
-            const colWidth = (contentWidth - colGap) / 2;
-            const startX = doc.page.margins.left;
-            const startY = doc.y;
-
-            features.forEach(([label, value], idx) => {
-                const col = idx % 2;
-                const row = Math.floor(idx / 2);
-                const x = startX + col * (colWidth + colGap);
-                const y = startY + row * 12;
-
-                doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827").text(`${label}: `, x, y, { continued: true });
-                doc.font("Helvetica").fontSize(9).fillColor("#111827").text(value || "-", { width: colWidth - 8 });
-            });
-
-            const rows = Math.ceil(features.length / 2);
-            doc.y = startY + rows * 12 + 4;
+            // 5. Quantity Manual Entry (Footer)
+            // Ensure it's at the bottom
+            const bottomY = doc.page.height - doc.page.margins.bottom - 45;
+            if (doc.y < bottomY) {
+                doc.y = bottomY;
+            }
+            
+            // Draw a dashed box or line for quantity
+            doc.rect(doc.page.margins.left, doc.y, contentWidth, 40).strokeColor("#9ca3af").dash(4, { space: 2 }).stroke();
+            doc.undash();
+            
+            doc.font("Helvetica-Bold").fontSize(14).fillColor("#111827")
+               .text("QUANTIDADE:", doc.page.margins.left + 10, doc.y + 14, { continued: true })
+               .text("  _________", { align: 'right' }); // Manual fill space
         };
 
         const priceLabel = item.price ? `R$ ${item.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "-";
@@ -1869,7 +1919,7 @@ router.get("/products/:productId/pdf", async (req, res) => {
             ["Código universal", universalCode || "-"],
         ]
             .filter(([, v]) => String(v).trim() !== "-")
-            .slice(0, isLabel ? 10 : 999);
+            .slice(0, isLabel ? 10 : 999) as Array<[string, string]>;
 
         if (isLabel) {
             renderLabelTag({
@@ -1925,14 +1975,14 @@ router.get("/products/:productId/pdf", async (req, res) => {
 
         renderDimensions(dimensions);
 
-        const fiscalPairs: Array<[string, string]> = [
+        const fiscalPairs: Array<[string, string]> = ([
             ["NCM", ncm || "-"],
             ["Origem", origin || "-"],
             ["CFOP", cfop || "-"],
             ["CST", cst || "-"],
             ["CSOSN", csosn || "-"],
             ["Estado", state || "-"],
-        ].filter(([, v]) => String(v).trim() !== "-");
+        ] as Array<[string, string]>).filter(([, v]) => String(v).trim() !== "-");
         renderPairs("Dados fiscais", fiscalPairs.length ? fiscalPairs : [["Dados fiscais", "Sem informações"]], isLabel ? 2 : 3);
         divider();
 
@@ -4441,8 +4491,9 @@ router.post("/notifications", async (req, res) => {
 
         // Validar estrutura da notificação
         if (!notification.topic || !notification.resource) {
-            console.warn("[Mercado Livre Webhook] Notificação inválida:", notification);
-            return res.status(400).json({ error: "Invalid notification format" });
+            console.warn("[Mercado Livre Webhook] Notificação inválida. Body recebido:", JSON.stringify(notification));
+            console.warn("[Mercado Livre Webhook] Headers:", JSON.stringify(req.headers['content-type']));
+            return res.status(400).json({ error: "Invalid notification format", received: notification });
         }
 
         // Processar baseado no tipo de evento
@@ -4696,104 +4747,134 @@ router.post("/notifications/test-direct/:workspaceId", async (req, res) => {
  */
 router.post("/notifications/replay", async (req, res) => {
     try {
-        const workspaceId = String(req.body?.workspaceId || "").trim();
-        const days = Math.max(1, Number(req.body?.days) || 30);
-        const dryRun = Boolean(req.body?.dryRun);
-        const maxOrders = Math.min(500, Math.max(1, Number(req.body?.maxOrders) || 200));
+        const { workspaceId, days = 1, dryRun = false, maxOrders = 50 } = req.body;
 
         if (!workspaceId) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
         }
 
-        let credentials = await getMercadoLivreCredentials(workspaceId);
+        const credentials = await getMercadoLivreCredentials(workspaceId);
         if (!credentials) {
             return res.status(401).json({ error: "Mercado Livre não conectado" });
         }
 
-        if (tokenNeedsRefresh(credentials)) {
-            const refreshed = await refreshAccessToken(workspaceId);
-            if (refreshed) credentials = refreshed;
-        }
-
-        // Período inclusivo (início/fim do dia local)
+        // Definir período (Yesterday + Today por padrão se days=1)
+        // days=1 significa "retroceder 1 dia".
+        // startOfDay(subDays(now, 1)) -> Início de ontem.
+        // Se user pedir days=0, é só hoje.
         const now = new Date();
-        const dateTo = new Date(now); dateTo.setHours(23, 59, 59, 999);
-        const dateFrom = new Date(now); dateFrom.setHours(0, 0, 0, 0); dateFrom.setDate(dateFrom.getDate() - (days - 1));
-        const dateFromStr = dateFrom.toISOString().split("T")[0];
-        const dateToStr = dateTo.toISOString().split("T")[0];
+        const endDate = now;
+        const startDate = startOfDay(subDays(now, Number(days)));
 
-        // Buscar pedidos do período
-        const orders: any[] = [];
-        let offset = 0;
-        const limit = 50;
-        let hasMore = true;
-        while (hasMore && orders.length < maxOrders) {
-            const params: any = { seller: credentials.userId, limit, offset };
-            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/orders/search`, {
-                headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                params,
-            });
-            const batch = resp.data?.results || [];
-            orders.push(...batch);
-            hasMore = batch.length === limit;
-            offset += limit;
-        }
+        const startIso = startDate.toISOString();
+        const endIso = endDate.toISOString();
 
-        // Filtrar por status e data
-        const filtered = orders.filter((o) => {
-            if (String(o.status || "").toLowerCase() === "cancelled") return false;
-            const dateKey = o.date_created ? String(o.date_created).slice(0, 10) : "";
-            return dateKey >= dateFromStr && dateKey <= dateToStr;
-        }).slice(0, maxOrders);
+        console.log(`[ML Replay] Iniciando replay para workspace ${workspaceId}`);
+        console.log(`[ML Replay] Período: ${format(startDate, 'yyyy-MM-dd HH:mm')} até ${format(endDate, 'yyyy-MM-dd HH:mm')}`);
 
-        // Evitar duplicados: buscar logs já enviados
-        const pool = getPool();
-        const ids = filtered.map((o) => String(o.id || "")).filter(Boolean);
-        let alreadySent: Set<string> = new Set();
-        if (ids.length) {
-            const q = await pool.query(
-                `SELECT reference_id FROM notification_logs
-                 WHERE workspace_id = $1
-                   AND platform = 'telegram'
-                   AND notification_type = 'order_created'
-                   AND status = 'sent'
-                   AND reference_id = ANY($2::text[])`,
-                [workspaceId, ids]
-            );
-            alreadySent = new Set(q.rows.map((r: any) => String(r.reference_id)));
-        }
+        let totalFound = 0;
+        let sent = 0;
+        let skippedAlreadySent = 0;
 
-        const toSend = filtered.filter((o) => !alreadySent.has(String(o.id || "")));
-        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
-
-        let sent = 0; const errors: Array<{ id: string; error: string }> = [];
-        if (!dryRun) {
-            for (const order of toSend) {
-                try {
-                    const ok = await TelegramNotificationService.notifyNewOrder(workspaceId, order);
-                    if (ok) sent += 1;
-                    else errors.push({ id: String(order.id || ""), error: "Falha ao enviar (sem detalhe)" });
-                } catch (e: any) {
-                    errors.push({ id: String(order.id || ""), error: e?.message || String(e) });
+        // 1. Buscar Vendas (Orders)
+        let orders: any[] = [];
+        try {
+            const ordersUrl = `${MERCADO_LIVRE_API_BASE}/orders/search`;
+            // Removemos filtro de data da API para evitar erro 400 e filtramos localmente
+            // A API do ML às vezes rejeita formatos de data ou combinações de parâmetros
+            const ordersResp = await requestWithAuth<any>(workspaceId, ordersUrl, {
+                params: {
+                    seller: credentials.userId,
+                    sort: "date_desc",
+                    limit: maxOrders
                 }
+            });
+            const allOrders = ordersResp.results || [];
+            
+            // Filtrar localmente por data
+            orders = allOrders.filter((o: any) => {
+                const d = new Date(o.date_created);
+                return d >= startDate && d <= endDate;
+            });
+            
+            console.log(`[ML Replay] Encontradas ${orders.length} vendas no período (de ${allOrders.length} analisadas).`);
+        } catch (err: any) {
+            console.error(`[ML Replay] Erro ao buscar vendas:`, err?.message);
+        }
+
+        totalFound += orders.length;
+
+        // Processar Vendas
+        for (const order of orders) {
+            if (dryRun) continue;
+
+            try {
+                const notified = await TelegramNotificationService.notifyNewOrder(workspaceId, order);
+                if (notified) sent++;
+                else skippedAlreadySent++;
+            } catch (e) {
+                console.error(`[ML Replay] Falha ao processar venda ${order.id}:`, e);
+            }
+        }
+
+        // 2. Buscar Perguntas (Questions)
+        let questions: any[] = [];
+        try {
+            const questionsUrl = `${MERCADO_LIVRE_API_BASE}/my/received_questions/search`;
+            const questionsResp = await requestWithAuth<any>(workspaceId, questionsUrl, {
+                params: {
+                    sort_fields: "date_created",
+                    sort_types: "DESC",
+                    limit: 50
+                }
+            });
+            const allQuestions = questionsResp.questions || [];
+            
+            // Filtrar por data localmente (já que a API de search de questions é limitada)
+            questions = allQuestions.filter((q: any) => {
+                const qDate = new Date(q.date_created);
+                return qDate >= startDate && qDate <= endDate;
+            });
+            console.log(`[ML Replay] Encontradas ${questions.length} perguntas no período (de ${allQuestions.length} analisadas).`);
+        } catch (err: any) {
+             console.error(`[ML Replay] Erro ao buscar perguntas:`, err?.message);
+        }
+
+        totalFound += questions.length;
+
+        // Processar Perguntas
+        for (const question of questions) {
+            if (dryRun) continue;
+
+            try {
+                const notified = await TelegramNotificationService.notifyNewQuestion(workspaceId, question);
+                if (notified) sent++;
+                else skippedAlreadySent++;
+            } catch (e) {
+                console.error(`[ML Replay] Falha ao processar pergunta ${question.id}:`, e);
             }
         }
 
         return res.json({
             success: true,
-            dryRun,
-            totalFound: filtered.length,
-            skippedAlreadySent: filtered.length - toSend.length,
-            sent: dryRun ? 0 : sent,
-            errors: dryRun ? [] : errors,
-            period: { from: dateFromStr, to: dateToStr },
+            totalFound,
+            sent,
+            skippedAlreadySent,
+            period: {
+                from: format(startDate, 'yyyy-MM-dd HH:mm:ss'),
+                to: format(endDate, 'yyyy-MM-dd HH:mm:ss')
+            },
+            dryRun
         });
+
     } catch (error: any) {
-        console.error("[Notifications Replay] Erro:", error?.response?.data || error?.message || error);
-        return res.status(500).json({ error: error?.message || "Erro ao reenviar notificações" });
+        console.error("[ML Replay] Erro fatal:", error);
+        return res.status(500).json({
+            error: "Falha ao processar replay de notificações",
+            details: error?.message
+        });
     }
 });
-
 /**
  * Processar notificação de pedido/venda
  */
@@ -6721,5 +6802,7 @@ router.get("/debug/config", async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
+
+
 
 export default router;

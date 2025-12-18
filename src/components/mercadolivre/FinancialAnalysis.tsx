@@ -16,7 +16,8 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     const [mlFeePercent, setMlFeePercent] = useState(16.5); // Taxa ML clássico
     const [shippingCostPercent, setShippingCostPercent] = useState(10); // Estimativa de frete
     const [packagingCostPercent, setPackagingCostPercent] = useState(3); // Embalagem
-    const [productCostPercent, setProductCostPercent] = useState(50); // Custo dos produtos
+    const [productCostPercent, setProductCostPercent] = useState(30); // Custo dos produtos
+    const [fixedCostPerSale, setFixedCostPerSale] = useState(0); // Custo fixo por venda
     const [showCalculator, setShowCalculator] = useState(false);
 
     if (loading) {
@@ -40,14 +41,18 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     const shippingCost = totalRevenue * (shippingCostPercent / 100);
     const packagingCost = totalRevenue * (packagingCostPercent / 100);
     const productCost = totalRevenue * (productCostPercent / 100);
-    const totalCosts = mlFee + shippingCost + packagingCost + productCost;
+    const fixedCostTotal = fixedCostPerSale * totalSales;
+    const totalCosts = mlFee + shippingCost + packagingCost + productCost + fixedCostTotal;
     const netRevenue = totalRevenue - totalCosts;
     const netMargin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
 
     // Projeção mensal (baseado em 30 dias)
     const dailyRevenue = totalRevenue / 30;
     const monthlyProjection = dailyRevenue * 30;
-    const monthlyNetProjection = monthlyProjection - (monthlyProjection * (mlFeePercent + shippingCostPercent + packagingCostPercent + productCostPercent) / 100);
+    const averageTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
+    const monthlySalesProjection = averageTicket > 0 ? monthlyProjection / averageTicket : 0;
+    const monthlyFixedCost = monthlySalesProjection * fixedCostPerSale;
+    const monthlyNetProjection = monthlyProjection - (monthlyProjection * (mlFeePercent + shippingCostPercent + packagingCostPercent + productCostPercent) / 100) - monthlyFixedCost;
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
@@ -132,6 +137,19 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                                     className="h-8 text-sm"
                                 />
                             </div>
+                            <div>
+                                <Label htmlFor="fixedCost" className="text-xs">
+                                    Custo Fixo ML (R$ / venda)
+                                </Label>
+                                <Input
+                                    id="fixedCost"
+                                    type="number"
+                                    step="0.01"
+                                    value={fixedCostPerSale}
+                                    onChange={(e) => setFixedCostPerSale(Number(e.target.value))}
+                                    className="h-8 text-sm"
+                                />
+                            </div>
                         </div>
                     </div>
                 )}
@@ -177,6 +195,14 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                                     -{formatCurrency(productCost)}
                                 </span>
                             </div>
+                            {fixedCostPerSale > 0 && (
+                                <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
+                                    <span className="text-muted-foreground">Custo Fixo (R$ {fixedCostPerSale.toFixed(2)}/un)</span>
+                                    <span className="font-medium text-red-600 dark:text-red-400">
+                                        -{formatCurrency(fixedCostTotal)}
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/50 font-semibold border-t border-border/50 mt-2 pt-2">
                                 <span>Total de Custos</span>
                                 <span className="text-red-600 dark:text-red-400">

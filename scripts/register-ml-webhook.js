@@ -17,8 +17,43 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
 
 const APP_ID = process.env.MERCADO_LIVRE_CLIENT_ID;
-const ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
+const CLIENT_SECRET = process.env.MERCADO_LIVRE_CLIENT_SECRET;
+let ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
+const REFRESH_TOKEN = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
 const USER_ID = process.env.MERCADO_LIVRE_USER_ID;
+
+async function refreshAccessToken() {
+  if (!REFRESH_TOKEN || !CLIENT_SECRET) {
+    console.error('❌ Impossível renovar token: REFRESH_TOKEN ou CLIENT_SECRET ausentes.');
+    return false;
+  }
+
+  try {
+    const response = await axios.post('https://api.mercadolibre.com/oauth/token', {
+      grant_type: 'refresh_token',
+      client_id: APP_ID,
+      client_secret: CLIENT_SECRET,
+      refresh_token: REFRESH_TOKEN
+    }, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    const { access_token, refresh_token } = response.data;
+    ACCESS_TOKEN = access_token;
+    
+    console.log('✅ Token renovado com sucesso!');
+    console.log('📝 Atualize seu .env.local com os novos tokens:');
+    console.log(`   MERCADO_LIVRE_ACCESS_TOKEN=${access_token}`);
+    if (refresh_token !== REFRESH_TOKEN) {
+      console.log(`   MERCADO_LIVRE_REFRESH_TOKEN=${refresh_token}`);
+    }
+    console.log('');
+    return true;
+  } catch (error) {
+    console.error('❌ Falha ao renovar token:', error.response?.data || error.message);
+    return false;
+  }
+}
 
 // Definir base URL dinâmica:
 // Prioridade:
@@ -111,7 +146,7 @@ async function updateCallbackUrl() {
   try {
     console.log('\n🔄 Atualizando URL de callback no app...\n');
 
-    const response = await axios.put(
+    const makeRequest = async () => axios.put(
       `https://api.mercadolibre.com/applications/${APP_ID}`,
       {
         notifications_callback_url: CALLBACK_URL
@@ -123,6 +158,22 @@ async function updateCallbackUrl() {
         }
       }
     );
+
+    let response;
+    try {
+      response = await makeRequest();
+    } catch (error) {
+      if (error.response?.status === 401) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          response = await makeRequest();
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
 
     console.log(`✅ URL de callback atualizada com sucesso!`);
     console.log(`   Nova URL: ${CALLBACK_URL}\n`);
@@ -145,14 +196,19 @@ async function testWebhook() {
     };
 
     const response = await axios.post(CALLBACK_URL, testPayload, {
-      timeout: 5000
+      timeout: 5000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
     if (response.status === 200) {
       console.log('✅ Endpoint de webhook está respondendo corretamente!\n');
       return true;
     } else {
-      console.log(`⚠️  Endpoint respondeu com status: ${response.status}\n`);
+      console.log(`⚠️  Endpoint respondeu com status: ${response.status}`);
+      console.log(`   Detalhes:`, response.data);
+      console.log('');
       return false;
     }
   } catch (error) {

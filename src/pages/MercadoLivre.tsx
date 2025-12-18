@@ -44,7 +44,9 @@ import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton
 export default function MercadoLivre() {
     const navigate = useNavigate();
     const [dateRange, setDateRange] = useState("30");
-    const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+    const [workspaceId, setWorkspaceId] = useState<string | null>(
+        (import.meta.env.VITE_WORKSPACE_ID as string) || null
+    );
     const [replaying, setReplaying] = useState(false);
 
     // Obter workspace_id
@@ -201,10 +203,10 @@ export default function MercadoLivre() {
                             variant="outline"
                             className="gap-2 h-9"
                             disabled={replaying || !workspaceId}
-                            title="Reenviar notificações de vendas do dia atual para o Telegram"
+                            title="Reenviar notificações de vendas de ontem e hoje para o Telegram"
                         >
                             <RefreshCcw className={`h-4 w-4 ${replaying ? 'animate-spin' : ''}`} />
-                            {replaying ? 'Reenviando...' : 'Reenviar notificações (hoje)'}
+                            {replaying ? 'Reenviando...' : 'Reenviar notificações (Ontem e Hoje)'}
                         </Button>
                         {workspaceId && (
                             <ExportReportButton
