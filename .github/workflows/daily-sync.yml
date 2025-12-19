@@ -1,8 +1,8 @@
 name: Daily Sync - Meta & Google Ads
 
 on:
-  schedule:
-    - cron: '0 12 * * *'  # 9 AM Brasília = 12 PM UTC
+  # schedule:
+  #   - cron: '0 12 * * *'  # 9 AM Brasília = 12 PM UTC
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -22,31 +22,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Sync Meta Ads
-        env:
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
-          META_WORKSPACE_ID: ${{ secrets.META_WORKSPACE_ID }}
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          echo "Starting Meta Ads sync..."
-          npm run sync:meta
-          echo "Meta Ads sync completed!"
+      # - name: Sync Meta Ads
+      #   env:
+      #     META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+      #     META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+      #     META_WORKSPACE_ID: ${{ secrets.META_WORKSPACE_ID }}
+      #     SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      #     SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      #     SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      #   run: |
+      #     echo "Starting Meta Ads sync..."
+      #     npm run sync:meta
+      #     echo "Meta Ads sync completed!"
       
-      - name: Sync Google Ads
-        env:
-          GOOGLE_ADS_CLIENT_ID: ${{ secrets.GOOGLE_ADS_CLIENT_ID }}
-          GOOGLE_ADS_CLIENT_SECRET: ${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}
-          GOOGLE_ADS_REFRESH_TOKEN: ${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}
-          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
-          GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: |
-          echo "Starting Google Ads sync..."
-          npm run sync:google
-          echo "Google Ads sync completed!"
+      # - name: Sync Google Ads
+      #   env:
+      #     GOOGLE_ADS_CLIENT_ID: ${{ secrets.GOOGLE_ADS_CLIENT_ID }}
+      #     GOOGLE_ADS_CLIENT_SECRET: ${{ secrets.GOOGLE_ADS_CLIENT_SECRET }}
+      #     GOOGLE_ADS_REFRESH_TOKEN: ${{ secrets.GOOGLE_ADS_REFRESH_TOKEN }}
+      #     GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+      #     GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
+      #     SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      #   run: |
+      #     echo "Starting Google Ads sync..."
+      #     npm run sync:google
+      #     echo "Google Ads sync completed!"
+      
+      - name: Placeholder
+        run: echo "Syncs are temporarily disabled."
       
       - name: Notify on failure
         if: failure()
