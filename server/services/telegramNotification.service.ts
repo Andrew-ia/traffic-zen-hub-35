@@ -571,8 +571,45 @@ export class TelegramNotificationService {
                 "failed",
                 questionData,
                 null,
-                error.message
+                error?.message || String(error)
             );
+            return false;
+        }
+    }
+
+    /**
+     * Envia alerta do Full Analytics
+     */
+    public static async notifyFullAnalyticsAlert(workspaceId: string, messageHtml: string): Promise<boolean> {
+        try {
+            const config = await this.getTelegramConfig(workspaceId);
+            if (!config) {
+                console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);
+                return false;
+            }
+
+            // Enviar mensagem
+            const result = await this.sendTelegramMessage(
+                config.botToken,
+                config.chatId,
+                messageHtml,
+                "HTML"
+            );
+
+            // Logar
+            await this.logNotification(
+                workspaceId,
+                "full_analytics_alert",
+                `alert_${Date.now()}`,
+                result.ok ? "sent" : "failed",
+                { message: messageHtml },
+                result.response || null,
+                result.ok ? null : (result.error || "Falha ao enviar mensagem")
+            );
+
+            return result.ok;
+        } catch (error: any) {
+            console.error("[Telegram] Erro ao enviar alerta Full Analytics:", error);
             return false;
         }
     }

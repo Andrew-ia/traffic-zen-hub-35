@@ -101,6 +101,68 @@ export interface MercadoLivreProduct {
     };
 }
 
+export interface MercadoLivreFullProduct {
+    id: string;
+    ml_item_id: string;
+    title: string;
+    price: number;
+    available_quantity: number;
+    sold_quantity: number;
+    ml_listing_type: string;
+    ml_permalink: string;
+    images: string; // JSON string or array depending on how it's returned (postgres jsonb comes as object usually)
+    status: string;
+    ml_logistic_type: string;
+    revenue_30d: number;
+    sales_30d: number;
+    profit_unit: number;
+    classification: 'A' | 'B' | 'C' | 'D' | 'N/A';
+    recommendation: string;
+    tags: string[];
+    ml_tax_rate: number;
+    fixed_fee: number;
+    last_analyzed_at: string;
+    adsActive?: boolean;
+}
+
+export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
+    return useQuery({
+        queryKey: ["mercadolivre-full-analytics", workspaceId],
+        queryFn: async () => {
+            if (!workspaceId) return [];
+            const headers = getAuthHeaders();
+            const response = await fetch(`/api/integrations/mercadolivre-full-analytics/products`, {
+                headers: headers as HeadersInit
+            });
+            if (!response.ok) {
+                throw new Error("Failed to fetch full analytics products");
+            }
+            return response.json() as Promise<MercadoLivreFullProduct[]>;
+        },
+        enabled: !!workspaceId,
+    });
+};
+
+export const useSyncFullAnalytics = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (workspaceId: string) => {
+            const headers = getAuthHeaders();
+            const response = await fetch(`/api/integrations/mercadolivre-full-analytics/sync-full`, {
+                method: "POST",
+                headers: headers as HeadersInit
+            });
+            if (!response.ok) {
+                throw new Error("Failed to sync full analytics");
+            }
+            return response.json();
+        },
+        onSuccess: (_, workspaceId) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre-full-analytics", workspaceId] });
+        }
+    });
+};
+
 // Interface para perguntas
 export interface MercadoLivreQuestion {
     id: string;
@@ -155,13 +217,14 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
  */
 export function useMercadoLivreProducts(
     workspaceId: string | null,
-    category: string = "all"
+    category: string = "all",
+    search: string = ""
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
 
     return useQuery({
-        queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category],
+        queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category, search],
         queryFn: async (): Promise<{
             items: MercadoLivreProduct[];
             totalCount: number;
@@ -186,6 +249,7 @@ export function useMercadoLivreProducts(
             const params = new URLSearchParams({
                 workspaceId: effectiveWorkspaceId,
                 ...(category !== "all" && { category }),
+                ...(search && { search }),
                 page: String(1),
                 limit: String(1000), // Buscar até 1000 produtos
             });

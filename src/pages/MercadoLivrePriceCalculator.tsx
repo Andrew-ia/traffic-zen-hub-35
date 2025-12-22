@@ -448,41 +448,34 @@ export default function MercadoLivrePriceCalculator() {
                         <CardDescription>Compare cenários de preço sem editar os campos principais</CardDescription>
                     </CardHeader>
                     <CardContent className="grid md:grid-cols-3 gap-3">
-                        {[
-                            { label: "Atual", price: priceToUse, icon: <Settings2 className="w-4 h-4" /> },
-                            { label: "+5%", price: priceToUse * 1.05, icon: <ArrowUpRight className="w-4 h-4" /> },
-                            { label: "-5%", price: priceToUse * 0.95, icon: <ArrowDownRight className="w-4 h-4" /> },
-                            { label: "Preço alvo (margem)", price: totals.targetPrice, icon: <Percent className="w-4 h-4" /> },
-                        ].slice(0, 3).map((scenario, idx) => {
-                            const sim = simulatePrice(scenario.price);
-                            return (
-                                <div key={idx} className="p-3 rounded-lg border bg-muted/40 space-y-1">
-                                    <div className="flex items-center justify-between text-sm font-semibold">
-                                        <span className="flex items-center gap-2">{scenario.icon}{scenario.label}</span>
-                                        <span>R$ {scenario.price.toFixed(2)}</span>
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">Lucro: R$ {sim.profit.toFixed(2)}</div>
-                                    <div className={`text-xs ${sim.marginPct >= 0 ? "text-green-700" : "text-red-700"}`}>
-                                        Margem: {(sim.marginPct * 100).toFixed(1)}%
-                                    </div>
-                                </div>
-                            );
-                        })}
                         {(() => {
-                            const scenario = { label: "Preço alvo (margem)", price: totals.targetPrice, icon: <Percent className="w-4 h-4" /> };
-                            const sim = simulatePrice(scenario.price);
-                            return (
-                                <div className="p-3 rounded-lg border bg-green-50 space-y-1">
-                                    <div className="flex items-center justify-between text-sm font-semibold">
-                                        <span className="flex items-center gap-2">{scenario.icon}{scenario.label}</span>
-                                        <span>R$ {scenario.price.toFixed(2)}</span>
+                            const feeBase = 1 - (feePercent + paymentFeePercent + overheadPercent);
+                            const getPriceForMargin = (margin: number) => {
+                                return feeBase - margin > 0 ? (totals.costs + totals.feeFlat) / (feeBase - margin) : 0;
+                            };
+
+                            return [
+                                { label: "Atual", price: priceToUse, icon: <Settings2 className="w-4 h-4" /> },
+                                { label: "+5%", price: priceToUse * 1.05, icon: <ArrowUpRight className="w-4 h-4" /> },
+                                { label: "-5%", price: priceToUse * 0.95, icon: <ArrowDownRight className="w-4 h-4" /> },
+                                { label: "Margem 30%", price: getPriceForMargin(0.30), icon: <Percent className="w-4 h-4" /> },
+                                { label: "Margem 40%", price: getPriceForMargin(0.40), icon: <Percent className="w-4 h-4" /> },
+                                { label: `Preço alvo (${(desiredMargin * 100).toFixed(0)}%)`, price: totals.targetPrice, icon: <Percent className="w-4 h-4" />, className: "bg-green-50 border-green-200" },
+                            ].map((scenario, idx) => {
+                                const sim = simulatePrice(scenario.price);
+                                return (
+                                    <div key={idx} className={`p-3 rounded-lg border space-y-1 ${scenario.className || "bg-muted/40"}`}>
+                                        <div className="flex items-center justify-between text-sm font-semibold">
+                                            <span className="flex items-center gap-2">{scenario.icon}{scenario.label}</span>
+                                            <span>R$ {scenario.price.toFixed(2)}</span>
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Lucro: R$ {sim.profit.toFixed(2)}</div>
+                                        <div className={`text-xs ${sim.marginPct >= 0 ? "text-green-700" : "text-red-700"}`}>
+                                            Margem: {(sim.marginPct * 100).toFixed(1)}%
+                                        </div>
                                     </div>
-                                    <div className="text-xs text-muted-foreground">Lucro: R$ {sim.profit.toFixed(2)}</div>
-                                    <div className={`text-xs ${sim.marginPct >= 0 ? "text-green-700" : "text-red-700"}`}>
-                                        Margem: {(sim.marginPct * 100).toFixed(1)}%
-                                    </div>
-                                </div>
-                            );
+                                );
+                            });
                         })()}
                     </CardContent>
                 </Card>

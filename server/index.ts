@@ -5,6 +5,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startSimpleWorker } from './workers/simpleSyncWorker.js';
+import { startFullAnalyticsScheduler } from './workers/fullAnalyticsScheduler.js';
 import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
 import { runInstagramSync } from '../supabase/functions/_shared/instagramSync.js';
 import { decryptCredentials, encryptCredentials } from './services/encryption.js';
@@ -430,6 +431,10 @@ app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
 import mercadoLivreFulfillmentRouter from './api/integrations/mercadolivre-fulfillment.js';
 app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
 
+// Mercado Livre Full Analytics endpoints
+import mercadoLivreFullAnalyticsRouter from './api/integrations/mercadolivre-full-analytics.js';
+app.use('/api/integrations/mercadolivre-full-analytics', mercadoLivreFullAnalyticsRouter);
+
 // Notification Settings endpoints
 import notificationSettingsRouter from './api/notification-settings.js';
 app.use('/api/notification-settings', notificationSettingsRouter);
@@ -610,6 +615,9 @@ async function start() {
       } else {
         console.log('ℹ️  ML replay worker desabilitado (ML_NOTIFICATIONS_REPLAY_ENABLED != true)');
       }
+
+      // Start Full Analytics Scheduler
+      startFullAnalyticsScheduler();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

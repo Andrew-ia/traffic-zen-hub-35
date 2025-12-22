@@ -40,6 +40,7 @@ import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 import { supabase } from "@/lib/supabaseClient";
 import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
+import { TodayShipments } from "@/components/mercadolivre/TodayShipments";
 
 export default function MercadoLivre() {
     const navigate = useNavigate();
@@ -385,6 +386,8 @@ export default function MercadoLivre() {
 
                 {/* Side Column (Financials & Stock) - 1/3 width */}
                 <div className="lg:col-span-4 space-y-6">
+                    <TodayShipments workspaceId={workspaceId} />
+
                     <FinancialAnalysis
                         totalRevenue={totalRevenue}
                         totalSales={totalSales}

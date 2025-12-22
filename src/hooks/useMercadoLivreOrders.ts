@@ -18,6 +18,7 @@ export interface MercadoLivreOrder {
     id: string;
     status: string;
     dateCreated: string | null;
+    lastUpdated: string | null;
     totalAmount: number;
     paidAmount: number;
     currencyId: string;

@@ -93,9 +93,9 @@ Deno.serve(async (req) => {
 
             const accessToken = params.accessToken;
 
-            // 4. Fetch recent orders (last 20 mins to be safe)
+            // 4. Fetch recent orders (last 24 hours to be safe and catch missed ones)
             const now = new Date();
-            const timeWindow = new Date(now.getTime() - 20 * 60 * 1000).toISOString();
+            const timeWindow = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
             const ordersRes = await fetch(`${MERCADO_LIVRE_API}/orders/search?seller=${params.userId}&order.date_created.from=${timeWindow}&sort=date_desc&limit=50`, {
                 headers: { Authorization: `Bearer ${accessToken}` }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useMercadoLivreProducts } from "@/hooks/useMercadoLivre";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +57,7 @@ export default function Products() {
     const navigate = useNavigate();
 
     const [search, setSearch] = useState("");
+    const debouncedSearch = useDebounce(search, 500);
     const [categoryFilter, setCategoryFilter] = useState<string>("all");
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
@@ -65,7 +67,7 @@ export default function Products() {
         data: productsData,
         isLoading,
         error
-    } = useMercadoLivreProducts(workspaceId, "all");
+    } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch);
 
     const categoryOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -80,9 +82,10 @@ export default function Products() {
     }, [productsData]);
 
     const filteredProducts = productsData?.items?.filter((product: any) => {
-        const matchesSearch =
-            product.title?.toLowerCase().includes(search.toLowerCase()) ||
-            product.id?.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = debouncedSearch 
+            ? true 
+            : (product.title?.toLowerCase().includes(search.toLowerCase()) ||
+               product.id?.toLowerCase().includes(search.toLowerCase()));
 
         const productCategory = String(product.category || "").trim();
         const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;

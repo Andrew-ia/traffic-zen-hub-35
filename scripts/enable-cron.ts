@@ -25,6 +25,12 @@ async function enableCron() {
         await client.query('CREATE EXTENSION IF NOT EXISTS pg_cron;');
         await client.query('CREATE EXTENSION IF NOT EXISTS pg_net;');
 
+        // Unschedule 1m job if exists (cleanup)
+        try {
+            await client.query("select cron.unschedule('check-ml-orders-every-1m')");
+            console.log("Old 1m job unscheduled");
+        } catch (e) { /* ignore */ }
+
         const projectRef = "bichvnuepmgvdlrclmxb"; // Extracted from SUPABASE_URL
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

@@ -52,7 +52,14 @@ async function credentialsExist(workspaceId: string): Promise<boolean> {
     }
 }
 
+const userIdToWorkspaceCache = new Map<string, string>();
+
 async function findWorkspaceIdByMLUserId(userId: string): Promise<string | null> {
+    const trimmedUserId = String(userId).trim();
+    if (userIdToWorkspaceCache.has(trimmedUserId)) {
+        return userIdToWorkspaceCache.get(trimmedUserId)!;
+    }
+
     try {
         const pool = getPool();
         const result = await pool.query(
@@ -66,7 +73,8 @@ async function findWorkspaceIdByMLUserId(userId: string): Promise<string | null>
             try {
                 const dec = decryptCredentials(row.encrypted_credentials, row.encryption_iv) as any;
                 const decUserId = String(dec.userId || dec.user_id || "").trim();
-                if (decUserId && decUserId === String(userId).trim()) {
+                if (decUserId && decUserId === trimmedUserId) {
+                    userIdToWorkspaceCache.set(trimmedUserId, row.workspace_id);
                     return row.workspace_id;
                 }
             } catch (e) {
@@ -244,7 +252,7 @@ export async function refreshAccessToken(workspaceId: string): Promise<MercadoLi
     return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId };
 }
 
-async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
+export async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
     let creds = await getMercadoLivreCredentials(workspaceId);
     if (!creds) throw new Error("ml_not_connected");
 
@@ -748,6 +756,256 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 }
 
 
+
+/**
+ * GET /api/integrations/mercadolivre/orders
+ * Busca pedidos do Mercado Livre com filtros
+ */
+router.get("/orders", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const { dateFrom, dateTo, limit = 50, offset = 0, status } = req.query as any;
+
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
+        if (!credentials) {
+             return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+
+        // Prepare params for ML API
+        const params: any = {
+            seller: credentials.userId,
+            limit: Number(limit),
+            offset: Number(offset),
+            sort: 'date_desc',
+        };
+
+        // Add date filters if provided
+        if (dateFrom) {
+            // Assume input is YYYY-MM-DD. Convert to ISO start of day
+            const d = new Date(dateFrom);
+            d.setHours(0,0,0,0);
+            params['order.date_created.from'] = d.toISOString();
+        }
+        if (dateTo) {
+             // Assume input is YYYY-MM-DD. Convert to ISO end of day
+            const d = new Date(dateTo);
+            d.setHours(23,59,59,999);
+            params['order.date_created.to'] = d.toISOString();
+        }
+
+        if (status) {
+            params['order.status'] = status;
+        }
+
+        const data = await requestWithAuth<any>(
+            String(targetWorkspaceId),
+            `${MERCADO_LIVRE_API_BASE}/orders/search`,
+            { params }
+        );
+        
+        const orders = (data.results || []).map((order: any) => ({
+            id: order.id,
+            status: order.status,
+            dateCreated: order.date_created,
+            lastUpdated: order.last_updated,
+            totalAmount: order.total_amount || order.paid_amount,
+            paidAmount: order.paid_amount,
+            currencyId: order.currency_id,
+            buyerId: order.buyer?.id,
+            items: (order.order_items || []).map((item: any) => ({
+                itemId: item.item.id,
+                title: item.item.title,
+                quantity: item.quantity,
+                unitPrice: item.unit_price,
+                fullUnitPrice: item.full_unit_price,
+            })),
+        }));
+
+        return res.json({
+            orders,
+            paging: data.paging
+        });
+
+    } catch (error: any) {
+        console.error("Error fetching orders:", error);
+         if (error.message === "ml_not_connected") {
+            return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch orders",
+            details: error?.response?.data || error?.message
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/shipments
+ * Busca envios do Mercado Livre
+ */
+router.get("/shipments", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const { status, limit = 50, offset = 0 } = req.query as any;
+
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
+        if (!credentials) {
+             return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+
+        const targetStatus = status ? status.split(',').map((s: string) => s.trim()) : null;
+        const limitNum = Number(limit);
+        const offsetNum = Number(offset);
+        const MAX_ORDERS_TO_SCAN = 500; // Scan up to 500 recent orders
+        const BATCH_SIZE = 50;
+
+        const collectedShipmentIds: number[] = [];
+        const allOrdersMap = new Map<number, any>();
+        let ordersChecked = 0;
+        let ordersOffset = 0;
+
+        console.log(`Fetching shipments with status: ${status}, limit: ${limitNum}, offset: ${offsetNum}`);
+
+        while (collectedShipmentIds.length < (limitNum + offsetNum) && ordersChecked < MAX_ORDERS_TO_SCAN) {
+            const ordersParams: any = {
+                seller: credentials.userId,
+                'order.status': 'paid',
+                sort: 'updated_desc', 
+                limit: BATCH_SIZE,
+                offset: ordersOffset,
+            };
+
+            let orders: any[] = [];
+            try {
+                const ordersData = await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                    { params: ordersParams }
+                );
+                orders = ordersData.results || [];
+            } catch (e) {
+                console.warn("Failed to fetch orders, retrying without sort", e);
+                delete ordersParams.sort;
+                const ordersDataRetry = await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                    { params: ordersParams }
+                );
+                orders = ordersDataRetry.results || [];
+            }
+
+            if (orders.length === 0) break;
+
+            for (const order of orders) {
+                const shId = order.shipping?.id;
+                // Use shipping.status from order if available to pre-filter
+                const shStatus = order.shipping?.status; 
+                
+                if (shId) {
+                    // If we have a target status, check if order.shipping.status matches (if it exists)
+                    // If it doesn't exist, we include it as a candidate to be safe
+                    if (!targetStatus || !shStatus || targetStatus.includes(shStatus)) {
+                         if (!allOrdersMap.has(shId)) {
+                            allOrdersMap.set(shId, order);
+                            collectedShipmentIds.push(shId);
+                        }
+                    }
+                }
+            }
+
+            ordersChecked += orders.length;
+            ordersOffset += BATCH_SIZE;
+            
+            // Optimization: If we found nothing in the first 100 orders, maybe we shouldn't go too deep if the user has huge volume?
+            // But we want to find the pending ones.
+        }
+
+        console.log(`Scanned ${ordersChecked} orders, found ${collectedShipmentIds.length} candidate shipments`);
+
+        // Apply pagination to the IDs
+        const pagedIds = collectedShipmentIds.slice(offsetNum, offsetNum + limitNum);
+
+        if (pagedIds.length === 0) {
+            return res.json({ results: [], paging: { total: collectedShipmentIds.length, limit: limitNum, offset: offsetNum } });
+        }
+
+        // 2. Buscar detalhes dos envios (Multiget se possível, ou paralelo)
+        const shipmentDetails: any[] = [];
+        
+        const fetchShipment = async (id: any) => {
+            try {
+                // Adicionar header x-format-new: true para garantir formato atualizado se necessário
+                // e usar endpoint padrão de shipments
+                return await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/shipments/${id}`,
+                    { headers: { 'x-format-new': 'true' } }
+                );
+            } catch (e) {
+                console.warn(`Failed to fetch shipment ${id}`, e);
+                return null;
+            }
+        };
+
+        const chunkSize = 10;
+        for (let i = 0; i < pagedIds.length; i += chunkSize) {
+            const chunk = pagedIds.slice(i, i + chunkSize);
+            const promises = chunk.map(id => fetchShipment(id));
+            const results = await Promise.all(promises);
+            shipmentDetails.push(...results.filter(r => r !== null));
+        }
+
+        // 3. Filtrar novamente por status (garantia final)
+        let results = shipmentDetails;
+        if (targetStatus) {
+            results = results.filter((s: any) => targetStatus.includes(s.status));
+        }
+
+        console.log(`Returning ${results.length} shipments after detail fetch and filtering`);
+
+        const enrichedResults = results.map((shipment: any) => {
+            const order = allOrdersMap.get(shipment.id);
+            if (order) {
+                 if (!shipment.shipping_items || shipment.shipping_items.length === 0) {
+                     shipment.shipping_items = order.order_items.map((item: any) => ({
+                         description: item.item.title,
+                         quantity: item.quantity,
+                         item_id: item.item.id
+                     }));
+                 }
+                 shipment.order_id = order.id;
+            }
+            return shipment;
+        });
+
+        return res.json({
+            results: enrichedResults,
+            paging: {
+                total: collectedShipmentIds.length, // Approximation of total matching
+                limit: limitNum,
+                offset: offsetNum
+            }
+        });
+
+    } catch (error: any) {
+        console.error("Error fetching shipments:", error);
+         if (error.message === "ml_not_connected") {
+            return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch shipments",
+            details: error?.response?.data || error?.message
+        });
+    }
+});
+
 /**
  * GET /api/integrations/mercadolivre/metrics
  * Retorna métricas agregadas do Mercado Livre
@@ -844,27 +1102,62 @@ router.get("/products", async (req, res) => {
             });
         }
 
-        // Buscar todos os IDs de itens do vendedor para agregados
+        // Buscar IDs de itens (com busca textual ou listagem geral)
         const allItemIds: string[] = [];
-        let searchOffset = 0;
-        const searchLimit = 50;
-        let hasMore = true;
-        while (hasMore) {
-            try {
-                const resp = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                    {
-                        params: { limit: searchLimit, offset: searchOffset },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                    }
-                );
-                const ids = resp.data.results || [];
-                allItemIds.push(...ids);
-                hasMore = ids.length === searchLimit;
-                searchOffset += searchLimit;
-            } catch (err) {
-                console.error("Error fetching ML item IDs:", err);
-                break;
+        const searchQuery = (req.query as any).search || (req.query as any).q;
+
+        if (searchQuery) {
+            // Modo Busca: Filtrar por termo
+            let searchOffset = 0;
+            const searchLimit = 50;
+            let hasMore = true;
+            // Limite de segurança para busca para evitar timeouts em termos muito genéricos
+            const MAX_SEARCH_RESULTS = 500; 
+
+            while (hasMore && allItemIds.length < MAX_SEARCH_RESULTS) {
+                try {
+                    const resp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                        {
+                            params: { 
+                                q: searchQuery, 
+                                limit: searchLimit, 
+                                offset: searchOffset 
+                            },
+                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                        }
+                    );
+                    const ids = resp.data.results || [];
+                    allItemIds.push(...ids);
+                    hasMore = ids.length === searchLimit;
+                    searchOffset += searchLimit;
+                } catch (err) {
+                    console.error("Error fetching ML item IDs (search):", err);
+                    break;
+                }
+            }
+        } else {
+            // Modo Listagem Geral
+            let searchOffset = 0;
+            const searchLimit = 50;
+            let hasMore = true;
+            while (hasMore) {
+                try {
+                    const resp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                        {
+                            params: { limit: searchLimit, offset: searchOffset },
+                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                        }
+                    );
+                    const ids = resp.data.results || [];
+                    allItemIds.push(...ids);
+                    hasMore = ids.length === searchLimit;
+                    searchOffset += searchLimit;
+                } catch (err) {
+                    console.error("Error fetching ML item IDs:", err);
+                    break;
+                }
             }
         }
 
@@ -885,36 +1178,46 @@ router.get("/products", async (req, res) => {
         const detailsMap = new Map<string, any>();
         const uniqueItemIds = Array.from(new Set(allItemIds));
 
-        for (const itemId of uniqueItemIds) {
+        // Otimização: Buscar detalhes em lotes de 20 (multiget)
+        const BATCH_SIZE = 20;
+        for (let i = 0; i < uniqueItemIds.length; i += BATCH_SIZE) {
+            const batchIds = uniqueItemIds.slice(i, i + BATCH_SIZE);
+            const idsStr = batchIds.join(',');
+
             try {
-                const itemResponse = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/items/${itemId}`,
+                const batchResponse = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/items`,
                     {
-                        headers: {
-                            Authorization: `Bearer ${credentials.accessToken}`,
-                        },
+                        params: { ids: idsStr },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` }
                     }
                 );
-                const item = itemResponse.data;
-                detailsMap.set(itemId, item);
+                
+                // A resposta do multiget é um array de objetos { code, body }
+                const itemsData = Array.isArray(batchResponse.data) ? batchResponse.data : [];
 
-                const logisticTypeAgg = item?.shipping?.logistic_type || null;
-                const tagsAgg: string[] = Array.isArray(item?.tags) ? item.tags : [];
-                const isFullAgg = String(logisticTypeAgg || '').toLowerCase() === 'fulfillment' || tagsAgg.includes('is_fulfillment');
-                const availableQtyAgg = Number(item.available_quantity || 0);
+                for (const itemData of itemsData) {
+                    if (itemData.code !== 200) continue;
+                    const item = itemData.body;
+                    detailsMap.set(item.id, item);
 
-                if (item.status === 'active') countsActive++;
-                if (isFullAgg) {
-                    countsFull++;
-                    stockFull += availableQtyAgg;
-                } else {
-                    countsNormal++;
-                    stockNormal += availableQtyAgg;
+                    const logisticTypeAgg = item?.shipping?.logistic_type || null;
+                    const tagsAgg: string[] = Array.isArray(item?.tags) ? item.tags : [];
+                    const isFullAgg = String(logisticTypeAgg || '').toLowerCase() === 'fulfillment' || tagsAgg.includes('is_fulfillment');
+                    const availableQtyAgg = Number(item.available_quantity || 0);
+
+                    if (item.status === 'active') countsActive++;
+                    if (isFullAgg) {
+                        countsFull++;
+                        stockFull += availableQtyAgg;
+                    } else {
+                        countsNormal++;
+                        stockNormal += availableQtyAgg;
+                    }
+                    stockTotal += availableQtyAgg;
                 }
-                stockTotal += availableQtyAgg;
-
             } catch (error) {
-                console.error(`Error fetching item details for ${itemId}:`, error);
+                console.error(`Error fetching batch details:`, error);
             }
         }
 
@@ -1893,7 +2196,7 @@ router.get("/products/:productId/pdf", async (req, res) => {
             (Array.isArray(item.pictures) && (item.pictures[0]?.secure_url || item.pictures[0]?.url)) ||
             item.thumbnail ||
             null;
-        if (imageUrl) {
+        if (imageUrl && !isLabel) {
             try {
                 const imgResp = await axios.get(imageUrl, { responseType: "arraybuffer" });
                 imageBuffer = Buffer.from(imgResp.data);
@@ -4492,43 +4795,50 @@ router.post("/notifications", async (req, res) => {
         // Validar estrutura da notificação
         if (!notification.topic || !notification.resource) {
             console.warn("[Mercado Livre Webhook] Notificação inválida. Body recebido:", JSON.stringify(notification));
-            console.warn("[Mercado Livre Webhook] Headers:", JSON.stringify(req.headers['content-type']));
             return res.status(400).json({ error: "Invalid notification format", received: notification });
         }
 
-        // Processar baseado no tipo de evento
-        switch (notification.topic) {
-            case "orders_v2":
-            case "orders":
-                await handleOrderNotification(notification);
-                break;
+        // Função auxiliar para processamento em background (Fire & Forget)
+        const processInBackground = async () => {
+            try {
+                switch (notification.topic) {
+                    case "orders_v2":
+                    case "orders":
+                        await handleOrderNotification(notification);
+                        break;
 
-            case "questions":
-                await handleQuestionNotification(notification);
-                break;
+                    case "questions":
+                        await handleQuestionNotification(notification);
+                        break;
 
-            case "items":
-                if (!ML_ITEM_NOTIFICATIONS_ENABLED) {
-                    console.log("[Mercado Livre Webhook] Notificação de item ignorada (ML_NOTIFY_ITEM_UPDATES!=true)");
-                    break;
+                    case "items":
+                        if (!ML_ITEM_NOTIFICATIONS_ENABLED) {
+                            console.log("[Mercado Livre Webhook] Notificação de item ignorada (ML_NOTIFY_ITEM_UPDATES!=true)");
+                            break;
+                        }
+                        await handleItemNotification(notification);
+                        break;
+
+                    case "messages":
+                        await handleMessageNotification(notification);
+                        break;
+
+                    default:
+                        console.log(`[Mercado Livre Webhook] Evento não tratado: ${notification.topic}`);
                 }
-                await handleItemNotification(notification);
-                break;
+            } catch (err: any) {
+                console.error(`[Mercado Livre Webhook] Erro no processamento background (${notification.topic}):`, err.message);
+            }
+        };
 
-            case "messages":
-                await handleMessageNotification(notification);
-                break;
-
-            default:
-                console.log(`[Mercado Livre Webhook] Evento não tratado: ${notification.topic}`);
-        }
+        // Disparar processamento sem await (Fire and Forget)
+        // Isso garante resposta < 500ms para o Mercado Livre
+        processInBackground();
 
         // Sempre retornar 200 OK rapidamente
-        // O Mercado Livre espera resposta em até 500ms
         return res.status(200).json({ success: true });
     } catch (error: any) {
-        console.error("[Mercado Livre Webhook] Erro ao processar notificação:", error);
-        // Mesmo com erro, retornar 200 para evitar reenvios
+        console.error("[Mercado Livre Webhook] Erro inicial:", error);
         return res.status(200).json({ success: false, error: error.message });
     }
 });
@@ -4748,123 +5058,135 @@ router.post("/notifications/test-direct/:workspaceId", async (req, res) => {
 router.post("/notifications/replay", async (req, res) => {
     try {
         const { workspaceId, days = 1, dryRun = false, maxOrders = 50 } = req.body;
+        let targetWorkspaces: string[] = [];
 
-        if (!workspaceId) {
-            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        if (workspaceId) {
+            targetWorkspaces = [workspaceId];
+        } else {
+            // Se não informar workspaceId, buscar todos que têm credenciais ML
+            const pool = getPool();
+            const result = await pool.query(
+                `SELECT DISTINCT workspace_id FROM integration_credentials WHERE platform_key = $1`,
+                [MERCADO_LIVRE_PLATFORM_KEY]
+            );
+            targetWorkspaces = result.rows.map(r => r.workspace_id);
+            console.log(`[ML Replay] Modo global: processando ${targetWorkspaces.length} workspaces.`);
         }
 
-        const credentials = await getMercadoLivreCredentials(workspaceId);
-        if (!credentials) {
-            return res.status(401).json({ error: "Mercado Livre não conectado" });
-        }
-
-        // Definir período (Yesterday + Today por padrão se days=1)
-        // days=1 significa "retroceder 1 dia".
-        // startOfDay(subDays(now, 1)) -> Início de ontem.
-        // Se user pedir days=0, é só hoje.
+        const results = [];
         const now = new Date();
         const endDate = now;
         const startDate = startOfDay(subDays(now, Number(days)));
 
-        const startIso = startDate.toISOString();
-        const endIso = endDate.toISOString();
-
-        console.log(`[ML Replay] Iniciando replay para workspace ${workspaceId}`);
-        console.log(`[ML Replay] Período: ${format(startDate, 'yyyy-MM-dd HH:mm')} até ${format(endDate, 'yyyy-MM-dd HH:mm')}`);
-
-        let totalFound = 0;
-        let sent = 0;
-        let skippedAlreadySent = 0;
-
-        // 1. Buscar Vendas (Orders)
-        let orders: any[] = [];
-        try {
-            const ordersUrl = `${MERCADO_LIVRE_API_BASE}/orders/search`;
-            // Removemos filtro de data da API para evitar erro 400 e filtramos localmente
-            // A API do ML às vezes rejeita formatos de data ou combinações de parâmetros
-            const ordersResp = await requestWithAuth<any>(workspaceId, ordersUrl, {
-                params: {
-                    seller: credentials.userId,
-                    sort: "date_desc",
-                    limit: maxOrders
-                }
-            });
-            const allOrders = ordersResp.results || [];
-            
-            // Filtrar localmente por data
-            orders = allOrders.filter((o: any) => {
-                const d = new Date(o.date_created);
-                return d >= startDate && d <= endDate;
-            });
-            
-            console.log(`[ML Replay] Encontradas ${orders.length} vendas no período (de ${allOrders.length} analisadas).`);
-        } catch (err: any) {
-            console.error(`[ML Replay] Erro ao buscar vendas:`, err?.message);
-        }
-
-        totalFound += orders.length;
-
-        // Processar Vendas
-        for (const order of orders) {
-            if (dryRun) continue;
-
+        for (const currentWorkspaceId of targetWorkspaces) {
             try {
-                const notified = await TelegramNotificationService.notifyNewOrder(workspaceId, order);
-                if (notified) sent++;
-                else skippedAlreadySent++;
-            } catch (e) {
-                console.error(`[ML Replay] Falha ao processar venda ${order.id}:`, e);
-            }
-        }
-
-        // 2. Buscar Perguntas (Questions)
-        let questions: any[] = [];
-        try {
-            const questionsUrl = `${MERCADO_LIVRE_API_BASE}/my/received_questions/search`;
-            const questionsResp = await requestWithAuth<any>(workspaceId, questionsUrl, {
-                params: {
-                    sort_fields: "date_created",
-                    sort_types: "DESC",
-                    limit: 50
+                const credentials = await getMercadoLivreCredentials(currentWorkspaceId);
+                if (!credentials) {
+                    results.push({ workspaceId: currentWorkspaceId, success: false, error: "Mercado Livre não conectado" });
+                    continue;
                 }
-            });
-            const allQuestions = questionsResp.questions || [];
-            
-            // Filtrar por data localmente (já que a API de search de questions é limitada)
-            questions = allQuestions.filter((q: any) => {
-                const qDate = new Date(q.date_created);
-                return qDate >= startDate && qDate <= endDate;
-            });
-            console.log(`[ML Replay] Encontradas ${questions.length} perguntas no período (de ${allQuestions.length} analisadas).`);
-        } catch (err: any) {
-             console.error(`[ML Replay] Erro ao buscar perguntas:`, err?.message);
-        }
 
-        totalFound += questions.length;
+                console.log(`[ML Replay] Iniciando replay para workspace ${currentWorkspaceId}`);
+                
+                let totalFound = 0;
+                let sent = 0;
+                let skippedAlreadySent = 0;
 
-        // Processar Perguntas
-        for (const question of questions) {
-            if (dryRun) continue;
+                // 1. Buscar Vendas (Orders)
+                let orders: any[] = [];
+                try {
+                    const ordersUrl = `${MERCADO_LIVRE_API_BASE}/orders/search`;
+                    const ordersResp = await requestWithAuth<any>(currentWorkspaceId, ordersUrl, {
+                        params: {
+                            seller: credentials.userId,
+                            sort: "date_desc",
+                            limit: maxOrders
+                        }
+                    });
+                    const allOrders = ordersResp.results || [];
+                    
+                    orders = allOrders.filter((o: any) => {
+                        const d = new Date(o.date_created);
+                        return d >= startDate && d <= endDate;
+                    });
+                    
+                    console.log(`[ML Replay] Workspace ${currentWorkspaceId}: Encontradas ${orders.length} vendas.`);
+                } catch (err: any) {
+                    console.error(`[ML Replay] Erro ao buscar vendas workspace ${currentWorkspaceId}:`, err?.message);
+                }
 
-            try {
-                const notified = await TelegramNotificationService.notifyNewQuestion(workspaceId, question);
-                if (notified) sent++;
-                else skippedAlreadySent++;
-            } catch (e) {
-                console.error(`[ML Replay] Falha ao processar pergunta ${question.id}:`, e);
+                totalFound += orders.length;
+
+                // Processar Vendas
+                const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+                for (const order of orders) {
+                    if (dryRun) continue;
+                    try {
+                        const notified = await TelegramNotificationService.notifyNewOrder(currentWorkspaceId, order);
+                        if (notified) sent++;
+                        else skippedAlreadySent++;
+                    } catch (e) {
+                        console.error(`[ML Replay] Falha ao processar venda ${order.id}:`, e);
+                    }
+                }
+
+                // 2. Buscar Perguntas (Questions)
+                let questions: any[] = [];
+                try {
+                    const questionsUrl = `${MERCADO_LIVRE_API_BASE}/my/received_questions/search`;
+                    const questionsResp = await requestWithAuth<any>(currentWorkspaceId, questionsUrl, {
+                        params: {
+                            sort_fields: "date_created",
+                            sort_types: "DESC",
+                            limit: 50
+                        }
+                    });
+                    const allQuestions = questionsResp.questions || [];
+                    
+                    questions = allQuestions.filter((q: any) => {
+                        const qDate = new Date(q.date_created);
+                        return qDate >= startDate && qDate <= endDate;
+                    });
+                } catch (err: any) {
+                     console.error(`[ML Replay] Erro ao buscar perguntas workspace ${currentWorkspaceId}:`, err?.message);
+                }
+
+                totalFound += questions.length;
+
+                // Processar Perguntas
+                for (const question of questions) {
+                    if (dryRun) continue;
+                    try {
+                        const notified = await TelegramNotificationService.notifyNewQuestion(currentWorkspaceId, question);
+                        if (notified) sent++;
+                        else skippedAlreadySent++;
+                    } catch (e) {
+                        console.error(`[ML Replay] Falha ao processar pergunta ${question.id}:`, e);
+                    }
+                }
+
+                results.push({
+                    workspaceId: currentWorkspaceId,
+                    success: true,
+                    totalFound,
+                    sent,
+                    skippedAlreadySent
+                });
+
+            } catch (err: any) {
+                console.error(`[ML Replay] Erro fatal no workspace ${currentWorkspaceId}:`, err);
+                results.push({ workspaceId: currentWorkspaceId, success: false, error: err.message });
             }
         }
 
         return res.json({
             success: true,
-            totalFound,
-            sent,
-            skippedAlreadySent,
             period: {
                 from: format(startDate, 'yyyy-MM-dd HH:mm:ss'),
                 to: format(endDate, 'yyyy-MM-dd HH:mm:ss')
             },
-            dryRun
+            dryRun,
+            results
         });
 
     } catch (error: any) {
@@ -4879,6 +5201,7 @@ router.post("/notifications/replay", async (req, res) => {
  * Processar notificação de pedido/venda
  */
 async function handleOrderNotification(notification: any) {
+    const start = Date.now();
     try {
         console.log(`[Order Notification] Pedido: ${notification.resource}`);
 
@@ -4893,7 +5216,7 @@ async function handleOrderNotification(notification: any) {
 
         const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
         if (!workspaceId) {
-            console.warn(`[Order Notification] Workspace não encontrado para user_id ${userId}`);
+            console.warn(`[Order Notification] Workspace não encontrado para user_id ${userId} (Tempo: ${Date.now() - start}ms)`);
             return;
         }
 
@@ -4918,7 +5241,7 @@ async function handleOrderNotification(notification: any) {
             { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
         );
 
-        console.log(`[Order Notification] Detalhes do pedido ${orderId} obtidos com sucesso`);
+        console.log(`[Order Notification] Detalhes do pedido ${orderId} obtidos com sucesso (Tempo: ${Date.now() - start}ms)`);
 
         const status = String(orderDetails.data?.status || "").toLowerCase();
         if (!["paid", "confirmed"].includes(status)) {
@@ -4929,10 +5252,11 @@ async function handleOrderNotification(notification: any) {
         // Enviar notificação Telegram
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyNewOrder(workspaceId, orderDetails.data);
+        console.log(`[Order Notification] Sucesso total pedido ${orderId} (Total: ${Date.now() - start}ms)`);
 
         // TODO: Salvar pedido no banco para cache local
     } catch (error: any) {
-        console.error("[Order Notification] Erro:", error.response?.data || error.message);
+        console.error(`[Order Notification] Erro após ${Date.now() - start}ms:`, error.response?.data || error.message);
     }
 }
 
