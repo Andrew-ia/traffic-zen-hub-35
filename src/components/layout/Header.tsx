@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { AvatarSelector } from "@/components/user/AvatarSelector";
 import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
+import { adsFeaturesEnabled } from "@/lib/featureFlags";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -47,6 +48,12 @@ export function Header({ onMenuClick }: HeaderProps) {
     if (typeof window === "undefined") return false;
     return /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
   }, []);
+  const searchPlaceholder = useMemo(() => {
+    if (isMobile) return "Buscar...";
+    return adsFeaturesEnabled
+      ? "Buscar campanhas, relatórios..."
+      : "Buscar páginas, produtos, análises...";
+  }, [isMobile, adsFeaturesEnabled]);
 
   useEffect(() => {
     const handleFocusShortcut = (event: KeyboardEvent) => {
@@ -86,7 +93,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchInputRef}
-              placeholder={isMobile ? "Buscar..." : "Buscar campanhas, relatórios..."}
+              placeholder={searchPlaceholder}
               className="pl-10 pr-8 sm:pr-16 text-sm w-full transition-all duration-300 focus:w-full h-8"
             />
             {!isMobile && (

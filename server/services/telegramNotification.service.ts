@@ -209,15 +209,57 @@ export class TelegramNotificationService {
             });
         };
 
-        // Determinar tipo de envio (Full ou Padrão)
-        const shippingType = shipping?.logistic_type === "fulfillment" || shipping?.tags?.includes("fulfillment")
-            ? "🚀 Full"
-            : "📮 Padrão";
+        const statusLabels: Record<string, string> = {
+            paid: "Pago",
+            confirmed: "Confirmado",
+            payment_required: "Pagamento pendente",
+            payment_in_process: "Pagamento em processamento",
+            partially_paid: "Pagamento parcial",
+            cancelled: "Cancelado",
+            invalid: "Inválido",
+            not_yet_shipped: "Aguardando envio",
+        };
+        const normalizedStatus = String(status || "").toLowerCase();
+        const statusLabel = statusLabels[normalizedStatus] || status || "N/A";
+
+        const hasFulfillmentTag = (tags?: any) => Array.isArray(tags) && tags.some((tag: any) => String(tag || "").toLowerCase() === "fulfillment");
+        const isFullShipment = (() => {
+            const shippingLogistic = String(shipping?.logistic_type || shipping?.mode || "").toLowerCase();
+            if (shippingLogistic === "fulfillment") return true;
+
+            const shippingOptionLogistic = String(shipping?.shipping_option?.logistic_type || "").toLowerCase();
+            if (shippingOptionLogistic === "fulfillment") return true;
+
+            if (hasFulfillmentTag(shipping?.tags)) return true;
+
+            const shippingOptionName = String(shipping?.shipping_option?.name || shipping?.shipping_type || "").toLowerCase();
+            if (shippingOptionName.includes("full")) return true;
+
+            if (Array.isArray(order_items)) {
+                const itemHasFull = order_items.some((item: any) => {
+                    const itemShippingLogistic = String(item?.shipping?.logistic_type || item?.item?.shipping?.logistic_type || item?.item?.logistic_type || "").toLowerCase();
+                    if (itemShippingLogistic === "fulfillment") return true;
+
+                    if (hasFulfillmentTag(item?.shipping?.tags) || hasFulfillmentTag(item?.item?.tags)) return true;
+
+                    const itemShippingOptionLogistic = String(item?.shipping_option?.logistic_type || "").toLowerCase();
+                    if (itemShippingOptionLogistic === "fulfillment") return true;
+
+                    const itemShippingOptionName = String(item?.shipping_option?.name || "").toLowerCase();
+                    return itemShippingOptionName.includes("full");
+                });
+                if (itemHasFull) return true;
+            }
+
+            return false;
+        })();
+
+        const shippingType = isFullShipment ? "🚀 Full" : "📮 Padrão";
 
         let message = `🎉 <b>NOVA VENDA NO MERCADO LIVRE!</b>\n\n`;
         message += `📦 <b>Pedido:</b> #${id}\n`;
         message += `💰 <b>Valor:</b> ${formatCurrency(paid_amount || total_amount)}\n`;
-        message += `📊 <b>Status:</b> ${status}\n`;
+        message += `📊 <b>Status:</b> ${statusLabel}\n`;
         message += `🚚 <b>Envio:</b> ${shippingType}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;
 

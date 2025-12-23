@@ -178,7 +178,7 @@ export default function MercadoLivreCallback() {
                             </div>
 
                             <div className="flex gap-2">
-                                <Button onClick={() => navigate("/mercado-livre")} className="flex-1" disabled={syncing}>
+                                <Button onClick={() => navigate("/")} className="flex-1" disabled={syncing}>
                                     {syncing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                                     Ir para Mercado Livre
                                 </Button>

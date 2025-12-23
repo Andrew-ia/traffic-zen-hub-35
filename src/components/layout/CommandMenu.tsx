@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { DollarSign, FilePlus, HelpCircle, ListPlus, Clock, Command as CommandIcon } from "lucide-react";
+import { DollarSign, FilePlus, HelpCircle, ListPlus, Clock, Command as CommandIcon, ShoppingBag, TrendingUp, Package } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { mainNavigation, findNavigationLabel, flattenNavigation } from "@/data/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { adsFeaturesEnabled, featureFlags } from "@/lib/featureFlags";
 
 type CommandMenuSection = "default" | "create";
 
@@ -42,6 +43,20 @@ interface RecentRoute {
 }
 
 const RECENTS_STORAGE_KEY = "trafficpro.recents";
+
+const isAdsRoute = (path: string) =>
+  path.startsWith("/campaigns") || path.startsWith("/ads") || path.startsWith("/reports");
+const isMetaRoute = (path: string) => path.startsWith("/meta-ads");
+const isGoogleAnalyticsRoute = (path: string) =>
+  path.startsWith("/google-analytics") || path.startsWith("/ga4");
+const isGoogleAdsRoute = (path: string) => path.startsWith("/google-ads");
+const isRouteEnabled = (path: string) => {
+  if (isMetaRoute(path)) return featureFlags.metaAds;
+  if (isGoogleAnalyticsRoute(path)) return featureFlags.googleAnalytics;
+  if (isGoogleAdsRoute(path)) return featureFlags.googleAds;
+  if (isAdsRoute(path)) return adsFeaturesEnabled;
+  return true;
+};
 
 function isEditableElement(target: EventTarget | null): boolean {
   if (!target || !(target instanceof HTMLElement)) return false;
@@ -142,7 +157,10 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener("keydown", handleRefresh);
   }, [queryClient, toast]);
 
-  const recentItems = useMemo(() => recentRoutes.sort((a, b) => b.timestamp - a.timestamp), [recentRoutes]);
+  const recentItems = useMemo(
+    () => recentRoutes.filter((item) => isRouteEnabled(item.path)).sort((a, b) => b.timestamp - a.timestamp),
+    [recentRoutes],
+  );
 
   return (
     <CommandMenuContext.Provider value={{ open: openMenu, openHelp }}>
@@ -171,30 +189,57 @@ interface CommandMenuProps {
 
 function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRoute, onOpenHelp }: CommandMenuProps) {
   const quickActions = useMemo(
-    () => [
-      {
-        label: "Adicionar Orçamento",
-        hint: "Abrir painel de orçamento com foco em novo",
-        icon: DollarSign,
-        shortcut: "B",
-        action: () => onSelectRoute("/budget?intent=new"),
-      },
-      {
-        label: "Criar Campanha",
-        hint: "Ir para a página de campanhas",
-        icon: ListPlus,
-        shortcut: "C",
-        action: () => onSelectRoute("/campaigns?intent=create"),
-      },
-      {
-        label: "Novo Relatório",
-        hint: "Abrir relatórios para construir um novo",
-        icon: FilePlus,
-        shortcut: "R",
-        action: () => onSelectRoute("/reports?intent=new"),
-      },
-    ],
-    [onSelectRoute],
+    () => {
+      if (adsFeaturesEnabled) {
+        return [
+          {
+            label: "Adicionar Orçamento",
+            hint: "Abrir painel de orçamento com foco em novo",
+            icon: DollarSign,
+            shortcut: "B",
+            action: () => onSelectRoute("/budget?intent=new"),
+          },
+          {
+            label: "Criar Campanha",
+            hint: "Ir para a página de campanhas",
+            icon: ListPlus,
+            shortcut: "C",
+            action: () => onSelectRoute("/campaigns?intent=create"),
+          },
+          {
+            label: "Novo Relatório",
+            hint: "Abrir relatórios para construir um novo",
+            icon: FilePlus,
+            shortcut: "R",
+            action: () => onSelectRoute("/reports?intent=new"),
+          },
+        ];
+      }
+      return [
+        {
+          label: "Analytics Full",
+          hint: "Ver desempenho detalhado no Mercado Livre",
+          icon: TrendingUp,
+          shortcut: "A",
+          action: () => onSelectRoute("/mercado-livre/full-analytics"),
+        },
+        {
+          label: "Analisador MLB",
+          hint: "Otimizar listagens e SEO do ML",
+          icon: ShoppingBag,
+          shortcut: "M",
+          action: () => onSelectRoute("/mercado-livre-analyzer"),
+        },
+        {
+          label: "Produtos",
+          hint: "Gerenciar catálogo e estoque",
+          icon: Package,
+          shortcut: "P",
+          action: () => onSelectRoute("/products"),
+        },
+      ];
+    },
+    [onSelectRoute, adsFeaturesEnabled],
   );
 
   const helperActions = useMemo(
@@ -216,10 +261,13 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
   );
 
   const showAllGroups = section === "default";
+  const searchPlaceholder = adsFeaturesEnabled
+    ? "Buscar campanhas, relatórios, páginas..."
+    : "Buscar páginas, produtos, análises...";
 
   return (
     <CommandDialog open={isOpen} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Buscar campanhas, relatórios, páginas..." />
+      <CommandInput placeholder={searchPlaceholder} />
       <CommandList>
         <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
@@ -241,24 +289,26 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
           </CommandGroup>
         )}
 
-        <CommandGroup heading="Ações Rápidas">
-          {quickActions.map((item) => (
-            <CommandItem
-              key={item.label}
-              onSelect={() => {
-                item.action();
-                onOpenChange(false);
-              }}
-            >
-              <item.icon className="mr-2 h-4 w-4" />
-              <div className="flex flex-col">
-                <span>{item.label}</span>
-                <span className="text-xs text-muted-foreground">{item.hint}</span>
-              </div>
-              {item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}
-            </CommandItem>
-          ))}
-        </CommandGroup>
+        {quickActions.length > 0 && (
+          <CommandGroup heading="Ações Rápidas">
+            {quickActions.map((item) => (
+              <CommandItem
+                key={item.label}
+                onSelect={() => {
+                  item.action();
+                  onOpenChange(false);
+                }}
+              >
+                <item.icon className="mr-2 h-4 w-4" />
+                <div className="flex flex-col">
+                  <span>{item.label}</span>
+                  <span className="text-xs text-muted-foreground">{item.hint}</span>
+                </div>
+                {item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
 
         {showAllGroups && recentRoutes.length > 0 && (
           <>

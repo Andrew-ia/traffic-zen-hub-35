@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Percent, Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, Settings2, Truck } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 type MLItem = {
     id: string;
@@ -38,6 +39,9 @@ function getFeePercent(listingType?: string): number {
 
 export default function MercadoLivrePriceCalculator() {
     const { currentWorkspace } = useWorkspace();
+    const [searchParams] = useSearchParams();
+    const mlbFromQuery = searchParams.get("mlb")?.trim();
+    const autoLoadedRef = useRef<string | null>(null);
     const [mlbId, setMlbId] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -118,12 +122,16 @@ export default function MercadoLivrePriceCalculator() {
         return { price, fee, profit, marginPct };
     };
 
-    const loadItem = async () => {
-        if (!mlbId || !currentWorkspace?.id) return;
+    const loadItem = useCallback(async (overrideId?: string) => {
+        const targetId = (overrideId || mlbId).trim().toUpperCase();
+        if (!targetId || !currentWorkspace?.id) return;
+        if (targetId !== mlbId) {
+            setMlbId(targetId);
+        }
         setLoading(true);
         setError(null);
         try {
-            const resp = await fetch(`/api/integrations/mercadolivre/items/${mlbId}?workspaceId=${currentWorkspace.id}`);
+            const resp = await fetch(`/api/integrations/mercadolivre/items/${targetId}?workspaceId=${currentWorkspace.id}`);
             if (!resp.ok) {
                 const data = await resp.json();
                 throw new Error(data?.error || "Falha ao buscar item");
@@ -136,7 +144,16 @@ export default function MercadoLivrePriceCalculator() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [currentWorkspace?.id, mlbId]);
+
+    useEffect(() => {
+        if (!mlbFromQuery || !currentWorkspace?.id) return;
+        const normalized = mlbFromQuery.toUpperCase();
+        if (!normalized) return;
+        if (autoLoadedRef.current === normalized) return;
+        autoLoadedRef.current = normalized;
+        void loadItem(normalized);
+    }, [mlbFromQuery, currentWorkspace?.id, loadItem]);
 
     return (
         <div className="container mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">

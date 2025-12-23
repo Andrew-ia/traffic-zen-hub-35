@@ -7,14 +7,14 @@ interface SuggestedQuestionsProps {
 }
 
 const SUGGESTED_QUESTIONS = [
-  'Quais campanhas estão com melhor ROI?',
-  'Mostre as campanhas com CTR abaixo de 1%',
-  'Analise meu funil de conversão',
-  'Compare Meta Ads vs Google Ads',
-  'Que criativo performou melhor esta semana?',
-  'Devo pausar alguma campanha?',
-  'Qual objetivo está com melhor desempenho?',
-  'Quanto gastei nos últimos 7 dias?',
+  'Quais produtos venderam mais no Mercado Livre?',
+  'Mostre itens com baixa conversão',
+  'Analise meu funil de visitas → vendas',
+  'Quais categorias tiveram melhor desempenho?',
+  'Existe algum produto com estoque crítico?',
+  'Quanto vendi nos últimos 7 dias?',
+  'Qual item tem maior margem estimada?',
+  'Sugira melhorias para minhas listagens',
 ];
 
 export function SuggestedQuestions({ onSelect, disabled }: SuggestedQuestionsProps) {

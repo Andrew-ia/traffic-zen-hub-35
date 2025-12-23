@@ -78,6 +78,7 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
             if (!user) return null;
             if ("children" in entry) {
               const activeChild = entry.children.some((c) => location.pathname.startsWith(c.href));
+              const isParentRoute = location.pathname === entry.href;
               const parentAllowed = hasAccess(entry.href);
               const childrenAllowed = entry.children.filter((child) => hasAccess(child.href));
               if (!parentAllowed && childrenAllowed.length === 0) return null;
@@ -87,7 +88,7 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
                   <div
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all",
-                      activeChild ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                      activeChild || isParentRoute ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                     )}
                   >
                     <NavLink

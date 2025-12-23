@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard,
   Target,
   TrendingUp,
   Plug,
@@ -17,6 +16,7 @@ import {
   Bell,
   PenTool,
 } from "lucide-react";
+import { featureFlags } from "@/lib/featureFlags";
 
 export interface NavigationItem {
   name: string;
@@ -33,10 +33,9 @@ export interface NavigationGroup {
 export type NavigationEntry = NavigationItem | NavigationGroup;
 
 export const mainNavigation: NavigationEntry[] = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard, keywords: ["home", "visão geral"] },
   {
     name: "Mercado Livre",
-    href: "/mercado-livre",
+    href: "/",
     icon: ShoppingBag,
     children: [
       { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
@@ -57,16 +56,20 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Internal Chat", href: "/projects/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
     ],
   },
-  {
-    name: "Meta Ads",
-    href: "/meta-ads",
-    icon: Facebook,
-    children: [
-      { name: "Relatórios", href: "/meta-ads/reports", icon: TrendingUp, keywords: ["reports", "relatorio", "meta"] },
-    ],
-    keywords: ["facebook", "meta"]
-  },
-  { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
+  ...(featureFlags.metaAds ? [
+    {
+      name: "Meta Ads",
+      href: "/meta-ads",
+      icon: Facebook,
+      children: [
+        { name: "Relatórios", href: "/meta-ads/reports", icon: TrendingUp, keywords: ["reports", "relatorio", "meta"] },
+      ],
+      keywords: ["facebook", "meta"]
+    },
+  ] : []),
+  ...(featureFlags.googleAnalytics ? [
+    { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
+  ] : []),
   // Relatórios agora como subpágina de Meta Ads
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
   { name: "Notificações", href: "/notifications", icon: Bell, keywords: ["notificações", "telegram", "alertas", "avisos"] },
@@ -91,9 +94,10 @@ export function findNavigationLabel(pathname: string): string | undefined {
   const exact = flat.find((item) => item.href === pathname);
   if (exact) return exact.name;
 
+  if (pathname === "/mercado-livre") return "Mercado Livre";
   if (pathname.startsWith("/campaigns/")) return "Detalhes da Campanha";
   if (pathname.startsWith("/ads/")) return "Detalhes do Anúncio";
-  if (pathname.startsWith("/meta-ads/reports")) return "Relatórios";
+  if (featureFlags.metaAds && pathname.startsWith("/meta-ads/reports")) return "Relatórios";
   if (pathname.startsWith("/reports/")) return "Detalhes do Relatório";
   return undefined;
 }

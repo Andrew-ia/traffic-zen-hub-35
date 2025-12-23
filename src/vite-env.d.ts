@@ -9,6 +9,9 @@ interface ImportMetaEnv {
   readonly VITE_META_ACCESS_TOKEN?: string;
   readonly VITE_META_AD_ACCOUNT_ID?: string;
   readonly VITE_GTM_ID?: string;
+  readonly VITE_FEATURE_META_ADS?: string;
+  readonly VITE_FEATURE_GOOGLE_ADS?: string;
+  readonly VITE_FEATURE_GOOGLE_ANALYTICS?: string;
 }
 
 interface ImportMeta {

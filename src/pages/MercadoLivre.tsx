@@ -6,20 +6,16 @@ import {
     Package,
     AlertCircle,
     RefreshCcw,
-    ExternalLink,
-    Filter,
-    ArrowUpRight,
-    ArrowDownRight,
-    Minus,
     Eye,
     MessageCircle,
-    Calendar,
-    ChevronDown,
+    Calculator,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
     useMercadoLivreMetrics,
+    useMercadoLivreFullAnalytics,
     useMercadoLivreProducts,
     useMercadoLivreQuestions,
     useSyncMercadoLivre
@@ -33,7 +29,6 @@ import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
 import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
 import { CompactKPICard } from "@/components/platform/CompactKPICard";
 import { format, subDays } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
@@ -42,6 +37,14 @@ import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import { TodayShipments } from "@/components/mercadolivre/TodayShipments";
 
+const formatNumber = (value: number) => new Intl.NumberFormat("pt-BR").format(value);
+const formatCurrency = (value: number, fractionDigits = 0) =>
+    new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        maximumFractionDigits: fractionDigits,
+    }).format(value);
+
 export default function MercadoLivre() {
     const navigate = useNavigate();
     const [dateRange, setDateRange] = useState("30");
@@ -49,6 +52,7 @@ export default function MercadoLivre() {
         (import.meta.env.VITE_WORKSPACE_ID as string) || null
     );
     const [replaying, setReplaying] = useState(false);
+    const [targetProfit, setTargetProfit] = useState<number>(5000);
 
     // Obter workspace_id
     useEffect(() => {
@@ -97,6 +101,7 @@ export default function MercadoLivre() {
         { dateFrom: previousPeriod.start_date, dateTo: previousPeriod.end_date }
     );
     const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
+    const { data: fullAnalyticsProducts, isLoading: fullAnalyticsLoading } = useMercadoLivreFullAnalytics(workspaceId);
     const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, dateRangeNumber);
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
@@ -159,6 +164,71 @@ export default function MercadoLivre() {
     const averageOrderPrice = metrics?.averageOrderPrice ?? (totalOrders > 0 ? totalRevenue / totalOrders : 0);
     const canceledOrders = metrics?.canceledOrders ?? 0;
 
+    const stockPlanning = useMemo(() => {
+        const items = (fullAnalyticsProducts ?? []).map((item) => {
+            const availableQty = Number(item.available_quantity ?? 0);
+            const price = Number(item.price ?? 0);
+            const unitProfit = Number(item.profit_unit ?? 0);
+            const stockRevenue = price * availableQty;
+            const stockProfit = unitProfit * availableQty;
+            const unitsToTarget = unitProfit > 0 && targetProfit > 0
+                ? Math.ceil(targetProfit / unitProfit)
+                : null;
+            const stockGap = unitsToTarget !== null ? Math.max(0, unitsToTarget - availableQty) : null;
+
+            return {
+                ...item,
+                availableQty,
+                price,
+                unitProfit,
+                stockRevenue,
+                stockProfit,
+                unitsToTarget,
+                stockGap,
+            };
+        });
+
+        const totalStockRevenue = items.reduce((acc, item) => acc + item.stockRevenue, 0);
+        const totalStockProfit = items.reduce((acc, item) => acc + item.stockProfit, 0);
+        const profitableItems = items.filter((item) => item.unitProfit > 0);
+        const avgUnitProfit = profitableItems.length > 0
+            ? profitableItems.reduce((acc, item) => acc + item.unitProfit, 0) / profitableItems.length
+            : 0;
+        const perUnitValue = averageUnitPrice > 0 ? averageUnitPrice : avgUnitProfit;
+        const estimatedProfitToDate = perUnitValue * totalSales;
+        const remainingValueTarget = targetProfit > 0
+            ? Math.max(0, targetProfit - estimatedProfitToDate)
+            : 0;
+
+        const topRevenue = [...items].sort((a, b) => b.stockRevenue - a.stockRevenue).slice(0, 5);
+        const targetRanking = items
+            .filter((item) => item.unitsToTarget !== null && item.unitProfit > 0)
+            .sort((a, b) => {
+                const diff = (a.unitsToTarget ?? 0) - (b.unitsToTarget ?? 0);
+                if (diff !== 0) return diff;
+                return b.unitProfit - a.unitProfit;
+            })
+            .slice(0, 5);
+
+        const unitsToTargetFromAveragePrice = perUnitValue > 0
+            ? Math.ceil(remainingValueTarget / perUnitValue)
+            : null;
+
+        return {
+            items,
+            totalStockRevenue,
+            totalStockProfit,
+            topRevenue,
+            targetRanking,
+            estimatedProfitToDate,
+            remainingProfitTarget: remainingValueTarget,
+            unitsToTargetFromAveragePrice,
+            avgUnitProfit,
+            perUnitValue,
+        };
+    }, [fullAnalyticsProducts, targetProfit, totalSales, averageUnitPrice]);
+    const hasFullAnalytics = (fullAnalyticsProducts?.length ?? 0) > 0;
+
     return (
         <div className="space-y-6 pb-6 animate-in fade-in duration-500">
             {/* Header */}
@@ -171,7 +241,7 @@ export default function MercadoLivre() {
                         Mercado Livre
                     </h1>
                     <p className="text-sm sm:text-base text-muted-foreground ml-1">
-                        Dashboard de vendas e analytics do Mercado Livre
+                        Hub principal com as informações mais importantes do Mercado Livre
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -382,6 +452,103 @@ export default function MercadoLivre() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Planejamento de caixa e lucro */}
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <Calculator className="h-4 w-4 text-amber-500" />
+                                    Planejamento de caixa e lucro
+                                </h2>
+                                <p className="text-xs text-muted-foreground">
+                                    Veja quanto entra se zerar o estoque e quantas unidades faltam para bater sua meta de lucro.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Meta de lucro</span>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    value={targetProfit}
+                                    onChange={(e) => setTargetProfit(Number(e.target.value) || 0)}
+                                    className="h-9 w-28 text-right"
+                                />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9"
+                                    onClick={() => navigate("/mercado-livre/full-analytics")}
+                                >
+                                    Ver Analytics Full
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9"
+                                    onClick={() => navigate("/mercado-livre-price-calculator")}
+                                >
+                                    Simular preços
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <Card className="border-border/50 shadow-sm">
+                                <CardContent className="p-4 space-y-1">
+                                    <p className="text-xs text-muted-foreground flex items-center gap-2">
+                                        <ShoppingBag className="h-4 w-4 text-blue-500" />
+                                        Receita se zerar estoque
+                                    </p>
+                                    <p className="text-2xl font-semibold">
+                                        {fullAnalyticsLoading ? "-" : hasFullAnalytics ? formatCurrency(stockPlanning.totalStockRevenue) : "—"}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Considera preço atual x quantidade disponível.
+                                    </p>
+                                </CardContent>
+                            </Card>
+                            <Card className="border-border/50 shadow-sm">
+                                <CardContent className="p-4 space-y-1">
+                                    <p className="text-xs text-muted-foreground flex items-center gap-2">
+                                        <DollarSign className="h-4 w-4 text-green-600" />
+                                        Lucro estimado ao zerar estoque
+                                    </p>
+                                    <p className="text-2xl font-semibold">
+                                        {fullAnalyticsLoading ? "-" : hasFullAnalytics ? formatCurrency(stockPlanning.totalStockProfit) : "—"}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Usa lucro unitário de cada item.
+                                    </p>
+                                </CardContent>
+                            </Card>
+                                <Card className="border-border/50 shadow-sm">
+                                    <CardContent className="p-4 space-y-1">
+                                        <p className="text-xs text-muted-foreground flex items-center gap-2">
+                                            <Package className="h-4 w-4 text-amber-600" />
+                                            Unidades para bater a meta
+                                        </p>
+                                        <p className="text-2xl font-semibold">
+                                            {fullAnalyticsLoading
+                                                ? "-"
+                                                : stockPlanning.unitsToTargetFromAveragePrice !== null
+                                                    ? formatNumber(stockPlanning.unitsToTargetFromAveragePrice)
+                                                    : "—"}
+                                        </p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            {fullAnalyticsLoading
+                                                ? ""
+                                                : stockPlanning.unitsToTargetFromAveragePrice !== null && stockPlanning.perUnitValue > 0
+                                                    ? stockPlanning.remainingProfitTarget > 0
+                                                        ? `Falta estimado ${formatCurrency(stockPlanning.remainingProfitTarget, 0)} baseado no preço médio ${formatCurrency(stockPlanning.perUnitValue, 2)}/un do período. Já foi registrado ${formatCurrency(stockPlanning.estimatedProfitToDate, 0)}.`
+                                                        : `Meta estimada já atingida neste período usando preço médio ${formatCurrency(stockPlanning.perUnitValue, 2)}/un.`
+                                                    : "Defina meta e sincronize o Full Analytics."}
+                                        </p>
+                                    </CardContent>
+                                </Card>
+                            </div>
+
+                    </div>
                 </div>
 
                 {/* Side Column (Financials & Stock) - 1/3 width */}
