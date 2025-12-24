@@ -9,14 +9,24 @@ interface FinancialAnalysisProps {
     totalRevenue: number;
     totalSales: number;
     loading?: boolean;
+    realTotalFees?: number;
+    realTotalShipping?: number;
+    realNetIncome?: number;
 }
 
-export function FinancialAnalysis({ totalRevenue, totalSales, loading }: FinancialAnalysisProps) {
+export function FinancialAnalysis({ 
+    totalRevenue, 
+    totalSales, 
+    loading,
+    realTotalFees,
+    realTotalShipping,
+    realNetIncome 
+}: FinancialAnalysisProps) {
     // Taxas padrão do Mercado Livre (podem ser ajustadas pelo usuário)
     const [mlFeePercent, setMlFeePercent] = useState(16.5); // Taxa ML clássico
     const [shippingCostPercent, setShippingCostPercent] = useState(10); // Estimativa de frete
     const [packagingCostPercent, setPackagingCostPercent] = useState(3); // Embalagem
-    const [productCostPercent, setProductCostPercent] = useState(30); // Custo dos produtos
+    const [productCostPercent, setProductCostPercent] = useState(20); // Custo dos produtos
     const [fixedCostPerSale, setFixedCostPerSale] = useState(0); // Custo fixo por venda
     const [showCalculator, setShowCalculator] = useState(false);
 
@@ -37,14 +47,23 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     }
 
     // Cálculos
-    const mlFee = totalRevenue * (mlFeePercent / 100);
-    const shippingCost = totalRevenue * (shippingCostPercent / 100);
+    const hasRealData = realTotalFees !== undefined && realTotalShipping !== undefined;
+
+    const mlFee = hasRealData ? realTotalFees! : totalRevenue * (mlFeePercent / 100);
+    const shippingCost = hasRealData ? realTotalShipping! : 0;
     const packagingCost = totalRevenue * (packagingCostPercent / 100);
     const productCost = totalRevenue * (productCostPercent / 100);
     const fixedCostTotal = fixedCostPerSale * totalSales;
+    
+    // Total costs including product and packaging
     const totalCosts = mlFee + shippingCost + packagingCost + productCost + fixedCostTotal;
+    
+    // Net Revenue (Profit)
     const netRevenue = totalRevenue - totalCosts;
     const netMargin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
+    
+    // Receita Líquida ML (Payout) - O que sobra na mão do vendedor antes de pagar produto/embalagem
+    const payoutML = totalRevenue - mlFee - shippingCost;
 
     // Projeção mensal (baseado em 30 dias)
     const dailyRevenue = totalRevenue / 30;
@@ -52,7 +71,10 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     const averageTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
     const monthlySalesProjection = averageTicket > 0 ? monthlyProjection / averageTicket : 0;
     const monthlyFixedCost = monthlySalesProjection * fixedCostPerSale;
-    const monthlyNetProjection = monthlyProjection - (monthlyProjection * (mlFeePercent + shippingCostPercent + packagingCostPercent + productCostPercent) / 100) - monthlyFixedCost;
+    
+    // Projeção de lucro precisa considerar a margem atual
+    const currentMarginPercent = totalRevenue > 0 ? netRevenue / totalRevenue : 0;
+    const monthlyNetProjection = monthlyProjection * currentMarginPercent;
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
@@ -63,70 +85,51 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
     };
 
     return (
-        <Card className="border-border/50 shadow-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
+        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
+            <CardHeader className="pb-3 border-b border-border/10 bg-muted/5">
                 <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-green-500" />
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                        <DollarSign className="h-5 w-5 text-[#00A650]" />
                         Análise Financeira
+                        {hasRealData && (
+                            <span className="text-[10px] bg-[#00A650]/10 text-[#00A650] px-2 py-0.5 rounded-full border border-[#00A650]/20 uppercase tracking-wider">
+                                Dados Reais API
+                            </span>
+                        )}
                     </CardTitle>
                     <button
                         onClick={() => setShowCalculator(!showCalculator)}
-                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
                     >
                         <Calculator className="h-3 w-3" />
-                        {showCalculator ? "Ocultar" : "Ajustar"} taxas
+                        {showCalculator ? "Ocultar" : "Ajustar"}
                     </button>
                 </div>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="p-4 space-y-5">
                 {/* Calculadora de taxas */}
                 {showCalculator && (
-                    <div className="mb-6 p-4 rounded-lg bg-muted/30 border border-border/50 space-y-3">
-                        <h4 className="text-sm font-semibold mb-3">Ajustar Taxas e Custos</h4>
-                        <div className="grid grid-cols-1 gap-3">
-                            <div>
-                                <Label htmlFor="mlFee" className="text-xs">
-                                    Taxa Mercado Livre (%)
-                                </Label>
-                                <Input
-                                    id="mlFee"
-                                    type="number"
-                                    step="0.1"
-                                    value={mlFeePercent}
-                                    onChange={(e) => setMlFeePercent(Number(e.target.value))}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="shipping" className="text-xs">
-                                    Custo de Frete (% da receita)
-                                </Label>
-                                <Input
-                                    id="shipping"
-                                    type="number"
-                                    step="0.1"
-                                    value={shippingCostPercent}
-                                    onChange={(e) => setShippingCostPercent(Number(e.target.value))}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="packaging" className="text-xs">
-                                    Custo de Embalagem (% da receita)
-                                </Label>
-                                <Input
-                                    id="packaging"
-                                    type="number"
-                                    step="0.1"
-                                    value={packagingCostPercent}
-                                    onChange={(e) => setPackagingCostPercent(Number(e.target.value))}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="productCost" className="text-xs">
-                                    Custo dos Produtos (% da receita)
+                    <div className="p-3 rounded-2xl bg-muted/20 border border-border/20 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                        <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">Parâmetros de Custo</h4>
+                        <div className="grid grid-cols-1 gap-4">
+                            {!hasRealData && (
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="mlFee" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        Taxa Mercado Livre (%)
+                                    </Label>
+                                    <Input
+                                        id="mlFee"
+                                        type="number"
+                                        step="0.1"
+                                        value={mlFeePercent}
+                                        onChange={(e) => setMlFeePercent(Number(e.target.value))}
+                                        className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
+                                    />
+                                </div>
+                            )}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="productCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    Custo Produto (% da receita)
                                 </Label>
                                 <Input
                                     id="productCost"
@@ -134,20 +137,7 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                                     step="0.1"
                                     value={productCostPercent}
                                     onChange={(e) => setProductCostPercent(Number(e.target.value))}
-                                    className="h-8 text-sm"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="fixedCost" className="text-xs">
-                                    Custo Fixo ML (R$ / venda)
-                                </Label>
-                                <Input
-                                    id="fixedCost"
-                                    type="number"
-                                    step="0.01"
-                                    value={fixedCostPerSale}
-                                    onChange={(e) => setFixedCostPerSale(Number(e.target.value))}
-                                    className="h-8 text-sm"
+                                    className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
                                 />
                             </div>
                         </div>
@@ -155,111 +145,77 @@ export function FinancialAnalysis({ totalRevenue, totalSales, loading }: Financi
                 )}
 
                 {/* Métricas principais */}
-                <div className="space-y-4">
+                <div className="space-y-5">
                     {/* Receita Bruta */}
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-[#3483FA]/5 border border-[#3483FA]/10">
                         <div>
-                            <div className="text-xs text-muted-foreground">Receita Bruta</div>
-                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Faturamento Bruto</div>
+                            <div className="text-2xl font-black text-[#3483FA]">
                                 {formatCurrency(totalRevenue)}
                             </div>
                         </div>
-                        <DollarSign className="h-8 w-8 text-blue-600 dark:text-blue-400 opacity-50" />
+                        <div className="h-10 w-10 rounded-xl bg-[#3483FA]/10 flex items-center justify-center">
+                            <DollarSign className="h-5 w-5 text-[#3483FA]" />
+                        </div>
                     </div>
 
-                    {/* Custos */}
-                    <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-muted-foreground">Custos Estimados</h4>
-                        <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
-                                <span className="text-muted-foreground">Taxa ML ({mlFeePercent}%)</span>
-                                <span className="font-medium text-red-600 dark:text-red-400">
+                    {/* Deduções */}
+                    <div className="space-y-3">
+                        <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                            {hasRealData ? "Deduções Reais & Custos" : "Deduções Estimadas"}
+                        </h4>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
+                                <span className="font-medium">Taxas ML & Impostos {hasRealData && "(Real)"}</span>
+                                <span className="font-bold text-[#F52F41]">
                                     -{formatCurrency(mlFee)}
                                 </span>
                             </div>
-                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
-                                <span className="text-muted-foreground">Frete ({shippingCostPercent}%)</span>
-                                <span className="font-medium text-red-600 dark:text-red-400">
-                                    -{formatCurrency(shippingCost)}
+                            {/* Repasse ML (Payout) */}
+                            <div className="flex items-center justify-between text-xs p-3 rounded-xl bg-[#00A650]/10 border border-[#00A650]/20">
+                                <span className="font-bold text-[#00A650] uppercase tracking-wider text-[10px]">Repasse Mercado Livre</span>
+                                <span className="font-black text-[#00A650]">
+                                    {formatCurrency(payoutML)}
                                 </span>
                             </div>
-                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
-                                <span className="text-muted-foreground">Embalagem ({packagingCostPercent}%)</span>
-                                <span className="font-medium text-red-600 dark:text-red-400">
-                                    -{formatCurrency(packagingCost)}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
-                                <span className="text-muted-foreground">Custo dos Produtos ({productCostPercent}%)</span>
-                                <span className="font-medium text-red-600 dark:text-red-400">
+
+                            <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
+                                <span className="font-medium">Custo de Mercadoria (Est.)</span>
+                                <span className="font-bold text-[#F52F41]">
                                     -{formatCurrency(productCost)}
-                                </span>
-                            </div>
-                            {fixedCostPerSale > 0 && (
-                                <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/30">
-                                    <span className="text-muted-foreground">Custo Fixo (R$ {fixedCostPerSale.toFixed(2)}/un)</span>
-                                    <span className="font-medium text-red-600 dark:text-red-400">
-                                        -{formatCurrency(fixedCostTotal)}
-                                    </span>
-                                </div>
-                            )}
-                            <div className="flex items-center justify-between text-sm p-2 rounded bg-muted/50 font-semibold border-t border-border/50 mt-2 pt-2">
-                                <span>Total de Custos</span>
-                                <span className="text-red-600 dark:text-red-400">
-                                    -{formatCurrency(totalCosts)}
                                 </span>
                             </div>
                         </div>
                     </div>
 
                     {/* Receita Líquida */}
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border-2 border-green-200 dark:border-green-800">
-                        <div>
-                            <div className="text-xs text-muted-foreground mb-1">Receita Líquida Estimada</div>
-                            <div className="text-3xl font-bold text-green-600 dark:text-green-400">
+                    <div className="relative p-5 rounded-3xl bg-gradient-to-br from-[#00A650]/10 to-[#00A650]/5 border border-[#00A650]/20 overflow-hidden shadow-lg shadow-[#00A650]/5">
+                        <div className="absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 bg-[#00A650]/10 rounded-full blur-2xl" />
+                        <div className="relative z-10">
+                            <div className="text-[10px] font-bold text-[#00A650] uppercase tracking-widest mb-2">Lucro Líquido Final</div>
+                            <div className="text-3xl font-black text-[#00A650]">
                                 {formatCurrency(netRevenue)}
                             </div>
-                            <div className="flex items-center gap-1 mt-1">
-                                <Percent className="h-3 w-3 text-green-600 dark:text-green-400" />
-                                <span className="text-xs font-medium text-green-600 dark:text-green-400">
+                            <div className="flex items-center gap-2 mt-3 text-[#00A650]">
+                                <div className="px-2 py-0.5 rounded-full bg-[#00A650]/10 text-[10px] font-black uppercase tracking-tighter">
                                     Margem: {netMargin.toFixed(1)}%
-                                </span>
+                                </div>
+                                <TrendingUp className="h-4 w-4" />
                             </div>
                         </div>
-                        <TrendingUp className="h-10 w-10 text-green-600 dark:text-green-400 opacity-50" />
                     </div>
 
                     {/* Projeção Mensal */}
-                    <div className="pt-4 border-t border-border/50">
-                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">
-                            Projeção Mensal (30 dias)
-                        </h4>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="p-3 rounded-lg bg-muted/30 text-center">
-                                <div className="text-xs text-muted-foreground mb-1">Receita Bruta</div>
-                                <div className="text-lg font-bold">{formatCurrency(monthlyProjection)}</div>
+                    <div className="p-4 rounded-2xl bg-muted/5 border border-border/10">
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Projeção Próximos 30 Dias</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="text-center">
+                                <div className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Faturamento</div>
+                                <div className="text-sm font-black">{formatCurrency(monthlyProjection)}</div>
                             </div>
-                            <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 text-center">
-                                <div className="text-xs text-muted-foreground mb-1">Receita Líquida</div>
-                                <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                                    {formatCurrency(monthlyNetProjection)}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Métricas adicionais */}
-                    <div className="grid grid-cols-2 gap-3 pt-4 border-t border-border/50">
-                        <div className="text-center p-3 rounded-lg bg-muted/30">
-                            <div className="text-xs text-muted-foreground mb-1">Ticket Médio Líquido</div>
-                            <div className="text-lg font-bold">
-                                {totalSales > 0 ? formatCurrency(netRevenue / totalSales) : "-"}
-                            </div>
-                        </div>
-                        <div className="text-center p-3 rounded-lg bg-muted/30">
-                            <div className="text-xs text-muted-foreground mb-1">Custo por Venda</div>
-                            <div className="text-lg font-bold text-red-600 dark:text-red-400">
-                                {totalSales > 0 ? formatCurrency(totalCosts / totalSales) : "-"}
+                            <div className="text-center">
+                                <div className="text-[9px] font-bold text-[#00A650] uppercase mb-1">Lucro Projetado</div>
+                                <div className="text-sm font-black text-[#00A650]">{formatCurrency(monthlyNetProjection)}</div>
                             </div>
                         </div>
                     </div>

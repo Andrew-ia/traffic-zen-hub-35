@@ -9,6 +9,8 @@ export interface OrderItem {
     quantity: number;
     unitPrice: number;
     fullUnitPrice: number;
+    thumbnail?: string | null;
+    permalink?: string | null;
 }
 
 /**

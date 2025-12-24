@@ -1,5 +1,5 @@
 
-import { createDatabaseClient } from '../server/config/database';
+import { createDatabaseClient } from '../server/config/database.ts';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });

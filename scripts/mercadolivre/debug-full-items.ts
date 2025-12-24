@@ -42,7 +42,7 @@ async function debugFullItems() {
 
         for (const status of statuses) {
             let offset = 0;
-            let limit = 50;
+            const limit = 50;
             let hasMore = true;
             let count = 0;
 

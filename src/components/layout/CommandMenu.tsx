@@ -239,7 +239,7 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
         },
       ];
     },
-    [onSelectRoute, adsFeaturesEnabled],
+    [onSelectRoute],
   );
 
   const helperActions = useMemo(

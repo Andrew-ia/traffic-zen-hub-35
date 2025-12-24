@@ -14,13 +14,24 @@ export interface MercadoLivreMetrics {
     totalSales: number;
     totalOrders?: number;
     canceledOrders?: number;
+    canceledRevenue?: number;
     totalRevenue: number;
     totalVisits: number;
+    totalSaleFees?: number;
+    totalShippingCosts?: number;
+    totalNetIncome?: number;
     averageUnitPrice?: number;
     averageOrderPrice?: number;
     conversionRate: number;
     responseRate: number;
     reputation: string;
+    reputationMetrics?: {
+        level: string;
+        color: string;
+        claimsRate: number;
+        delayedHandlingRate: number;
+        cancellationsRate: number;
+    };
     salesTrend?: number;
     revenueTrend?: number;
     visitsTrend?: number;

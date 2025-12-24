@@ -8,14 +8,15 @@ import {
     RefreshCcw,
     Eye,
     MessageCircle,
-    Calculator,
+    Users,
+    MousePointer,
+    ShoppingCart,
+    Layers
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
     useMercadoLivreMetrics,
-    useMercadoLivreFullAnalytics,
     useMercadoLivreProducts,
     useMercadoLivreQuestions,
     useSyncMercadoLivre
@@ -36,6 +37,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { MetricComparison } from "@/components/mercadolivre/MetricComparison";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import { TodayShipments } from "@/components/mercadolivre/TodayShipments";
+import { MercadoLivreKPICard } from "@/components/mercadolivre/MercadoLivreKPICard";
+import { MercadoLivreReputationCard } from "@/components/mercadolivre/MercadoLivreReputationCard";
+import { SalesPerformanceChart } from "@/components/mercadolivre/SalesPerformanceChart";
 
 const formatNumber = (value: number) => new Intl.NumberFormat("pt-BR").format(value);
 const formatCurrency = (value: number, fractionDigits = 0) =>
@@ -52,7 +56,6 @@ export default function MercadoLivre() {
         (import.meta.env.VITE_WORKSPACE_ID as string) || null
     );
     const [replaying, setReplaying] = useState(false);
-    const [targetProfit, setTargetProfit] = useState<number>(5000);
 
     // Obter workspace_id
     useEffect(() => {
@@ -101,7 +104,6 @@ export default function MercadoLivre() {
         { dateFrom: previousPeriod.start_date, dateTo: previousPeriod.end_date }
     );
     const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
-    const { data: fullAnalyticsProducts, isLoading: fullAnalyticsLoading } = useMercadoLivreFullAnalytics(workspaceId);
     const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, dateRangeNumber);
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
@@ -154,7 +156,7 @@ export default function MercadoLivre() {
 
     // Cálculos de totais
     const totalRevenue = metrics?.totalRevenue ?? 0;
-    const totalSales = metrics?.totalSales ?? 0;
+    const totalSales = metrics?.totalSales ?? 0; // Unidades
     const totalVisits = metrics?.totalVisits ?? 0;
     const totalOrders = metrics?.totalOrders ?? 0;
     const conversionRate = metrics?.conversionRate ?? 0;
@@ -164,221 +166,249 @@ export default function MercadoLivre() {
     const averageOrderPrice = metrics?.averageOrderPrice ?? (totalOrders > 0 ? totalRevenue / totalOrders : 0);
     const canceledOrders = metrics?.canceledOrders ?? 0;
 
-    const stockPlanning = useMemo(() => {
-        const items = (fullAnalyticsProducts ?? []).map((item) => {
-            const availableQty = Number(item.available_quantity ?? 0);
-            const price = Number(item.price ?? 0);
-            const unitProfit = Number(item.profit_unit ?? 0);
-            const stockRevenue = price * availableQty;
-            const stockProfit = unitProfit * availableQty;
-            const unitsToTarget = unitProfit > 0 && targetProfit > 0
-                ? Math.ceil(targetProfit / unitProfit)
-                : null;
-            const stockGap = unitsToTarget !== null ? Math.max(0, unitsToTarget - availableQty) : null;
-
-            return {
-                ...item,
-                availableQty,
-                price,
-                unitProfit,
-                stockRevenue,
-                stockProfit,
-                unitsToTarget,
-                stockGap,
-            };
-        });
-
-        const totalStockRevenue = items.reduce((acc, item) => acc + item.stockRevenue, 0);
-        const totalStockProfit = items.reduce((acc, item) => acc + item.stockProfit, 0);
-        const profitableItems = items.filter((item) => item.unitProfit > 0);
-        const avgUnitProfit = profitableItems.length > 0
-            ? profitableItems.reduce((acc, item) => acc + item.unitProfit, 0) / profitableItems.length
-            : 0;
-        const perUnitValue = averageUnitPrice > 0 ? averageUnitPrice : avgUnitProfit;
-        const estimatedProfitToDate = perUnitValue * totalSales;
-        const remainingValueTarget = targetProfit > 0
-            ? Math.max(0, targetProfit - estimatedProfitToDate)
-            : 0;
-
-        const topRevenue = [...items].sort((a, b) => b.stockRevenue - a.stockRevenue).slice(0, 5);
-        const targetRanking = items
-            .filter((item) => item.unitsToTarget !== null && item.unitProfit > 0)
-            .sort((a, b) => {
-                const diff = (a.unitsToTarget ?? 0) - (b.unitsToTarget ?? 0);
-                if (diff !== 0) return diff;
-                return b.unitProfit - a.unitProfit;
-            })
-            .slice(0, 5);
-
-        const unitsToTargetFromAveragePrice = perUnitValue > 0
-            ? Math.ceil(remainingValueTarget / perUnitValue)
-            : null;
-
+    // Helper for trends
+    const getTrend = (current: number, previous: number) => {
+        if (!previous) return { value: "0%", up: true };
+        const diff = current - previous;
+        const percentage = (diff / previous) * 100;
         return {
-            items,
-            totalStockRevenue,
-            totalStockProfit,
-            topRevenue,
-            targetRanking,
-            estimatedProfitToDate,
-            remainingProfitTarget: remainingValueTarget,
-            unitsToTargetFromAveragePrice,
-            avgUnitProfit,
-            perUnitValue,
+            value: `${Math.abs(percentage).toFixed(1)}%`,
+            up: percentage >= 0
         };
-    }, [fullAnalyticsProducts, targetProfit, totalSales, averageUnitPrice]);
-    const hasFullAnalytics = (fullAnalyticsProducts?.length ?? 0) > 0;
+    };
+
+    const revenueTrend = getTrend(totalRevenue, previousMetrics?.totalRevenue || 0);
+    const ordersTrend = getTrend(totalOrders, previousMetrics?.totalOrders || 0);
+    const visitsTrend = getTrend(totalVisits, previousMetrics?.totalVisits || 0);
+    const conversionTrend = getTrend(conversionRate, previousMetrics?.conversionRate || 0);
 
     return (
-        <div className="space-y-6 pb-6 animate-in fade-in duration-500">
+        <div className="space-y-5 pb-6 animate-in fade-in duration-500 bg-gray-50/50 dark:bg-background p-4 sm:p-6 rounded-xl max-w-screen-2xl mx-auto">
             {/* Header */}
-            <div className="flex flex-col gap-4 sm:gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-border/40 pb-6">
-                <div className="space-y-1">
-                    <h1 className="text-3xl sm:text-4xl font-bold tracking-tight flex items-center gap-3 text-foreground/90">
-                        <div className="p-2 bg-yellow-500/10 rounded-lg">
-                            <ShoppingBag className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+            <Card className="border-border/40 shadow-sm">
+                <CardContent className="p-4 sm:p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="space-y-1">
+                            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight flex items-center gap-3 text-foreground/90">
+                                <div className="p-2 bg-yellow-500/10 rounded-lg">
+                                    <ShoppingBag className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+                                </div>
+                                Mercado Livre
+                            </h1>
+                            <p className="text-sm sm:text-base text-muted-foreground ml-1">
+                                Hub principal com as informações mais importantes do Mercado Livre
+                            </p>
                         </div>
-                        Mercado Livre
-                    </h1>
-                    <p className="text-sm sm:text-base text-muted-foreground ml-1">
-                        Hub principal com as informações mais importantes do Mercado Livre
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    <PlatformFilters
-                        dateRange={dateRange}
-                        onDateRangeChange={setDateRange}
-                        accountFilter="all"
-                        onAccountFilterChange={() => { }}
-                        accounts={[]}
-                        statusFilter="all"
-                        onStatusFilterChange={() => { }}
-                        search=""
-                        onSearchChange={() => { }}
-                    />
-                    <div className="flex items-center gap-2">
-                        <MercadoLivreConnectButton size="sm" variant="outline" className="h-9" />
-                        <Button
-                            onClick={handleSyncData}
-                            size="sm"
-                            variant="default"
-                            className="gap-2 h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                            disabled={syncMutation.isPending}
-                        >
-                            <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                            {syncMutation.isPending ? 'Sync' : 'Sincronizar'}
-                        </Button>
-                        <Button
-                            onClick={handleReplayNotifications}
-                            size="sm"
-                            variant="outline"
-                            className="gap-2 h-9"
-                            disabled={replaying || !workspaceId}
-                            title="Reenviar notificações de vendas de ontem e hoje para o Telegram"
-                        >
-                            <RefreshCcw className={`h-4 w-4 ${replaying ? 'animate-spin' : ''}`} />
-                            {replaying ? 'Reenviando...' : 'Reenviar notificações (Ontem e Hoje)'}
-                        </Button>
-                        {workspaceId && (
-                            <ExportReportButton
-                                workspaceId={workspaceId}
-                                dateRange={dateRange}
-                            />
-                        )}
+                        <div className="flex flex-wrap items-center gap-2 justify-start sm:justify-end">
+                            <MercadoLivreConnectButton size="sm" variant="outline" className="h-9" />
+                            <Button
+                                onClick={handleSyncData}
+                                size="sm"
+                                variant="default"
+                                className="gap-2 h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                                disabled={syncMutation.isPending}
+                            >
+                                <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                                {syncMutation.isPending ? 'Sync' : 'Sincronizar'}
+                            </Button>
+                            <Button
+                                onClick={handleReplayNotifications}
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 h-9"
+                                disabled={replaying || !workspaceId}
+                                title="Reenviar notificações de vendas de ontem e hoje para o Telegram"
+                            >
+                                <RefreshCcw className={`h-4 w-4 ${replaying ? 'animate-spin' : ''}`} />
+                                {replaying ? 'Reenviando...' : 'Reenviar notificações (Ontem e Hoje)'}
+                            </Button>
+                            {workspaceId && (
+                                <ExportReportButton
+                                    workspaceId={workspaceId}
+                                    dateRange={dateRange}
+                                />
+                            )}
+                        </div>
                     </div>
-                </div>
-            </div>
+                    <div className="flex flex-wrap items-center gap-3 justify-between">
+                        <PlatformFilters
+                            dateRange={dateRange}
+                            onDateRangeChange={setDateRange}
+                            accountFilter="all"
+                            onAccountFilterChange={() => { }}
+                            accounts={[]}
+                            statusFilter="all"
+                            onStatusFilterChange={() => { }}
+                            search=""
+                            onSearchChange={() => { }}
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9"
+                                onClick={() => navigate("/mercado-livre/full-analytics")}
+                            >
+                                Analytics Full
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9"
+                                onClick={() => navigate("/mercado-livre-price-calculator")}
+                            >
+                                Simular preços
+                            </Button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
 
-            {/* KPIs Principais */}
+            {/* Nova Seção de KPIs Estilo Imagem */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {metricsLoading ? (
-                    [...Array(4)].map((_, i) => (
-                        <Card key={i} className="border-border/50 shadow-sm h-32">
-                            <CardContent className="p-6">
-                                <Skeleton className="h-4 w-24 mb-4" />
-                                <Skeleton className="h-8 w-32" />
-                            </CardContent>
-                        </Card>
-                    ))
-                ) : (
-                    <>
-                        <CompactKPICard
-                            title="Vendas brutas"
-                            value={new Intl.NumberFormat("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                                maximumFractionDigits: 0,
-                            }).format(totalRevenue)}
-                            icon={DollarSign}
-                            loading={metricsLoading}
-                        />
-                        <CompactKPICard
-                            title="Unidades vendidas"
-                            value={new Intl.NumberFormat("pt-BR").format(totalSales)}
-                            icon={ShoppingBag}
-                            loading={metricsLoading}
-                        />
-                        <CompactKPICard
-                            title="Visitas"
-                            value={new Intl.NumberFormat("pt-BR").format(totalVisits)}
-                            icon={Eye}
-                            loading={metricsLoading}
-                        />
-                        <CompactKPICard
-                            title="Conversão"
-                            value={conversionRate ? `${conversionRate.toFixed(2)}%` : "-"}
-                            icon={TrendingUp}
-                            loading={metricsLoading}
-                        />
-                    </>
-                )}
+                <MercadoLivreKPICard
+                    title="Faturamento Bruto"
+                    value={formatCurrency(totalRevenue)}
+                    icon={DollarSign}
+                    iconColor="green"
+                    trend={revenueTrend.value}
+                    trendUp={revenueTrend.up}
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Vendas Realizadas"
+                    value={formatNumber(totalOrders)}
+                    icon={ShoppingCart}
+                    iconColor="blue"
+                    trend={ordersTrend.value}
+                    trendUp={ordersTrend.up}
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Visitas aos Anúncios"
+                    value={formatNumber(totalVisits)}
+                    icon={MousePointer}
+                    iconColor="purple"
+                    trend={visitsTrend.value}
+                    trendUp={visitsTrend.up}
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Taxa de Conversão"
+                    value={`${conversionRate.toFixed(2)}%`}
+                    icon={Users}
+                    iconColor="orange"
+                    trend={conversionTrend.value}
+                    trendUp={conversionTrend.up}
+                    loading={metricsLoading}
+                />
             </div>
 
-            {/* Secondary KPIs */}
-            {!metricsLoading && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <CompactKPICard
-                        title="Preço médio por unidade"
-                        value={new Intl.NumberFormat("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                            maximumFractionDigits: 2,
-                        }).format(averageUnitPrice || 0)}
-                        icon={DollarSign}
-                        loading={metricsLoading}
+            {/* KPIs Secundários - Restaurados */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MercadoLivreKPICard
+                    title="Preço médio por unidade"
+                    value={formatCurrency(averageUnitPrice, 2)}
+                    icon={DollarSign}
+                    iconColor="blue"
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Preço médio por venda"
+                    value={formatCurrency(averageOrderPrice, 2)}
+                    icon={DollarSign}
+                    iconColor="blue"
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Unidades Vendidas"
+                    value={formatNumber(totalSales)}
+                    icon={Package}
+                    iconColor="purple"
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Vendas Canceladas"
+                    value={formatNumber(canceledOrders)}
+                    icon={AlertCircle}
+                    iconColor="orange"
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Anúncios Ativos"
+                    value={formatNumber(activeProducts)}
+                    icon={Layers}
+                    iconColor="blue"
+                    loading={productsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Taxa de Resposta"
+                    value={metrics?.responseRate ? `${(metrics.responseRate * 100).toFixed(0)}%` : "-"}
+                    icon={MessageCircle}
+                    iconColor="green"
+                    loading={metricsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Perguntas Recebidas"
+                    value={formatNumber(totalQuestions)}
+                    icon={MessageCircle}
+                    iconColor="purple"
+                    loading={questionsLoading}
+                />
+                <MercadoLivreKPICard
+                    title="Perguntas Pendentes"
+                    value={formatNumber(questions?.unanswered ?? 0)}
+                    icon={AlertCircle}
+                    iconColor={(questions?.unanswered ?? 0) > 0 ? "orange" : "green"}
+                    loading={questionsLoading}
+                />
+            </div>
+
+            {/* Nova Seção de Gráfico e Reputação */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                {/* Gráfico de Vendas (Ocupa 8/12) */}
+                <div className="lg:col-span-8 h-full">
+                    <SalesPerformanceChart
+                        data={dailySales?.dailySales || []}
+                        loading={dailySalesLoading}
                     />
-                    <CompactKPICard
-                        title="Preço médio por venda"
-                        value={new Intl.NumberFormat("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                            maximumFractionDigits: 2,
-                        }).format(averageOrderPrice || 0)}
-                        icon={DollarSign}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Quantidade de vendas"
-                        value={new Intl.NumberFormat("pt-BR").format(totalOrders)}
-                        icon={Package}
-                        loading={metricsLoading}
-                    />
-                    <CompactKPICard
-                        title="Vendas canceladas"
-                        value={new Intl.NumberFormat("pt-BR").format(canceledOrders)}
-                        icon={AlertCircle}
+                </div>
+
+                {/* Card de Reputação (Ocupa 4/12) */}
+                <div className="lg:col-span-4 h-full">
+                    <MercadoLivreReputationCard
+                        reputationLevel={metrics?.reputationMetrics?.level || metrics?.reputation || "MercadoLíder"}
+                        reputationColor={metrics?.reputationMetrics?.color || "Cinza"}
+                        claimsRate={metrics?.reputationMetrics?.claimsRate || 0}
+                        cancellationsRate={metrics?.reputationMetrics?.cancellationsRate || 0}
+                        delayedHandlingRate={metrics?.reputationMetrics?.delayedHandlingRate}
                         loading={metricsLoading}
                     />
                 </div>
-            )}
+            </div>
 
-            {/* Main Content Layout - 2 Columns */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Seção de Perguntas Recentes */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-12">
+                    <MercadoLivreQuestionsList
+                        questions={questions?.items || []}
+                        loading={questionsLoading}
+                        totalUnanswered={questions?.unanswered || 0}
+                    />
+                </div>
+            </div>
+
+            {/* Separador */}
+            <div className="border-t border-border/40 my-6" />
+            <h2 className="text-xl font-semibold mb-3 text-muted-foreground">Detalhamento e Produtos</h2>
+
+            {/* Conteúdo Anterior (Mantido abaixo) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
 
                 {/* Main Column (Sales & Products) - 2/3 width */}
-                <div className="lg:col-span-8 space-y-6">
+                <div className="lg:col-span-8 space-y-4">
                     {/* Top Products Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <TopProductsChart
                             products={products?.items || []}
                             loading={productsLoading}
@@ -390,6 +420,7 @@ export default function MercadoLivre() {
                             type="visits"
                         />
                     </div>
+
 
                     {/* Vendas Diárias */}
                     <Card className="border-border/50 shadow-sm">
@@ -453,106 +484,10 @@ export default function MercadoLivre() {
                         </CardContent>
                     </Card>
 
-                    {/* Planejamento de caixa e lucro */}
-                    <div className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <Calculator className="h-4 w-4 text-amber-500" />
-                                    Planejamento de caixa e lucro
-                                </h2>
-                                <p className="text-xs text-muted-foreground">
-                                    Veja quanto entra se zerar o estoque e quantas unidades faltam para bater sua meta de lucro.
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-muted-foreground">Meta de lucro</span>
-                                <Input
-                                    type="number"
-                                    min={0}
-                                    value={targetProfit}
-                                    onChange={(e) => setTargetProfit(Number(e.target.value) || 0)}
-                                    className="h-9 w-28 text-right"
-                                />
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9"
-                                    onClick={() => navigate("/mercado-livre/full-analytics")}
-                                >
-                                    Ver Analytics Full
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9"
-                                    onClick={() => navigate("/mercado-livre-price-calculator")}
-                                >
-                                    Simular preços
-                                </Button>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <Card className="border-border/50 shadow-sm">
-                                <CardContent className="p-4 space-y-1">
-                                    <p className="text-xs text-muted-foreground flex items-center gap-2">
-                                        <ShoppingBag className="h-4 w-4 text-blue-500" />
-                                        Receita se zerar estoque
-                                    </p>
-                                    <p className="text-2xl font-semibold">
-                                        {fullAnalyticsLoading ? "-" : hasFullAnalytics ? formatCurrency(stockPlanning.totalStockRevenue) : "—"}
-                                    </p>
-                                    <p className="text-[11px] text-muted-foreground">
-                                        Considera preço atual x quantidade disponível.
-                                    </p>
-                                </CardContent>
-                            </Card>
-                            <Card className="border-border/50 shadow-sm">
-                                <CardContent className="p-4 space-y-1">
-                                    <p className="text-xs text-muted-foreground flex items-center gap-2">
-                                        <DollarSign className="h-4 w-4 text-green-600" />
-                                        Lucro estimado ao zerar estoque
-                                    </p>
-                                    <p className="text-2xl font-semibold">
-                                        {fullAnalyticsLoading ? "-" : hasFullAnalytics ? formatCurrency(stockPlanning.totalStockProfit) : "—"}
-                                    </p>
-                                    <p className="text-[11px] text-muted-foreground">
-                                        Usa lucro unitário de cada item.
-                                    </p>
-                                </CardContent>
-                            </Card>
-                                <Card className="border-border/50 shadow-sm">
-                                    <CardContent className="p-4 space-y-1">
-                                        <p className="text-xs text-muted-foreground flex items-center gap-2">
-                                            <Package className="h-4 w-4 text-amber-600" />
-                                            Unidades para bater a meta
-                                        </p>
-                                        <p className="text-2xl font-semibold">
-                                            {fullAnalyticsLoading
-                                                ? "-"
-                                                : stockPlanning.unitsToTargetFromAveragePrice !== null
-                                                    ? formatNumber(stockPlanning.unitsToTargetFromAveragePrice)
-                                                    : "—"}
-                                        </p>
-                                        <p className="text-[11px] text-muted-foreground">
-                                            {fullAnalyticsLoading
-                                                ? ""
-                                                : stockPlanning.unitsToTargetFromAveragePrice !== null && stockPlanning.perUnitValue > 0
-                                                    ? stockPlanning.remainingProfitTarget > 0
-                                                        ? `Falta estimado ${formatCurrency(stockPlanning.remainingProfitTarget, 0)} baseado no preço médio ${formatCurrency(stockPlanning.perUnitValue, 2)}/un do período. Já foi registrado ${formatCurrency(stockPlanning.estimatedProfitToDate, 0)}.`
-                                                        : `Meta estimada já atingida neste período usando preço médio ${formatCurrency(stockPlanning.perUnitValue, 2)}/un.`
-                                                    : "Defina meta e sincronize o Full Analytics."}
-                                        </p>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                    </div>
                 </div>
 
                 {/* Side Column (Financials & Stock) - 1/3 width */}
-                <div className="lg:col-span-4 space-y-6">
+                <div className="lg:col-span-4 space-y-4 lg:sticky lg:top-4">
                     <TodayShipments workspaceId={workspaceId} />
 
                     <FinancialAnalysis

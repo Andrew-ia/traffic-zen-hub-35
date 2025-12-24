@@ -21,6 +21,7 @@ const CLIENT_SECRET = process.env.MERCADO_LIVRE_CLIENT_SECRET;
 let ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
 const REFRESH_TOKEN = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
 const USER_ID = process.env.MERCADO_LIVRE_USER_ID;
+const USER_AGENT = 'TrafficZenHub/1.0';
 
 async function refreshAccessToken() {
   if (!REFRESH_TOKEN || !CLIENT_SECRET) {
@@ -66,10 +67,14 @@ const WEBHOOK_BASE_URL = (process.env.WEBHOOK_BASE_URL || '').trim();
 const NGROK_DOMAIN = (process.env.NGROK_DOMAIN || '').trim();
 const VERCEL_URL = (process.env.VERCEL_URL || '').trim();
 const DEFAULT_VERCEL = 'https://traffic-zen-hub-35.vercel.app';
+const API_BASE = (process.env.API_BASE_URL || process.env.VITE_API_URL || process.env.FRONTEND_URL || '').trim();
+const SKIP_WEBHOOK_TEST = (process.env.SKIP_WEBHOOK_TEST || '').toLowerCase() === 'true';
+const WEBHOOK_HEALTH_URL = (process.env.WEBHOOK_HEALTH_URL || '').trim();
 
 const resolveBaseUrl = () => {
   if (WEBHOOK_BASE_URL) return WEBHOOK_BASE_URL.replace(/\/+$/, '');
   if (NGROK_DOMAIN) return `https://${NGROK_DOMAIN.replace(/\/+$/, '')}`;
+  if (API_BASE) return API_BASE.replace(/\/+$/, '');
   if (VERCEL_URL) return `https://${VERCEL_URL.replace(/\/+$/, '')}`;
   return DEFAULT_VERCEL;
 };
@@ -89,14 +94,47 @@ async function listWebhooks() {
   try {
     console.log('\n🔍 Listando webhooks registrados...\n');
 
-    const response = await axios.get(
+    const makeRequest = async () => axios.get(
       `https://api.mercadolibre.com/applications/${APP_ID}`,
       {
         headers: {
-          'Authorization': `Bearer ${ACCESS_TOKEN}`
+          'Authorization': `Bearer ${ACCESS_TOKEN}`,
+          'User-Agent': USER_AGENT
         }
       }
     );
+
+    let response;
+    try {
+      response = await makeRequest();
+    } catch (error) {
+      const status = error.response?.status;
+      const data = error.response?.data || {};
+      const message = (data.message || '').toLowerCase();
+      const code = (data.code || '').toLowerCase();
+      const errorStr = (data.error || '').toLowerCase();
+
+      // Check for 401/403 OR specific error messages indicating token issues
+      if (
+        status === 401 || 
+        status === 403 || 
+        message.includes('invalid access token') || 
+        message.includes('unauthorized') ||
+        code === 'unauthorized' ||
+        errorStr === 'unauthorized'
+      ) {
+        console.log(`🔄 Token inválido (Status: ${status}, Msg: ${message}). Tentando renovar...`);
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          // Retry with new token
+          response = await makeRequest();
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
 
     if (response.data.notifications_callback_url) {
       console.log(`✅ Webhook já configurado no app:`);
@@ -116,7 +154,7 @@ async function registerWebhook(topic) {
   try {
     console.log(`📝 Registrando webhook para tópico: ${topic}...`);
 
-    const response = await axios.post(
+    const makeRequest = async () => axios.post(
       `https://api.mercadolibre.com/applications/${APP_ID}`,
       {
         callback_url: CALLBACK_URL,
@@ -125,10 +163,54 @@ async function registerWebhook(topic) {
       {
         headers: {
           'Authorization': `Bearer ${ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT
         }
       }
     );
+
+    let response;
+    try {
+      response = await makeRequest();
+    } catch (error) {
+      // Check for "already exists"
+      if (error.response?.status === 400 && error.response?.data?.message?.includes('already exists')) {
+        console.log(`ℹ️  Webhook para ${topic} já estava registrado\n`);
+        return true;
+      }
+
+      const status = error.response?.status;
+      const data = error.response?.data || {};
+      const message = (data.message || '').toLowerCase();
+      const code = (data.code || '').toLowerCase();
+
+      if (
+        status === 401 || 
+        status === 403 || 
+        message.includes('invalid access token') || 
+        message.includes('unauthorized') ||
+        code === 'unauthorized'
+      ) {
+        console.log(`🔄 Token inválido ao registrar ${topic}. Tentando renovar...`);
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          try {
+            response = await makeRequest();
+          } catch (retryError) {
+             // Handle "already exists" on retry too
+             if (retryError.response?.status === 400 && retryError.response?.data?.message?.includes('already exists')) {
+                console.log(`ℹ️  Webhook para ${topic} já estava registrado\n`);
+                return true;
+             }
+             throw retryError;
+          }
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
 
     console.log(`✅ Webhook para ${topic} registrado com sucesso!\n`);
     return true;
@@ -154,7 +236,8 @@ async function updateCallbackUrl() {
       {
         headers: {
           'Authorization': `Bearer ${ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT
         }
       }
     );
@@ -163,7 +246,19 @@ async function updateCallbackUrl() {
     try {
       response = await makeRequest();
     } catch (error) {
-      if (error.response?.status === 401) {
+      const status = error.response?.status;
+      const data = error.response?.data || {};
+      const message = (data.message || '').toLowerCase();
+      const code = (data.code || '').toLowerCase();
+
+      if (
+        status === 401 || 
+        status === 403 || 
+        message.includes('invalid access token') || 
+        message.includes('unauthorized') ||
+        code === 'unauthorized'
+      ) {
+        console.log('🔄 Token expirado ou inválido (durante update). Tentando renovar...');
         const refreshed = await refreshAccessToken();
         if (refreshed) {
           response = await makeRequest();
@@ -179,12 +274,26 @@ async function updateCallbackUrl() {
     console.log(`   Nova URL: ${CALLBACK_URL}\n`);
     return true;
   } catch (error) {
-    console.error('❌ Erro ao atualizar callback URL:', error.response?.data || error.message);
-    return false;
-  }
+      const data = error.response?.data;
+      
+      // Check for HTML error (WAF/Block)
+      if (typeof data === 'string' && (data.includes('<!DOCTYPE') || data.includes('<html'))) {
+         console.error('❌ Bloqueio de segurança (WAF) detectado ao atualizar URL.');
+         console.error('   O Mercado Livre bloqueou a requisição automática de atualização.');
+         return false; // Fail gracefully so main() can show manual steps
+      }
+
+      console.error('❌ Erro ao atualizar callback URL:', typeof data === 'object' ? JSON.stringify(data) : (data || error.message));
+      return false;
+    }
 }
 
 async function testWebhook() {
+  if (SKIP_WEBHOOK_TEST) {
+    console.log('⏭️  Teste de webhook pulado por SKIP_WEBHOOK_TEST=true\n');
+    return true;
+  }
+
   try {
     console.log('\n🧪 Testando endpoint de webhook...\n');
 
@@ -195,8 +304,21 @@ async function testWebhook() {
       sent: new Date().toISOString()
     };
 
+    // Primeiro, checar health simples para evitar ECONNREFUSED
+    const parsed = new URL(CALLBACK_URL);
+    const healthUrl = WEBHOOK_HEALTH_URL || `${parsed.origin}/api/health`;
+    try {
+      const health = await axios.get(healthUrl, { timeout: 3000, validateStatus: () => true });
+      if (health.status >= 500) {
+        console.warn(`⚠️  Health check respondeu ${health.status} em ${healthUrl}. Continuando mesmo assim...`);
+      }
+    } catch (err) {
+      console.warn(`⚠️  Health check falhou (${healthUrl}): ${err.message}. Continuando para teste de payload...`);
+    }
+
     const response = await axios.post(CALLBACK_URL, testPayload, {
       timeout: 5000,
+      validateStatus: () => true,
       headers: {
         'Content-Type': 'application/json'
       }
@@ -205,15 +327,22 @@ async function testWebhook() {
     if (response.status === 200) {
       console.log('✅ Endpoint de webhook está respondendo corretamente!\n');
       return true;
-    } else {
+    }
+
+    if (response.status && response.status < 500) {
       console.log(`⚠️  Endpoint respondeu com status: ${response.status}`);
       console.log(`   Detalhes:`, response.data);
       console.log('');
       return false;
     }
+
+    console.log(`⚠️  Endpoint não respondeu 200 (status ${response.status || 'sem status'})`);
+    return false;
   } catch (error) {
-    console.error('❌ Erro ao testar webhook:', error.message);
-    console.log('   Verifique se a aplicação está rodando em produção.\n');
+    const code = error.code || '';
+    const isConn = code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EAI_AGAIN';
+    console.warn(`⚠️  Não foi possível testar o webhook (${error.message}).${isConn ? ' Serviço pode estar offline ou domínio errado.' : ''}`);
+    console.warn('   Dica: rode `npm run dev` (api + ngrok) ou configure WEBHOOK_BASE_URL para um endpoint acessível.\n');
     return false;
   }
 }
@@ -249,7 +378,13 @@ async function main() {
   }
 
   // 3. Atualizar/Configurar URL de callback no app
-  const updated = await updateCallbackUrl();
+  let updated = true;
+  if (currentWebhook === CALLBACK_URL) {
+    console.log('✅ URL de callback já está atualizada no Mercado Livre.');
+    console.log('   Pulando etapa de configuração para evitar erros de bloqueio (WAF).\n');
+  } else {
+    updated = await updateCallbackUrl();
+  }
 
   if (!updated) {
     console.log('\n⚠️  Não foi possível atualizar via API.');

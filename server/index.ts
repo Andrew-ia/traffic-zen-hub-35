@@ -136,6 +136,7 @@ import workspacesRouter from './api/workspaces.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
+process.env.TZ = process.env.SERVER_TIMEZONE || process.env.TZ || 'America/Sao_Paulo';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;

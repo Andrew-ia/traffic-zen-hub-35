@@ -76,7 +76,7 @@ async function refreshAccessToken(workspaceId: string, current: any) {
 }
 
 async function requestWithAuth(workspaceId: string, url: string, config: any = {}) {
-    let creds = await getMercadoLivreCredentials(workspaceId);
+    const creds = await getMercadoLivreCredentials(workspaceId);
     if (!creds) throw new Error("ml_not_connected");
 
     try {

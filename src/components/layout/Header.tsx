@@ -53,7 +53,7 @@ export function Header({ onMenuClick }: HeaderProps) {
     return adsFeaturesEnabled
       ? "Buscar campanhas, relatórios..."
       : "Buscar páginas, produtos, análises...";
-  }, [isMobile, adsFeaturesEnabled]);
+  }, [isMobile]);
 
   useEffect(() => {
     const handleFocusShortcut = (event: KeyboardEvent) => {

@@ -97,7 +97,7 @@ export async function syncFullAnalyticsForWorkspace(workspaceId: string) {
 
     for (const status of statuses) {
         let offset = 0;
-        let limit = 50;
+        const limit = 50;
         let hasMore = true;
 
         while (hasMore) {
@@ -152,7 +152,7 @@ export async function syncFullAnalyticsForWorkspace(workspaceId: string) {
     const dateFromStr = dateFrom.toISOString();
 
     let offset = 0;
-    let limit = 50;
+    const limit = 50;
     let hasMore = true;
 
     while (hasMore) {

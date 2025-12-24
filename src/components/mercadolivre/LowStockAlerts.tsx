@@ -80,53 +80,43 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
     }
 
     return (
-        <Card className="border-border/50 shadow-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
+        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
+            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
                 <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <PackageX className="h-4 w-4 text-orange-500" />
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                        <PackageX className="h-5 w-5 text-[#FF7733]" />
                         Alertas de Estoque
                     </CardTitle>
-                    <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800">
-                        {allAlerts.length} {allAlerts.length === 1 ? "alerta" : "alertas"}
+                    <Badge variant="secondary" className="bg-[#FF7733]/10 text-[#FF7733] border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
+                        {allAlerts.length} Alertas
                     </Badge>
                 </div>
             </CardHeader>
-            <CardContent className="p-6">
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            <CardContent className="p-0">
+                <div className="divide-y divide-border/10 max-h-[400px] overflow-y-auto custom-scrollbar">
                     {allAlerts.slice(0, 10).map((product) => (
                         <div
                             key={product.id}
-                            className="flex items-center gap-3 p-3 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors"
+                            className="flex items-center gap-4 p-4 hover:bg-muted/10 transition-colors group/item"
                         >
                             {product.thumbnail && (
-                                <img
-                                    src={product.thumbnail}
-                                    alt={product.title}
-                                    className="h-12 w-12 rounded object-cover flex-shrink-0"
-                                />
+                                <div className="h-12 w-12 rounded-xl overflow-hidden border border-border/20 shrink-0">
+                                    <img
+                                        src={product.thumbnail}
+                                        alt={product.title}
+                                        className="h-full w-full object-cover"
+                                    />
+                                </div>
                             )}
                             <div className="flex-1 min-w-0">
-                                <h4 className="font-medium text-sm truncate">{product.title}</h4>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <Badge
-                                        variant="outline"
-                                        className={`text-xs ${getStockBadgeColor(product.stock || 0)}`}
-                                    >
-                                        {product.stock === 0 ? (
-                                            <>
-                                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                                Sem estoque
-                                            </>
-                                        ) : (
-                                            <>
-                                                <PackageX className="h-3 w-3 mr-1" />
-                                                {product.stock} {product.stock === 1 ? "unidade" : "unidades"}
-                                            </>
-                                        )}
-                                    </Badge>
+                                <h4 className="font-bold text-sm truncate uppercase tracking-tight">{product.title}</h4>
+                                <div className="flex items-center gap-2 mt-1.5">
+                                    <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${product.stock === 0 ? "bg-[#F52F41]/10 text-[#F52F41]" : "bg-[#FF7733]/10 text-[#FF7733]"
+                                        }`}>
+                                        {product.stock === 0 ? "Sem Estoque" : `${product.stock} un. restantes`}
+                                    </div>
                                     {product.sales > 0 && (
-                                        <span className="text-xs text-muted-foreground">
+                                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter">
                                             {product.sales} vendas
                                         </span>
                                     )}
@@ -135,10 +125,9 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
                             {product.permalink && (
                                 <Button
                                     variant="ghost"
-                                    size="sm"
-                                    className="flex-shrink-0 h-8 w-8 p-0"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
                                     onClick={() => window.open(product.permalink, "_blank")}
-                                    title="Ver no Mercado Livre"
                                 >
                                     <ExternalLink className="h-4 w-4" />
                                 </Button>
@@ -147,28 +136,20 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
                     ))}
                 </div>
 
-                {allAlerts.length > 10 && (
-                    <div className="mt-4 pt-4 border-t border-border/50 text-center">
-                        <p className="text-xs text-muted-foreground">
-                            Mostrando 10 de {allAlerts.length} alertas
-                        </p>
-                    </div>
-                )}
-
                 {/* Resumo */}
-                <div className="mt-4 pt-4 border-t border-border/50">
-                    <div className="grid grid-cols-2 gap-4 text-center">
-                        <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20">
-                            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                <div className="p-4 bg-muted/5 border-t border-border/10">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 rounded-2xl bg-[#FF7733]/5 border border-[#FF7733]/10 text-center">
+                            <div className="text-xl font-black text-[#FF7733]">
                                 {lowStockProducts.length}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Estoque baixo</div>
+                            <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Estoque Baixo</div>
                         </div>
-                        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
-                            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                        <div className="p-3 rounded-2xl bg-[#F52F41]/5 border border-[#F52F41]/10 text-center">
+                            <div className="text-xl font-black text-[#F52F41]">
                                 {outOfStockProducts.length}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Sem estoque</div>
+                            <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Zerados</div>
                         </div>
                     </div>
                 </div>

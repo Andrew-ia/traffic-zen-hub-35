@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
 
 export default function Products() {
     const { currentWorkspace } = useWorkspace();
@@ -306,13 +307,13 @@ export default function Products() {
 
     if (!workspaceId) {
         return (
-            <div className="flex flex-col items-center justify-center h-[50vh] space-y-4">
-                <Package className="h-16 w-16 text-muted-foreground/50" />
-                <h1 className="text-2xl font-bold">Selecione um Workspace</h1>
-                <p className="text-muted-foreground">Para visualizar seus produtos, selecione um workspace no menu.</p>
-            </div>
-        );
-    }
+                    <div className="flex flex-col items-center justify-center h-[50vh] space-y-4">
+                        <Package className="h-16 w-16 text-muted-foreground/50" />
+                        <h1 className="text-2xl font-bold">Selecione um Workspace</h1>
+                        <p className="text-muted-foreground">Para visualizar seus anúncios, selecione um workspace no menu.</p>
+                    </div>
+                );
+            }
 
     return (
         <div className="space-y-6 h-full flex flex-col">
@@ -321,7 +322,7 @@ export default function Products() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
                         <Package className="h-8 w-8 text-primary" />
-                        Produtos Mercado Livre
+                        Anúncios Mercado Livre
                     </h1>
                     <p className="text-muted-foreground mt-1">
                         Todos os anúncios sincronizados do Mercado Livre
@@ -400,6 +401,13 @@ export default function Products() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Alertas de estoque */}
+            <LowStockAlerts
+                products={productsData?.items || []}
+                loading={isLoading}
+                threshold={5}
+            />
 
             {/* Filters & Search */}
             <Card className="bg-card/50 backdrop-blur-sm">

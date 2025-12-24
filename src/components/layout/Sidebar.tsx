@@ -77,6 +77,30 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
           {mainNavigation.map((entry: NavigationEntry) => {
             if (!user) return null;
             if ("children" in entry) {
+              // Collapsed: render only parent link with icon to avoid broken layout
+              if (isCollapsed) {
+                const activeChildCollapsed = entry.children.some((c) => location.pathname.startsWith(c.href));
+                const isParentActive = location.pathname === entry.href || activeChildCollapsed;
+                return (
+                  <NavLink
+                    key={entry.name}
+                    to={entry.href}
+                    end={entry.href === "/" || entry.href === "/campaigns"}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center justify-center rounded-lg p-3 transition-all duration-200",
+                        (isActive || isParentActive)
+                          ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
+                          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                      )
+                    }
+                    onClick={() => isMobile && onClose()}
+                  >
+                    <entry.icon className="h-5 w-5 flex-shrink-0" />
+                  </NavLink>
+                );
+              }
+
               const activeChild = entry.children.some((c) => location.pathname.startsWith(c.href));
               const isParentRoute = location.pathname === entry.href;
               const parentAllowed = hasAccess(entry.href);
@@ -148,7 +172,8 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
                 end={entry.href === "/" || entry.href === "/campaigns"}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                    "flex items-center rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                    isCollapsed ? "justify-center p-3" : "gap-3 px-3 py-2.5 text-sm font-medium",
                     isActive
                       ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20"
                       : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"

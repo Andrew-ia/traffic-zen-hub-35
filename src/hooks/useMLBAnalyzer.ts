@@ -251,12 +251,16 @@ export function useMLBAnalyzer() {
         score: number;
         timestamp: string;
     } | null>(null);
+    const [analysisHistory, setAnalysisHistory] = useState<Array<{
+        mlbId: string;
+        title: string;
+        score: number;
+        timestamp: string;
+    }>>([]);
 
     const analyzeProduct = async (mlbId: string): Promise<MLBAnalysisResult | null> => {
-        if (!currentWorkspace?.id) {
-            setError('Workspace não encontrado');
-            return null;
-        }
+        // Workspace não é mais obrigatório para análise pública
+        // if (!currentWorkspace?.id) { ... }
 
         setIsAnalyzing(true);
         setError(null);
@@ -269,7 +273,7 @@ export function useMLBAnalyzer() {
                 },
                 body: JSON.stringify({
                     mlbId: mlbId,
-                    workspaceId: currentWorkspace.id
+                    workspaceId: currentWorkspace?.id // Envia se existir, undefined se não
                 })
             });
 
@@ -283,11 +287,17 @@ export function useMLBAnalyzer() {
             const result: MLBAnalysisResult = await response.json();
 
             setCurrentAnalysis(result);
-            setLastAnalyzed({
+            const historyItem = {
                 mlbId: result.mlb_id,
                 title: result.product_data.title,
                 score: result.quality_score.overall_score,
                 timestamp: result.analyzed_at
+            };
+            setLastAnalyzed(historyItem);
+
+            setAnalysisHistory(prev => {
+                const filtered = prev.filter(p => p.mlbId !== result.mlb_id);
+                return [historyItem, ...filtered].slice(0, 10);
             });
 
             return result;
@@ -302,12 +312,7 @@ export function useMLBAnalyzer() {
         }
     };
 
-    const optimizeTitle = async (title: string, mlbId?: string): Promise<TitleOptimizationResult | null> => {
-        if (!currentWorkspace?.id) {
-            setError('Workspace não encontrado');
-            return null;
-        }
-
+    const optimizeTitle = async (mlbId: string): Promise<TitleOptimizationResult | null> => {
         setIsAnalyzing(true);
         setError(null);
 
@@ -318,15 +323,14 @@ export function useMLBAnalyzer() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    title: title,
                     mlbId: mlbId,
-                    workspaceId: currentWorkspace.id
+                    workspaceId: currentWorkspace?.id
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Falha na otimização do título');
+                throw new Error(errorData.error || 'Falha na otimização de título');
             }
 
             const result: TitleOptimizationResult = await response.json();
@@ -342,7 +346,7 @@ export function useMLBAnalyzer() {
         }
     };
 
-    const generateDescription = async (mlbId: string, style: string = 'professional'): Promise<SEODescriptionResult | null> => {
+    const generateDescription = async (mlbId: string, style: string = 'vendas'): Promise<SEODescriptionResult | null> => {
         if (!currentWorkspace?.id) {
             setError('Workspace não encontrado');
             return null;
@@ -359,7 +363,7 @@ export function useMLBAnalyzer() {
                 },
                 body: JSON.stringify({
                     mlbId: mlbId,
-                    workspaceId: currentWorkspace.id,
+                    workspaceId: currentWorkspace?.id,
                     style: style
                 })
             });
@@ -397,6 +401,8 @@ export function useMLBAnalyzer() {
         currentAnalysis,
         error,
         lastAnalyzed,
+        analysisHistory,
+        currentWorkspace,
 
         // Métodos
         analyzeProduct,

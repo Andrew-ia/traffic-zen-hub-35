@@ -9,7 +9,7 @@ const domain = process.env.NGROK_DOMAIN ? String(process.env.NGROK_DOMAIN).trim(
 const authtoken = process.env.NGROK_AUTHTOKEN || process.env.NGROK_TOKEN || '';
 const hostHeader = process.env.NGROK_HOST_HEADER || `localhost:${port}`;
 
-const args = ['http', String(port), '--log', 'stdout', '--host-header', hostHeader];
+const args = ['http', String(port), '--host-header', hostHeader];
 if (domain) args.push('--domain', domain);
 if (authtoken) args.push('--authtoken', authtoken);
 

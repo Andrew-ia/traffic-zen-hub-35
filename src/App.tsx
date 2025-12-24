@@ -23,7 +23,7 @@ import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
-import MercadoLivre from "./pages/MercadoLivre";
+import MercadoLivre from "./pages/MercadoLivreNew";
 import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
 import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuilder";

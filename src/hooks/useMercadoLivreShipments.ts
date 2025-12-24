@@ -72,7 +72,8 @@ export function useMercadoLivreShipments(
             }
 
             const params = new URLSearchParams();
-            
+            if (effectiveWorkspaceId) params.append("workspaceId", effectiveWorkspaceId);
+
             if (options?.status) params.append("status", options.status);
             if (options?.limit) params.append("limit", options.limit.toString());
             if (options?.offset) params.append("offset", options.offset.toString());

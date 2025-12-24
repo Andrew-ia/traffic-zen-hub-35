@@ -54,8 +54,8 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
         conversionRate: product.conversionRate,
     }));
 
-    // Cores do gráfico
-    const colors = ["#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe"];
+    // Cores do gráfico baseadas no Mercado Livre
+    const colors = ["#3483FA", "#FFD100", "#00A650", "#FF7733", "#F52F41"];
 
     const getTitle = () => {
         if (type === "sales") return "Top 5 Produtos - Vendas";
@@ -86,84 +86,86 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
         if (!d) return null;
         return (
             <div
-                style={{
-                    backgroundColor: "hsl(var(--background))",
-                    color: "hsl(var(--foreground))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    padding: "10px",
-                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.3)",
-                }}
+                className="bg-background/80 backdrop-blur-md border border-border/50 p-4 rounded-2xl shadow-xl shadow-black/10"
             >
-                <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "6px" }}>{d.fullName}</div>
-                <div style={{ fontSize: "12px", lineHeight: 1.6 }}>
-                    <div>Vendas: {new Intl.NumberFormat("pt-BR").format(d.sales)}</div>
-                    <div>Visitas: {new Intl.NumberFormat("pt-BR").format(d.visits)}</div>
-                    <div>
-                        Receita:{" "}
-                        {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(d.revenue)}
+                <div className="text-xs font-black mb-2 uppercase tracking-tighter">{d.fullName}</div>
+                <div className="space-y-1">
+                    <div className="text-[10px] text-muted-foreground flex justify-between gap-4">
+                        <span className="font-bold uppercase tracking-widest">Vendas</span>
+                        <span className="font-black text-foreground">{new Intl.NumberFormat("pt-BR").format(d.sales)}</span>
                     </div>
-                    {typeof d.conversionRate === "number" && <div>Conversão: {d.conversionRate.toFixed(2)}%</div>}
+                    <div className="text-[10px] text-muted-foreground flex justify-between gap-4">
+                        <span className="font-bold uppercase tracking-widest">Visitas</span>
+                        <span className="font-black text-foreground">{new Intl.NumberFormat("pt-BR").format(d.visits)}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground flex justify-between gap-4">
+                        <span className="font-bold uppercase tracking-widest">Receita</span>
+                        <span className="font-black text-[#00A650]">
+                            {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(d.revenue)}
+                        </span>
+                    </div>
                 </div>
             </div>
         );
     }
 
     return (
-        <Card className="border-border/50 shadow-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    {getIcon()}
+        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
+            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <span className="text-[#3483FA]">{getIcon()}</span>
                     {getTitle()}
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
                 {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
-                            <XAxis type="number" stroke="#9ca3af" fontSize={12} />
-                            <YAxis
-                                type="category"
-                                dataKey="name"
-                                stroke="#9ca3af"
-                                fontSize={12}
-                                width={150}
-                            />
-                            <Tooltip content={<TopProductsTooltip />} />
-                            <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={colors[index]} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <div className="flex items-center justify-center h-64 text-muted-foreground">
-                        Nenhum produto encontrado
-                    </div>
-                )}
-
-                {/* Lista resumida abaixo do gráfico */}
-                {chartData.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                        {chartData.map((product, index) => (
-                            <div
-                                key={index}
-                                className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <div
-                                        className="w-3 h-3 rounded-full"
-                                        style={{ backgroundColor: colors[index] }}
+                    <div className="space-y-6">
+                        <div className="h-[250px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.3} />
+                                    <XAxis type="number" hide />
+                                    <YAxis
+                                        type="category"
+                                        dataKey="name"
+                                        hide
                                     />
-                                    <span className="text-sm font-medium truncate max-w-[200px]">
-                                        {product.name}
-                                    </span>
+                                    <Tooltip content={<TopProductsTooltip />} cursor={{ fill: 'hsl(var(--muted)/0.1)' }} />
+                                    <Bar dataKey="value" radius={[0, 12, 12, 0]} barSize={32}>
+                                        {chartData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={colors[index % colors.length]} fillOpacity={0.8} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        <div className="space-y-2">
+                            {chartData.map((product, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center justify-between p-3 rounded-2xl bg-muted/10 hover:bg-muted/20 transition-all border border-transparent hover:border-border/50 group/item"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div
+                                            className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-white"
+                                            style={{ backgroundColor: colors[index % colors.length] }}
+                                        >
+                                            #{index + 1}
+                                        </div>
+                                        <span className="text-sm font-bold truncate">
+                                            {product.name}
+                                        </span>
+                                    </div>
+                                    <span className="text-sm font-black text-[#3483FA] pl-4">{formatValue(product.value)}</span>
                                 </div>
-                                <span className="text-sm font-semibold">{formatValue(product.value)}</span>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-3">
+                        <ShoppingBag className="h-10 w-10 opacity-20" />
+                        <p className="text-sm font-bold uppercase tracking-widest opacity-50">Nenhum produto encontrado</p>
                     </div>
                 )}
             </CardContent>

@@ -180,7 +180,11 @@ export default function MercadoLivrePriceCalculator() {
                             placeholder="Ex: MLB123456789"
                         />
                     </div>
-                    <Button className="mt-6 md:mt-auto" onClick={loadItem} disabled={loading || !mlbId || !currentWorkspace?.id}>
+                    <Button
+                        className="mt-6 md:mt-auto"
+                        onClick={() => loadItem()}
+                        disabled={loading || !mlbId || !currentWorkspace?.id}
+                    >
                         {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />} Buscar
                     </Button>
                 </CardContent>
