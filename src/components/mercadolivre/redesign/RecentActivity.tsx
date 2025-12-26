@@ -1,6 +1,7 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingBag, ChevronRight, Clock, Box, Calendar as CalendarIcon } from "lucide-react";
+import { ShoppingBag, ChevronRight, ChevronLeft, Clock, Box, Calendar as CalendarIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,17 @@ interface RecentActivityProps {
 }
 
 export function RecentActivity({ orders, loading, date, onDateChange }: RecentActivityProps) {
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 6;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [date, orders]);
+
+    const totalPages = Math.ceil((orders?.length || 0) / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const currentOrders = orders?.slice(startIndex, startIndex + itemsPerPage) || [];
+
     // If date is provided, we display it.
     // We rely on the parent to pass the correct filtered orders.
     
@@ -75,8 +87,8 @@ export function RecentActivity({ orders, loading, date, onDateChange }: RecentAc
             </CardHeader>
             <CardContent className="p-0">
                 <div className="divide-y divide-border/10">
-                    {orders?.length > 0 ? (
-                        orders.slice(0, 6).map((order) => {
+                    {currentOrders.length > 0 ? (
+                        currentOrders.map((order) => {
                             const item = order.items?.[0];
                             const imageUrl = item?.thumbnail;
                             const title = item?.title || `Pedido #${order.id}`;
@@ -143,6 +155,31 @@ export function RecentActivity({ orders, loading, date, onDateChange }: RecentAc
                         </div>
                     )}
                 </div>
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between p-4 border-t border-border/10 bg-muted/5">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                            className="h-8 w-8 p-0 hover:bg-background/80"
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-xs text-muted-foreground font-medium">
+                            Página {currentPage} de {totalPages}
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={currentPage === totalPages}
+                            className="h-8 w-8 p-0 hover:bg-background/80"
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
