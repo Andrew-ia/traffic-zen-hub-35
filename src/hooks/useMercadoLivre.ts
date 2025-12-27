@@ -185,6 +185,131 @@ export interface MercadoLivreQuestion {
     answer?: string;
 }
 
+export interface MercadoLivreTrend {
+    keyword: string;
+    url: string;
+}
+
+export interface MercadoLivreCategory {
+    id: string;
+    name: string;
+    children_categories?: Array<{
+        id: string;
+        name: string;
+        total_items_in_this_category?: number;
+    }>;
+    path_from_root?: Array<{
+        id: string;
+        name: string;
+    }>;
+}
+
+/**
+ * Hook para buscar detalhes de uma categoria (incluindo subcategorias)
+ */
+export function useMercadoLivreCategory(workspaceId: string | null, categoryId: string) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "category", effectiveWorkspaceId, categoryId],
+        queryFn: async (): Promise<MercadoLivreCategory> => {
+            const params = new URLSearchParams();
+            if (effectiveWorkspaceId) {
+                params.append("workspaceId", effectiveWorkspaceId);
+            }
+
+            const response = await fetch(`/api/integrations/mercadolivre/categories/${categoryId}?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch category (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!categoryId,
+        staleTime: 60 * 60 * 1000, // 1 hora
+    });
+}
+
+/**
+ * Hook para buscar tendências de uma categoria
+ */
+export function useMercadoLivreTrends(workspaceId: string | null, categoryId: string) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "trends", effectiveWorkspaceId, categoryId],
+        queryFn: async (): Promise<MercadoLivreTrend[]> => {
+            const params = new URLSearchParams();
+            if (effectiveWorkspaceId) {
+                params.append("workspaceId", effectiveWorkspaceId);
+            }
+
+            const response = await fetch(`/api/integrations/mercadolivre/trends/${categoryId}?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch trends (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!categoryId,
+        staleTime: 10 * 60 * 1000, // 10 minutos
+    });
+}
+
+/**
+ * Hook para buscar produtos mais vendidos de uma categoria
+ */
+export function useMercadoLivreCategoryTopProducts(workspaceId: string | null, categoryId: string) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "category-top-products", effectiveWorkspaceId, categoryId],
+        queryFn: async (): Promise<any[]> => {
+            const params = new URLSearchParams();
+            if (effectiveWorkspaceId) {
+                params.append("workspaceId", effectiveWorkspaceId);
+            }
+
+            const response = await fetch(`/api/integrations/mercadolivre/category-top-products/${categoryId}?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch top products (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!categoryId,
+        staleTime: 10 * 60 * 1000,
+    });
+}
+
+
 /**
  * Hook para buscar métricas do Mercado Livre
  */

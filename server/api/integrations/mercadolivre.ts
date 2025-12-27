@@ -440,6 +440,151 @@ router.get("/items/:itemId/description", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/trends/:categoryId
+ * Busca tendências de uma categoria (Top 50 produtos mais populares)
+ */
+router.get("/trends/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        const targetWorkspace = String(workspaceId || "default");
+        
+        // Mercado Livre Trends API endpoint
+        // https://api.mercadolibre.com/trends/MLB/:category_id
+        const url = `${MERCADO_LIVRE_API_BASE}/trends/MLB/${categoryId}`;
+
+        try {
+            const data = await requestWithAuth<any>(targetWorkspace, url);
+            return res.json(data);
+        } catch (err: any) {
+            // Fallback to public request for ANY error
+            try {
+                const resp = await axios.get(url);
+                return res.json(resp.data);
+            } catch (publicErr: any) {
+                // If public request also fails, throw the public error
+                throw publicErr;
+            }
+        }
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch category trends",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/category-top-products/:categoryId
+ * Busca produtos mais vendidos de uma categoria
+ */
+router.get("/category-top-products/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { workspaceId } = req.query as { workspaceId?: string };
+        const targetWorkspace = String(workspaceId || "default");
+        
+        // Estratégia em Cascata para buscar "Melhores Produtos":
+        
+        // 1. Tentar API oficial de Highlights (Requer Autenticação)
+        // Retorna os itens mais vendidos da categoria
+        try {
+            const highlightsUrl = `${MERCADO_LIVRE_API_BASE}/highlights/MLB/category/${categoryId}`;
+            const highlightsData = await requestWithAuth<any>(targetWorkspace, highlightsUrl);
+            
+            if (highlightsData?.content && Array.isArray(highlightsData.content)) {
+                const content = highlightsData.content.slice(0, 20);
+                const resultsMap = new Map();
+
+                const itemIds = content
+                    .filter((item: any) => item.type === 'ITEM')
+                    .map((item: any) => item.id);
+
+                const productIds = content
+                    .filter((item: any) => item.type === 'PRODUCT')
+                    .map((item: any) => item.id);
+                    
+                // Fetch ITEMS (Batch)
+                if (itemIds.length > 0) {
+                     const itemsUrl = `${MERCADO_LIVRE_API_BASE}/items?ids=${itemIds.join(",")}`;
+                     const itemsData = await requestWithAuth<any>(targetWorkspace, itemsUrl);
+                     
+                     if (Array.isArray(itemsData)) {
+                        itemsData.forEach((r: any) => {
+                            if (r.body && !r.body.error) {
+                                resultsMap.set(r.body.id, r.body);
+                            }
+                        });
+                     }
+                }
+
+                // Fetch PRODUCTS (Parallel Requests)
+                if (productIds.length > 0) {
+                    await Promise.all(productIds.map(async (id: string) => {
+                        try {
+                            const product = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/products/${id}`);
+                            resultsMap.set(id, product);
+                        } catch (e) {
+                            // Ignore individual failures
+                        }
+                    }));
+                }
+
+                // Reconstruct ordered list
+                const finalProducts = content
+                    .map((item: any) => resultsMap.get(item.id))
+                    .filter((p: any) => p !== undefined);
+
+                if (finalProducts.length > 0) {
+                    return res.json(finalProducts);
+                }
+            }
+        } catch (err: any) {
+            // Silenciosamente falha e tenta o próximo método
+            // console.log("Highlights API skipped:", err.message);
+        }
+
+        // 2. Tentar Search API com sort=sold_quantity_desc (Com Autenticação)
+        const searchUrl = `${MERCADO_LIVRE_API_BASE}/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=20`;
+        try {
+             const data = await requestWithAuth<any>(targetWorkspace, searchUrl);
+             if (data.results && data.results.length > 0) {
+                 return res.json(data.results);
+             }
+        } catch (err: any) {
+             // console.log("Auth search failed:", err.message);
+        }
+
+        // 3. Fallback Público: Search API
+        try {
+            // Tenta sort=sold_quantity_desc publicamente (pode falhar com 403)
+            const resp = await axios.get(searchUrl);
+            return res.json(resp.data.results || []);
+        } catch (err: any) {
+            // 4. Último Recurso: Search API por Relevância (Público e Seguro)
+            // Se der 403 Forbidden ou outro erro, tentamos sem o sort (relevância/destaques)
+            if (err?.response?.status === 403 || err?.response?.status === 401) {
+                try {
+                    const relevanceUrl = `${MERCADO_LIVRE_API_BASE}/sites/MLB/search?category=${categoryId}&limit=20`;
+                    const resp = await axios.get(relevanceUrl);
+                    return res.json(resp.data.results || []);
+                } catch (finalErr: any) {
+                    throw finalErr;
+                }
+            }
+            throw err;
+        }
+
+    } catch (error: any) {
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch category top products",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+
+/**
  * GET /api/integrations/mercadolivre/categories/:categoryId
  * Obtém detalhes de uma categoria
  */
@@ -448,16 +593,21 @@ router.get("/categories/:categoryId", async (req, res) => {
         const { categoryId } = req.params;
         const { workspaceId } = req.query as { workspaceId?: string };
         const targetWorkspace = String(workspaceId || "default");
+        
+        // Try with authentication first
         try {
             const data = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
             return res.json(data);
         } catch (err: any) {
-            if (err?.message === "ml_not_connected") {
-                // Tentativa sem auth (categorias costumam ser públicas)
+            // Fallback to public request for ANY error (401, 403, 404, ml_not_connected, etc.)
+            // This ensures that even if auth fails or token is invalid, we try to get public data
+            try {
                 const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
                 return res.json(resp.data);
+            } catch (publicErr: any) {
+                // If public request also fails, throw the public error
+                throw publicErr;
             }
-            throw err;
         }
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -476,15 +626,18 @@ router.get("/categories/:categoryId/attributes", async (req, res) => {
         const { categoryId } = req.params;
         const { workspaceId } = req.query as { workspaceId?: string };
         const targetWorkspace = String(workspaceId || "default");
+        
         try {
             const data = await requestWithAuth<any>(targetWorkspace, `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
             return res.json(data);
         } catch (err: any) {
-            if (err?.message === "ml_not_connected") {
+            // Fallback to public request
+            try {
                 const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
                 return res.json(resp.data);
+            } catch (publicErr: any) {
+                throw publicErr;
             }
-            throw err;
         }
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -4832,41 +4985,7 @@ router.get("/categories", async (req, res) => {
     }
 });
 
-/**
- * GET /api/integrations/mercadolivre/categories/:categoryId
- * Busca subcategorias de uma categoria específica
- */
-router.get("/categories/:categoryId", async (req, res) => {
-    try {
-        const { categoryId } = req.params;
 
-        const categoryResponse = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`
-        );
-
-        const category = categoryResponse.data;
-
-        return res.json({
-            success: true,
-            category: {
-                id: category.id,
-                name: category.name,
-                picture: category.picture,
-                path_from_root: category.path_from_root,
-                children_categories: category.children_categories,
-                attribute_types: category.attribute_types,
-                settings: category.settings
-            }
-        });
-
-    } catch (error: any) {
-        console.error("Error fetching ML category details:", error);
-        return res.status(500).json({
-            error: "Failed to fetch category details",
-            details: error.response?.data || error.message,
-        });
-    }
-});
 
 /**
  * POST /api/integrations/mercadolivre/predict-category

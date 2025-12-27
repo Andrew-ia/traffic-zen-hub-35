@@ -3,6 +3,7 @@ import { useMLBAnalyzer } from '@/hooks/useMLBAnalyzer';
 import { MLBAnalyzerInput } from '@/components/analyzer/MLBAnalyzerInput';
 import { CompetitorSearch } from '@/components/analyzer/CompetitorSearch';
 import { MLBAnalysisResults } from '@/components/analyzer/MLBAnalysisResults';
+import { MarketTrends } from "@/components/mercadolivre/MarketTrends";
 import { History, ShoppingBag } from 'lucide-react';
 import {
     Sheet,
@@ -87,9 +88,10 @@ export default function MercadoLivreAnalyzer() {
 
             {!currentAnalysis && (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 max-w-[400px] mb-8 mx-auto">
+                    <TabsList className="grid w-full grid-cols-3 max-w-[600px] mb-8 mx-auto">
                         <TabsTrigger value="direct">Análise Direta</TabsTrigger>
                         <TabsTrigger value="search">Buscar Concorrentes</TabsTrigger>
+                        <TabsTrigger value="trends">Tendências de Mercado</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="direct" className="space-y-4">
@@ -117,6 +119,16 @@ export default function MercadoLivreAnalyzer() {
                             isAnalyzing={isAnalyzing}
                             workspaceId={currentWorkspace?.id}
                         />
+                    </TabsContent>
+
+                    <TabsContent value="trends" className="space-y-4">
+                        <div className="max-w-3xl mx-auto text-center mb-8">
+                            <h2 className="text-2xl font-semibold mb-2">Tendências de Mercado</h2>
+                            <p className="text-muted-foreground">
+                                Explore as tendências de busca e produtos em alta no Mercado Livre para identificar oportunidades.
+                            </p>
+                        </div>
+                        <MarketTrends workspaceId={currentWorkspace?.id} />
                     </TabsContent>
                 </Tabs>
             )}
