@@ -138,12 +138,34 @@ export default function MercadoLivreNew() {
         return params;
     }, [recentActivityDate]);
 
-    const todayRevenue = useMemo(() => {
-        if (!dailySales?.dailySales || !recentActivityDate) return undefined;
-        // Format local date to YYYY-MM-DD to match daily sales keys
+    const todayMetrics = useMemo(() => {
+        if (!dailySales?.dailySales || !recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
+        
         const dateKey = format(recentActivityDate, 'yyyy-MM-dd');
         const dayData = dailySales.dailySales.find(d => d.date === dateKey);
-        return dayData?.revenue;
+        
+        // Previous day for trend
+        const prevDate = new Date(recentActivityDate);
+        prevDate.setDate(prevDate.getDate() - 1);
+        const prevKey = format(prevDate, 'yyyy-MM-dd');
+        const prevData = dailySales.dailySales.find(d => d.date === prevKey);
+        
+        const currentRevenue = dayData?.revenue || 0;
+        const prevRevenue = prevData?.revenue || 0;
+        const currentOrders = dayData?.orders || 0;
+        const prevOrders = prevData?.orders || 0;
+        
+        const calcTrend = (curr: number, prev: number) => {
+            if (!prev) return 0; // Infinite growth or first day
+            return ((curr - prev) / prev) * 100;
+        };
+
+        return {
+            revenue: currentRevenue,
+            orders: currentOrders,
+            revenueTrend: calcTrend(currentRevenue, prevRevenue),
+            ordersTrend: calcTrend(currentOrders, prevOrders)
+        };
     }, [dailySales, recentActivityDate]);
 
     const { data: ordersData, isLoading: ordersLoading } = useMercadoLivreOrders(workspaceId, ordersParams);
@@ -403,6 +425,26 @@ export default function MercadoLivreNew() {
                     {/* Top KPIs Row */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <PremiumKPICard
+                            title="Faturamento do Dia"
+                            value={formatCurrency(todayMetrics.revenue)}
+                            icon={DollarSign}
+                            color="green"
+                            trend={`${Math.abs(todayMetrics.revenueTrend).toFixed(1)}%`}
+                            trendUp={todayMetrics.revenueTrend >= 0}
+                            chartData={dailySales?.dailySales?.map(d => ({ value: d.revenue }))}
+                            loading={dailySalesLoading}
+                        />
+                        <PremiumKPICard
+                            title="Vendas do Dia"
+                            value={formatNumber(todayMetrics.orders)}
+                            icon={ShoppingBag}
+                            color="blue"
+                            trend={`${Math.abs(todayMetrics.ordersTrend).toFixed(1)}%`}
+                            trendUp={todayMetrics.ordersTrend >= 0}
+                            chartData={dailySales?.dailySales?.map(d => ({ value: d.orders }))}
+                            loading={dailySalesLoading}
+                        />
+                        <PremiumKPICard
                             title="Faturamento Bruto"
                             value={formatCurrency(totalRevenue)}
                             icon={DollarSign}
@@ -462,7 +504,7 @@ export default function MercadoLivreNew() {
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
                         totalOrders={ordersData?.paging?.total}
-                        totalRevenue={todayRevenue}
+                        totalRevenue={todayMetrics.revenue}
                     />
 
                     {/* Financial Summary Snippet */}
