@@ -453,6 +453,7 @@ export default function MercadoLivreNew() {
                         loading={ordersLoading} 
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
+                        totalOrders={ordersData?.paging?.total}
                     />
 
                     {/* Financial Summary Snippet */}
