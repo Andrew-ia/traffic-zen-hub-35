@@ -15,9 +15,10 @@ interface RecentActivityProps {
     loading?: boolean;
     date?: Date;
     onDateChange?: (date: Date | undefined) => void;
+    totalOrders?: number;
 }
 
-export function RecentActivity({ orders, loading, date, onDateChange }: RecentActivityProps) {
+export function RecentActivity({ orders, loading, date, onDateChange, totalOrders }: RecentActivityProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 6;
 
@@ -54,6 +55,11 @@ export function RecentActivity({ orders, loading, date, onDateChange }: RecentAc
                     <CardTitle className="text-lg font-bold flex items-center gap-2">
                         <ShoppingBag className="h-5 w-5 text-[#3483FA]" />
                         Atividade Recente
+                        {totalOrders !== undefined && (
+                            <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground border-none font-bold text-xs">
+                                {totalOrders} {totalOrders === 1 ? 'venda' : 'vendas'}
+                            </Badge>
+                        )}
                     </CardTitle>
                 </div>
                 <div className="flex items-center gap-2">

@@ -18,17 +18,17 @@
         :root {
             --primary: #202124;
             /* Dark text for white bg */
-            --secondary: #5F6368;
+            --secondary: #666666;
             /* Medium gray */
-            --accent: #1A73E8;
-            /* Google Blue */
+            --accent: #FFE600;
+            /* Mercado Livre Yellow */
             --accent-green: #34A853;
             /* Google Green */
             --accent-yellow: #FBBC04;
             /* Google Yellow */
             --accent-red: #EA4335;
             /* Google Red */
-            --accent-hover: #174EA6;
+            --accent-hover: #F5D400;
             --bg-color: #FFFFFF;
             /* Pure white background */
             --bg-alt: #F8F9FA;
@@ -104,7 +104,8 @@
 
         .btn-primary {
             background: var(--accent);
-            color: #FFFFFF;
+            color: #2D3277;
+            /* Deep Blue for contrast on Yellow */
         }
 
         .btn-primary:hover {
@@ -176,6 +177,7 @@
 
         .logo span {
             color: var(--accent);
+            text-shadow: 0px 1px 1px rgba(0, 0, 0, 0.1);
         }
 
         /* Hero Section */
@@ -209,10 +211,12 @@
 
         /* Ensure span inherits color properly */
         .hero h1 span {
-            background: linear-gradient(135deg, #1A73E8 0%, #4285F4 100%);
+            background: linear-gradient(135deg, #FFE600 0%, #FFD100 100%);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
+            /* Fallback for when gradient text clip isn't perfect on yellow */
+            text-shadow: 0px 2px 4px rgba(0, 0, 0, 0.05);
         }
 
         /* Mobile adjustments */
@@ -603,8 +607,8 @@
 
         /* CTA Section */
         .cta-section {
-            background: linear-gradient(135deg, var(--accent), #1557B0);
-            color: #fff;
+            background: linear-gradient(135deg, var(--accent), #FFD100);
+            color: #2D3277;
             text-align: center;
             border-radius: var(--radius);
             margin: 80px 24px;
@@ -618,7 +622,7 @@
         }
 
         .cta-section p {
-            color: rgba(255, 255, 255, 0.9);
+            color: rgba(45, 50, 119, 0.8);
             font-size: 18px;
             margin-bottom: 32px;
             max-width: 600px;
@@ -628,7 +632,7 @@
 
         .btn-white {
             background-color: #fff;
-            color: #1A73E8;
+            color: #2D3277;
             font-weight: 600;
         }
 
@@ -907,8 +911,8 @@
 
         .pricing-badge {
             display: inline-block;
-            background: linear-gradient(135deg, var(--accent), #1A73E8);
-            color: #fff;
+            background: linear-gradient(135deg, var(--accent), #FFE600);
+            color: #2D3277;
             padding: 6px 16px;
             border-radius: 20px;
             font-size: 12px;
@@ -1173,24 +1177,25 @@
         <div class="container nav-wrapper">
             <a href="#" class="logo">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
-                    <path d="M2 17L12 22L22 17" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M2 17L12 22L22 17" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
-                    <path d="M2 12L12 17L22 12" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M2 12L12 17L22 12" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
                 </svg>
                 Traffic<span>Pro</span>
             </a>
 
             <nav class="nav-links">
-                <a href="#diagnostico" class="nav-link">Diagnóstico</a>
-                <a href="#metodologia" class="nav-link">Metodologia</a>
+                <a href="#pilares" class="nav-link">Pilares</a>
+                <a href="#funcionalidades" class="nav-link">Funcionalidades</a>
+                <a href="#ecossistema" class="nav-link">Ecossistema</a>
                 <a href="#contato" class="nav-link">Contato</a>
             </nav>
 
             <a href="#contato" class="btn btn-primary"
-                style="border-radius: 100px; padding: 10px 24px; font-size: 14px;">Quero parar de perder dinheiro</a>
+                style="border-radius: 100px; padding: 10px 24px; font-size: 14px;">Solicitar Acesso</a>
         </div>
     </header>
 
@@ -1198,6 +1203,12 @@
     <section class="hero" style="text-align: center; padding: 120px 0 160px; position: relative;">
         <!-- Floating Icons -->
         <div class="floating-icons">
+            <div class="float-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+            </div>
             <div class="float-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -1213,27 +1224,19 @@
             <div class="float-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
                 </svg>
             </div>
             <div class="float-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </div>
             <div class="float-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                </svg>
-            </div>
-            <div class="float-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
             </div>
         </div>
@@ -1241,34 +1244,34 @@
         <div class="container" style="max-width: 1200px; margin: 0 auto; position: relative; z-index: 2;">
             <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 24px;">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
-                    <path d="M2 17L12 22L22 17" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M2 17L12 22L22 17" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
-                    <path d="M2 12L12 17L22 12" stroke="#1A73E8" stroke-width="2" stroke-linecap="round"
+                    <path d="M2 12L12 17L22 12" stroke="#FFE600" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round" />
                 </svg>
                 <span style="font-weight: 600; font-size: 20px; color: var(--text-light);">Traffic Pro</span>
             </div>
 
             <h1>
-                Seu negócio não cresce porque <span>você está investindo no lugar errado.</span>
+                Domine o Mercado Livre com <span>Dados e Inteligência Artificial.</span>
             </h1>
 
             <p
-                style="font-size: 24px; max-width: 700px; margin: 0 auto 48px; color: var(--secondary); text-wrap: balance;">
-                Eu te mostro exatamente onde você está perdendo dinheiro e como virar isso em vendas.
+                style="font-size: 24px; max-width: 800px; margin: 0 auto 48px; color: var(--secondary); text-wrap: balance;">
+                A plataforma completa para analisar concorrentes, otimizar anúncios e aumentar sua margem de lucro.
             </p>
 
             <div style="display: flex; gap: 16px; justify-content: center;">
                 <a href="#contato" class="btn btn-primary"
-                    style="background: #1A73E8; color: #fff; padding: 16px 32px; border-radius: 100px; font-size: 16px;">
+                    style="background: #FFE600; color: #2D3277; padding: 16px 32px; border-radius: 100px; font-size: 16px;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 8px;">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polygon points="10 8 16 12 10 16 10 8"></polygon>
                     </svg>
-                    Quero Investir Certo
+                    Ver Demonstração
                 </a>
             </div>
         </div>
@@ -1276,116 +1279,105 @@
 
     <!-- Problem Section -->
     <!-- Diagnosis Section (Sticky Scroll) -->
-    <section class="sticky-scroll-container" id="diagnostico">
+    <section class="sticky-scroll-container" id="pilares">
         <div class="sticky-scroll-content">
             <div class="scroll-text-column">
                 <div style="margin-bottom: 60px;">
-                    <h2 style="font-size: 42px; margin-bottom: 24px;">O que o Diagnóstico revela?</h2>
+                    <h2 style="font-size: 42px; margin-bottom: 24px;">Tudo o que você precisa em um só lugar</h2>
                     <div class="diagnosis-subtitle"
                         style="font-size: 28px; font-weight: 700; color: var(--primary); margin-bottom: 24px; line-height: 1.2;">
-                        Você não está perdendo dinheiro nos anúncios.<br>
-                        Você está perdendo porque não sabe o que está funcionando e o que está te fazendo perder
-                        dinheiro.
+                        Deixe de operar no escuro.<br>
+                        Tenha clareza total sobre sua operação no Mercado Livre.
                     </div>
-                    <p style="font-size: 20px; color: var(--secondary);">Uma análise profunda que vai muito além do
-                        "clique".</p>
+                    <p style="font-size: 20px; color: var(--secondary);">Ferramentas poderosas para cada etapa do seu
+                        crescimento.</p>
                 </div>
 
                 <div class="scroll-text-block active" data-index="0">
-                    <h3>1. Onde seu dinheiro está indo embora</h3>
-                    <p>Eu analiso seus anúncios e te mostro:</p>
+                    <h3>1. Análise de Concorrentes</h3>
+                    <p>Monitore seus competidores em tempo real:</p>
                     <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
-                        <li>o que está funcionando</li>
-                        <li>o que está dando prejuízo</li>
-                        <li>onde você está jogando dinheiro fora sem perceber</li>
+                        <li>Acompanhe alterações de preços e estoque</li>
+                        <li>Descubra as estratégias de títulos e fotos</li>
+                        <li>Identifique oportunidades de brecha no mercado</li>
                     </ul>
                 </div>
 
                 <div class="scroll-text-block" data-index="1">
-                    <h3>2. Por que seus clientes desistem no meio do caminho</h3>
-                    <p>Descobrimos por que as pessoas:</p>
+                    <h3>2. Dashboard Financeiro Real</h3>
+                    <p>Saiba exatamente quanto sobra no seu bolso:</p>
                     <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
-                        <li>clicam mas não compram</li>
-                        <li>entram no WhatsApp e somem</li>
-                        <li>somem depois de pedir preço</li>
+                        <li>Cálculo automático de taxas e impostos</li>
+                        <li>Visualização clara de lucro líquido por venda</li>
+                        <li>Controle total do fluxo de caixa</li>
                     </ul>
                 </div>
 
                 <div class="scroll-text-block" data-index="2">
-                    <h3>3. Seu sistema está te enganando?</h3>
+                    <h3>3. Inteligência de Catálogo</h3>
                     <div class="ia-warning-box"
-                        style="background: #FFF3E0; border-left: 4px solid #FFB300; padding: 16px; border-radius: 4px; margin-bottom: 16px;">
-                        <strong>❗ Atenção</strong>
-                        <p style="color: var(--primary); font-weight: 500; margin-top: 8px;">Quando seus dados estão
-                            errados, a IA aprende errado e otimiza errado.</p>
+                        style="background: #E8F0FE; border-left: 4px solid #1967D2; padding: 16px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #1967D2;">
+                        <strong>🚀 Potencialize seus Anúncios</strong>
+                        <p style="color: var(--primary); font-weight: 500; margin-top: 8px;">Identifique produtos
+                            estagnados e transforme-os em campeões de vendas.</p>
                     </div>
-                    <p style="margin-top: 16px;">Muitas empresas acham que vendem pouco porque o produto é caro. Na
-                        verdade:</p>
+                    <p style="margin-top: 16px;">Gerencie todo o ciclo de vida dos seus produtos:</p>
                     <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
-                        <li>os dados estão errados</li>
-                        <li>os números mentem</li>
-                        <li>e você toma decisão errada achando que está tudo certo</li>
+                        <li>Identificação de produtos sem vendas</li>
+                        <li>Sugestões de melhoria de qualidade</li>
+                        <li>Análise de conversão por anúncio</li>
                     </ul>
                 </div>
 
                 <div class="scroll-text-block" data-index="3">
-                    <h3>4. Um plano simples para ganhar mais e errar menos</h3>
-                    <p>Você recebe um plano claro com:</p>
+                    <h3>4. Criação com IA Generativa</h3>
+                    <p>Crie conteúdo que converte em segundos:</p>
                     <ul style="color: var(--secondary); margin-top: 8px; padding-left: 20px; list-style: disc;">
-                        <li>o que parar de fazer</li>
-                        <li>o que ajustar</li>
-                        <li>onde focar</li>
-                        <li>onde investir</li>
+                        <li>Descrições otimizadas para SEO do Mercado Livre</li>
+                        <li>Títulos magnéticos baseados em dados de busca</li>
+                        <li>Respostas automáticas inteligentes para perguntas</li>
+                        <li>Remoção de fundo e tratamento de fotos</li>
                     </ul>
-                    <p style="margin-top: 12px; color: var(--primary); font-weight: 600;">Sem achismo. Sem
-                        enrolação.</p>
+                    <p style="margin-top: 12px; color: var(--primary); font-weight: 600;">Tecnologia de ponta a favor do
+                        seu tempo.</p>
                 </div>
             </div>
 
             <div class="sticky-image-column">
                 <div class="sticky-image-card">
-                    <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-                        class="sticky-image active" data-index="0" alt="Onde seu dinheiro está indo embora">
-                    <img src="https://images.unsplash.com/photo-1556761175-5973dc0f32e7?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-                        class="sticky-image" data-index="1" alt="Por que seus clientes desistem">
-                    <img src="https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-                        class="sticky-image" data-index="2" alt="Seu sistema está te enganando">
-                    <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-                        class="sticky-image" data-index="3" alt="Um plano simples para ganhar mais">
+                    <img src="/assets/platform_pillar_1.png" class="sticky-image active" data-index="0"
+                        alt="Análise de Concorrentes">
+                    <img src="/assets/platform_pillar_2.png" class="sticky-image" data-index="1"
+                        alt="Dashboard Financeiro">
+                    <img src="/assets/platform_pillar_3.png" class="sticky-image" data-index="2"
+                        alt="Inteligência de Catálogo">
+                    <img src="/assets/platform_pillar_4.png" class="sticky-image" data-index="3" alt="Criação com IA">
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Solution Section -->
-    <section class="solution-section">
+    <section class="solution-section" id="funcionalidades">
         <div class="container">
             <div class="section-title">
-                <h2>O que você recebe no Diagnóstico Estratégico</h2>
-                <p>Uma entrega completa para transformar seus dados em resultado.</p>
+                <h2>Funcionalidades que Escalamos seu Negócio</h2>
+                <p>Uma suíte completa de ferramentas para vendedores profissionais.</p>
             </div>
             <div class="solution-grid">
+                <!-- Card 1 -->
                 <div class="solution-card">
                     <div class="solution-icon-wrapper">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
                         </svg>
                     </div>
-                    <h3>Onde seu dinheiro está indo embora</h3>
-                    <p>Identifico quais anúncios geram lucro, quais dão prejuízo e onde a verba está sendo desperdiçada.
-                    </p>
+                    <h3>Precificação Inteligente</h3>
+                    <p>Calculadora automática que considera comissões, impostos e custos fixos para garantir sua margem
+                        de lucro real.</p>
                 </div>
-                <div class="solution-card">
-                    <div class="solution-icon-wrapper">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                        </svg>
-                    </div>
-                    <h3>Por que os clientes desistem</h3>
-                    <p>Mostro em qual etapa as pessoas somem: depois do clique, no WhatsApp ou após pedir preço.</p>
-                </div>
+                <!-- Card 2 -->
                 <div class="solution-card">
                     <div class="solution-icon-wrapper">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1397,10 +1389,23 @@
                             <line x1="12" y1="22.08" x2="12" y2="12"></line>
                         </svg>
                     </div>
-                    <h3>Dados que não te enganam</h3>
-                    <p>Confiro se Pixel, API e eventos estão corretos para você decidir com números reais, não com
-                        suposições.</p>
+                    <h3>Gestão de Estoque</h3>
+                    <p>Alertas de baixo estoque e previsão de demanda para você nunca perder uma venda por falta de
+                        produto.</p>
                 </div>
+                <!-- Card 3 -->
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                    <h3>SEO para Marketplace</h3>
+                    <p>Otimize títulos e descrições com palavras-chave de alta conversão usadas pelos maiores
+                        vendedores.</p>
+                </div>
+                <!-- Card 4 -->
                 <div class="solution-card">
                     <div class="solution-icon-wrapper">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1410,10 +1415,25 @@
                             <line x1="12" y1="16" x2="12.01" y2="16"></line>
                         </svg>
                     </div>
-                    <h3>Identificação de gargalos</h3>
-                    <p>Descoberta dos verdadeiros problemas que impedem seu crescimento. Não é só tráfego, é estratégia.
+                    <h3>Full Analytics 360°</h3>
+                    <p>Mapas de calor de vendas por região, horários de pico e análise demográfica dos seus compradores.
                     </p>
                 </div>
+                <!-- Card 5 -->
+                <div class="solution-card">
+                    <div class="solution-icon-wrapper">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="1" y="3" width="15" height="13"></rect>
+                            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                            <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                            <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                        </svg>
+                    </div>
+                    <h3>Controle de Envios</h3>
+                    <p>Monitore prazos de entrega, custos logísticos e desempenho do Mercado Envios em tempo real.</p>
+                </div>
+                <!-- Card 6 -->
                 <div class="solution-card">
                     <div class="solution-icon-wrapper">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1425,90 +1445,64 @@
                             <polyline points="10 9 9 9 8 9"></polyline>
                         </svg>
                     </div>
-                    <h3>Recomendações práticas</h3>
-                    <p>Sugestões específicas para o seu negócio, não receita de bolo. O que você deve fazer amanhã para
-                        melhorar.</p>
-                </div>
-                <div class="solution-card">
-                    <div class="solution-icon-wrapper">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                        </svg>
-                    </div>
-                    <h3>PDF completo personalizado</h3>
-                    <p>Relatório detalhado com todos os achados e recomendações. Um documento para guiar seu
-                        crescimento.</p>
+                    <h3>Relatórios Automáticos</h3>
+                    <p>Receba ou gere relatórios em PDF com insights acionáveis para compartilhar com sua equipe ou
+                        sócios.</p>
                 </div>
             </div>
         </div>
     </section>
 
-
-    <!-- Instagram Simulation Section -->
-    <section style="padding: 80px 0; text-align: center;">
-        <div class="container">
-            <h2 style="font-size: 42px; font-weight: 700; margin-bottom: 16px; color: var(--primary);">Você também
-                recebe uma simulação profissional do seu Instagram!</h2>
-            <p style="font-size: 20px; color: var(--secondary); max-width: 700px; margin: 0 auto; line-height: 1.6;">
-                Analisamos seu perfil atual e geramos uma simulação visual de como seu Instagram poderia parecer
-                profissionalmente posicionado.</p>
-            <p style="font-size: 16px; color: var(--accent); font-weight: 600; margin-top: 16px;">
-                ✨ Além do marketing, entregamos posicionamento visual profissional.
-            </p>
-        </div>
-    </section>
-
     <!-- Methodology Section (3D Tilt) -->
     <!-- Methodology Section (3D Tilt) -->
-    <section id="metodologia"
+    <!-- Methodology Section (3D Tilt) -->
+    <!-- Methodology Section (3D Tilt) -->
+    <section id="ecossistema"
         style="padding: 120px 0; background: linear-gradient(180deg, #fff 0%, var(--bg-alt) 100%);">
         <div class="container">
             <div class="section-title">
                 <h2
                     style="font-size: 48px; font-weight: 700; margin-bottom: 24px; background: linear-gradient(135deg, #202124, #5F6368); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.2; text-wrap: balance;">
-                    Seu negócio precisa de organização para crescer
+                    Ecossistema Completo para Vendedores
                 </h2>
             </div>
 
             <div class="methodology-grid">
-                <!-- Card 1: Arquitetura de Dados -->
+                <!-- Card 1: Integração Total -->
                 <div class="tilt-card">
                     <div class="tilt-visual" style="padding: 0; background: #fff;">
-                        <img src="data_architecture_v2.png" alt="Organização dos dados"
+                        <img src="/assets/platform_pillar_1.png" alt="Integração Total"
                             style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
                     <div class="tilt-content">
-                        <h3>Organização dos seus dados</h3>
-                        <p>Centralizo e deixo seus números arrumados, sem jargão. Assim você enxerga o que acontece e
-                            toma decisão com confiança.</p>
+                        <h3>Central de Comando</h3>
+                        <p>Integre múltiplas contas do Mercado Livre e gerencie tudo em um único painel. Adeus,
+                            planilhas infinitas.</p>
                     </div>
                 </div>
 
-                <!-- Card 2: Analytics Avançado -->
+                <!-- Card 2: Inteligência de Mercado -->
                 <div class="tilt-card">
                     <div class="tilt-visual" style="padding: 0; background: #fff;">
-                        <img src="strategy_analytics_v2.png" alt="Analytics Avançado"
+                        <img src="/assets/platform_pillar_4.png" alt="Inteligência de Mercado"
                             style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
                     <div class="tilt-content">
-                        <h3>Analytics Avançado</h3>
-                        <p>Dashboards em tempo real e relatórios preditivos. Transformamos números complexos em
-                            estratégias claras para escalar seu&nbsp;faturamento.</p>
+                        <h3>Inteligência de Mercado</h3>
+                        <p>Analise tendências, monitore concorrentes e descubra produtos vencedores antes de todo mundo.
+                        </p>
                     </div>
                 </div>
 
-                <!-- Card 3: Estúdio Criativo -->
+                <!-- Card 3: Automação Inteligente -->
                 <div class="tilt-card">
                     <div class="tilt-visual" style="padding: 0; background: #fff;">
-                        <img src="creative_studio_v2.png" alt="Estúdio Criativo"
+                        <img src="/assets/platform_pillar_3.png" alt="Automação Inteligente"
                             style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
                     <div class="tilt-content">
-                        <h3>Estúdio de Performance Criativa</h3>
-                        <p>Design e vídeos otimizados por dados. Produzimos criativos que não são apenas bonitos, mas
-                            que convertem e engajam seu público&nbsp;alvo.</p>
+                        <h3>Automação Inteligente</h3>
+                        <p>IA que trabalha por você: responde perguntas, ajusta preços e otimiza anúncios 24/7.</p>
                     </div>
                 </div>
             </div>
@@ -1580,8 +1574,8 @@
     <section id="contato">
         <div class="container">
             <div class="section-title">
-                <h2>Solicite seu Diagnóstico Estratégico</h2>
-                <p>Preencha o formulário abaixo para entendermos seu negócio.</p>
+                <h2>Comece a Escalar Agora</h2>
+                <p>Preencha os dados abaixo para receber um contato da nossa equipe.</p>
             </div>
             <div class="form-section">
                 <form id="leadForm" onsubmit="submitLead(event)">
@@ -1594,44 +1588,24 @@
                         <input type="tel" name="whatsapp" class="form-input" placeholder="(00) 00000-0000" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Nome da Empresa</label>
-                        <input type="text" name="company" class="form-input" placeholder="Sua empresa" required>
+                        <label class="form-label">Nome da Loja</label>
+                        <input type="text" name="company" class="form-input" placeholder="Ex: Utilidades Brasil"
+                            required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Você já anuncia online?</label>
-                        <select name="announces_online" class="form-input" required>
-                            <option value="" disabled selected>Selecione...</option>
-                            <option value="sim">Sim, já anuncio</option>
-                            <option value="nao">Não, ainda não</option>
-                        </select>
+                        <label class="form-label">Link da sua Loja no Mercado Livre (Opcional)</label>
+                        <input type="url" name="ml_link" class="form-input"
+                            placeholder="https://lista.mercadolivre.com.br/...">
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Quanto investe em tráfego hoje (mensal)?</label>
-                        <select name="traffic_investment" class="form-input" required>
-                            <option value="" disabled selected>Selecione...</option>
-                            <option value="0">Ainda não invisto</option>
-                            <option value="1k-5k">R$ 1.000 a R$ 5.000</option>
-                            <option value="5k-10k">R$ 5.000 a R$ 10.000</option>
-                            <option value="10k-50k">R$ 10.000 a R$ 50.000</option>
-                            <option value="50k+">Acima de R$ 50.000</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Faturamento Mensal (Opcional)</label>
-                        <select name="revenue_range" class="form-input">
-                            <option value="">Selecione...</option>
-                            <option value="ate-10k">Até R$ 10k</option>
-                            <option value="10k-50k">R$ 10k a R$ 50k</option>
-                            <option value="50k-100k">R$ 50k a R$ 100k</option>
-                            <option value="acima-100k">Acima de R$ 100k</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;" id="submitBtn">Quero parar de
-                        perder dinheiro</button>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; border-radius: 8px;">Solicitar
+                        Acesso</button>
+                    <p style="margin-top: 16px; font-size: 14px; color: var(--secondary); text-align: center;">Ou chame
+                        direto no <a href="#" style="color: var(--accent-green); font-weight: 600;">WhatsApp</a></p>
                 </form>
             </div>
         </div>
     </section>
+
 
     <!-- Footer -->
     <footer>
