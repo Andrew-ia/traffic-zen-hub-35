@@ -138,6 +138,14 @@ export default function MercadoLivreNew() {
         return params;
     }, [recentActivityDate]);
 
+    const todayRevenue = useMemo(() => {
+        if (!dailySales?.dailySales || !recentActivityDate) return undefined;
+        // Format local date to YYYY-MM-DD to match daily sales keys
+        const dateKey = format(recentActivityDate, 'yyyy-MM-dd');
+        const dayData = dailySales.dailySales.find(d => d.date === dateKey);
+        return dayData?.revenue;
+    }, [dailySales, recentActivityDate]);
+
     const { data: ordersData, isLoading: ordersLoading } = useMercadoLivreOrders(workspaceId, ordersParams);
     const { data: shipmentsData, isLoading: shipmentsLoading } = useMercadoLivreShipments(workspaceId, {
         // Remover filtro de status para trazer TODOS os envios do dia (Normal, Full, Shipped, etc)
@@ -454,6 +462,7 @@ export default function MercadoLivreNew() {
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
                         totalOrders={ordersData?.paging?.total}
+                        totalRevenue={todayRevenue}
                     />
 
                     {/* Financial Summary Snippet */}

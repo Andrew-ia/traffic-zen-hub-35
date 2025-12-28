@@ -1231,16 +1231,26 @@ router.get("/orders", async (req, res) => {
 
         // Add date filters if provided
         if (dateFrom) {
-            // Assume input is YYYY-MM-DD. Convert to ISO start of day
-            const d = new Date(dateFrom);
-            d.setHours(0, 0, 0, 0);
-            params['order.date_created.from'] = d.toISOString();
+            // If input is a full ISO string (contains T), use it directly to respect timezone/time
+            if (String(dateFrom).includes('T')) {
+                params['order.date_created.from'] = dateFrom;
+            } else {
+                // Assume input is YYYY-MM-DD. Convert to ISO start of day
+                const d = new Date(dateFrom);
+                d.setHours(0, 0, 0, 0);
+                params['order.date_created.from'] = d.toISOString();
+            }
         }
         if (dateTo) {
-            // Assume input is YYYY-MM-DD. Convert to ISO end of day
-            const d = new Date(dateTo);
-            d.setHours(23, 59, 59, 999);
-            params['order.date_created.to'] = d.toISOString();
+            // If input is a full ISO string (contains T), use it directly to respect timezone/time
+            if (String(dateTo).includes('T')) {
+                params['order.date_created.to'] = dateTo;
+            } else {
+                // Assume input is YYYY-MM-DD. Convert to ISO end of day
+                const d = new Date(dateTo);
+                d.setHours(23, 59, 59, 999);
+                params['order.date_created.to'] = d.toISOString();
+            }
         }
 
         if (status) {

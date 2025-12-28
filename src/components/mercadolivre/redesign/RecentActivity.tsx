@@ -16,9 +16,10 @@ interface RecentActivityProps {
     date?: Date;
     onDateChange?: (date: Date | undefined) => void;
     totalOrders?: number;
+    totalRevenue?: number;
 }
 
-export function RecentActivity({ orders, loading, date, onDateChange, totalOrders }: RecentActivityProps) {
+export function RecentActivity({ orders, loading, date, onDateChange, totalOrders, totalRevenue }: RecentActivityProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 6;
 
@@ -58,6 +59,11 @@ export function RecentActivity({ orders, loading, date, onDateChange, totalOrder
                         {totalOrders !== undefined && (
                             <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground border-none font-bold text-xs">
                                 {totalOrders} {totalOrders === 1 ? 'venda' : 'vendas'}
+                            </Badge>
+                        )}
+                        {totalRevenue !== undefined && (
+                            <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground border-none font-bold text-xs">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRevenue)}
                             </Badge>
                         )}
                     </CardTitle>
