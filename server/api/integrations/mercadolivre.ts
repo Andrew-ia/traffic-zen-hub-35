@@ -230,14 +230,10 @@ export async function getMercadoLivreCredentials(
         return dbCreds;
     }
 
-    // Fallback para envs somente se for o workspace configurado como padrão
     const accessToken = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
     const refreshToken = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
     const userId = process.env.MERCADO_LIVRE_USER_ID;
-    const fallbackWorkspace = FALLBACK_WORKSPACE_ENV;
-
-    // Evitar misturar contas: só usa env se o workspace solicitado é o fallback explícito
-    if (!accessToken || !userId || (fallbackWorkspace && workspaceId !== fallbackWorkspace)) {
+    if (!accessToken || !userId) {
         return null;
     }
 
