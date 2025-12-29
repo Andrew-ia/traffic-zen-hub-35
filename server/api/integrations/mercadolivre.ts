@@ -959,11 +959,6 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             }
             const dayData = salesByDay.get(dateKey)!;
 
-            // Contabiliza unidades e pedidos mesmo cancelados, alinhando com o painel do ML
-            dayData.sales += totalQuantity;
-            dayData.orders += 1;
-            totalOrders += 1;
-
             if (status === "cancelled") {
                 // ML costuma considerar cancelados pagos; evita contar pedidos sem pagamento
                 const hadPayment = Number(order.paid_amount || 0) > 0 || (Array.isArray(order.payments) && order.payments.length > 0);
@@ -972,9 +967,14 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                     // Valor cancelado alinhado ao painel: apenas valor de produtos, sem frete
                     canceledRevenue += totalAmount;
                 }
-                salesByDay.set(dateKey, dayData);
-                continue; // Cancelados não entram em receita/fees/envio
+                // Cancelados não contam como venda realizada
+                continue; 
             }
+
+            // Contabiliza apenas pedidos válidos (não cancelados)
+            dayData.sales += totalQuantity;
+            dayData.orders += 1;
+            totalOrders += 1;
 
             // Calcular taxas de venda
             let saleFee = 0;
