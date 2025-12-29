@@ -39,6 +39,7 @@ export const mainNavigation: NavigationEntry[] = [
     icon: ShoppingBag,
     children: [
       { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
+      { name: "Análise de Mercado", href: "/mercado-livre-market-analysis", icon: ChartLine, keywords: ["analise", "mercado", "concorrencia", "tendencias", "mlb"] },
       { name: "Calc. de Preço ML", href: "/mercado-livre-price-calculator", icon: Trophy, keywords: ["preco", "fee", "margem", "mercado livre", "calculadora"] },
       { name: "Descrições ML", href: "/mercado-livre-descricoes", icon: PenTool, keywords: ["descricao", "anuncio", "copy", "mercado livre"] },
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "produtos", "catalogo", "estoque", "ml"] },

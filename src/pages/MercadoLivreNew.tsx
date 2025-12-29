@@ -12,7 +12,8 @@ import {
     ShoppingCart,
     Layers,
     Search,
-    Calendar,
+    Calendar as CalendarIcon,
+    CalendarRange,
     ChevronRight,
     ArrowUpRight,
     Star,
@@ -24,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
     useMercadoLivreMetrics,
     useMercadoLivreProducts,
@@ -33,18 +36,20 @@ import {
 import { useMercadoLivreDailySales, useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreShipments } from "@/hooks/useMercadoLivreShipments";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format, subDays } from "date-fns";
+import { differenceInCalendarDays, format, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 import { supabase } from "@/lib/supabaseClient";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
+import { JewelryAnalysisDialog } from "@/components/mercadolivre/JewelryAnalysisDialog";
 import { PremiumKPICard } from "@/components/mercadolivre/redesign/PremiumKPICard";
 import { MainPerformanceChart } from "@/components/mercadolivre/redesign/MainPerformanceChart";
 import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivity";
 import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import type { DateRange } from "react-day-picker";
 
 const formatCurrency = (value: number, fractionDigits: number = 0) =>
     new Intl.NumberFormat("pt-BR", {
@@ -60,6 +65,12 @@ export default function MercadoLivreNew() {
     const navigate = useNavigate();
     const { workspaces, currentWorkspace, switchWorkspace, isLoading: workspacesLoading } = useWorkspace();
     const [dateRange, setDateRange] = useState("30");
+    const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>(() => {
+        const to = new Date();
+        to.setHours(0, 0, 0, 0);
+        const from = subDays(new Date(to), 29);
+        return { from, to };
+    });
     const [workspaceId, setWorkspaceId] = useState<string | null>(
         (import.meta.env.VITE_WORKSPACE_ID as string) || null
     );
@@ -90,34 +101,60 @@ export default function MercadoLivreNew() {
         fetchWorkspace();
     }, [currentWorkspace?.id]);
 
-    const dateRangeNumber = parseInt(dateRange);
-    const currentDate = useMemo(() => new Date(), []);
-    const startDate = subDays(currentDate, dateRangeNumber);
-    const previousStartDate = subDays(startDate, dateRangeNumber);
+    const isCustomRange = dateRange === "custom";
+    const dateRangeLabel = useMemo(() => {
+        if (!customDateRange?.from || !customDateRange?.to) return "Selecione o período";
+        const sameDay = customDateRange.from.toDateString() === customDateRange.to.toDateString();
+        const formattedFrom = format(customDateRange.from, "dd/MM/yy");
+        const formattedTo = format(customDateRange.to, "dd/MM/yy");
+        return sameDay ? formattedFrom : `${formattedFrom} - ${formattedTo}`;
+    }, [customDateRange]);
+
+    const resolvedRange = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (isCustomRange && customDateRange?.from) {
+            const from = new Date(customDateRange.from);
+            from.setHours(0, 0, 0, 0);
+            const to = new Date(customDateRange.to ?? customDateRange.from);
+            to.setHours(0, 0, 0, 0);
+            const days = Math.max(1, differenceInCalendarDays(to, from) + 1);
+            return { from, to, days };
+        }
+
+        const days = Number.parseInt(dateRange, 10) || 30;
+        const from = subDays(new Date(today), days - 1);
+        return { from, to: today, days };
+    }, [customDateRange, dateRange, isCustomRange]);
+
+    const previousPeriod = useMemo(() => {
+        const previousEnd = subDays(resolvedRange.from, 1);
+        const previousStart = subDays(previousEnd, resolvedRange.days - 1);
+        return {
+            start_date: format(previousStart, "yyyy-MM-dd"),
+            end_date: format(previousEnd, "yyyy-MM-dd"),
+        };
+    }, [resolvedRange]);
 
     const period = useMemo(() => ({
-        start_date: format(startDate, 'yyyy-MM-dd'),
-        end_date: format(currentDate, 'yyyy-MM-dd')
-    }), [startDate, currentDate]);
-
-    const previousPeriod = useMemo(() => ({
-        start_date: format(previousStartDate, 'yyyy-MM-dd'),
-        end_date: format(startDate, 'yyyy-MM-dd')
-    }), [previousStartDate, startDate]);
+        start_date: format(resolvedRange.from, "yyyy-MM-dd"),
+        end_date: format(resolvedRange.to, "yyyy-MM-dd"),
+    }), [resolvedRange]);
 
     // Hooks de dados
     const { data: metrics, isLoading: metricsLoading } = useMercadoLivreMetrics(
         workspaceId,
-        dateRangeNumber,
+        resolvedRange.days,
         { dateFrom: period.start_date, dateTo: period.end_date }
     );
     const { data: previousMetrics, isLoading: previousMetricsLoading } = useMercadoLivreMetrics(
         workspaceId,
-        dateRangeNumber,
+        resolvedRange.days,
         { dateFrom: previousPeriod.start_date, dateTo: previousPeriod.end_date }
     );
     const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
-    const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, dateRangeNumber);
+    const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, resolvedRange.days);
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
         period.start_date,
@@ -307,20 +344,49 @@ export default function MercadoLivreNew() {
 
                     <div className="flex items-center gap-2">
                         <div className="text-[10px] font-bold uppercase tracking-widest text-[#2D3277]/70">Período</div>
-                        <Select value={dateRange} onValueChange={setDateRange}>
-                            <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/50 border-border/40">
-                                <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
-                                <SelectValue placeholder="Últimos 30 dias" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="1">Hoje</SelectItem>
-                                <SelectItem value="7">Últimos 7 dias</SelectItem>
-                                <SelectItem value="15">Últimos 15 dias</SelectItem>
-                                <SelectItem value="30">Últimos 30 dias</SelectItem>
-                                <SelectItem value="60">Últimos 60 dias</SelectItem>
-                                <SelectItem value="90">Últimos 90 dias</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-2">
+                            <Select value={dateRange} onValueChange={setDateRange}>
+                                <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/50 border-border/40">
+                                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                                    <SelectValue placeholder="Últimos 30 dias" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="1">Hoje</SelectItem>
+                                    <SelectItem value="7">Últimos 7 dias</SelectItem>
+                                    <SelectItem value="15">Últimos 15 dias</SelectItem>
+                                    <SelectItem value="30">Últimos 30 dias</SelectItem>
+                                    <SelectItem value="60">Últimos 60 dias</SelectItem>
+                                    <SelectItem value="90">Últimos 90 dias</SelectItem>
+                                    <SelectItem value="custom">Personalizado</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            {isCustomRange && (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-11 rounded-2xl border-border/40 bg-background/50 gap-2"
+                                        >
+                                            <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                                            <span className="text-xs font-semibold">{dateRangeLabel}</span>
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                            mode="range"
+                                            selected={customDateRange}
+                                            defaultMonth={customDateRange?.from ?? new Date()}
+                                            onSelect={setCustomDateRange}
+                                            numberOfMonths={2}
+                                            disabled={(date) => date > new Date()}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            )}
+                        </div>
                     </div>
 
                     <Button
@@ -341,7 +407,14 @@ export default function MercadoLivreNew() {
 
                     <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
 
-                    <ExportReportButton workspaceId={workspaceId || ""} dateRange={dateRange} />
+                    <ExportReportButton
+                        workspaceId={workspaceId || ""}
+                        dateRangeDays={String(resolvedRange.days)}
+                        dateFrom={period.start_date}
+                        dateTo={period.end_date}
+                    />
+
+                    <JewelryAnalysisDialog workspaceId={workspaceId || ""} />
 
                     <Button
                         className="h-11 px-6 rounded-2xl bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-all shadow-xl shadow-black/10 dark:shadow-white/5 font-black text-xs uppercase tracking-widest"

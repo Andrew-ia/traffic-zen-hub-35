@@ -225,7 +225,7 @@ export default function MercadoLivre() {
                             {workspaceId && (
                                 <ExportReportButton
                                     workspaceId={workspaceId}
-                                    dateRange={dateRange}
+                                    dateRangeDays={dateRange}
                                 />
                             )}
                         </div>

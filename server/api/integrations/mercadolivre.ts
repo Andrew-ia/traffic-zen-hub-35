@@ -9,6 +9,7 @@ import { resolveWorkspaceId } from "../../utils/workspace.js";
 // import { authMiddleware } from "../auth";
 
 import { TelegramNotificationService } from "../../services/telegramNotification.service.js";
+import { MarketAnalysisService } from "../../services/mercadolivre/market-analysis.service.js";
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
@@ -26,6 +27,32 @@ const ADV_SEARCH_TTL_MS = 30 * 60 * 1000; // 30 minutos
 const advancedSearchCache = new Map<string, { data: any; ts: number }>();
 const ML_ITEM_NOTIFICATIONS_ENABLED = process.env.ML_NOTIFY_ITEM_UPDATES === "true";
 const FALLBACK_WORKSPACE_ENV = (process.env.VITE_WORKSPACE_ID || process.env.WORKSPACE_ID || "").trim();
+const BRAZIL_TIME_ZONE = "America/Sao_Paulo";
+const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BRAZIL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+});
+
+const formatBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
+
+const normalizeBrazilDateKey = (value?: string | null) => {
+    if (!value) return null;
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("T")) {
+        const parsed = new Date(trimmed);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return formatBrazilDateKey(parsed);
+    }
+    return trimmed;
+};
+
+const toBrazilDayBoundary = (dateKey: string, endOfDay: boolean) => {
+    const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+    return new Date(`${dateKey}T${time}-03:00`);
+};
 
 /**
  * Interface para credenciais do Mercado Livre
@@ -802,30 +829,18 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         throw new Error("ml_not_connected");
     }
 
-    const parseLocalDate = (value?: string) => {
-        if (!value) return null;
-        const [y, m, d] = String(value).split("-").map((n) => Number(n));
-        if (!y || !m || !d) return null;
-        return new Date(y, m - 1, d);
-    };
+    const dateToKey = normalizeBrazilDateKey(dateTo) || formatBrazilDateKey(new Date());
+    const dateToStart = toBrazilDayBoundary(dateToKey, false);
+    const dateFromKey = normalizeBrazilDateKey(dateFrom) || formatBrazilDateKey(subDays(dateToStart, Number(days) - 1));
 
-    const now = new Date();
-    // Se dateTo não for fornecido, assumimos "hoje".
-    // Adicionamos 1 dia de buffer para cobrir diferenças de fuso horário (ex: servidor UTC vs usuário BRT)
-    // onde uma venda "hoje" no Brasil pode cair "amanhã" no UTC.
-    const dateToFinal = parseLocalDate(dateTo) || new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    dateToFinal.setHours(23, 59, 59, 999); // fim do dia local
-    const dateFromFinal = parseLocalDate(dateFrom) || new Date(now);
-    dateFromFinal.setHours(0, 0, 0, 0); // início do dia local
-    if (!dateFrom) {
-        dateFromFinal.setDate(dateFromFinal.getDate() - (Number(days) - 1)); // janela inclusiva
-    }
+    const dateFromFinal = toBrazilDayBoundary(dateFromKey, false);
+    const dateToFinal = toBrazilDayBoundary(dateToKey, true);
 
-    const dateFromStr = format(dateFromFinal, "yyyy-MM-dd");
-    const dateToStr = format(dateToFinal, "yyyy-MM-dd");
+    const dateFromStr = dateFromKey;
+    const dateToStr = dateToKey;
     const rangeStartTs = dateFromFinal.getTime();
     const rangeEndTs = dateToFinal.getTime();
-    const daysCount = Math.max(1, Math.round((rangeEndTs - rangeStartTs) / (24 * 60 * 60 * 1000)) + 1);
+    const daysCount = Math.max(1, Math.round((dateToStart.getTime() - dateFromFinal.getTime()) / (24 * 60 * 60 * 1000)) + 1);
 
     // Buscar métricas do vendedor (dados corretos)
     const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
@@ -948,7 +963,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             if (orderTs < rangeStartTs || orderTs > rangeEndTs) continue;
 
             // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
-            const dateKey = format(orderDate, "yyyy-MM-dd");
+            const dateKey = formatBrazilDateKey(orderDate);
             const status = String(order.status || "").toLowerCase();
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
             // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias com paid_amount (que pode incluir juros/taxas extras)
@@ -1020,7 +1035,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         for (let i = daysCount - 1; i >= 0; i--) {
             const d = new Date(dateToFinal);
             d.setDate(d.getDate() - i);
-            const ds = format(d, "yyyy-MM-dd");
+            const ds = formatBrazilDateKey(d);
             const dayData = salesByDay.get(ds) || { sales: 0, revenue: 0, orders: 0 };
             salesTimeSeries.push({ date: ds, sales: dayData.sales, revenue: dayData.revenue, visits: 0 });
             totalSales += dayData.sales;
@@ -1031,7 +1046,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         for (let i = daysCount - 1; i >= 0; i--) {
             const d = new Date(dateToFinal);
             d.setDate(d.getDate() - i);
-            const ds = format(d, "yyyy-MM-dd");
+            const ds = formatBrazilDateKey(d);
             salesTimeSeries.push({ date: ds, sales: 0, revenue: 0, visits: 0 });
         }
     }
@@ -3482,22 +3497,33 @@ router.get("/products/export/purchase-list.pdf", async (req, res) => {
  */
 router.get("/export/pdf", async (req, res) => {
     try {
-        const { workspaceId, days = 30 } = req.query as any;
+        const { workspaceId, days = 30, dateFrom, dateTo } = req.query as any;
+        const dateFromValue = typeof dateFrom === "string" ? dateFrom : undefined;
+        const dateToValue = typeof dateTo === "string" ? dateTo : undefined;
 
         if (!workspaceId) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
         }
 
-        const metrics = await fetchMetricsInternal(String(workspaceId), Number(days));
+        const metrics = await fetchMetricsInternal(
+            String(workspaceId),
+            Number(days),
+            dateFromValue,
+            dateToValue
+        );
 
         const doc = new PDFDocument({ margin: 50 });
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", `attachment; filename=relatorio-ml-${new Date().toISOString().split("T")[0]}.pdf`);
         doc.pipe(res);
 
+        const periodLabel = dateFromValue && dateToValue
+            ? `${dateFromValue} a ${dateToValue}`
+            : `Últimos ${days} dias (${new Date().toLocaleDateString('pt-BR')})`;
+
         // Header
         doc.fillColor("#444444").fontSize(20).text("Relatório Mercado Livre", 110, 57)
-            .fontSize(10).text(`Período dos últimos ${days} dias (${new Date().toLocaleDateString('pt-BR')})`, 200, 65, { align: "right" })
+            .fontSize(10).text(`Período: ${periodLabel}`, 200, 65, { align: "right" })
             .moveDown();
 
         // Divider
@@ -3581,20 +3607,28 @@ router.get("/export/pdf", async (req, res) => {
  */
 router.get("/export/excel", async (req, res) => {
     try {
-        const { workspaceId, days = 30 } = req.query as any;
+        const { workspaceId, days = 30, dateFrom, dateTo } = req.query as any;
+        const dateFromValue = typeof dateFrom === "string" ? dateFrom : undefined;
+        const dateToValue = typeof dateTo === "string" ? dateTo : undefined;
 
         if (!workspaceId) {
             return res.status(400).json({ error: "workspaceId é obrigatório" });
         }
 
-        const metrics = await fetchMetricsInternal(String(workspaceId), Number(days));
+        const metrics = await fetchMetricsInternal(
+            String(workspaceId),
+            Number(days),
+            dateFromValue,
+            dateToValue
+        );
 
         const wb = XLSX.utils.book_new();
 
         // Sheet 1: Resumo
+        const periodLabel = dateFromValue && dateToValue ? `${dateFromValue} a ${dateToValue}` : `${days} dias`;
         const summaryData = [
             ["Métrica", "Valor"],
-            ["Período (dias)", days],
+            ["Periodo", periodLabel],
             ["Data Geração", new Date().toLocaleString("pt-BR")],
             ["", ""],
             ["Receita Total", metrics.totalRevenue],
@@ -3646,6 +3680,8 @@ router.get("/export/csv", async (req, res) => {
     try {
         const { workspaceId } = req.query as any;
         const days = Math.max(1, Number((req.query as any).days) || 7);
+        const dateFromParam = typeof (req.query as any).dateFrom === "string" ? (req.query as any).dateFrom : undefined;
+        const dateToParam = typeof (req.query as any).dateTo === "string" ? (req.query as any).dateTo : undefined;
         const mlFeePercent = Math.max(0, Number((req.query as any).mlFeePercent) || 0);
         const taxPercent = Math.max(0, Number((req.query as any).taxPercent) || 0);
         const packagingCost = Math.max(0, Number((req.query as any).packagingCost) || 0);
@@ -3702,14 +3738,14 @@ router.get("/export/csv", async (req, res) => {
             }
         }
 
-        // Agregar vendas por item nos últimos N dias
-        const dateTo = new Date();
-        dateTo.setHours(23, 59, 59, 999);
-        const dateFrom = new Date();
-        dateFrom.setHours(0, 0, 0, 0);
-        dateFrom.setDate(dateFrom.getDate() - (days - 1));
+        // Agregar vendas por item no periodo selecionado
+        const dateToKey = normalizeBrazilDateKey(dateToParam) || formatBrazilDateKey(new Date());
+        const dateToStart = toBrazilDayBoundary(dateToKey, false);
+        const dateFromKey = normalizeBrazilDateKey(dateFromParam) || formatBrazilDateKey(subDays(dateToStart, days - 1));
+        const dateFrom = toBrazilDayBoundary(dateFromKey, false);
+        const dateTo = toBrazilDayBoundary(dateToKey, true);
 
-        const weeklySalesByItem = new Map<string, number>();
+        const periodSalesByItem = new Map<string, number>();
         try {
             const allOrders: any[] = [];
             let offset = 0;
@@ -3738,12 +3774,12 @@ router.get("/export/csv", async (req, res) => {
                 }
             }
 
-            const fromKey = dateFrom.toISOString().split("T")[0];
-            const toKey = dateTo.toISOString().split("T")[0];
+            const fromKey = dateFromKey;
+            const toKey = dateToKey;
             for (const order of allOrders) {
                 const created = order.date_created ? new Date(order.date_created) : null;
                 if (!created) continue;
-                const key = created.toISOString().split("T")[0];
+                const key = formatBrazilDateKey(created);
                 if (key < fromKey || key > toKey) continue;
                 if (String(order.status || "").toLowerCase() === "cancelled") continue;
                 const items: any[] = Array.isArray(order.order_items) ? order.order_items : [];
@@ -3751,11 +3787,11 @@ router.get("/export/csv", async (req, res) => {
                     const iid = String(it.item?.id || "");
                     const qty = Number(it.quantity || 0);
                     if (!iid || qty <= 0) continue;
-                    weeklySalesByItem.set(iid, (weeklySalesByItem.get(iid) || 0) + qty);
+                    periodSalesByItem.set(iid, (periodSalesByItem.get(iid) || 0) + qty);
                 }
             }
         } catch (err) {
-            console.error("[Export CSV] Falha ao agregar vendas semanais:", (err as any)?.message || err);
+            console.error("[Export CSV] Falha ao agregar vendas do periodo:", (err as any)?.message || err);
         }
 
         // Buscar custos dos produtos no banco
@@ -3780,7 +3816,7 @@ router.get("/export/csv", async (req, res) => {
             "Imposto (%)",
             "Embalagem",
             "Custo envio",
-            "Vendas semana",
+            "Vendas periodo",
             "Gasto anúncio",
             "ACOS"
         ].join(",");
@@ -3812,7 +3848,7 @@ router.get("/export/csv", async (req, res) => {
             const title = String(item.title || "");
             const price = Number(item.price || 0);
             const sku = String(item.seller_custom_field || "");
-            const weeklySales = Number(weeklySalesByItem.get(itemId) || 0);
+            const periodSales = Number(periodSalesByItem.get(itemId) || 0);
 
             let costPrice = 0;
             if (sku && costBySku.has(sku)) {
@@ -3826,7 +3862,7 @@ router.get("/export/csv", async (req, res) => {
             const packaging = packagingCost;
             const shipping = shippingCostPerOrder;
             const adSpend = Number(adSpendByItem.get(itemId) || 0);
-            const revenue = price * weeklySales;
+            const revenue = price * periodSales;
             const acos = revenue > 0 ? (adSpend / revenue) * 100 : 0;
 
             const row = [
@@ -3837,7 +3873,7 @@ router.get("/export/csv", async (req, res) => {
                 tax.toFixed(2),
                 packaging.toFixed(2),
                 shipping.toFixed(2),
-                String(weeklySales),
+                String(periodSales),
                 adSpend.toFixed(2),
                 acos.toFixed(2)
             ].join(",");
@@ -7514,15 +7550,20 @@ router.get("/orders/daily-sales", async (req, res) => {
             }
         }
 
+        const dateFromKey = normalizeBrazilDateKey(dateFrom as string | undefined);
+        const dateToKey = normalizeBrazilDateKey(dateTo as string | undefined);
+
         // Buscar todos os pedidos no período
         const allOrders: any[] = [];
         let offset = 0;
         const limit = 50;
         let hasMore = true;
+        const shouldCap = !dateFromKey;
+        const maxOrders = 1000;
 
-        console.log(`[Daily Sales] Buscando pedidos entre ${dateFrom} e ${dateTo}`);
+        console.log(`[Daily Sales] Buscando pedidos entre ${dateFromKey || dateFrom} e ${dateToKey || dateTo}`);
 
-        while (hasMore && allOrders.length < 1000) {
+        while (hasMore && (!shouldCap || allOrders.length < maxOrders)) {
             try {
                 const params: any = {
                     seller: credentials.userId,
@@ -7547,6 +7588,15 @@ router.get("/orders/daily-sales", async (req, res) => {
                 allOrders.push(...orders);
 
                 hasMore = orders.length === limit;
+                if (dateFromKey && orders.length > 0) {
+                    const lastOrder = orders[orders.length - 1];
+                    if (lastOrder?.date_created) {
+                        const lastKey = formatBrazilDateKey(new Date(lastOrder.date_created));
+                        if (lastKey < dateFromKey) {
+                            hasMore = false;
+                        }
+                    }
+                }
                 offset += limit;
             } catch (apiError: any) {
                 if (apiError.response?.status === 401) {
@@ -7593,32 +7643,20 @@ router.get("/orders/daily-sales", async (req, res) => {
         const salesByDay = new Map<string, { date: string; sales: number; revenue: number; orders: number }>();
 
         for (const order of uniqueOrders) {
-            if (order.status === "cancelled") continue; // Ignorar pedidos cancelados
+            // Ignorar pedidos cancelados (mas manter pendentes/pagamento necessário para alinhar com Atividade Recente)
+            const status = String(order.status || "").toLowerCase();
+            if (status === "cancelled") continue;
 
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
             if (!dateCreated) continue;
 
-            // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
-            const dateKey = format(dateCreated, "yyyy-MM-dd");
+            const dateKey = formatBrazilDateKey(dateCreated);
 
-            // Filtro RIGOROSO de data (comparação por timestamp)
-            const orderTimestamp = dateCreated.getTime();
-            const toLocalDayTimestamp = (dateStr: string, endOfDay: boolean) => {
-                const [y, m, d] = String(dateStr).split("-").map((n) => Number(n));
-                const dt = endOfDay ? new Date(y, (m - 1), d, 23, 59, 59, 999) : new Date(y, (m - 1), d, 0, 0, 0, 0);
-                return dt.getTime();
-            };
-            const dateFromTimestamp = dateFrom ? toLocalDayTimestamp(String(dateFrom), false) : 0;
-            const dateToTimestamp = dateTo ? toLocalDayTimestamp(String(dateTo), true) : (() => {
-                const now = new Date();
-                now.setHours(23, 59, 59, 999);
-                return now.getTime();
-            })();
-
-            if (orderTimestamp < dateFromTimestamp || orderTimestamp > dateToTimestamp) {
-                console.log(`[Daily Sales] Pedido ${order.id} FORA DO PERÍODO: ${order.date_created} (período: ${dateFrom} - ${dateTo})`);
-                continue;
-            }
+            // Filtro de data deve usar a Data Ajustada (dateKey) para consistência
+            // Se usarmos o timestamp original (UTC), pedidos feitos à noite (ex: 28/12 22h) que são dia 29/12 UTC
+            // seriam excluídos se o filtro for até dia 28/12, mesmo pertencendo ao dia 28/12 no Brasil.
+            if (dateFromKey && dateKey < dateFromKey) continue;
+            if (dateToKey && dateKey > dateToKey) continue;
 
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
             // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias
@@ -7634,9 +7672,9 @@ router.get("/orders/daily-sales", async (req, res) => {
             dayData.orders += 1;
 
             // Log detalhado para debug dos últimos 2 dias
-            const today = new Date().toISOString().split("T")[0];
-            const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-            if (dateKey === today || dateKey === yesterday) {
+            const todayKey = formatBrazilDateKey(new Date());
+            const yesterdayKey = formatBrazilDateKey(subDays(new Date(), 1));
+            if (dateKey === todayKey || dateKey === yesterdayKey) {
                 console.log(`[Daily Sales DEBUG - ${dateKey}] Pedido ${order.id}:`, {
                     quantity: totalQuantity,
                     amount: totalAmount,
@@ -7656,10 +7694,10 @@ router.get("/orders/daily-sales", async (req, res) => {
         const dailySalesArray = Array.from(salesByDay.values()).sort((a, b) => a.date.localeCompare(b.date));
 
         // Log resumo de hoje
-        const today = new Date().toISOString().split("T")[0];
-        const todayData = salesByDay.get(today);
+        const todayKey = formatBrazilDateKey(new Date());
+        const todayData = salesByDay.get(todayKey);
         if (todayData) {
-            console.log(`[Daily Sales RESUMO HOJE - ${today}]:`, todayData);
+            console.log(`[Daily Sales RESUMO HOJE - ${todayKey}]:`, todayData);
         }
 
         return res.json({
@@ -7715,6 +7753,285 @@ router.get("/debug/config", async (req, res) => {
     }
 });
 
+// --- Market Analysis Endpoints ---
 
+const marketAnalysisService = new MarketAnalysisService();
+
+/**
+ * POST /api/integrations/mercadolivre/analyze-market
+ * Triggers full analysis for a category (Categories, Trends, Products)
+ */
+router.post("/analyze-market", async (req, res) => {
+    try {
+        const { categoryId } = req.body;
+        if (!categoryId) {
+            return res.status(400).json({ error: "Category ID is required" });
+        }
+
+        const resolvedWorkspace = resolveWorkspaceId(req);
+        const workspaceId = resolvedWorkspace.id;
+        let accessToken: string | undefined;
+
+        // If workspaceId is provided, try to get credentials
+        if (workspaceId) {
+            if (resolvedWorkspace.usedFallback) {
+                console.log(`[MarketAnalysis] Using fallback workspace ${workspaceId} for credentials.`);
+            }
+            console.log(`[MarketAnalysis] Checking credentials for workspace ${workspaceId}...`);
+            let credentials = await getMercadoLivreCredentials(workspaceId);
+            
+            if (credentials) {
+                 console.log(`[MarketAnalysis] Credentials found. Checking expiry...`);
+                 const marginMs = 15 * 60 * 1000;
+                 if (credentials.expiresAt && Date.now() >= (credentials.expiresAt - marginMs)) {
+                     console.log(`[MarketAnalysis] Token expired or close to expiry for workspace ${workspaceId}, refreshing...`);
+                     const refreshed = await refreshAccessToken(workspaceId);
+                     if (refreshed) {
+                         credentials = { 
+                             ...credentials, 
+                             accessToken: refreshed.accessToken, 
+                             refreshToken: refreshed.refreshToken,
+                         };
+                     }
+                 }
+                 
+                 if (credentials && credentials.accessToken) {
+                    accessToken = credentials.accessToken;
+                    console.log(`[MarketAnalysis] Using access token for workspace ${workspaceId} (Token length: ${accessToken.length})`);
+                 }
+            } else {
+                console.warn(`[MarketAnalysis] No credentials found for workspace ${workspaceId}. Using public API.`);
+            }
+        } else {
+            console.warn(`[MarketAnalysis] No workspaceId provided. Using public API.`);
+        }
+
+        // Start analysis
+        const results = await marketAnalysisService.performFullCategoryAnalysis(categoryId, accessToken);
+        
+        return res.json({
+            message: "Analysis completed successfully",
+            results
+        });
+    } catch (error: any) {
+        console.error("Market analysis failed:", error);
+        
+        if (error.response?.status === 403 || error.status === 403) {
+            return res.status(403).json({
+                error: "Mercado Livre API access denied. Please connect your account.",
+                details: "The public API is blocking requests. You must connect your Mercado Livre account in Integrations to continue."
+            });
+        }
+
+        return res.status(500).json({
+            error: "Failed to perform market analysis",
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/status
+ * Checks if the workspace has a valid Mercado Livre connection
+ */
+router.get("/status", async (req, res) => {
+    try {
+        const { workspaceId } = req.query as { workspaceId: string };
+        if (!workspaceId) return res.status(400).json({ error: "Workspace ID required" });
+
+        const credentials = await getMercadoLivreCredentials(workspaceId);
+        return res.json({ 
+            connected: !!credentials,
+            userId: credentials?.userId
+        });
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/analysis-report/:categoryId
+ * Retrieves the analysis report for a category
+ */
+router.get("/analysis-report/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const report = await marketAnalysisService.getCategoryAnalysisReport(categoryId);
+        return res.json(report);
+    } catch (error: any) {
+        console.error("Failed to get analysis report:", error);
+        return res.status(500).json({
+            error: "Failed to get analysis report",
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/analysis-dashboard/:categoryId
+ * Retrieves aggregated statistics for a category
+ */
+router.get("/analysis-dashboard/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const stats = await marketAnalysisService.getCategoryStatistics(categoryId);
+        const report = await marketAnalysisService.getCategoryAnalysisReport(categoryId);
+        
+        return res.json({
+            stats,
+            topProducts: report.products,
+            trends: report.trends
+        });
+    } catch (error: any) {
+        console.error("Failed to get analysis dashboard:", error);
+        return res.status(500).json({
+            error: "Failed to get analysis dashboard",
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/db/categories
+ * List saved categories
+ */
+router.get("/db/categories", async (req, res) => {
+    try {
+        const pool = getPool();
+        const { parentId } = req.query;
+        
+        let query = "SELECT * FROM ml_categories";
+        const params = [];
+        
+        if (parentId) {
+            query += " WHERE parent_id = $1";
+            params.push(parentId);
+        } else if (parentId === null || parentId === 'null') {
+             query += " WHERE parent_id IS NULL";
+        }
+        
+        query += " ORDER BY name ASC";
+        
+        const result = await pool.query(query, params);
+        return res.json(result.rows);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/db/trends/:categoryId
+ * List saved trends for a category
+ */
+router.get("/db/trends/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const pool = getPool();
+        
+        const result = await pool.query(
+            "SELECT * FROM ml_trends WHERE category_id = $1 ORDER BY position ASC",
+            [categoryId]
+        );
+        return res.json(result.rows);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/db/products/:categoryId
+ * List saved products for a category
+ */
+router.get("/db/products/:categoryId", async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const pool = getPool();
+        
+        const result = await pool.query(
+            `SELECT *, 
+             EXTRACT(DAY FROM NOW() - date_created) as age_days
+             FROM ml_products 
+             WHERE category_id = $1 
+             ORDER BY sold_quantity DESC`,
+            [categoryId]
+        );
+        return res.json(result.rows);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/analyze-product
+ * Triggers analysis for a specific product and its competitors
+ */
+router.post("/analyze-product", async (req, res) => {
+    try {
+        const { productId } = req.body;
+        if (!productId) {
+            return res.status(400).json({ error: "Product ID is required" });
+        }
+
+        const resolvedWorkspace = resolveWorkspaceId(req);
+        const workspaceId = resolvedWorkspace.id;
+        let accessToken: string | undefined;
+
+        if (workspaceId) {
+            if (resolvedWorkspace.usedFallback) {
+                console.log(`[MarketAnalysis] Using fallback workspace ${workspaceId} for credentials.`);
+            }
+            console.log(`[MarketAnalysis] Checking credentials for workspace ${workspaceId}...`);
+            let credentials = await getMercadoLivreCredentials(workspaceId);
+            
+            if (credentials) {
+                console.log(`[MarketAnalysis] Credentials found. Checking expiry...`);
+                // Refresh logic if needed
+                const marginMs = 15 * 60 * 1000;
+                if (credentials.expiresAt && Date.now() >= (credentials.expiresAt - marginMs)) {
+                    console.log(`[MarketAnalysis] Token expired or close to expiry for workspace ${workspaceId}, refreshing...`);
+                    const refreshed = await refreshAccessToken(workspaceId);
+                    if (refreshed) {
+                        credentials = { 
+                            ...credentials, 
+                            accessToken: refreshed.accessToken, 
+                            refreshToken: refreshed.refreshToken,
+                        };
+                    }
+                }
+                
+                if (credentials && credentials.accessToken) {
+                    accessToken = credentials.accessToken;
+                    console.log(`[MarketAnalysis] Using access token for workspace ${workspaceId}`);
+                }
+            } else {
+                console.warn(`[MarketAnalysis] No credentials found for workspace ${workspaceId}. Using public API.`);
+            }
+        } else {
+            console.warn("[MarketAnalysis] Workspace not provided. Using public API.");
+        }
+
+        const results = await marketAnalysisService.analyzeProductCompetitors(productId, accessToken);
+        
+        return res.json({
+            message: "Analysis completed successfully",
+            results
+        });
+    } catch (error: any) {
+        console.error("Product analysis failed:", error);
+        
+        // Handle 403 specifically to guide user to connect account
+        if (error.response?.status === 403 || error.status === 403) {
+            return res.status(403).json({
+                error: "Mercado Livre API access denied. Please connect your account.",
+                details: "The public API is blocking requests. You must connect your Mercado Livre account in Integrations to continue."
+            });
+        }
+
+        return res.status(500).json({
+            error: "Failed to perform product analysis",
+            details: error.message
+        });
+    }
+});
 
 export default router;

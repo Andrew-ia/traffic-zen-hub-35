@@ -13,16 +13,28 @@ import { toast } from "@/hooks/use-toast";
 
 interface ExportReportButtonProps {
     workspaceId: string;
-    dateRange: string;
+    dateRangeDays: string;
+    dateFrom?: string;
+    dateTo?: string;
 }
 
-export function ExportReportButton({ workspaceId, dateRange }: ExportReportButtonProps) {
+export function ExportReportButton({ workspaceId, dateRangeDays, dateFrom, dateTo }: ExportReportButtonProps) {
     const [isExporting, setIsExporting] = useState(false);
+
+    const buildParams = () => {
+        const params = new URLSearchParams({
+            workspaceId,
+            days: dateRangeDays,
+        });
+        if (dateFrom) params.append("dateFrom", dateFrom);
+        if (dateTo) params.append("dateTo", dateTo);
+        return params.toString();
+    };
 
     const handleExportPDF = async () => {
         setIsExporting(true);
         try {
-            const response = await fetch(`/api/integrations/mercadolivre/export/pdf?workspaceId=${workspaceId}&days=${dateRange}`);
+            const response = await fetch(`/api/integrations/mercadolivre/export/pdf?${buildParams()}`);
 
             if (!response.ok) {
                 throw new Error("Falha ao exportar PDF");
@@ -56,7 +68,7 @@ export function ExportReportButton({ workspaceId, dateRange }: ExportReportButto
     const handleExportExcel = async () => {
         setIsExporting(true);
         try {
-            const response = await fetch(`/api/integrations/mercadolivre/export/excel?workspaceId=${workspaceId}&days=${dateRange}`);
+            const response = await fetch(`/api/integrations/mercadolivre/export/excel?${buildParams()}`);
 
             if (!response.ok) {
                 throw new Error("Falha ao exportar Excel");
@@ -88,14 +100,11 @@ export function ExportReportButton({ workspaceId, dateRange }: ExportReportButto
     };
 
     const handleExportCSV = () => {
-        const params = new URLSearchParams({
-            workspaceId,
-            days: dateRange,
-            mlFeePercent: String(16.5),
-            taxPercent: String(0),
-            packagingCost: String(0),
-            shippingCostPerOrder: String(0),
-        });
+        const params = new URLSearchParams(buildParams());
+        params.set("mlFeePercent", String(16.5));
+        params.set("taxPercent", String(0));
+        params.set("packagingCost", String(0));
+        params.set("shippingCostPerOrder", String(0));
         const url = `/api/integrations/mercadolivre/export/csv?${params.toString()}`;
         window.open(url, "_blank");
 

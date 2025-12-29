@@ -25,6 +25,7 @@ import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
 import MercadoLivre from "./pages/MercadoLivreNew";
 import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
+import MercadoLivreMarketAnalysis from "./pages/MercadoLivreMarketAnalysis";
 import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuilder";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
@@ -190,6 +191,7 @@ const App = () => (
                 {/* <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} /> */}
                 <Route path="/mercado-livre" element={<RequireAuth><Navigate to="/" replace /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
+                <Route path="/mercado-livre-market-analysis" element={<RequireAuth><MercadoLivreMarketAnalysis /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />

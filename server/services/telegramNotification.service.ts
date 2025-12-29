@@ -1,6 +1,25 @@
 import fetch from "node-fetch";
 import { getPool } from "../config/database.js";
 
+const BRAZIL_TIME_ZONE = "America/Sao_Paulo";
+const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BRAZIL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+});
+
+const getBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
+
+const getBrazilDateKeyFromValue = (value: unknown): string | null => {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(parsed.getTime())) return null;
+    return getBrazilDateKey(parsed);
+};
+
+const getTodayBrazilDateKey = () => getBrazilDateKey(new Date());
+
 interface TelegramConfig {
     botToken: string;
     chatId: string;
@@ -418,6 +437,19 @@ export class TelegramNotificationService {
                 return false;
             }
 
+            const messageDateKey = getBrazilDateKeyFromValue(
+                messageData?.date_created || messageData?.date
+            );
+            const todayKey = getTodayBrazilDateKey();
+            if (!messageDateKey) {
+                console.log(`[Telegram] Ignorando mensagem sem data valida ${messageData?.id || "sem-id"}`);
+                return false;
+            }
+            if (messageDateKey !== todayKey) {
+                console.log(`[Telegram] Ignorando mensagem fora do dia (BRT) ${messageData?.id || "sem-id"} (${messageDateKey})`);
+                return false;
+            }
+
             const message = this.formatNewMessage(messageData);
             const result = await this.sendTelegramMessage(
                 config.botToken,
@@ -459,6 +491,19 @@ export class TelegramNotificationService {
         const referenceId = orderData?.id || null;
         if (!referenceId) {
             console.warn("[Telegram] Pedido sem ID, ignorando notificação");
+            return false;
+        }
+
+        const orderDateKey = getBrazilDateKeyFromValue(
+            orderData?.date_created || orderData?.date_closed || orderData?.last_updated
+        );
+        const todayKey = getTodayBrazilDateKey();
+        if (!orderDateKey) {
+            console.log(`[Telegram] Ignorando venda sem data valida ${referenceId}`);
+            return false;
+        }
+        if (orderDateKey !== todayKey) {
+            console.log(`[Telegram] Ignorando venda fora do dia (BRT) ${referenceId} (${orderDateKey})`);
             return false;
         }
 
@@ -552,6 +597,17 @@ export class TelegramNotificationService {
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
                 console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);
+                return false;
+            }
+
+            const questionDateKey = getBrazilDateKeyFromValue(questionData?.date_created);
+            const todayKey = getTodayBrazilDateKey();
+            if (!questionDateKey) {
+                console.log(`[Telegram] Ignorando pergunta sem data valida ${questionData?.id || "sem-id"}`);
+                return false;
+            }
+            if (questionDateKey !== todayKey) {
+                console.log(`[Telegram] Ignorando pergunta fora do dia (BRT) ${questionData?.id || "sem-id"} (${questionDateKey})`);
                 return false;
             }
 
