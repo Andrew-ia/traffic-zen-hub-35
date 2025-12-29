@@ -25,7 +25,7 @@ export function startMLNotificationsReplayWorker(opts: MLReplayOptions): StopFn 
   }
 
   const intervalMinutes = Math.max(5, Number(opts.intervalMinutes || 60)); // mínimo 5 min
-  const days = Math.max(1, Number(opts.days || 2));
+  const days = Math.max(0.1, Number(opts.days || 1)); // default 1 dia (24h), min 0.1
   const maxOrders = Math.min(500, Math.max(1, Number(opts.maxOrders || 200)));
   const dryRun = Boolean(opts.dryRun);
 

@@ -5642,7 +5642,9 @@ router.post("/notifications/replay", async (req, res) => {
         const results = [];
         const now = new Date();
         const endDate = now;
-        const startDate = startOfDay(subDays(now, Number(days)));
+        // Use sliding window instead of start of day to avoid fetching too old orders
+        // days=1 means last 24h, days=0.5 means last 12h
+        const startDate = subDays(now, Number(days));
 
         for (const currentWorkspaceId of targetWorkspaces) {
             try {
