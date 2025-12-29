@@ -856,11 +856,12 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                     seller: credentials.userId,
                     limit,
                     offset,
+                    sort: 'date_desc',
                 };
 
-                // Use date_closed (fechamento/pagamento) to align with ML dashboard
-                params['order.date_closed.from'] = dateFromFinal.toISOString();
-                params['order.date_closed.to'] = dateToFinal.toISOString();
+                // Alterado para date_created para alinhar com a lista de atividades recentes e capturar todas as vendas iniciadas no dia
+                params['order.date_created.from'] = dateFromFinal.toISOString();
+                params['order.date_created.to'] = dateToFinal.toISOString();
 
                 const ordersResponse = await axios.get(
                     `${MERCADO_LIVRE_API_BASE}/orders/search`,
@@ -890,6 +891,15 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 hasMore = false;
             }
         }
+
+        // Deduplicate orders by ID to prevent double counting
+        const uniqueOrdersMap = new Map();
+        for (const order of allOrders) {
+            uniqueOrdersMap.set(order.id, order);
+        }
+        const uniqueOrders = Array.from(uniqueOrdersMap.values());
+        allOrders.length = 0;
+        allOrders.push(...uniqueOrders);
 
         // Fetch shipment details for all orders to get real shipping costs
         const shipmentIds = allOrders
@@ -925,33 +935,24 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
         for (const order of allOrders) {
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
-            const approvedPaymentTs = Array.isArray(order.payments)
-                ? order.payments
-                    .map((p: any) => p?.date_approved || p?.date_created)
-                    .filter(Boolean)
-                    .map((d: string) => new Date(d).getTime())
-                    .filter((ts: number) => Number.isFinite(ts))
-                : [];
-            const earliestPaymentTs = approvedPaymentTs.length ? Math.min(...approvedPaymentTs) : null;
-            const orderDate = order.date_closed
-                ? new Date(order.date_closed)
-                : earliestPaymentTs
-                    ? new Date(earliestPaymentTs)
-                    : dateCreated;
+            
+            // Prioriza date_created para alinhar o gráfico com a lista de pedidos e a percepção do usuário de "Vendas do Dia"
+            const orderDate = dateCreated 
+                ? dateCreated
+                : (order.date_closed
+                    ? new Date(order.date_closed)
+                    : null);
 
             if (!orderDate) continue;
             const orderTs = orderDate.getTime();
             if (orderTs < rangeStartTs || orderTs > rangeEndTs) continue;
 
+            // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
             const dateKey = format(orderDate, "yyyy-MM-dd");
             const status = String(order.status || "").toLowerCase();
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
-            const productSubtotal = order.order_items?.reduce((sum: number, item: any) => {
-                const price = Number(item.unit_price || item.full_unit_price || item.base_price || 0);
-                const qty = Number(item.quantity || 0);
-                return sum + price * qty;
-            }, 0) || 0;
-            const totalAmount = order.paid_amount || order.total_amount || productSubtotal;
+            // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias com paid_amount (que pode incluir juros/taxas extras)
+            const totalAmount = order.total_amount || order.paid_amount || 0;
 
             if (!salesByDay.has(dateKey)) {
                 salesByDay.set(dateKey, { sales: 0, revenue: 0, orders: 0 });
@@ -969,7 +970,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 if (hadPayment) {
                     canceledOrders += 1;
                     // Valor cancelado alinhado ao painel: apenas valor de produtos, sem frete
-                    canceledRevenue += productSubtotal || totalAmount;
+                    canceledRevenue += totalAmount;
                 }
                 salesByDay.set(dateKey, dayData);
                 continue; // Cancelados não entram em receita/fees/envio
@@ -1008,10 +1009,10 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             hourlySales.push({
                 date: orderDate.toISOString(),
                 sales: totalQuantity,
-                revenue: productSubtotal || totalAmount
+                revenue: totalAmount
             });
 
-            dayData.revenue += productSubtotal || totalAmount;
+            dayData.revenue += totalAmount;
             salesByDay.set(dateKey, dayData);
         }
 
@@ -1263,7 +1264,20 @@ router.get("/orders", async (req, res) => {
             { params }
         );
 
-        const ordersResults = data.results || [];
+        let ordersResults = data.results || [];
+
+        // Filtro manual de datas para garantir consistência com o dashboard
+        // A API do Mercado Livre às vezes retorna pedidos fora do intervalo solicitado
+        if (dateFrom || dateTo) {
+            const fromTs = dateFrom ? new Date(String(dateFrom)).getTime() : 0;
+            const toTs = dateTo ? new Date(String(dateTo)).getTime() : Infinity;
+
+            ordersResults = ordersResults.filter((o: any) => {
+                if (!o.date_created) return false;
+                const d = new Date(o.date_created).getTime();
+                return d >= fromTs && d <= toTs;
+            });
+        }
 
         // Coletar IDs dos itens para buscar imagens
         const itemIds = new Set<string>();
@@ -7512,6 +7526,7 @@ router.get("/orders/daily-sales", async (req, res) => {
                     seller: credentials.userId,
                     limit,
                     offset,
+                    sort: 'date_desc',
                     // REMOVIDO: Filtro de data na API do ML não está confiável
                     // Vamos filtrar rigorosamente no código
                 };
@@ -7581,11 +7596,8 @@ router.get("/orders/daily-sales", async (req, res) => {
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
             if (!dateCreated) continue;
 
-            // IMPORTANTE: Usar o timestamp ORIGINAL do ML (com timezone) para extrair a data
-            // O ML retorna timestamps como "2025-12-09T21:30:56.000-04:00" (horário do Brasil)
-            // Não devemos converter para UTC antes de extrair a data, pois isso pode mudar o dia!
-            // Exemplo: 2025-12-09T21:30-04:00 vira 2025-12-10T01:30Z em UTC (dia errado!)
-            const dateKey = order.date_created.split("T")[0]; // Pegar data da string original
+            // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
+            const dateKey = format(dateCreated, "yyyy-MM-dd");
 
             // Filtro RIGOROSO de data (comparação por timestamp)
             const orderTimestamp = dateCreated.getTime();
@@ -7607,7 +7619,8 @@ router.get("/orders/daily-sales", async (req, res) => {
             }
 
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
-            const totalAmount = order.paid_amount || order.total_amount || 0;
+            // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias
+            const totalAmount = order.total_amount || order.paid_amount || 0;
 
             if (!salesByDay.has(dateKey)) {
                 salesByDay.set(dateKey, { date: dateKey, sales: 0, revenue: 0, orders: 0 });
