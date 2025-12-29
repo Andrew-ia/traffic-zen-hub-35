@@ -22,12 +22,16 @@ import {
 } from '../api/integrations/instagram';
 import mercadoLivreRouter from '../api/integrations/mercadolivre';
 import mercadoLivreFulfillmentRouter from '../api/integrations/mercadolivre-fulfillment';
+import trayRouter from '../api/integrations/tray';
 
 const router = Router();
 
 // Mercado Livre routes (public OAuth callback)
 router.use('/mercadolivre', mercadoLivreRouter);
 router.use('/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
+
+// Tray routes
+router.use('/tray', trayRouter);
 
 // Apply auth middleware to other routes
 router.use(authMiddleware);

@@ -436,6 +436,10 @@ app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRou
 import mercadoLivreFullAnalyticsRouter from './api/integrations/mercadolivre-full-analytics.js';
 app.use('/api/integrations/mercadolivre-full-analytics', mercadoLivreFullAnalyticsRouter);
 
+// Tray endpoints
+import trayRouter from './api/integrations/tray.js';
+app.use('/api/integrations/tray', trayRouter);
+
 // Notification Settings endpoints
 import notificationSettingsRouter from './api/notification-settings.js';
 app.use('/api/notification-settings', notificationSettingsRouter);

@@ -46,6 +46,7 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
     ],
   },
+  { name: "Tray Commerce", href: "/tray", icon: ShoppingBag, keywords: ["tray", "loja", "ecommerce", "integracao"] },
   {
     name: "Projetos",
     href: "/projects",
