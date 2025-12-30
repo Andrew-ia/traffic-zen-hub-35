@@ -17,7 +17,7 @@
     "check:env": "node scripts/check-env.mjs",
     "server": "tsx server/index.ts",
     "generate:encryption-key": "node server/scripts/generate-encryption-key.js",
-    "test:env": "node scripts/test-env.ts",
+    "test:env": "tsx scripts/test-env.ts",
     "test:api": "tsx scripts/test-api-health.ts"
   },
   "dependencies": {
