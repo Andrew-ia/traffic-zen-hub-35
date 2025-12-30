@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request } from "express";
 import axios from "axios";
 import FormData from "form-data";
 import PDFDocument from "pdfkit";
@@ -53,6 +54,131 @@ const toBrazilDayBoundary = (dateKey: string, endOfDay: boolean) => {
     const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
     return new Date(`${dateKey}T${time}-03:00`);
 };
+
+const SHIPMENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour cache for shipment details
+let shipmentsCacheTableReady: Promise<void> | null = null;
+
+const normalizeBaseUrl = (value?: string | null) => {
+    if (!value) return "";
+    const trimmed = String(value).trim();
+    if (!trimmed) return "";
+    return trimmed.replace(/\/$/, "");
+};
+
+function resolveFrontendBaseUrl(req: Request): string {
+    const envBase = normalizeBaseUrl(process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL);
+    if (envBase) return envBase;
+
+    const vercelBase = normalizeBaseUrl(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    if (vercelBase) return vercelBase;
+
+    const hostHeader = normalizeBaseUrl(String((req.headers["x-forwarded-host"] || req.headers.host || "")).split(",")[0]);
+    if (!hostHeader) return "";
+
+    const protoHeader = String((req.headers["x-forwarded-proto"] || req.protocol || "https")).split(",")[0].replace(/:$/, "");
+    return `${protoHeader}://${hostHeader}`;
+}
+
+const buildRedirectUri = (req: Request) => {
+    const baseUrl = resolveFrontendBaseUrl(req);
+    return baseUrl ? `${baseUrl}/integrations/mercadolivre/callback` : "";
+};
+
+async function ensureShipmentsCacheTable() {
+    if (shipmentsCacheTableReady) return shipmentsCacheTableReady;
+
+    shipmentsCacheTableReady = (async () => {
+        try {
+            const pool = getPool();
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS ml_shipments_cache (
+                    workspace_id TEXT NOT NULL,
+                    shipment_id TEXT NOT NULL,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (workspace_id, shipment_id)
+                );
+            `);
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_ml_shipments_cache_updated_at
+                ON ml_shipments_cache (updated_at DESC)
+            `);
+        } catch (error) {
+            console.warn("[MercadoLivre] Failed to ensure shipments cache table:", error instanceof Error ? error.message : error);
+        }
+    })();
+
+    return shipmentsCacheTableReady;
+}
+
+async function getCachedShipment(workspaceId: string, shipmentId: string) {
+    try {
+        await ensureShipmentsCacheTable();
+        const pool = getPool();
+        const { rows } = await pool.query(
+            `SELECT data, updated_at
+             FROM ml_shipments_cache
+             WHERE workspace_id = $1 AND shipment_id = $2
+             LIMIT 1`,
+            [workspaceId, shipmentId]
+        );
+        if (!rows.length) return null;
+
+        const updatedAt = rows[0].updated_at ? new Date(rows[0].updated_at).getTime() : 0;
+        if (!updatedAt || (Date.now() - updatedAt) > SHIPMENT_CACHE_TTL_MS) {
+            return null;
+        }
+
+        return rows[0].data;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao ler cache de shipments:", error instanceof Error ? error.message : error);
+        return null;
+    }
+}
+
+async function saveShipmentToCache(workspaceId: string, shipmentId: string, data: any) {
+    try {
+        await ensureShipmentsCacheTable();
+        const pool = getPool();
+        await pool.query(
+            `INSERT INTO ml_shipments_cache (workspace_id, shipment_id, data, updated_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (workspace_id, shipment_id)
+             DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+            [workspaceId, shipmentId, data]
+        );
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao salvar cache de shipments:", error instanceof Error ? error.message : error);
+    }
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<R | null>
+): Promise<R[]> {
+    const results: R[] = [];
+    let index = 0;
+
+    const runners = Array(Math.min(limit, items.length)).fill(0).map(async () => {
+        while (index < items.length) {
+            const currentIndex = index++;
+            if (currentIndex >= items.length) break;
+            const item = items[currentIndex];
+            try {
+                const res = await worker(item);
+                if (res !== null && res !== undefined) {
+                    results.push(res);
+                }
+            } catch (error) {
+                console.warn("[MercadoLivre] Worker falhou ao processar item:", error instanceof Error ? error.message : error);
+            }
+        }
+    });
+
+    await Promise.all(runners);
+    return results;
+}
 
 /**
  * Interface para credenciais do Mercado Livre
@@ -319,7 +445,7 @@ router.get("/search", async (req, res) => {
             return res.status(400).json({ error: "Query parameter 'q' is required" });
         }
 
-        let headers: any = {};
+        const headers: any = {};
         if (workspaceId) {
             try {
                 const creds = await getMercadoLivreCredentials(String(workspaceId));
@@ -367,11 +493,16 @@ router.get("/auth/url", async (req, res) => {
         }
 
         const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
-        const redirectUri = `${(process.env.FRONTEND_URL || '').trim()}/integrations/mercadolivre/callback`;
+        const redirectUri = buildRedirectUri(req as Request);
 
         if (!clientId) {
             return res.status(500).json({
                 error: "Mercado Livre Client ID not configured"
+            });
+        }
+        if (!redirectUri) {
+            return res.status(500).json({
+                error: "Frontend URL not configured. Set FRONTEND_URL or VERCEL_URL"
             });
         }
 
@@ -451,12 +582,8 @@ router.get("/trends/:categoryId", async (req, res) => {
         // https://api.mercadolibre.com/trends/MLB/:category_id
         const url = `${MERCADO_LIVRE_API_BASE}/trends/MLB/${categoryId}`;
 
-        try {
-            const data = await requestWithAuth<any>(targetWorkspace, url);
-            return res.json(data);
-        } catch (err: any) {
-             throw err;
-        }
+        const data = await requestWithAuth<any>(targetWorkspace, url);
+        return res.json(data);
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
             error: "Failed to fetch category trends",
@@ -575,13 +702,8 @@ router.get("/categories/:categoryId", async (req, res) => {
         } catch (err: any) {
             // Fallback to public request for ANY error (401, 403, 404, ml_not_connected, etc.)
             // This ensures that even if auth fails or token is invalid, we try to get public data
-            try {
-                const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
-                return res.json(resp.data);
-            } catch (publicErr: any) {
-                // If public request also fails, throw the public error
-                throw publicErr;
-            }
+            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
+            return res.json(resp.data);
         }
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -606,12 +728,8 @@ router.get("/categories/:categoryId/attributes", async (req, res) => {
             return res.json(data);
         } catch (err: any) {
             // Fallback to public request
-            try {
-                const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
-                return res.json(resp.data);
-            } catch (publicErr: any) {
-                throw publicErr;
-            }
+            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
+            return res.json(resp.data);
         }
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -637,24 +755,31 @@ router.post("/auth/callback", async (req, res) => {
 
         const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
         const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
-        const redirectUri = `${(process.env.FRONTEND_URL || '').trim()}/integrations/mercadolivre/callback`;
+        const redirectUri = buildRedirectUri(req as Request);
 
         if (!clientId || !clientSecret) {
             return res.status(500).json({
                 error: "Mercado Livre credentials not configured"
             });
         }
+        if (!redirectUri) {
+            return res.status(500).json({
+                error: "Frontend URL not configured. Set FRONTEND_URL or VERCEL_URL"
+            });
+        }
+
+        const payload = new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            redirect_uri: redirectUri,
+        });
 
         // Trocar código por access token
         const tokenResponse = await axios.post(
             `${MERCADO_LIVRE_API_BASE}/oauth/token`,
-            {
-                grant_type: "authorization_code",
-                client_id: clientId,
-                client_secret: clientSecret,
-                code: code,
-                redirect_uri: redirectUri,
-            },
+            payload,
             {
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -729,15 +854,17 @@ router.post("/auth/refresh", async (req, res) => {
             });
         }
 
+        const payload = new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: credentials.refreshToken,
+        });
+
         // Renovar access token
         const tokenResponse = await axios.post(
             `${MERCADO_LIVRE_API_BASE}/oauth/token`,
-            {
-                grant_type: "refresh_token",
-                client_id: clientId,
-                client_secret: clientSecret,
-                refresh_token: credentials.refreshToken,
-            },
+            payload,
             {
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -1496,31 +1623,50 @@ router.get("/shipments", async (req, res) => {
             return res.json({ results: [], paging: { total: collectedShipmentIds.length, limit: limitNum, offset: offsetNum } });
         }
 
-        // 2. Buscar detalhes dos envios (Multiget se possível, ou paralelo)
-        const shipmentDetails: any[] = [];
+        // 2. Buscar detalhes dos envios com limite de concorrência e cache
+        const workspaceIdStr = String(targetWorkspaceId);
+        const SHIPMENT_FETCH_CONCURRENCY = 5;
 
-        const fetchShipment = async (id: any) => {
+        const shipmentDetails = await mapWithConcurrency<any, any>(pagedIds, SHIPMENT_FETCH_CONCURRENCY, async (id: any) => {
+            const shipmentId = String(id);
+
+            const cached = await getCachedShipment(workspaceIdStr, shipmentId);
+            if (cached) return cached;
+
+            const orderForShipment = allOrdersMap.get(id);
+            if (orderForShipment?.id) {
+                try {
+                    const orderDetails = await requestWithAuth<any>(
+                        workspaceIdStr,
+                        `${MERCADO_LIVRE_API_BASE}/orders/${orderForShipment.id}`,
+                        { headers: { 'x-format-new': 'true' } }
+                    );
+                    const shippingFromOrder = orderDetails?.shipping || orderForShipment?.shipping;
+                    if (shippingFromOrder) {
+                        const enriched = { ...shippingFromOrder, order_id: orderDetails?.id || orderForShipment.id };
+                        await saveShipmentToCache(workspaceIdStr, shipmentId, enriched);
+                        return enriched;
+                    }
+                } catch (err: any) {
+                    console.warn(`Failed to fetch order ${orderForShipment.id} for shipment ${shipmentId}:`, err?.response?.status || err?.message || err);
+                }
+            }
+
             try {
-                // Adicionar header x-format-new: true para garantir formato atualizado se necessário
-                // e usar endpoint padrão de shipments
-                return await requestWithAuth<any>(
-                    String(targetWorkspaceId),
-                    `${MERCADO_LIVRE_API_BASE}/shipments/${id}`,
+                const shipment = await requestWithAuth<any>(
+                    workspaceIdStr,
+                    `${MERCADO_LIVRE_API_BASE}/shipments/${shipmentId}`,
                     { headers: { 'x-format-new': 'true' } }
                 );
-            } catch (e) {
-                console.warn(`Failed to fetch shipment ${id}`, e);
+                if (shipment) {
+                    await saveShipmentToCache(workspaceIdStr, shipmentId, shipment);
+                }
+                return shipment;
+            } catch (e: any) {
+                console.warn(`Failed to fetch shipment ${shipmentId}`, e?.response?.status || e?.message || e);
                 return null;
             }
-        };
-
-        const chunkSize = 10;
-        for (let i = 0; i < pagedIds.length; i += chunkSize) {
-            const chunk = pagedIds.slice(i, i + chunkSize);
-            const promises = chunk.map(id => fetchShipment(id));
-            const results = await Promise.all(promises);
-            shipmentDetails.push(...results.filter(r => r !== null));
-        }
+        });
 
         // 3. Filtrar novamente por status (garantia final)
         let results = shipmentDetails;

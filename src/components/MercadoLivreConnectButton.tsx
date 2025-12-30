@@ -32,12 +32,15 @@ export default function MercadoLivreConnectButton({
         try {
             setIsLoading(true);
 
-            // Usar URL de produção porque Mercado Livre exige HTTPS
-            const productionUrl = "https://traffic-zen-hub-35.vercel.app";
-            const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=5043496307995752&redirect_uri=${encodeURIComponent(`${productionUrl}/integrations/mercadolivre/callback`)}&state=${currentWorkspace.id}`;
+            const response = await fetch(`/api/integrations/mercadolivre/auth/url?workspaceId=${currentWorkspace.id}`);
+            const data = await response.json();
+
+            if (!response.ok || !data?.authUrl) {
+                throw new Error(data?.error || "Não foi possível gerar a URL de autorização do Mercado Livre");
+            }
 
             // Redirecionar diretamente para a página de autorização do Mercado Livre
-            window.location.href = authUrl;
+            window.location.href = data.authUrl;
         } catch (error: any) {
             console.error("Error connecting to Mercado Livre:", error);
             toast({
