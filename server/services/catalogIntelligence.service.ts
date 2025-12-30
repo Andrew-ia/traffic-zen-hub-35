@@ -268,8 +268,8 @@ export class CatalogIntelligenceService {
     private async getCategoryCompetitors(categoryId: string, accessToken: string, productData?: any): Promise<any[]> {
         try {
             const headers = {
-                'User-Agent': 'TrafficPro-Catalog-Intelligence/1.0'
-                // Removendo Authorization para usar busca pública
+                'User-Agent': 'TrafficPro-Catalog-Intelligence/1.0',
+                'Authorization': `Bearer ${accessToken}`
             };
 
             const searchQueries: string[] = [];

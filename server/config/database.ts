@@ -58,27 +58,31 @@ export function createDatabasePool(): Pool {
 let pool: Pool | null = null;
 
 export function getPool(): Pool {
-  // For serverless environments (like Vercel), create a new pool each time
-  // to avoid connection issues across function invocations
+  // If a pool already exists, return it (works for both local and serverless warm starts)
+  if (pool) {
+    return pool;
+  }
+
+  // For serverless environments (like Vercel)
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    const serverlessPool = new Pool({
+    pool = new Pool({
       connectionString: getDatabaseUrl(),
       max: 1, // Limit to 1 connection for serverless
       idleTimeoutMillis: 1000,
       connectionTimeoutMillis: 5000,
       ssl: { rejectUnauthorized: false }, // Required for Supabase Pooler on Vercel
     });
-
-    return serverlessPool;
+  } else {
+    // For local development or long-running servers
+    pool = createDatabasePool();
   }
 
-  if (!pool) {
-    pool = createDatabasePool();
+  // Attach error handler to the pool
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle database client', err);
+  });
 
-    pool.on('error', (err) => {
-      console.error('Unexpected error on idle database client', err);
-    });
-
+  if (!process.env.VERCEL) {
     pool.on('connect', () => {
       console.log('✅ Connected to PostgreSQL database');
     });

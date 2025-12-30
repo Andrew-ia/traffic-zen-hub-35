@@ -50,6 +50,15 @@ async function decryptCredentials(encryptedBase64: string, ivBase64: string, sec
 
 Deno.serve(async (req) => {
     try {
+        const fallbackEnabled = String(Deno.env.get('ML_NOTIFICATIONS_FALLBACK_ENABLED') || '').toLowerCase() === 'true';
+        if (!fallbackEnabled) {
+            return new Response(JSON.stringify({
+                success: true,
+                disabled: true,
+                reason: "ML_NOTIFICATIONS_FALLBACK_ENABLED is not true"
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+
         console.log("Function started");
 
         // 1. Setup Supabase Client
@@ -158,7 +167,7 @@ Deno.serve(async (req) => {
 
                 // Format Message
                 const total = order.total_amount || order.paid_amount || 0;
-                const msgText = `🎉 <b>NOVA VENDA (Auto)!</b>\n\n` +
+                const msgText = `🎉 <b>NOVA VENDA!</b>\n\n` +
                     `📦 <b>Pedido:</b> #${orderId}\n` +
                     `💰 <b>Valor:</b> R$ ${total}\n` +
                     `📅 <b>Data:</b> ${new Date(order.date_created).toLocaleString('pt-BR')}\n\n` +

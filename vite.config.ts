@@ -17,12 +17,12 @@ export default defineConfig(({ mode }) => {
   const setDef = (key: string, val: string | undefined) => {
     if (val !== undefined) defineMap[key] = JSON.stringify(val);
   };
-  setDef('import.meta.env.VITE_SUPABASE_URL', pick('VITE_SUPABASE_URL', 'SUPABASE_URL'));
-  setDef('import.meta.env.VITE_SUPABASE_ANON_KEY', pick('VITE_SUPABASE_ANON_KEY'));
+  setDef('import.meta.env.VITE_SUPABASE_URL', pick('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'));
+  setDef('import.meta.env.VITE_SUPABASE_ANON_KEY', pick('VITE_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY'));
   setDef('import.meta.env.VITE_WORKSPACE_ID', pick('VITE_WORKSPACE_ID', 'WORKSPACE_ID'));
   setDef('import.meta.env.VITE_GTM_ID', pick('VITE_GTM_ID', 'GTM_ID'));
-  setDef('import.meta.env.VITE_API_URL', pick('VITE_API_URL', 'API_URL'));
-  setDef('import.meta.env.VITE_DISABLE_AUTH', pick('VITE_DISABLE_AUTH'));
+  setDef('import.meta.env.VITE_API_URL', pick('VITE_API_URL', 'NEXT_PUBLIC_API_URL', 'API_URL'));
+  setDef('import.meta.env.VITE_DISABLE_AUTH', pick('VITE_DISABLE_AUTH', 'NEXT_PUBLIC_DISABLE_AUTH'));
 
   const devProxyTarget = pick('API_URL') || 'http://localhost:3001';
   return ({

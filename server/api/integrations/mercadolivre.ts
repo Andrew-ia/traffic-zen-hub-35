@@ -344,31 +344,6 @@ router.get("/search", async (req, res) => {
     } catch (error: any) {
         console.error("Error searching Mercado Livre:", error?.message);
 
-        // Se falhar com auth (ex: 403), tenta sem auth como fallback ou retorna erro
-        if (error?.response?.status === 403 && req.query.workspaceId) {
-            try {
-                // Fallback sem headers
-                const response = await axios.get(`https://api.mercadolibre.com/sites/MLB/search`, {
-                    params: {
-                        q: req.query.q,
-                        limit: req.query.limit || 50,
-                        offset: req.query.offset || 0
-                    }
-                });
-                return res.json(response.data);
-            } catch (fallbackError: any) {
-                console.error("Search fallback failed:", fallbackError?.message);
-                // Return a safe, simple JSON error
-                return res.status(fallbackError?.response?.status || 500).json({
-                    error: "Failed to search items (fallback)",
-                    // Avoid passing raw objects that might be circular or huge
-                    details: typeof fallbackError?.response?.data === 'string'
-                        ? fallbackError.response.data.slice(0, 200)
-                        : (fallbackError?.response?.data || fallbackError?.message || "Unknown error")
-                });
-            }
-        }
-
         // Return a safe, simple JSON error
         return res.status(error?.response?.status || 500).json({
             error: "Failed to search items",
@@ -480,14 +455,7 @@ router.get("/trends/:categoryId", async (req, res) => {
             const data = await requestWithAuth<any>(targetWorkspace, url);
             return res.json(data);
         } catch (err: any) {
-            // Fallback to public request for ANY error
-            try {
-                const resp = await axios.get(url);
-                return res.json(resp.data);
-            } catch (publicErr: any) {
-                // If public request also fails, throw the public error
-                throw publicErr;
-            }
+             throw err;
         }
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -578,25 +546,8 @@ router.get("/category-top-products/:categoryId", async (req, res) => {
              // console.log("Auth search failed:", err.message);
         }
 
-        // 3. Fallback Público: Search API
-        try {
-            // Tenta sort=sold_quantity_desc publicamente (pode falhar com 403)
-            const resp = await axios.get(searchUrl);
-            return res.json(resp.data.results || []);
-        } catch (err: any) {
-            // 4. Último Recurso: Search API por Relevância (Público e Seguro)
-            // Se der 403 Forbidden ou outro erro, tentamos sem o sort (relevância/destaques)
-            if (err?.response?.status === 403 || err?.response?.status === 401) {
-                try {
-                    const relevanceUrl = `${MERCADO_LIVRE_API_BASE}/sites/MLB/search?category=${categoryId}&limit=20`;
-                    const resp = await axios.get(relevanceUrl);
-                    return res.json(resp.data.results || []);
-                } catch (finalErr: any) {
-                    throw finalErr;
-                }
-            }
-            throw err;
-        }
+        // Se nada funcionou, retornar vazio ou erro
+        return res.json([]);
 
     } catch (error: any) {
         return res.status(error?.response?.status || 500).json({
@@ -861,7 +812,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         const limit = 50;
         let hasMore = true;
 
-        while (hasMore) {
+        const MAX_ORDERS = 2000;
+        while (hasMore && allOrders.length < MAX_ORDERS) {
             try {
                 const params: any = {
                     seller: credentials.userId,
@@ -919,16 +871,20 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         
         const shipmentCostMap = new Map<string, number>();
         
-        // Process shipments in chunks of 20
+        // Process shipments in chunks of 20, with concurrency to speed up
         const uniqueShipmentIds = [...new Set(shipmentIds)]; // Deduplicate just in case
+        const shipmentChunks: string[][] = [];
         for (let i = 0; i < uniqueShipmentIds.length; i += 20) {
-            const chunk = uniqueShipmentIds.slice(i, i + 20);
-            if (chunk.length === 0) continue;
-            
+            shipmentChunks.push(uniqueShipmentIds.slice(i, i + 20));
+        }
+
+        // Helper to fetch a chunk
+        const fetchShipmentChunk = async (chunk: string[]) => {
+            if (chunk.length === 0) return;
             try {
                 const shipmentsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments`, {
                     params: { ids: chunk.join(',') },
-                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                    headers: { Authorization: `Bearer ${credentials?.accessToken}` }
                 });
                 
                 const shipments = shipmentsResp.data || [];
@@ -940,6 +896,13 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             } catch (err) {
                 console.error("[Metrics] Error fetching shipments chunk:", err);
             }
+        };
+
+        // Process in batches of 5 concurrent requests
+        const CONCURRENCY = 5;
+        for (let i = 0; i < shipmentChunks.length; i += CONCURRENCY) {
+            const batch = shipmentChunks.slice(i, i + CONCURRENCY);
+            await Promise.all(batch.map(chunk => fetchShipmentChunk(chunk)));
         }
 
         const salesByDay = new Map<string, { sales: number; revenue: number; orders: number }>();
@@ -1470,7 +1433,7 @@ router.get("/shipments", async (req, res) => {
             const ordersParams: any = {
                 seller: credentials.userId,
                 'order.status': 'paid',
-                sort: 'updated_desc',
+                sort: 'date_desc',
                 limit: BATCH_SIZE,
                 offset: ordersOffset,
             };
@@ -1484,7 +1447,7 @@ router.get("/shipments", async (req, res) => {
                 );
                 orders = ordersData.results || [];
             } catch (e) {
-                console.warn("Failed to fetch orders, retrying without sort", e);
+                console.warn("Failed to fetch orders with sort, retrying without sort");
                 delete ordersParams.sort;
                 const ordersDataRetry = await requestWithAuth<any>(
                     String(targetWorkspaceId),
@@ -3962,28 +3925,14 @@ router.get("/search/advanced", async (req, res) => {
             const status = err.response?.status;
             const data = err.response?.data;
             const authError = status === 401 || status === 403;
-            // Tentar fallback sem credencial se der 401/403 com token
-            if (authError && (credentials || fallbackCreds)) {
-                try {
-                    searchResponse = await runSearch(undefined);
-                } catch (err2: any) {
-                    return res.status(authError ? status : 502).json({
-                        error: authError
-                            ? "Conecte o Mercado Livre para habilitar a busca avançada (token obrigatório)."
-                            : "Falha ao consultar a API do Mercado Livre",
-                        details: data || err.message,
-                        requiresAuth: authError,
-                    });
-                }
-            } else {
-                return res.status(authError ? status : 502).json({
-                    error: authError
-                        ? "Conecte o Mercado Livre para habilitar a busca avançada (token obrigatório)."
-                        : "Falha ao consultar a API do Mercado Livre",
-                    details: data || err.message,
-                    requiresAuth: authError,
-                });
-            }
+            
+            return res.status(authError ? status : 502).json({
+                error: authError
+                    ? "Conecte o Mercado Livre para habilitar a busca avançada (token obrigatório)."
+                    : "Falha ao consultar a API do Mercado Livre",
+                details: data || err.message,
+                requiresAuth: authError,
+            });
         }
 
         const baseResults = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
@@ -4132,35 +4081,53 @@ router.get("/questions", async (req, res) => {
         const questions = recentQuestionsResponse.data.questions || [];
         const totalUnanswered = unansweredResponse.data.paging?.total ?? 0;
 
-        // Formatar perguntas
-        const formattedQuestions = await Promise.all(
-            questions.map(async (q: any) => {
-                let productTitle = "Produto desconhecido";
-                try {
-                    const itemResponse = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/items/${q.item_id}`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                        }
-                    );
-                    productTitle = itemResponse.data.title;
-                } catch (error) {
-                    console.error(`Error fetching item for question ${q.id}:`, error);
-                }
+        // Collect unique item IDs
+        const itemIds = [...new Set(questions.map((q: any) => q.item_id))].filter(Boolean);
+        const itemTitlesMap = new Map<string, string>();
 
-                return {
-                    id: q.id,
-                    text: q.text,
-                    productId: q.item_id,
-                    productTitle,
-                    date: new Date(q.date_created).toLocaleDateString("pt-BR"),
-                    answered: q.status === "ANSWERED",
-                    answer: q.answer?.text || undefined,
-                };
-            })
-        );
+        // Fetch items in chunks to avoid URL length limits
+        const chunkArray = (arr: any[], size: number) => {
+            return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+                arr.slice(i * size, i * size + size)
+            );
+        };
+
+        const itemChunks = chunkArray(itemIds, 20); // ML allows up to 20 IDs in multiget
+
+        await Promise.all(itemChunks.map(async (chunk) => {
+            try {
+                const itemsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items`, {
+                    params: { ids: chunk.join(',') },
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                });
+                
+                // Response is an array of objects { code, body } or direct objects depending on endpoint version
+                // Usually /items?ids= returns an array of objects with 'body' containing the item
+                if (Array.isArray(itemsResp.data)) {
+                    itemsResp.data.forEach((itemWrapper: any) => {
+                        const item = itemWrapper.body || itemWrapper;
+                        if (item && item.id && item.title) {
+                            itemTitlesMap.set(item.id, item.title);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Error fetching items chunk for questions:", err);
+            }
+        }));
+
+        // Formatar perguntas
+        const formattedQuestions = questions.map((q: any) => {
+            return {
+                id: q.id,
+                text: q.text,
+                productId: q.item_id,
+                productTitle: itemTitlesMap.get(q.item_id) || "Produto desconhecido",
+                date: new Date(q.date_created).toLocaleDateString("pt-BR"),
+                answered: q.status === "ANSWERED",
+                answer: q.answer?.text || undefined,
+            };
+        });
 
         return res.json({
             items: formattedQuestions,
@@ -5803,6 +5770,12 @@ router.post("/notifications/replay", async (req, res) => {
 export async function handleOrderNotification(notification: any) {
     const start = Date.now();
     try {
+        // Ignore test notifications
+        if (notification.resource.includes("TEST-ORDER") || notification.resource.includes("test-order")) {
+            console.log(`[Order Notification] Ignorando notificação de teste: ${notification.resource}`);
+            return;
+        }
+
         console.log(`[Order Notification] Pedido: ${notification.resource}`);
 
         // Extrair order ID do resource
@@ -5880,6 +5853,12 @@ export async function handleOrderNotification(notification: any) {
  */
 async function handleQuestionNotification(notification: any) {
     try {
+        // Ignore test notifications
+        if (notification.resource.includes("TEST-CREATED-") || notification.resource.includes("test-created")) {
+            console.log(`[Question Notification] Ignorando notificação de teste: ${notification.resource}`);
+            return;
+        }
+
         console.log(`[Question Notification] Pergunta: ${notification.resource}`);
 
         const questionId = notification.resource.split('/').pop();
@@ -5932,6 +5911,12 @@ async function handleQuestionNotification(notification: any) {
  */
 async function handleItemNotification(notification: any) {
     try {
+        // Ignore test notifications
+        if (notification.resource.includes("TEST-ITEM") || notification.resource.includes("test-item")) {
+            console.log(`[Item Notification] Ignorando notificação de teste: ${notification.resource}`);
+            return;
+        }
+
         console.log(`[Item Notification] Item: ${notification.resource}`);
 
         if (!ML_ITEM_NOTIFICATIONS_ENABLED) {

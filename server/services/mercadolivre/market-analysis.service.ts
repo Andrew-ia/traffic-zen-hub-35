@@ -1,6 +1,6 @@
 
 import axios from "axios";
-import { getPool } from "../../config/database";
+import { getPool } from "../../config/database.js";
 
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
 const MAX_COMPETITOR_RESULTS = 1000;

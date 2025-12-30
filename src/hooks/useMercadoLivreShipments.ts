@@ -89,6 +89,6 @@ export function useMercadoLivreShipments(
             return response.json();
         },
         enabled: !!effectiveWorkspaceId,
-        refetchInterval: 60000, // Refresh every minute
+        // refetchInterval: 60000, // Refresh every minute - Removed per user request
     });
 }

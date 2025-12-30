@@ -29,7 +29,7 @@ const STORAGE_KEY = 'trafficpro.auth.token';
 const WORKSPACE_STORAGE_KEY = 'trafficpro.workspace.selected';
 const OVERRIDES_PREFIX = 'trafficpro.page_access_overrides';
 const API_BASE = resolveApiBase();
-const DISABLE_AUTH = import.meta.env.VITE_DISABLE_AUTH === 'true';
+const DISABLE_AUTH = String(import.meta.env.VITE_DISABLE_AUTH || '').trim() === 'true';
 const DEFAULT_USER: User = {
   id: 'dev-user',
   email: (import.meta.env.VITE_ADMIN_EMAIL as string | undefined) || 'founder@trafficpro.dev',

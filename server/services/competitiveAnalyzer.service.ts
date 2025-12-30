@@ -204,6 +204,9 @@ export class CompetitiveAnalyzerService {
     private async findCompetitors(productData: MLBAnalysisData, accessToken?: string): Promise<CompetitorProduct[]> {
         const terms = this.buildQueryTerms(productData);
         const headers = { 'User-Agent': 'TrafficPro-MLB-Analyzer/1.0' } as any;
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        }
 
         const collectedIds = new Set<string>();
         const competitors: CompetitorProduct[] = [];
@@ -913,19 +916,7 @@ export class CompetitiveAnalyzerService {
                             }
                         }
                         
-                        // Fallback para busca pública se a autenticada falhou
-                        if (!searchResponse) {
-                            try {
-                                searchResponse = await axios.get(`${MERCADO_LIVRE_API_BASE}/sites/MLB/search`, {
-                                    headers,
-                                    params: { q: term, limit: 10, sort: 'sold_quantity_desc' },
-                                    timeout: 8000
-                                });
-                            } catch (publicError) {
-                                console.warn(`[Category Top Products] Busca pública falhou para termo '${term}':`, publicError.message);
-                                continue;
-                            }
-                        }
+                        // Fallback removido por politica de nao usar API publica
                         
                         const searchResults = searchResponse?.data?.results || [];
                         
