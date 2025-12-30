@@ -7,12 +7,19 @@ import { resolveWorkspaceId } from '../utils/workspace.js';
 /**
  * Simple HMAC-based token utilities (no external deps)
  */
-const AUTH_SECRET = (() => {
-  const v = process.env.AUTH_SECRET || process.env.VITE_AUTH_SECRET || '';
-  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
-  if (!v && isProd) throw new Error('AUTH_SECRET not configured');
-  return v || 'dev-secret-change-me';
-})();
+const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const AUTH_SECRET = process.env.AUTH_SECRET || process.env.CREDENTIALS_SECRET || process.env.VITE_AUTH_SECRET || '';
+const DEV_FALLBACK_SECRET = 'dev-secret-change-me';
+
+if (!AUTH_SECRET && IS_PROD) {
+  console.error('[Auth] AUTH_SECRET not configured');
+}
+
+function resolveSigningSecret(): string | null {
+  if (AUTH_SECRET) return AUTH_SECRET;
+  if (!IS_PROD) return DEV_FALLBACK_SECRET;
+  return null;
+}
 let pagePermsTableEnsured = false;
 
 interface TokenPayload {
@@ -25,14 +32,18 @@ interface TokenPayload {
 function signToken(payload: TokenPayload): string {
   const json = JSON.stringify(payload);
   const b64 = Buffer.from(json).toString('base64url');
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(b64).digest('hex');
+  const secret = resolveSigningSecret();
+  if (!secret) throw new Error('AUTH_SECRET not configured');
+  const sig = crypto.createHmac('sha256', secret).update(b64).digest('hex');
   return `${b64}.${sig}`;
 }
 
 function verifyToken(token: string): TokenPayload | null {
   const [b64, sig] = token.split('.');
   if (!b64 || !sig) return null;
-  const expected = crypto.createHmac('sha256', AUTH_SECRET).update(b64).digest('hex');
+  const secret = resolveSigningSecret();
+  if (!secret) return null;
+  const expected = crypto.createHmac('sha256', secret).update(b64).digest('hex');
   if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
   try {
     const payload = JSON.parse(Buffer.from(b64, 'base64url').toString('utf8')) as TokenPayload;
@@ -44,6 +55,9 @@ function verifyToken(token: string): TokenPayload | null {
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!resolveSigningSecret()) {
+    return res.status(500).json({ success: false, error: 'auth_not_configured' });
+  }
   const header = req.headers['authorization'];
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ success: false, error: 'missing_token' });
@@ -74,6 +88,9 @@ export async function login(req: Request, res: Response) {
   const pool = getPool();
 
   try {
+    if (!resolveSigningSecret()) {
+      return res.status(500).json({ success: false, error: 'auth_not_configured' });
+    }
     const { email, username, password } = req.body || {};
     const identifier = email || username;
 
