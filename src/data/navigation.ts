@@ -2,21 +2,16 @@ import type { LucideIcon } from "lucide-react";
 import {
   Target,
   TrendingUp,
-  Plug,
   Sparkles,
-  Facebook,
   MessageSquare,
   Kanban,
-  ChartLine,
   Folder,
   ShoppingBag,
   Package,
   Trophy,
   Warehouse,
-  Bell,
   PenTool,
 } from "lucide-react";
-import { featureFlags } from "@/lib/featureFlags";
 
 export interface NavigationItem {
   name: string;
@@ -39,7 +34,7 @@ export const mainNavigation: NavigationEntry[] = [
     icon: ShoppingBag,
     children: [
       { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
-      { name: "Análise de Mercado", href: "/mercado-livre-market-analysis", icon: ChartLine, keywords: ["analise", "mercado", "concorrencia", "tendencias", "mlb"] },
+      // { name: "Análise de Mercado", href: "/mercado-livre-market-analysis", icon: ChartLine, keywords: ["analise", "mercado", "concorrencia", "tendencias", "mlb"] },
       { name: "Calc. de Preço ML", href: "/mercado-livre-price-calculator", icon: Trophy, keywords: ["preco", "fee", "margem", "mercado livre", "calculadora"] },
       { name: "Descrições ML", href: "/mercado-livre-descricoes", icon: PenTool, keywords: ["descricao", "anuncio", "copy", "mercado livre"] },
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "produtos", "catalogo", "estoque", "ml"] },
@@ -47,7 +42,6 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
     ],
   },
-  { name: "Tray Commerce", href: "/tray", icon: ShoppingBag, keywords: ["tray", "loja", "ecommerce", "integracao"] },
   {
     name: "Projetos",
     href: "/projects",
@@ -58,24 +52,7 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Internal Chat", href: "/projects/internal-chat", icon: MessageSquare, keywords: ["chat", "mensagens", "conversas"] },
     ],
   },
-  ...(featureFlags.metaAds ? [
-    {
-      name: "Meta Ads",
-      href: "/meta-ads",
-      icon: Facebook,
-      children: [
-        { name: "Relatórios", href: "/meta-ads/reports", icon: TrendingUp, keywords: ["reports", "relatorio", "meta"] },
-      ],
-      keywords: ["facebook", "meta"]
-    },
-  ] : []),
-  ...(featureFlags.googleAnalytics ? [
-    { name: "Google Analytics", href: "/google-analytics", icon: ChartLine, keywords: ["ga4", "google analytics", "analytics"] },
-  ] : []),
-  // Relatórios agora como subpágina de Meta Ads
   { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
-  { name: "Notificações", href: "/notifications", icon: Bell, keywords: ["notificações", "telegram", "alertas", "avisos"] },
-  { name: "Usuários", href: "/admin/users", icon: Plug, keywords: ["admin", "usuários", "acesso"] },
 ];
 
 export function flattenNavigation(entries: NavigationEntry[]): NavigationItem[] {
@@ -97,9 +74,5 @@ export function findNavigationLabel(pathname: string): string | undefined {
   if (exact) return exact.name;
 
   if (pathname === "/mercado-livre") return "Mercado Livre";
-  if (pathname.startsWith("/campaigns/")) return "Detalhes da Campanha";
-  if (pathname.startsWith("/ads/")) return "Detalhes do Anúncio";
-  if (featureFlags.metaAds && pathname.startsWith("/meta-ads/reports")) return "Relatórios";
-  if (pathname.startsWith("/reports/")) return "Detalhes do Relatório";
   return undefined;
 }

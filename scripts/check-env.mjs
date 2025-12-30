@@ -37,9 +37,6 @@ function looksLikePublishable(v) {
   return typeof v === 'string' && v.startsWith('sb_publishable_');
 }
 
-function looksLikeMetaAccountId(v) {
-  return typeof v === 'string' && /^\d{6,}$/.test(v);
-}
 
 function safeWriteEnv(updates) {
   try {
@@ -126,60 +123,29 @@ if (!SUPABASE_DATABASE_URL) {
   }
 }
 
-// Meta Ads
-const META_APP_ID = process.env.META_APP_ID;
-const META_APP_SECRET = process.env.META_APP_SECRET;
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
-const META_WORKSPACE_ID = process.env.META_WORKSPACE_ID || VITE_WORKSPACE_ID;
+// Mercado Livre (OAuth)
+const ML_CLIENT_ID = process.env.MERCADO_LIVRE_CLIENT_ID;
+const ML_CLIENT_SECRET = process.env.MERCADO_LIVRE_CLIENT_SECRET;
+const ML_ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
+const ML_REFRESH_TOKEN = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
+const ML_USER_ID = process.env.MERCADO_LIVRE_USER_ID;
 
-if (!META_WORKSPACE_ID || !isUuid(META_WORKSPACE_ID)) {
-  warn('META_WORKSPACE_ID ausente ou inválido (usa VITE_WORKSPACE_ID por padrão).');
-}
-if (!META_APP_ID || !META_APP_SECRET || !META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID) {
-  warn('Credenciais do Meta incompletas. Sincronização de métricas não funcionará até preencher META_*');
+if (!ML_CLIENT_ID || !ML_CLIENT_SECRET) {
+  warn('MERCADO_LIVRE_CLIENT_ID/SECRET ausentes. OAuth do Mercado Livre não funcionará.');
 } else {
-  if (!looksLikeMetaAccountId(META_AD_ACCOUNT_ID)) warn('META_AD_ACCOUNT_ID deve conter apenas dígitos (sem act_)');
-  ok('META_* presentes');
+  ok('MERCADO_LIVRE_CLIENT_ID/SECRET OK');
 }
 
-// Google Ads
-const GACID = process.env.GOOGLE_ADS_CUSTOMER_ID;
-const GADT = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-const GCID = process.env.GOOGLE_CLIENT_ID;
-const GSECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GREFRESH = process.env.GOOGLE_ADS_REFRESH_TOKEN;
-if (GACID && !/^\d{6,}$/.test(GACID)) warn('GOOGLE_ADS_CUSTOMER_ID deve conter apenas dígitos');
-if (!GACID || !GADT || !GCID || !GSECRET || !GREFRESH) {
-  warn('Credenciais do Google Ads incompletas. Sincronização Google pode falhar.');
+if (!ML_ACCESS_TOKEN || !ML_USER_ID) {
+  warn('MERCADO_LIVRE_ACCESS_TOKEN/USER_ID ausentes. Algumas rotas podem exigir OAuth.');
 } else {
-  ok('Google Ads credenciais presentes');
-}
-
-// GA4
-const GA4_PROP = process.env.GA4_PROPERTY_ID;
-const GA4_EMAIL = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
-const GA4_KEY = process.env.GA4_SERVICE_ACCOUNT_KEY;
-const GCREDS_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-if (GCREDS_PATH) {
-  if (fs.existsSync(GCREDS_PATH)) {
-    ok('GOOGLE_APPLICATION_CREDENTIALS OK');
-  } else {
-    warn(`GOOGLE_APPLICATION_CREDENTIALS aponta para arquivo inexistente: ${GCREDS_PATH}`);
-  }
-} else if (GA4_EMAIL && GA4_KEY) {
-  ok('GA4 service account via env OK');
-} else if (GA4_PROP) {
-  warn('GA4 configurado parcialmente (property sem credenciais). API de relatórios pode falhar.');
+  ok('MERCADO_LIVRE_ACCESS_TOKEN/USER_ID OK');
 }
 
 // Gemini
 if (!process.env.GEMINI_API_KEY) {
   warn('GEMINI_API_KEY ausente. Funcionalidades de geração de criativos podem ficar limitadas.');
 }
-
-// Apply minimal safe auto-fixes
-safeWriteEnv({ META_WORKSPACE_ID: META_WORKSPACE_ID });
 
 // Output summary
 const summary = {

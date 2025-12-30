@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Bell, Command, HelpCircle, Search, User, Menu } from "lucide-react";
+import { Command, HelpCircle, Search, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,10 +14,7 @@ import { ModeToggle } from "@/components/theme/mode-toggle";
 import { useCommandMenu } from "./CommandMenu";
 import { useResponsive } from "@/hooks/use-responsive";
 import { useAuth } from "@/hooks/useAuth";
-import { NotificationBell } from "@/components/notifications/NotificationBell";
-import { AvatarSelector } from "@/components/user/AvatarSelector";
 import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
-import { adsFeaturesEnabled } from "@/lib/featureFlags";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -50,9 +47,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   }, []);
   const searchPlaceholder = useMemo(() => {
     if (isMobile) return "Buscar...";
-    return adsFeaturesEnabled
-      ? "Buscar campanhas, relatórios..."
-      : "Buscar páginas, produtos, análises...";
+    return "Buscar páginas, produtos, análises...";
   }, [isMobile]);
 
   useEffect(() => {
@@ -134,10 +129,6 @@ export function Header({ onMenuClick }: HeaderProps) {
               <span className="sr-only">Abrir ajuda</span>
             </Button>
           )}
-
-          <NotificationBell />
-
-          <AvatarSelector />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

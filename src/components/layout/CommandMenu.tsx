@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { DollarSign, FilePlus, HelpCircle, ListPlus, Clock, Command as CommandIcon, ShoppingBag, TrendingUp, Package } from "lucide-react";
+import { Clock, Command as CommandIcon, ShoppingBag, TrendingUp, Package, Sparkles, Kanban } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -17,7 +17,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { mainNavigation, findNavigationLabel, flattenNavigation } from "@/data/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { adsFeaturesEnabled, featureFlags } from "@/lib/featureFlags";
 
 type CommandMenuSection = "default" | "create";
 
@@ -44,19 +43,7 @@ interface RecentRoute {
 
 const RECENTS_STORAGE_KEY = "trafficpro.recents";
 
-const isAdsRoute = (path: string) =>
-  path.startsWith("/campaigns") || path.startsWith("/ads") || path.startsWith("/reports");
-const isMetaRoute = (path: string) => path.startsWith("/meta-ads");
-const isGoogleAnalyticsRoute = (path: string) =>
-  path.startsWith("/google-analytics") || path.startsWith("/ga4");
-const isGoogleAdsRoute = (path: string) => path.startsWith("/google-ads");
-const isRouteEnabled = (path: string) => {
-  if (isMetaRoute(path)) return featureFlags.metaAds;
-  if (isGoogleAnalyticsRoute(path)) return featureFlags.googleAnalytics;
-  if (isGoogleAdsRoute(path)) return featureFlags.googleAds;
-  if (isAdsRoute(path)) return adsFeaturesEnabled;
-  return true;
-};
+const isRouteEnabled = () => true;
 
 function isEditableElement(target: EventTarget | null): boolean {
   if (!target || !(target instanceof HTMLElement)) return false;
@@ -190,31 +177,6 @@ interface CommandMenuProps {
 function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRoute, onOpenHelp }: CommandMenuProps) {
   const quickActions = useMemo(
     () => {
-      if (adsFeaturesEnabled) {
-        return [
-          {
-            label: "Adicionar Orçamento",
-            hint: "Abrir painel de orçamento com foco em novo",
-            icon: DollarSign,
-            shortcut: "B",
-            action: () => onSelectRoute("/budget?intent=new"),
-          },
-          {
-            label: "Criar Campanha",
-            hint: "Ir para a página de campanhas",
-            icon: ListPlus,
-            shortcut: "C",
-            action: () => onSelectRoute("/campaigns?intent=create"),
-          },
-          {
-            label: "Novo Relatório",
-            hint: "Abrir relatórios para construir um novo",
-            icon: FilePlus,
-            shortcut: "R",
-            action: () => onSelectRoute("/reports?intent=new"),
-          },
-        ];
-      }
       return [
         {
           label: "Analytics Full",
@@ -237,6 +199,20 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
           shortcut: "P",
           action: () => onSelectRoute("/products"),
         },
+        {
+          label: "Gerador de Looks",
+          hint: "Criar looks com IA",
+          icon: Sparkles,
+          shortcut: "L",
+          action: () => onSelectRoute("/gerador-looks"),
+        },
+        {
+          label: "Projetos",
+          hint: "Abrir quadro e tarefas",
+          icon: Kanban,
+          shortcut: "J",
+          action: () => onSelectRoute("/projects"),
+        },
       ];
     },
     [onSelectRoute],
@@ -245,25 +221,17 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
   const helperActions = useMemo(
     () => [
       {
-        label: "Documentação",
-        hint: "Abrir centro de ajuda",
-        icon: HelpCircle,
-        action: () => onSelectRoute("/integrations"),
-      },
-      {
         label: "Atalhos de teclado",
         hint: "Exibir lista completa",
         icon: CommandIcon,
         action: onOpenHelp,
       },
     ],
-    [onOpenHelp, onSelectRoute],
+    [onOpenHelp],
   );
 
   const showAllGroups = section === "default";
-  const searchPlaceholder = adsFeaturesEnabled
-    ? "Buscar campanhas, relatórios, páginas..."
-    : "Buscar páginas, produtos, análises...";
+  const searchPlaceholder = "Buscar páginas, produtos, análises...";
 
   return (
     <CommandDialog open={isOpen} onOpenChange={onOpenChange}>

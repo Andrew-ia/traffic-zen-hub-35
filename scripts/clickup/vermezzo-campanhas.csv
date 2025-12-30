@@ -1,7 +1,0 @@
-name,description,status,due_date,start_date,tags,parent
-Campanha WhatsApp — Mensagens,Objetivo: Mensagens (WhatsApp). Estrutura de campanha para Vermezzo.,APROVAÇÃO,2025-10-20,2025-10-20,"meta,whatsapp,campaign",
-Conjunto de Anúncios — Público automático,Público: Automático (Meta escolhe). Orçamento definido no conjunto. Posicionamentos: Automáticos.,APROVAÇÃO,2025-10-20,2025-10-20,"meta,adset,setup",Campanha WhatsApp — Mensagens
-Anúncio 1 — Vídeo + texto 1 + CTA WhatsApp,Criar criativo em vídeo com copy 1 e CTA para WhatsApp.,DESIGN,2025-10-20,2025-10-20,"creatives,video,whatsapp",Campanha WhatsApp — Mensagens
-Anúncio 2 — Imagem + texto 2 + CTA WhatsApp,Criar imagem estática com copy 2 e CTA para WhatsApp.,DESIGN,2025-10-20,2025-10-20,"creatives,image,whatsapp",Campanha WhatsApp — Mensagens
-Anúncio 3 — Carrossel + texto 3 + CTA WhatsApp,Criar carrossel com copy 3 e CTA para WhatsApp.,DESIGN,2025-10-20,2025-10-20,"creatives,carousel,whatsapp",Campanha WhatsApp — Mensagens
-CRIAR ANÚNCIO LIVE 20/10,Cancelado,CONCLUÍDO,2025-10-20,2025-10-20,"live,cancelado,vermezzo",

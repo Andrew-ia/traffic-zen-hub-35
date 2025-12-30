@@ -85,7 +85,7 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
                   <NavLink
                     key={entry.name}
                     to={entry.href}
-                    end={entry.href === "/" || entry.href === "/campaigns"}
+                    end={entry.href === "/"}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center justify-center rounded-lg p-3 transition-all duration-200",
@@ -117,7 +117,7 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
                   >
                     <NavLink
                       to={entry.href}
-                      end={entry.href === "/" || entry.href === "/campaigns"}
+                      end={entry.href === "/"}
                       className="flex items-center gap-3 flex-1"
                       onClick={() => isMobile && onClose()}
                     >
@@ -163,13 +163,12 @@ export function Sidebar({ isOpen, onToggle, onClose, isCollapsed, onCollapsedCha
                 </div>
               );
             }
-            if (entry.href === "/campaigns") return null;
             if (!hasAccess(entry.href)) return null;
             return (
               <NavLink
                 key={entry.name}
                 to={entry.href}
-                end={entry.href === "/" || entry.href === "/campaigns"}
+                end={entry.href === "/"}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]",

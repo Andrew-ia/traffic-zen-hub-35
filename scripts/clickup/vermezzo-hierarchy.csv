@@ -1,9 +1,0 @@
-name,description,status,due_date,start_date,tags,parent
-"Conjunto de Anúncios — Público automático","Segmentação automática com otimização para Mensagens (WhatsApp)",ideia,2025-10-20,2025-10-20,meta,"Campanha WhatsApp — Mensagens"
-"Anúncio 1 — Vídeo + texto 1 + CTA WhatsApp","Criativo em vídeo, copy 1, CTA para WhatsApp",ideia,2025-10-20,2025-10-20,meta,creatives,"Campanha WhatsApp — Mensagens"
-"Anúncio 2 — Imagem + texto 2 + CTA WhatsApp","Criativo em imagem, copy 2, CTA para WhatsApp",ideia,2025-10-20,2025-10-20,meta,creatives,"Campanha WhatsApp — Mensagens"
-"Anúncio 3 — Carrossel + texto 3 + CTA WhatsApp","Criativo em carrossel, copy 3, CTA para WhatsApp",ideia,2025-10-20,2025-10-20,meta,creatives,"Campanha WhatsApp — Mensagens"
-"ID da Métrica (GA4): G-FCC95TVZZ9","Tracking GA4 — Measurement ID conforme notas (G-FCC95TVZZ9)",ideia,2025-10-20,2025-10-20,analytics,
-"Verificar firing em todas as páginas.","QA de GTM: garantir GA4 e Google Ads em todas as páginas",,2025-10-20,2025-10-20,gtm,
-"Tray ID: 1391056","Confirmação de loja Tray (ID 1391056)",ideia,2025-10-20,2025-10-20,tray,
-"CRIAR ANÚNCIO LIVE 20/10","Anúncio live (cancelado) — manter registro organizacional",ideia,2025-10-20,2025-10-20,meta,live,"Campanha WhatsApp — Mensagens"

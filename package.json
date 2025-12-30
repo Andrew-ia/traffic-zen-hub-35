@@ -15,20 +15,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "check:env": "node scripts/check-env.mjs",
-    "sync:meta": "node scripts/meta/sync-campaigns.js",
-    "sync:meta:incremental": "tsx scripts/meta/sync-incremental.ts",
-    "backfill:meta": "node scripts/meta/backfill-insights.js",
-    "sync:google": "node scripts/google-ads/sync-google-ads.js",
-    "sync:meta:daily": "bash scripts/meta/run-daily.sh",
-    "meta:refresh-token": "node scripts/meta/refresh-access-token.js",
-    "check:data": "node scripts/check-data-sync.js",
     "server": "tsx server/index.ts",
     "generate:encryption-key": "node server/scripts/generate-encryption-key.js",
-    "import:cashflow": "tsx scripts/financial/import-cashflow.ts",
     "test:env": "node scripts/test-env.ts",
-    "test:api": "tsx scripts/test-api-health.ts",
-    "test:meta:flows": "tsx scripts/tests/validate-meta-flows.ts",
-    "verify:meta:create": "tsx scripts/meta/verify-create-flows.ts"
+    "test:api": "tsx scripts/test-api-health.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

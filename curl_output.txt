@@ -1,43 +1,0 @@
-Note: Unnecessary use of -X or --request, POST is already inferred.
-* Host localhost:3001 was resolved.
-* IPv6: ::1
-* IPv4: 127.0.0.1
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:3001...
-* Connected to localhost (::1) port 3001
-> POST /api/integrations/mercadolivre/apply-optimizations HTTP/1.1
-> Host: localhost:3001
-> User-Agent: curl/8.7.1
-> Accept: */*
-> Content-Type: application/json
-> Content-Length: 282
-> 
-} [282 bytes data]
-* upload completely sent off: 282 bytes
-100   282    0     0  100   282      0    234  0:00:01  0:00:01 --:--:--   234100   282    0     0  100   282      0    127  0:00:02  0:00:02 --:--:--   128< HTTP/1.1 200 OK
-< Content-Security-Policy: default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests
-< Cross-Origin-Opener-Policy: same-origin
-< Cross-Origin-Resource-Policy: same-origin
-< Origin-Agent-Cluster: ?1
-< Referrer-Policy: no-referrer
-< Strict-Transport-Security: max-age=31536000; includeSubDomains
-< X-Content-Type-Options: nosniff
-< X-DNS-Prefetch-Control: off
-< X-Download-Options: noopen
-< X-Frame-Options: SAMEORIGIN
-< X-Permitted-Cross-Domain-Policies: none
-< X-XSS-Protection: 0
-< Vary: Origin
-< Access-Control-Allow-Credentials: true
-< Content-Type: application/json; charset=utf-8
-< Content-Length: 6052
-< ETag: W/"17a4-1T17JhJG4k0HHMvKTmDENW6QCQw"
-< Date: Fri, 05 Dec 2025 23:59:29 GMT
-< Connection: keep-alive
-< Keep-Alive: timeout=5
-< 
-{ [6052 bytes data]
-{"success":true,"message":"Otimizações aplicadas com sucesso!","changes_applied":["Descrição SEO aplicada"],"effective_changes":["Descrição confirmada"],"mlb_id":"MLB4140587349","updated_fields":[],"after_snapshot":{"title":"Brinco Argola Esferas Prateado","attributes":[{"id":"IS_HIGHLIGHT_BRAND","name":"É marca destacada","value_id":"242084","value_name":"Não","values":[{"id":"242084","name":"Não","struct":null}],"value_type":"boolean"},{"id":"IS_TOM_BRAND","name":"É marca TOM","value_id":"242084","value_name":"Não","values":[{"id":"242084","name":"Não","struct":null}],"value_type":"boolean"},{"id":"SIZE","name":"Tamanho","value_id":null,"value_name":"Único","values":[{"id":null,"name":"Único","struct":null}],"value_type":"string"},{"id":"BRAND","name":"Marca","value_id":null,"value_name":"Genérico","values":[{"id":null,"name":"Genérico","struct":null}],"value_type":"string"},{"id":"COLOR","name":"Cor","value_id":null,"value_name":"Prata","values":[{"id":null,"name":"Prata","struct":null}],"value_type":"string"},{"id":"DIAMETER","name":"Diâmetro","value_id":null,"value_name":"3 cm","values":[{"id":null,"name":"3 cm","struct":{"number":3,"unit":"cm"}}],"value_type":"number_unit"},{"id":"EARRING_TYPE","name":"Tipo de brinco","value_id":"771122","value_name":"Argola","values":[{"id":"771122","name":"Argola","struct":null}],"value_type":"string"},{"id":"GEMSTONE_TYPES","name":"Tipos de pedras","value_id":"-1","value_name":null,"values":[{"id":"-1","name":null,"struct":null}],"value_type":"string"},{"id":"GTIN","name":"Código universal de produto","value_id":null,"value_name":"7893104414094","values":[{"id":null,"name":"7893104414094","struct":null}],"value_type":"string"},{"id":"ITEM_CONDITION","name":"Condição do item","value_id":"2230284","value_name":"Novo","values":[{"id":"2230284","name":"Novo","struct":null}],"value_type":"list"},{"id":"LENGTH","name":"Comprimento","value_id":null,"value_name":"3 cm","values":[{"id":null,"name":"3 cm","struct":{"number":3,"unit":"cm"}}],"value_type":"number_unit"},{"id":"MATERIAL","name":"Material","value_id":null,"value_name":"Aço Inoxidável","values":[{"id":null,"name":"Aço Inoxidável","struct":null}],"value_type":"string"},{"id":"MODEL","name":"Modelo","value_id":"5928743","value_name":"brinco casual prateado","values":[{"id":"5928743","name":"brinco casual prateado","struct":null}],"value_type":"string"},{"id":"MPN","name":"MPN","value_id":null,"value_name":"1504","values":[{"id":null,"name":"1504","struct":null}],"value_type":"string"},{"id":"PACKAGE_HEIGHT","name":"Altura da embalagem","value_id":null,"value_name":"2.2 cm","values":[{"id":null,"name":"2.2 cm","struct":{"number":2.2,"unit":"cm"}}],"value_type":"number_unit"},{"id":"PACKAGE_LENGTH","name":"Comprimento da embalagem","value_id":null,"value_name":"15.6 cm","values":[{"id":null,"name":"15.6 cm","struct":{"number":15.6,"unit":"cm"}}],"value_type":"number_unit"},{"id":"PACKAGE_WEIGHT","name":"Peso da embalagem","value_id":null,"value_name":"10 g","values":[{"id":null,"name":"10 g","struct":{"number":10,"unit":"g"}}],"value_type":"number_unit"},{"id":"PACKAGE_WIDTH","name":"Largura da embalagem","value_id":null,"value_name":"12.4 cm","values":[{"id":null,"name":"12.4 cm","struct":{"number":12.4,"unit":"cm"}}],"value_type":"number_unit"},{"id":"PIECES_NUMBER","name":"Quantidade de peças","value_id":null,"value_name":"2","values":[{"id":null,"name":"2","struct":null}],"value_type":"number"},{"id":"PRODUCT_FEATURES","name":"Características do produto","value_id":"8847339","value_name":"Sem validade","values":[{"id":"8847339","name":"Sem validade","struct":null}],"value_type":"list"},{"id":"SALE_FORMAT","name":"Formato de venda","value_id":"1359391","value_name":"Unidade","values":[{"id":"1359391","name":"Unidade","struct":null}],"value_type":"list"},{"id":"SELLER_PACKAGE_HEIGHT","name":"Altura da embalagem do vendor","value_id":null,"value_name":"16 cm","values":[{"id":null,"name":"16 cm","struct":{"number":16,"unit":"cm"}}],"value_type":"number_unit"},{"id":"SELLER_PACKAGE_LENGTH","name":"Comprime100  6334  100  6052  100   282   2627    122  0:00:02  0:00:02 --:--:--  2749100  6334  100  6052  100   282   2626    122  0:00:02  0:00:02 --:--:--  2747
-* Connection #0 to host localhost left intact
-nto da embalagem do vendor","value_id":null,"value_name":"3 cm","values":[{"id":null,"name":"3 cm","struct":{"number":3,"unit":"cm"}}],"value_type":"number_unit"},{"id":"SELLER_PACKAGE_TYPE","name":"Tipo da embalagem do vendor","value_id":"47115155","value_name":"Sem embalagem adicional","values":[{"id":"47115155","name":"Sem embalagem adicional","struct":null}],"value_type":"list"},{"id":"SELLER_PACKAGE_WEIGHT","name":"Peso da embalagem do vendor","value_id":null,"value_name":"10 g","values":[{"id":null,"name":"10 g","struct":{"number":10,"unit":"g"}}],"value_type":"number_unit"},{"id":"SELLER_PACKAGE_WIDTH","name":"Largura da embalagem do vendor","value_id":null,"value_name":"13 cm","values":[{"id":null,"name":"13 cm","struct":{"number":13,"unit":"cm"}}],"value_type":"number_unit"},{"id":"SELLER_SKU","name":"SKU","value_id":null,"value_name":"51","values":[{"id":null,"name":"51","struct":null}],"value_type":"string"},{"id":"SHIPMENT_PACKING","name":"Embalagem do envío","value_id":"7435891","value_name":"Flyer","values":[{"id":"7435891","name":"Flyer","struct":null}],"value_type":"list"},{"id":"STYLES","name":"Estilos","value_id":"35167383","value_name":"Atemporal","values":[{"id":"35167383","name":"Atemporal","struct":null}],"value_type":"string"},{"id":"UNITS_PER_PACK","name":"Unidades por kit","value_id":null,"value_name":"1","values":[{"id":null,"name":"1","struct":null}],"value_type":"number"},{"id":"WIDTH","name":"Largura","value_id":null,"value_name":"3 cm","values":[{"id":null,"name":"3 cm","struct":{"number":3,"unit":"cm"}}],"value_type":"number_unit"},{"id":"WITH_GEMSTONE","name":"Com pedra","value_id":"242084","value_name":"Não","values":[{"id":"242084","name":"Não","struct":null}],"value_type":"boolean"}],"description":"Brinco prateado hipoalergênico Genérico Prata\nUm acessório moderno e versátil que valoriza qualquer look.\n\nTestando edição via API direta."},"applied_at":"2025-12-05T23:59:29.436Z"}

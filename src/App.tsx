@@ -4,46 +4,27 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
-import Campaigns from "./pages/Campaigns";
-import CampaignDetails from "./pages/CampaignDetails";
-import AdDetails from "./pages/AdDetails";
-import Reports from "./pages/Reports";
 import VirtualTryOn from "./pages/VirtualTryOnV2";
-import Automations from "./pages/Automations";
-import Experiments from "./pages/Experiments";
 import InternalChat from "./pages/InternalChat";
-import MetaAds from "./pages/MetaAds";
-import CreateMetaCampaign from "./pages/CreateMetaCampaign";
-import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DriveCreatives from "./pages/DriveCreatives";
 import NotFound from "./pages/NotFound";
 import ProjectManagement from "./pages/ProjectManagementV3";
-import FeaturePaused from "./pages/FeaturePaused";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 import Login from "./pages/Login";
-import AdminUsers from "./pages/AdminUsers";
 import MercadoLivre from "./pages/MercadoLivreNew";
 import MercadoLivreAnalyzer from "./pages/MercadoLivreAnalyzer";
-import MercadoLivreMarketAnalysis from "./pages/MercadoLivreMarketAnalysis";
 import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuilder";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
 import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
-import Tray from "./pages/Tray";
-import TrayCallback from "./pages/TrayCallback";
 import Products from "./pages/Products";
 import FulfillmentManagement from "./pages/FulfillmentManagement";
-import Notifications from "./pages/Notifications";
 import { AuthProvider } from "./hooks/useAuth";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { WorkspaceProvider } from "./hooks/useWorkspace";
-import { adsFeaturesEnabled, featureFlags } from "@/lib/featureFlags";
 
 const queryClient = new QueryClient();
-const adsEnabled = adsFeaturesEnabled;
-const metaAdsEnabled = featureFlags.metaAds;
-const googleAnalyticsEnabled = featureFlags.googleAnalytics;
 
 function PageViewTracker() {
   const location = useLocation();
@@ -91,121 +72,16 @@ const App = () => (
                   <Route path="drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
                   <Route path="internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
                 </Route>
-                {adsEnabled ? (
-                  <>
-                    <Route path="/campaigns/:campaignId" element={<RequireAuth><CampaignDetails /></RequireAuth>} />
-                    <Route path="/ads/:adId" element={<RequireAuth><AdDetails /></RequireAuth>} />
-                    <Route path="/campaigns" element={<RequireAuth><Campaigns /></RequireAuth>} />
-                    <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-                  </>
-                ) : (
-                  <>
-                    <Route
-                      path="/campaigns/*"
-                      element={
-                        <RequireAuth>
-                          <FeaturePaused
-                            title="Campanhas"
-                            enableHint="VITE_FEATURE_META_ADS=true ou VITE_FEATURE_GOOGLE_ADS=true"
-                          />
-                        </RequireAuth>
-                      }
-                    />
-                    <Route
-                      path="/ads/*"
-                      element={
-                        <RequireAuth>
-                          <FeaturePaused
-                            title="Anúncios"
-                            enableHint="VITE_FEATURE_META_ADS=true ou VITE_FEATURE_GOOGLE_ADS=true"
-                          />
-                        </RequireAuth>
-                      }
-                    />
-                    <Route
-                      path="/reports/*"
-                      element={
-                        <RequireAuth>
-                          <FeaturePaused
-                            title="Relatórios de Ads"
-                            enableHint="VITE_FEATURE_META_ADS=true ou VITE_FEATURE_GOOGLE_ADS=true"
-                          />
-                        </RequireAuth>
-                      }
-                    />
-                  </>
-                )}
-
-                {metaAdsEnabled ? (
-                  <Route path="/meta-ads" element={<RequireAuth><MetaAds /></RequireAuth>}>
-                    <Route path="reports" element={<RequireAuth><Reports /></RequireAuth>} />
-                  </Route>
-                ) : (
-                  <Route
-                    path="/meta-ads/*"
-                    element={
-                      <RequireAuth>
-                        <FeaturePaused title="Meta Ads" enableHint="VITE_FEATURE_META_ADS=true" />
-                      </RequireAuth>
-                    }
-                  />
-                )}
-
-                {metaAdsEnabled ? (
-                  <Route path="/campaigns/new/meta" element={<RequireAuth><CreateMetaCampaign /></RequireAuth>} />
-                ) : (
-                  <Route
-                    path="/campaigns/new/meta"
-                    element={
-                      <RequireAuth>
-                        <FeaturePaused
-                          title="Criação de campanhas Meta"
-                          enableHint="VITE_FEATURE_META_ADS=true"
-                        />
-                      </RequireAuth>
-                    }
-                  />
-                )}
-
-                {googleAnalyticsEnabled ? (
-                  <Route path="/google-analytics" element={<RequireAuth><GoogleAnalytics /></RequireAuth>} />
-                ) : (
-                  <Route
-                    path="/google-analytics/*"
-                    element={
-                      <RequireAuth>
-                        <FeaturePaused
-                          title="Google Analytics"
-                          enableHint="VITE_FEATURE_GOOGLE_ANALYTICS=true"
-                        />
-                      </RequireAuth>
-                    }
-                  />
-                )}
-                {/* legacy route kept for backward compatibility */}
-                {/* <Route path="/drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} /> */}
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
-                <Route path="/automations" element={<RequireAuth><Automations /></RequireAuth>} />
-                <Route path="/experiments" element={<RequireAuth><Experiments /></RequireAuth>} />
-                {/* legacy route kept for backward compatibility */}
-                {/* <Route path="/internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} /> */}
                 <Route path="/mercado-livre" element={<RequireAuth><Navigate to="/" replace /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
-                <Route path="/mercado-livre-market-analysis" element={<RequireAuth><MercadoLivreMarketAnalysis /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
-                
-                <Route path="/tray" element={<RequireAuth><Tray /></RequireAuth>} />
-                <Route path="/integrations/tray/callback" element={<TrayCallback />} />
 
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
                 <Route path="/mercado-livre/full-analytics" element={<RequireAuth><MercadoLivreFullAnalytics /></RequireAuth>} />
                 <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />
-
-                <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
-
-                <Route path="/admin/users" element={<RequireAuth><AdminUsers /></RequireAuth>} />
 
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />

@@ -72,13 +72,20 @@ To connect a domain, navigate to Project > Settings > Domains and click Connect 
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
 
-## Integração Meta Marketing API
+## Funcionalidades mantidas
 
-O repositório inclui um script para sincronizar campanhas, ad sets e anúncios da Meta diretamente para o banco Supabase.
+- **Mercado Livre**: dashboard, análises, fulfillment, catálogo e integrações.
+- **Gerador de Looks**: Virtual Try-On + geração de legendas.
+- **Projetos**: gerenciamento de tarefas, documentos e chat interno.
 
-- Configure as variáveis no `.env.local` (`META_APP_ID`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_WORKSPACE_ID`).
-- Exponha as credenciais para o front-end adicionando `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_WORKSPACE_ID` e as variáveis `VITE_META_*` (já exemplificadas em `.env.local`).
-- Carregue o ambiente (`set -a && source .env.local && set +a`) e execute `npm run sync:meta`.
-- Para preencher o histórico inicial (30 dias) rode `npm run backfill:meta`.
-- Se o token expirar com frequência, configure um System User e rode `npm run meta:refresh-token` para gerar e propagar um novo `META_ACCESS_TOKEN` automaticamente.
-- Para mais detalhes, consulte `docs/integrations/meta.md`.
+### Mercado Livre
+
+- Script de OAuth local: `scripts/ml-oauth.sh`
+- Registro de webhook: `scripts/register-ml-webhook.js`
+- Setup rápido: `scripts/setup-mercadolivre.sh`
+
+### Desenvolvimento
+
+```sh
+npm run dev
+```
