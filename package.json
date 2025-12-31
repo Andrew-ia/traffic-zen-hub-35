@@ -77,8 +77,8 @@
     "node-fetch": "^3.3.2",
     "open": "^10.2.0",
     "openai": "^4.104.0",
-    "pg": "^8.16.3",
     "pdfkit": "^0.15.0",
+    "pg": "^8.16.3",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -100,6 +100,7 @@
   "devDependencies": {
     "@aliyun-rds/supabase-mcp-server": "^1.0.3",
     "@eslint/js": "^9.32.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "@supabase/mcp-server-supabase": "^0.5.9",
     "@tailwindcss/typography": "^0.5.16",

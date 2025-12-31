@@ -60,6 +60,7 @@ import {
   getPendingReminders,
   markReminderAsSent,
 } from './api/pm/reminders.js';
+import productHubRouter from './api/productHub.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -145,6 +146,7 @@ app.delete('/api/creatives/tryon-looks/:id', deleteTryOnLook);
 
 // Products
 app.use('/api/products', productsRouter);
+app.use('/api/product-hub', productHubRouter);
 
 // Mercado Livre endpoints
 app.use('/api/integrations/mercadolivre', mercadoLivreRouter);

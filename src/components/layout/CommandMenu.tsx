@@ -194,10 +194,17 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
         },
         {
           label: "Produtos",
-          hint: "Gerenciar catálogo e estoque",
+          hint: "Anúncios Mercado Livre",
           icon: Package,
           shortcut: "P",
           action: () => onSelectRoute("/products"),
+        },
+        {
+          label: "Catálogo (Hub)",
+          hint: "Produtos centralizados para marketplaces",
+          icon: Package,
+          shortcut: "H",
+          action: () => onSelectRoute("/product-hub"),
         },
         {
           label: "Gerador de Looks",

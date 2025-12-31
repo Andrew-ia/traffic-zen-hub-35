@@ -19,6 +19,8 @@ import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuild
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
 import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
 import Products from "./pages/Products";
+import ProductHub from "./pages/ProductHub";
+import ProductHubDetail from "./pages/ProductHubDetail";
 import FulfillmentManagement from "./pages/FulfillmentManagement";
 import { AuthProvider } from "./hooks/useAuth";
 import { RequireAuth } from "@/components/layout/RequireAuth";
@@ -79,6 +81,8 @@ const App = () => (
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
                 <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
 
+                <Route path="/product-hub" element={<RequireAuth><ProductHub /></RequireAuth>} />
+                <Route path="/product-hub/:id" element={<RequireAuth><ProductHubDetail /></RequireAuth>} />
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
                 <Route path="/mercado-livre/full-analytics" element={<RequireAuth><MercadoLivreFullAnalytics /></RequireAuth>} />
                 <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />
