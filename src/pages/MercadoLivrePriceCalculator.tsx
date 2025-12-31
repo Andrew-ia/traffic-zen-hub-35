@@ -42,10 +42,13 @@ export default function MercadoLivrePriceCalculator() {
     const [searchParams] = useSearchParams();
     const mlbFromQuery = searchParams.get("mlb")?.trim();
     const autoLoadedRef = useRef<string | null>(null);
+    const hasWorkspace = Boolean(currentWorkspace?.id);
+    const [hasManualData, setHasManualData] = useState(false);
     const [mlbId, setMlbId] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [item, setItem] = useState<MLItem | null>(null);
+    const hasItem = Boolean(item);
 
     const [feePercent, setFeePercent] = useState(0.19);
     const [productCost, setProductCost] = useState(0);
@@ -155,6 +158,11 @@ export default function MercadoLivrePriceCalculator() {
         void loadItem(normalized);
     }, [mlbFromQuery, currentWorkspace?.id, loadItem]);
 
+    const handleManualChange = <T extends number | string>(setter: (value: number) => void, value: T) => {
+        setHasManualData(true);
+        setter(Number(value));
+    };
+
     return (
         <div className="container mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
             <div className="flex items-center gap-3">
@@ -168,7 +176,7 @@ export default function MercadoLivrePriceCalculator() {
             <Card>
                 <CardHeader>
                     <CardTitle>Buscar anúncio</CardTitle>
-                    <CardDescription>Informe o MLB ID para puxar preço, tipo de anúncio e frete.</CardDescription>
+                    <CardDescription>Opcional: informe o MLB para preencher automaticamente. Você também pode editar tudo manualmente abaixo.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col md:flex-row gap-3">
                     <div className="flex-1">
@@ -183,7 +191,7 @@ export default function MercadoLivrePriceCalculator() {
                     <Button
                         className="mt-6 md:mt-auto"
                         onClick={() => loadItem()}
-                        disabled={loading || !mlbId || !currentWorkspace?.id}
+                        disabled={loading || !mlbId || !hasWorkspace}
                     >
                         {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />} Buscar
                     </Button>
@@ -197,272 +205,285 @@ export default function MercadoLivrePriceCalculator() {
                 )}
             </Card>
 
-            {item && (
-                <div className="grid gap-4 md:grid-cols-3">
-                    <Card className="md:col-span-2">
-                        <CardHeader>
-                            <CardTitle>{item.title}</CardTitle>
-                            <CardDescription>{item.id}</CardDescription>
+            <div className="grid gap-4 md:grid-cols-3">
+                <Card className="md:col-span-2">
+                    <CardHeader>
+                        <CardTitle>{item?.title || "Preencha os dados para simular"}</CardTitle>
+                        <CardDescription>
+                            {item?.id
+                                ? `MLB: ${item.id}`
+                                : "Busque um anúncio para preencher automaticamente ou informe os valores manualmente."}
+                        </CardDescription>
+                        {hasItem && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
-                                {item.listing_type_id && (
+                                {item?.listing_type_id && (
                                     <Badge variant="outline" className="uppercase">
-                                        {item.listing_type_id}
+                                        {item?.listing_type_id}
                                     </Badge>
                                 )}
-                                {item.shipping?.free_shipping && <Badge variant="secondary">Frete grátis</Badge>}
-                                {item.shipping?.logistic_type && <Badge variant="secondary">{item.shipping.logistic_type}</Badge>}
-                                {item.shipping?.mode && <Badge variant="secondary">{item.shipping.mode}</Badge>}
+                                {item?.shipping?.free_shipping && <Badge variant="secondary">Frete grátis</Badge>}
+                                {item?.shipping?.logistic_type && <Badge variant="secondary">{item?.shipping?.logistic_type}</Badge>}
+                                {item?.shipping?.mode && <Badge variant="secondary">{item?.shipping?.mode}</Badge>}
                             </div>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="text-3xl font-bold">R$ {(priceToUse || 0).toFixed(2)}</div>
-                            <div className="grid md:grid-cols-2 gap-3">
-                                <div>
-                                    <Label>Preço simulado</Label>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            type="number"
-                                            value={priceToUse}
-                                            onChange={(e) => setManualPrice(Number(e.target.value))}
-                                        />
-                                        <Button type="button" variant="outline" onClick={() => setManualPrice(item?.price ?? 0)}>
-                                            Usar preço do anúncio
-                                        </Button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-1">Altere para simular variações de preço.</p>
+                        )}
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <div className="text-3xl font-bold">R$ {(priceToUse || 0).toFixed(2)}</div>
+                        <div className="grid md:grid-cols-2 gap-3">
+                            <div>
+                                <Label>Preço simulado</Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        type="number"
+                                        value={priceToUse}
+                                        onChange={(e) => handleManualChange(setManualPrice, e.target.value)}
+                                        placeholder="Informe o preço manualmente"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setManualPrice(item?.price ?? 0)}
+                                        disabled={!item?.price}
+                                    >
+                                        Usar preço do anúncio
+                                    </Button>
                                 </div>
-                                <div>
-                                    <Label>Presets de taxa/anúncio</Label>
-                                    <div className="flex flex-wrap gap-2 mt-1">
-                                        <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(0.19)}>Premium ~19%</Button>
-                                        <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(0.14)}>Clássico ~14%</Button>
-                                        <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(getFeePercent(item?.listing_type_id))}>Taxa do anúncio</Button>
-                                    </div>
-                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">Altere para simular variações de preço.</p>
                             </div>
-                            <div className="grid md:grid-cols-2 gap-3">
-                                <div className="space-y-3">
-                                    <Label>Taxa ML (%)</Label>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            type="number"
-                                            min={0}
-                                            step={0.01}
-                                            value={feePercent}
-                                            onChange={(e) => setFeePercent(Number(e.target.value))}
-                                        />
-                                        <Button variant="outline" type="button" onClick={() => setFeePercent(getFeePercent(item.listing_type_id))}>
-                                            Padrão do anúncio
-                                        </Button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                        Somente o percentual da comissão (ex.: 19% Premium, 14% Clássico). A tarifa fixa é configurada abaixo.
-                                    </p>
-                                    <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
-                                        <Truck className="w-4 h-4" />
-                                        <span>Frete padrão: {item.shipping?.mode || 'N/A'} • {item.shipping?.logistic_type || 'logística'}</span>
-                                        <Badge variant="outline">{shippingMode === "seller" ? "Vendedor paga frete" : "Comprador paga frete"}</Badge>
-                                        {item.shipping?.dimensions && <span>Dimensões: {item.shipping.dimensions}</span>}
-                                        {mlShippingCost !== null && <Badge variant="outline">Custo ML: R$ {mlShippingCost.toFixed(2)}</Badge>}
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <Label>Custo produto</Label>
-                                        <Input type="number" value={productCost} onChange={(e) => setProductCost(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>Frete (custo)</Label>
-                                        <Input type="number" value={shippingCost} onChange={(e) => setShippingCost(Number(e.target.value))} />
-                                        {mlShippingCost !== null && (
-                                            <p className="text-xs text-muted-foreground">Sugestão (ML): R$ {mlShippingCost.toFixed(2)}</p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <Label>Embalagem</Label>
-                                        <Input type="number" value={packagingCost} onChange={(e) => setPackagingCost(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>Outros custos</Label>
-                                        <Input type="number" value={otherCost} onChange={(e) => setOtherCost(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>Tarifa fixa ML (R$ /unidade)</Label>
-                                        <div className="flex flex-wrap gap-2 mt-1">
-                                            {[6.25, 6.5].map((value) => (
-                                                <Button
-                                                    key={value}
-                                                    size="sm"
-                                                    type="button"
-                                                    variant={mlFlatFeePerUnit === value ? "default" : "outline"}
-                                                    onClick={() => setMlFlatFeePerUnit(value)}
-                                                >
-                                                    R$ {value.toFixed(2).replace(".", ",")}
-                                                </Button>
-                                            ))}
-                                        </div>
-                                        <Input
-                                            type="number"
-                                            step={0.01}
-                                            value={mlFlatFeePerUnit}
-                                            onChange={(e) => setMlFlatFeePerUnit(Number(e.target.value))}
-                                            className="mt-2"
-                                        />
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Valores padrão: 6,25 ou 6,50 por unidade. Não entra na % acima; é somada separadamente por unidade.
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <Label>Unidades por pedido</Label>
-                                        <Input type="number" value={unitsPerOrder} onChange={(e) => setUnitsPerOrder(Number(e.target.value))} />
-                                    </div>
+                            <div>
+                                <Label>Presets de taxa/anúncio</Label>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                    <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(0.19)}>Premium ~19%</Button>
+                                    <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(0.14)}>Clássico ~14%</Button>
+                                    <Button size="sm" variant="outline" type="button" onClick={() => setFeePercent(getFeePercent(item?.listing_type_id))}>Taxa do anúncio</Button>
                                 </div>
                             </div>
-                                <div>
-                                    <Label>Margem alvo (%)</Label>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-3">
+                            <div className="space-y-3">
+                                <Label>Taxa ML (%)</Label>
+                                <div className="flex gap-2">
                                     <Input
                                         type="number"
                                         min={0}
-                                    step={0.01}
-                                    value={desiredMargin}
-                                    onChange={(e) => setDesiredMargin(Number(e.target.value))}
-                                />
-                            </div>
-                            <div className="flex flex-wrap gap-3">
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="radio"
-                                        id="buyer-pays"
-                                        checked={shippingMode === "buyer"}
-                                        onChange={() => setShippingMode("buyer")}
+                                        step={0.01}
+                                        value={feePercent}
+                                        onChange={(e) => handleManualChange(setFeePercent, e.target.value)}
                                     />
-                                    <Label htmlFor="buyer-pays" className="cursor-pointer">Comprador paga frete</Label>
+                                    <Button variant="outline" type="button" onClick={() => setFeePercent(getFeePercent(item?.listing_type_id))}>
+                                        Padrão do anúncio
+                                    </Button>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="radio"
-                                        id="seller-pays"
-                                        checked={shippingMode === "seller"}
-                                        onChange={() => setShippingMode("seller")}
-                                    />
-                                    <Label htmlFor="seller-pays" className="cursor-pointer">Vendedor paga frete</Label>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Se vendedor paga frete, usamos o custo informado em “Frete (custo)” nos cálculos.
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Somente o percentual da comissão (ex.: 19% Premium, 14% Clássico). A tarifa fixa é configurada abaixo.
                                 </p>
-                            </div>
-                            <div className="grid md:grid-cols-2 gap-3">
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <Label>Taxa pagamento (%)</Label>
-                                        <Input type="number" step={0.005} value={paymentFeePercent} onChange={(e) => setPaymentFeePercent(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>Overhead (%)</Label>
-                                        <Input type="number" step={0.005} value={overheadPercent} onChange={(e) => setOverheadPercent(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>CAC / pedido</Label>
-                                        <Input type="number" value={cacCost} onChange={(e) => setCacCost(Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <Label>Preço original</Label>
-                                        <Input type="number" value={originalPrice ?? ""} onChange={(e) => setOriginalPrice(Number(e.target.value))} />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <Label>Preço concorrente</Label>
-                                        <Input type="number" value={competitorPrice ?? ""} onChange={(e) => setCompetitorPrice(Number(e.target.value))} />
-                                    </div>
-                                    <div className="flex items-end">
-                                        <Button variant="outline" type="button" className="w-full" onClick={() => {
-                                            const parsed = competitorPrice ?? 0;
-                                            if (!Number.isFinite(parsed) || parsed <= 0) return;
-                                            setManualPrice(parsed);
-                                        }}>
-                                            Usar preço concorrente
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Resumo financeiro</CardTitle>
-                            <CardDescription>Margem com o preço atual do anúncio</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span>Preço atual</span>
-                                <span className="font-semibold">R$ {totals.price.toFixed(2)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Taxa ML (%)</span>
-                                <span>R$ {totals.feeMl.toFixed(2)} ({(feePercent * 100).toFixed(1)}%)</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Taxa pagamento</span>
-                                <span>R$ {totals.feePayment.toFixed(2)} ({(paymentFeePercent * 100).toFixed(1)}%)</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Overhead</span>
-                                <span>R$ {totals.feeOverhead.toFixed(2)} ({(overheadPercent * 100).toFixed(1)}%)</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Tarifa fixa ML</span>
-                                <span>R$ {totals.feeFlat.toFixed(2)} ({unitsPerOrder} un.)</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Custos (produto+frete+outros+CAC)</span>
-                                <span>R$ {totals.costs.toFixed(2)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-semibold">Lucro</span>
-                                <span className={`font-bold ${totals.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                    R$ {totals.profit.toFixed(2)} ({(totals.marginPct * 100).toFixed(1)}%)
-                                </span>
-                            </div>
-                            <div className="space-y-2 pt-2 border-t">
-                                <div className="text-sm flex items-center gap-2">
-                                    <Wallet className="w-4 h-4" />
-                                    <div>
-                                        <div className="font-semibold">Preço de equilíbrio</div>
-                                        <div className="text-muted-foreground text-xs">Para cobrir custos+taxa: R$ {totals.breakeven.toFixed(2)}</div>
-                                    </div>
-                                </div>
-                                <div className="text-sm flex items-center gap-2">
-                                    <Percent className="w-4 h-4" />
-                                    <div>
-                                        <div className="font-semibold">Preço alvo ({(desiredMargin * 100).toFixed(0)}% margem)</div>
-                                        <div className="text-muted-foreground text-xs">Sugerido: R$ {totals.targetPrice.toFixed(2)}</div>
-                                    </div>
-                                </div>
-                                {originalPrice && (
-                                    <div className="text-sm">
-                                        <div className="font-semibold">Desconto vs preço original</div>
-                                        <div className="text-muted-foreground text-xs">
-                                            {((1 - totals.price / originalPrice) * 100).toFixed(1)}% off (R$ {(originalPrice - totals.price).toFixed(2)})
-                                        </div>
-                                    </div>
-                                )}
-                                {competitorPrice && (
-                                    <div className="text-sm">
-                                        <div className="font-semibold">Diferença para concorrente</div>
-                                        <div className="text-muted-foreground text-xs">
-                                            {((totals.price - competitorPrice) / competitorPrice * 100).toFixed(1)}% vs R$ {competitorPrice.toFixed(2)}
-                                        </div>
+                                {hasItem && (
+                                    <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
+                                        <Truck className="w-4 h-4" />
+                                        <span>Frete padrão: {item?.shipping?.mode || 'N/A'} • {item?.shipping?.logistic_type || 'logística'}</span>
+                                        <Badge variant="outline">{shippingMode === "seller" ? "Vendedor paga frete" : "Comprador paga frete"}</Badge>
+                                        {item?.shipping?.dimensions && <span>Dimensões: {item?.shipping.dimensions}</span>}
+                                        {mlShippingCost !== null && <Badge variant="outline">Custo ML: R$ {mlShippingCost.toFixed(2)}</Badge>}
                                     </div>
                                 )}
                             </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <Label>Custo produto</Label>
+                                    <Input type="number" value={productCost} onChange={(e) => handleManualChange(setProductCost, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Frete (custo)</Label>
+                                    <Input type="number" value={shippingCost} onChange={(e) => handleManualChange(setShippingCost, e.target.value)} />
+                                    {mlShippingCost !== null && (
+                                        <p className="text-xs text-muted-foreground">Sugestão (ML): R$ {mlShippingCost.toFixed(2)}</p>
+                                    )}
+                                </div>
+                                <div>
+                                    <Label>Embalagem</Label>
+                                    <Input type="number" value={packagingCost} onChange={(e) => handleManualChange(setPackagingCost, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Outros custos</Label>
+                                    <Input type="number" value={otherCost} onChange={(e) => handleManualChange(setOtherCost, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Tarifa fixa ML (R$ /unidade)</Label>
+                                    <div className="flex flex-wrap gap-2 mt-1">
+                                        {[6.25, 6.5].map((value) => (
+                                            <Button
+                                                key={value}
+                                                size="sm"
+                                                type="button"
+                                                variant={mlFlatFeePerUnit === value ? "default" : "outline"}
+                                                onClick={() => setMlFlatFeePerUnit(value)}
+                                            >
+                                                R$ {value.toFixed(2).replace(".", ",")}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                    <Input
+                                        type="number"
+                                        step={0.01}
+                                        value={mlFlatFeePerUnit}
+                                        onChange={(e) => handleManualChange(setMlFlatFeePerUnit, e.target.value)}
+                                        className="mt-2"
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Valores padrão: 6,25 ou 6,50 por unidade. Não entra na % acima; é somada separadamente por unidade.
+                                    </p>
+                                </div>
+                                <div>
+                                    <Label>Unidades por pedido</Label>
+                                    <Input type="number" value={unitsPerOrder} onChange={(e) => handleManualChange(setUnitsPerOrder, e.target.value)} />
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <Label>Margem alvo (%)</Label>
+                            <Input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={desiredMargin}
+                                onChange={(e) => handleManualChange(setDesiredMargin, e.target.value)}
+                            />
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="radio"
+                                    id="buyer-pays"
+                                    checked={shippingMode === "buyer"}
+                                    onChange={() => setShippingMode("buyer")}
+                                />
+                                <Label htmlFor="buyer-pays" className="cursor-pointer">Comprador paga frete</Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="radio"
+                                    id="seller-pays"
+                                    checked={shippingMode === "seller"}
+                                    onChange={() => setShippingMode("seller")}
+                                />
+                                <Label htmlFor="seller-pays" className="cursor-pointer">Vendedor paga frete</Label>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Se vendedor paga frete, usamos o custo informado em “Frete (custo)” nos cálculos.
+                            </p>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <Label>Taxa pagamento (%)</Label>
+                                    <Input type="number" step={0.005} value={paymentFeePercent} onChange={(e) => handleManualChange(setPaymentFeePercent, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Overhead (%)</Label>
+                                    <Input type="number" step={0.005} value={overheadPercent} onChange={(e) => handleManualChange(setOverheadPercent, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>CAC / pedido</Label>
+                                    <Input type="number" value={cacCost} onChange={(e) => handleManualChange(setCacCost, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Preço original</Label>
+                                    <Input type="number" value={originalPrice ?? ""} onChange={(e) => handleManualChange(setOriginalPrice, e.target.value || 0)} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <Label>Preço concorrente</Label>
+                                    <Input type="number" value={competitorPrice ?? ""} onChange={(e) => handleManualChange(setCompetitorPrice, e.target.value || 0)} />
+                                </div>
+                                <div className="flex items-end">
+                                    <Button variant="outline" type="button" className="w-full" onClick={() => {
+                                        const parsed = competitorPrice ?? 0;
+                                        if (!Number.isFinite(parsed) || parsed <= 0) return;
+                                        setManualPrice(parsed);
+                                        setHasManualData(true);
+                                    }}>
+                                        Usar preço concorrente
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
 
-            {item && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Resumo financeiro</CardTitle>
+                        <CardDescription>Margem com o preço informado (busca ou manual)</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span>Preço atual</span>
+                            <span className="font-semibold">R$ {totals.price.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Taxa ML (%)</span>
+                            <span>R$ {totals.feeMl.toFixed(2)} ({(feePercent * 100).toFixed(1)}%)</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Taxa pagamento</span>
+                            <span>R$ {totals.feePayment.toFixed(2)} ({(paymentFeePercent * 100).toFixed(1)}%)</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Overhead</span>
+                            <span>R$ {totals.feeOverhead.toFixed(2)} ({(overheadPercent * 100).toFixed(1)}%)</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Tarifa fixa ML</span>
+                            <span>R$ {totals.feeFlat.toFixed(2)} ({unitsPerOrder} un.)</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Custos (produto+frete+outros+CAC)</span>
+                            <span>R$ {totals.costs.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="font-semibold">Lucro</span>
+                            <span className={`font-bold ${totals.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                R$ {totals.profit.toFixed(2)} ({(totals.marginPct * 100).toFixed(1)}%)
+                            </span>
+                        </div>
+                        <div className="space-y-2 pt-2 border-t">
+                            <div className="text-sm flex items-center gap-2">
+                                <Wallet className="w-4 h-4" />
+                                <div>
+                                    <div className="font-semibold">Preço de equilíbrio</div>
+                                    <div className="text-muted-foreground text-xs">Para cobrir custos+taxa: R$ {totals.breakeven.toFixed(2)}</div>
+                                </div>
+                            </div>
+                            <div className="text-sm flex items-center gap-2">
+                                <Percent className="w-4 h-4" />
+                                <div>
+                                    <div className="font-semibold">Preço alvo ({(desiredMargin * 100).toFixed(0)}% margem)</div>
+                                    <div className="text-muted-foreground text-xs">Sugerido: R$ {totals.targetPrice.toFixed(2)}</div>
+                                </div>
+                            </div>
+                            {originalPrice && (
+                                <div className="text-sm">
+                                    <div className="font-semibold">Desconto vs preço original</div>
+                                    <div className="text-muted-foreground text-xs">
+                                        {((1 - totals.price / originalPrice) * 100).toFixed(1)}% off (R$ {(originalPrice - totals.price).toFixed(2)})
+                                    </div>
+                                </div>
+                            )}
+                            {competitorPrice && (
+                                <div className="text-sm">
+                                    <div className="font-semibold">Diferença para concorrente</div>
+                                    <div className="text-muted-foreground text-xs">
+                                        {((totals.price - competitorPrice) / competitorPrice * 100).toFixed(1)}% vs R$ {competitorPrice.toFixed(2)}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {(hasItem || hasManualData) && (
                 <Card>
                     <CardHeader>
                         <CardTitle>Simulações rápidas</CardTitle>
