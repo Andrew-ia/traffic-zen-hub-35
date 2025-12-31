@@ -69,14 +69,16 @@ function resolveFrontendBaseUrl(req: Request): string {
     const envBase = normalizeBaseUrl(process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL);
     if (envBase) return envBase;
 
+    const hostHeader = normalizeBaseUrl(String((req.headers["x-forwarded-host"] || req.headers.host || "")).split(",")[0]);
+    if (hostHeader) {
+        const protoHeader = String((req.headers["x-forwarded-proto"] || req.protocol || "https")).split(",")[0].replace(/:$/, "");
+        return `${protoHeader}://${hostHeader}`;
+    }
+
     const vercelBase = normalizeBaseUrl(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
     if (vercelBase) return vercelBase;
 
-    const hostHeader = normalizeBaseUrl(String((req.headers["x-forwarded-host"] || req.headers.host || "")).split(",")[0]);
-    if (!hostHeader) return "";
-
-    const protoHeader = String((req.headers["x-forwarded-proto"] || req.protocol || "https")).split(",")[0].replace(/:$/, "");
-    return `${protoHeader}://${hostHeader}`;
+    return "";
 }
 
 const buildRedirectUri = (req: Request) => {
@@ -187,6 +189,8 @@ interface MercadoLivreCredentials {
     accessToken: string;
     refreshToken: string;
     userId: string;
+    clientId?: string;
+    clientSecret?: string;
 }
 
 const tokenStore = new Map<string, (MercadoLivreCredentials & { expiresAt?: number })>();
@@ -244,6 +248,8 @@ export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): 
     const accessToken = (process.env.MERCADO_LIVRE_ACCESS_TOKEN || "").trim();
     const refreshToken = (process.env.MERCADO_LIVRE_REFRESH_TOKEN || "").trim();
     const userId = (process.env.MERCADO_LIVRE_USER_ID || "").trim();
+    const clientId = (process.env.MERCADO_LIVRE_CLIENT_ID || "").trim();
+    const clientSecret = (process.env.MERCADO_LIVRE_CLIENT_SECRET || "").trim();
 
     if (!accessToken || !userId) {
         return false; // Nada para aplicar a partir das envs
@@ -253,7 +259,7 @@ export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): 
     const alreadySaved = await credentialsExist(workspaceId);
     if (alreadySaved) return false;
 
-    const payload = { accessToken, refreshToken, userId };
+    const payload = { accessToken, refreshToken, userId, clientId, clientSecret };
     const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
 
     try {
@@ -285,7 +291,9 @@ async function persistMercadoLivreCredentials(
             accessToken: credentials.accessToken,
             refreshToken: credentials.refreshToken,
             userId: credentials.userId,
-            expiresAt: credentials.expiresAt
+            expiresAt: credentials.expiresAt,
+            clientId: credentials.clientId,
+            clientSecret: credentials.clientSecret
         };
         const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
 
@@ -324,6 +332,8 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
         const accessToken = decrypted.accessToken || decrypted.access_token;
         const refreshToken = decrypted.refreshToken || decrypted.refresh_token;
         const userId = decrypted.userId || decrypted.user_id;
+        const clientId = decrypted.clientId || decrypted.client_id;
+        const clientSecret = decrypted.clientSecret || decrypted.client_secret;
 
         if (!accessToken || !userId) return null;
 
@@ -332,6 +342,8 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
             refreshToken: String(refreshToken || ""),
             userId: String(userId),
             expiresAt: typeof decrypted.expiresAt === "number" ? decrypted.expiresAt : undefined,
+            clientId: clientId ? String(clientId) : undefined,
+            clientSecret: clientSecret ? String(clientSecret) : undefined,
         };
     } catch (error) {
         console.warn("[MercadoLivre] Falha ao buscar tokens no banco:", error instanceof Error ? error.message : error);
@@ -359,11 +371,19 @@ export async function getMercadoLivreCredentials(
     const accessToken = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
     const refreshToken = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
     const userId = process.env.MERCADO_LIVRE_USER_ID;
+    const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
+    const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
     if (!accessToken || !userId) {
         return null;
     }
 
-    const creds = { accessToken: accessToken.trim(), refreshToken: (refreshToken || "").trim(), userId: userId.trim() };
+    const creds = {
+        accessToken: accessToken.trim(),
+        refreshToken: (refreshToken || "").trim(),
+        userId: userId.trim(),
+        clientId: clientId?.trim() || undefined,
+        clientSecret: clientSecret?.trim() || undefined
+    };
     tokenStore.set(workspaceId, creds);
     // Persistir no banco para evitar depender de env e permitir refresh automático
     void persistMercadoLivreCredentials(workspaceId, creds);
@@ -379,31 +399,48 @@ function tokenNeedsRefresh(creds: { expiresAt?: number }): boolean {
 export async function refreshAccessToken(workspaceId: string): Promise<MercadoLivreCredentials | null> {
     const current = await getMercadoLivreCredentials(workspaceId);
     if (!current || !current.refreshToken) return null;
-    const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
-    const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) return null;
-    const tokenResponse = await axios.post(
-        `${MERCADO_LIVRE_API_BASE}/oauth/token`,
-        {
+    const clientId = (current.clientId || process.env.MERCADO_LIVRE_CLIENT_ID || "").trim();
+    const clientSecret = (current.clientSecret || process.env.MERCADO_LIVRE_CLIENT_SECRET || "").trim();
+    if (!clientId || !clientSecret) {
+        console.warn("[MercadoLivre] Não é possível renovar token: client_id/client_secret ausentes");
+        return null;
+    }
+
+    try {
+        const payload = new URLSearchParams({
             grant_type: "refresh_token",
             client_id: clientId,
             client_secret: clientSecret,
             refresh_token: current.refreshToken,
-        },
-        {
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
+
+        const tokenResponse = await axios.post(
+            `${MERCADO_LIVRE_API_BASE}/oauth/token`,
+            payload,
+            {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            }
+        );
+        const { access_token, refresh_token, expires_in } = tokenResponse.data || {};
+        const updated: MercadoLivreCredentials & { expiresAt?: number } = {
+            accessToken: String(access_token || ""),
+            refreshToken: String(refresh_token || current.refreshToken || ""),
+            userId: current.userId,
+            clientId,
+            clientSecret,
+            expiresAt: typeof expires_in === "number" ? Date.now() + (expires_in * 1000) : undefined,
+        };
+        tokenStore.set(workspaceId, updated);
+        void persistMercadoLivreCredentials(workspaceId, updated);
+        return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId, clientId, clientSecret };
+    } catch (err: any) {
+        const errCode = err?.response?.data?.error;
+        if (errCode === "invalid_client") {
+            const msg = err?.response?.data?.message || err?.message || "invalid_client";
+            throw new Error(`ml_invalid_client:${msg}`);
         }
-    );
-    const { access_token, refresh_token, expires_in } = tokenResponse.data || {};
-    const updated: MercadoLivreCredentials & { expiresAt?: number } = {
-        accessToken: String(access_token || ""),
-        refreshToken: String(refresh_token || current.refreshToken || ""),
-        userId: current.userId,
-        expiresAt: typeof expires_in === "number" ? Date.now() + (expires_in * 1000) : undefined,
-    };
-    tokenStore.set(workspaceId, updated);
-    void persistMercadoLivreCredentials(workspaceId, updated);
-    return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId };
+        throw err;
+    }
 }
 
 export async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
@@ -797,6 +834,8 @@ router.post("/auth/callback", async (req, res) => {
             refreshToken: refresh_token,
             userId: user_id,
             expiresAt,
+            clientId,
+            clientSecret,
         };
         tokenStore.set(String(workspaceId), creds);
         void persistMercadoLivreCredentials(String(workspaceId), creds);
@@ -874,7 +913,13 @@ router.post("/auth/refresh", async (req, res) => {
 
         const { access_token, refresh_token } = tokenResponse.data;
 
-        const creds = { accessToken: access_token, refreshToken: refresh_token, userId: credentials.userId };
+        const creds = {
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            userId: credentials.userId,
+            clientId: credentials.clientId || clientId || undefined,
+            clientSecret: credentials.clientSecret || clientSecret || undefined
+        };
         tokenStore.set(String(workspaceId), creds);
         void persistMercadoLivreCredentials(String(workspaceId), creds);
         console.log("✅ Token refreshed successfully");
