@@ -82,7 +82,7 @@ const App = () => (
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
             <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
-            <Route path="/integrations/mercadolibre/callback" element={<MercadoLivreCallback />} />
+            <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
             <Route path="/mercado-ads" element={<RequireAuth><MercadoAdsCampaigns /></RequireAuth>} />
 
                 <Route path="/product-hub" element={<RequireAuth><ProductHub /></RequireAuth>} />
