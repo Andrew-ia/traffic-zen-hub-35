@@ -786,10 +786,23 @@ export class MercadoAdsAutomationService {
       }
     }
 
+    const errors: Array<{ productId: string; error: string }> = [];
+    let processedCount = 0;
+
     for (const product of classification.items) {
       const targetCampaign = campaigns.get(product.curve);
       if (!targetCampaign?.ml_campaign_id) continue;
-      await this.upsertProductAd(workspaceId, advertiserId, siteId, targetCampaign, product.curve, product);
+      
+      try {
+        await this.upsertProductAd(workspaceId, advertiserId, siteId, targetCampaign, product.curve, product);
+        processedCount++;
+      } catch (err: any) {
+        console.warn(`[MercadoAds] Failed to upsert ad for product ${product.productId} (item: ${product.mlItemId}):`, err?.message);
+        errors.push({
+          productId: product.productId,
+          error: err?.message || 'Unknown error'
+        });
+      }
     }
 
     return {
@@ -797,6 +810,8 @@ export class MercadoAdsAutomationService {
       campaigns: Array.from(campaigns.values()),
       curves,
       totalProducts: classification.items.length,
+      processedCount,
+      errors
     };
   }
 
