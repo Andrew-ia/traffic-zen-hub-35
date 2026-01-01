@@ -247,6 +247,12 @@ async function start() {
       throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
     }
 
+    if (process.env.MERCADO_LIVRE_CLIENT_ID) {
+      console.log(`✅ ML Client ID configured: ${process.env.MERCADO_LIVRE_CLIENT_ID.substring(0, 4)}...`);
+    } else {
+      console.warn('⚠️ ML Client ID missing');
+    }
+    
     await ensureAdminUser();
 
     try {
