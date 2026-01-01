@@ -95,20 +95,26 @@ const getAuthHeaders = (token?: string | null): HeadersInit => {
 export function useMercadoAdsCampaigns(workspaceId: string | null) {
   const { token } = useAuth();
   return useQuery<CampaignsResponse>({
-    queryKey: ["mercado-ads", "campaigns", workspaceId],
-    enabled: !!workspaceId,
+    queryKey: ["mercado-ads", "campaigns", workspaceId, token],
+    enabled: !!workspaceId && !!token,
     queryFn: async () => {
       if (!workspaceId) throw new Error("workspaceId is required");
+      
+      const headers = getAuthHeaders(token);
+      // Debug temporário
+      if (!headers["Authorization"]) {
+         console.warn("⚠️ [useMercadoAds] Token missing in headers!");
+      }
+
       const resp = await fetch(`/api/integrations/mercado-ads/campaigns?workspaceId=${workspaceId}`, {
-        headers: getAuthHeaders(token),
+        headers,
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.error || "Falha ao carregar campanhas");
+        throw new Error(err.error || "Failed to fetch campaigns");
       }
       return resp.json();
     },
-    staleTime: 30_000,
   });
 }
 
@@ -124,12 +130,9 @@ export function useRunMercadoAdsAutomation() {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.details || err?.error || "Falha ao planejar automação");
+        throw new Error(err.error || "Failed to plan automation");
       }
-      return resp.json() as Promise<PlanResponse>;
-    },
-    onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", input.workspaceId] });
+      return resp.json();
     },
   });
 }
@@ -146,12 +149,12 @@ export function useApplyMercadoAdsAutomation() {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.details || err?.error || "Falha ao aplicar automação");
+        throw new Error(err.error || "Failed to apply automation");
       }
       return resp.json();
     },
-    onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", input.workspaceId] });
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns"] });
     },
   });
 }
@@ -168,12 +171,12 @@ export function useToggleMercadoAdsCampaign() {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.details || err?.error || "Falha ao atualizar status");
+        throw new Error(err.error || "Failed to toggle campaign");
       }
       return resp.json();
     },
-    onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", input.workspaceId] });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns"] });
     },
   });
 }
@@ -190,12 +193,12 @@ export function useUpdateMercadoAdsBudget() {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.details || err?.error || "Falha ao salvar orçamento");
+        throw new Error(err.error || "Failed to update budget");
       }
       return resp.json();
     },
-    onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", input.workspaceId] });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns"] });
     },
   });
 }
