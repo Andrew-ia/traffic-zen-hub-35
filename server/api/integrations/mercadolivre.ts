@@ -569,12 +569,15 @@ router.get("/auth/url", async (req, res) => {
         // To bypass this in development, we use the production Vercel URL as the redirect_uri.
         const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
         
-        // HARDCODED FIX: Always use the Vercel URL as redirect_uri when in localhost to avoid CloudFront 403
-        // and ensure the redirect_uri matches during token exchange.
+        // Force production URL if running on Vercel or if localhost (to bypass WAF)
+        const isVercel = process.env.VERCEL === "1";
+        
         let finalRedirectUri = safeRedirectUri;
-        if (isLocalhost) {
+        if (isLocalhost || isVercel) {
+             // ALWAYS use the production URL as the callback URI to ensure consistency
+             // and match the Whitelist in Mercado Livre Developer Panel.
              finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
-             console.log("⚠️ Localhost detected. Forcing redirect_uri to Vercel production URL to bypass CloudFront WAF:", finalRedirectUri);
+             console.log("⚠️ Enforcing production redirect_uri (Localhost/Vercel detected):", finalRedirectUri);
         }
 
         // URL de autorização do Mercado Livre (Brasil)
@@ -897,10 +900,12 @@ router.post("/auth/callback", async (req, res) => {
         const safeRedirectUri = redirectUri ? redirectUri.trim().replace(/^['"]|['"]$/g, "") : "";
         const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
 
-        // HARDCODED FIX: Always use the Vercel URL as redirect_uri when in localhost
+        // Force production URL if running on Vercel or if localhost (to bypass WAF)
+        const isVercel = process.env.VERCEL === "1";
+
         // This MUST match what was sent in the auth step (GET /auth/url)
         let finalRedirectUri = safeRedirectUri;
-        if (isLocalhost) {
+        if (isLocalhost || isVercel) {
              finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
         }
 

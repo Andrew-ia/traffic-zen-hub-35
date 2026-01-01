@@ -43,6 +43,7 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Campanhas Ads", href: "/mercado-ads", icon: Megaphone, keywords: ["ads", "campanhas", "foda", "automacao"] },
       { name: "Analytics Full", href: "/mercado-livre/full-analytics", icon: TrendingUp, keywords: ["full", "analytics", "classificacao", "abc", "ml"] },
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
+      { name: "Integrações", href: "/integrations", icon: ShoppingBag, keywords: ["integracoes", "conexoes", "mercado livre", "shopee"] },
     ],
   },
   {
