@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 
 type MercadoAdsCampaign = {
   id: string;
@@ -83,22 +84,23 @@ type PlanResponse = {
   advertiserId: string;
 };
 
-const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem("trafficpro.auth.token");
+const getAuthHeaders = (token?: string | null): HeadersInit => {
+  const resolvedToken = token || localStorage.getItem("trafficpro.auth.token");
   return {
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(resolvedToken ? { Authorization: `Bearer ${resolvedToken}` } : {}),
   };
 };
 
 export function useMercadoAdsCampaigns(workspaceId: string | null) {
+  const { token } = useAuth();
   return useQuery<CampaignsResponse>({
     queryKey: ["mercado-ads", "campaigns", workspaceId],
     enabled: !!workspaceId,
     queryFn: async () => {
       if (!workspaceId) throw new Error("workspaceId is required");
       const resp = await fetch(`/api/integrations/mercado-ads/campaigns?workspaceId=${workspaceId}`, {
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -112,11 +114,12 @@ export function useMercadoAdsCampaigns(workspaceId: string | null) {
 
 export function useRunMercadoAdsAutomation() {
   const queryClient = useQueryClient();
+  const { token } = useAuth();
   return useMutation({
     mutationFn: async (input: { workspaceId: string; budgets?: Partial<Record<"A" | "B" | "C", number>>; names?: Partial<Record<"A" | "B" | "C", string>> }) => {
       const resp = await fetch("/api/integrations/mercado-ads/automation/plan", {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
         body: JSON.stringify({ workspaceId: input.workspaceId, budgets: input.budgets, names: input.names }),
       });
       if (!resp.ok) {
@@ -133,11 +136,12 @@ export function useRunMercadoAdsAutomation() {
 
 export function useApplyMercadoAdsAutomation() {
   const queryClient = useQueryClient();
+  const { token } = useAuth();
   return useMutation({
     mutationFn: async (input: { workspaceId: string; budgets?: Partial<Record<"A" | "B" | "C", number>>; names?: Partial<Record<"A" | "B" | "C", string>> }) => {
       const resp = await fetch("/api/integrations/mercado-ads/automation/apply", {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
         body: JSON.stringify({ workspaceId: input.workspaceId, budgets: input.budgets, names: input.names }),
       });
       if (!resp.ok) {
@@ -154,11 +158,12 @@ export function useApplyMercadoAdsAutomation() {
 
 export function useToggleMercadoAdsCampaign() {
   const queryClient = useQueryClient();
+  const { token } = useAuth();
   return useMutation({
     mutationFn: async (input: { workspaceId: string; campaignId: string; status: "active" | "paused" }) => {
       const resp = await fetch(`/api/integrations/mercado-ads/campaigns/${input.campaignId}/toggle`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
         body: JSON.stringify({ workspaceId: input.workspaceId, status: input.status }),
       });
       if (!resp.ok) {
@@ -175,11 +180,12 @@ export function useToggleMercadoAdsCampaign() {
 
 export function useUpdateMercadoAdsBudget() {
   const queryClient = useQueryClient();
+  const { token } = useAuth();
   return useMutation({
     mutationFn: async (input: { workspaceId: string; campaignId: string; dailyBudget: number }) => {
       const resp = await fetch(`/api/integrations/mercado-ads/campaigns/${input.campaignId}/budget`, {
         method: "PUT",
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(token),
         body: JSON.stringify({ workspaceId: input.workspaceId, dailyBudget: input.dailyBudget }),
       });
       if (!resp.ok) {

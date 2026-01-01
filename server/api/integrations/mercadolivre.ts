@@ -584,7 +584,7 @@ router.get("/auth/url", async (req, res) => {
         // Always send redirect_uri (required by ML), but use the "safe" one (Vercel) if localhost
         // Added explicit scopes for Advertising
         const scopes = "offline_access read write advertising";
-        let authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`;
+        const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`;
         
         console.log("Generated ML Auth URL (Force-Safe):", authUrl);
 
