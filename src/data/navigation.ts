@@ -11,6 +11,7 @@ import {
   Trophy,
   Warehouse,
   PenTool,
+  Megaphone,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -39,6 +40,7 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Descrições ML", href: "/mercado-livre-descricoes", icon: PenTool, keywords: ["descricao", "anuncio", "copy", "mercado livre"] },
       { name: "Catálogo (Hub)", href: "/product-hub", icon: Package, keywords: ["produtos", "catalogo", "hub", "estoque", "marketplace"] },
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "ml", "listings"] },
+      { name: "Campanhas Ads", href: "/mercado-ads", icon: Megaphone, keywords: ["ads", "campanhas", "foda", "automacao"] },
       { name: "Analytics Full", href: "/mercado-livre/full-analytics", icon: TrendingUp, keywords: ["full", "analytics", "classificacao", "abc", "ml"] },
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
     ],

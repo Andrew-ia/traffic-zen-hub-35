@@ -16,6 +16,7 @@ import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
 import productsRouter from './api/products.js';
 import mercadoLivreRouter, { bootstrapMercadoLivreEnvCredentials } from './api/integrations/mercadolivre.js';
+import mercadoAdsRouter from './api/integrations/mercado-ads.js';
 import mercadoLivreFulfillmentRouter from './api/integrations/mercadolivre-fulfillment.js';
 import mercadoLivreFullAnalyticsRouter from './api/integrations/mercadolivre-full-analytics.js';
 import {
@@ -150,6 +151,7 @@ app.use('/api/product-hub', productHubRouter);
 
 // Mercado Livre endpoints
 app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
+app.use('/api/integrations/mercado-ads', mercadoAdsRouter);
 app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
 app.use('/api/integrations/mercadolivre-full-analytics', mercadoLivreFullAnalyticsRouter);
 

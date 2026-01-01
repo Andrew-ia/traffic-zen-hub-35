@@ -18,6 +18,8 @@ import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuilder";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
 import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
+import MercadoAdsCampaigns from "./pages/MercadoAdsCampaigns";
+import Integrations from "./pages/Integrations";
 import Products from "./pages/Products";
 import ProductHub from "./pages/ProductHub";
 import ProductHubDetail from "./pages/ProductHubDetail";
@@ -79,7 +81,9 @@ const App = () => (
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
                 <Route path="/mercado-livre-descricoes" element={<RequireAuth><MercadoLivreDescriptionBuilder /></RequireAuth>} />
-                <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
+            <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
+            <Route path="/integrations/mercadolibre/callback" element={<MercadoLivreCallback />} />
+            <Route path="/mercado-ads" element={<RequireAuth><MercadoAdsCampaigns /></RequireAuth>} />
 
                 <Route path="/product-hub" element={<RequireAuth><ProductHub /></RequireAuth>} />
                 <Route path="/product-hub/:id" element={<RequireAuth><ProductHubDetail /></RequireAuth>} />

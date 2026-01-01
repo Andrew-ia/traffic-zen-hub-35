@@ -12,72 +12,82 @@ function chunk<T>(arr: T[], size: number): T[][] {
     );
 }
 
-// Helper to calculate classification
+// Helper to calculate classification (robusta, sem depender de virar o mês)
 function calculateClassification(item: any, sales30d: number, profit: number): { class: string; recommendation: string; tags: string[] } {
     const isFull = item.shipping?.logistic_type === "fulfillment";
     const dateCreated = new Date(item.date_created);
     const daysSinceCreation = (Date.now() - dateCreated.getTime()) / (1000 * 60 * 60 * 24);
+    const totalSales = Number(item.sold_quantity || 0);
+    const availableQuantity = Number(item.available_quantity || 0);
+    const inStock = availableQuantity > 0;
 
     if (!isFull) {
         return { class: "N/A", recommendation: "Produto não é Full", tags: [] };
     }
 
-    // Class A
-    if (sales30d >= 5 && profit > 0) {
-        if ((item.available_quantity || 0) === 0) {
-            return { 
-                class: "A", 
-                recommendation: "🚨 Sugerir Recompra Urgente\n✅ Alta conversão e lucro", 
-                tags: ["A - Recompra"] 
+    // Curva A: tração clara (>=5 vendas em 30d OU total >= 15) e margem positiva
+    if (profit > 0 && (sales30d >= 5 || totalSales >= 15)) {
+        if (!inStock) {
+            return {
+                class: "A",
+                recommendation: "🚨 Sugerir Recompra Urgente\n✅ Alta conversão e lucro",
+                tags: ["A - Recompra"],
             };
         }
-        return { 
-            class: "A", 
-            recommendation: "✅ Ativar Ads\n✅ Aumentar orçamento\n✅ Prioridade máxima", 
-            tags: ["A - Escalar"] 
-        };
-    }
-    // Class B
-    else if (sales30d >= 1 && sales30d <= 4 && profit > 0) {
-        if ((item.available_quantity || 0) === 0) {
-            return { 
-                class: "B", 
-                recommendation: "🚨 Sugerir Recompra\n⚠️ Potencial de crescimento", 
-                tags: ["B - Recompra"] 
+        if (availableQuantity < 5) {
+            return {
+                class: "A",
+                recommendation: "🚨 Recomprar (estoque <5)\n✅ Alta conversão e lucro\n✅ Repor antes de faltar",
+                tags: ["A - Recompra", "Estoque baixo"],
             };
         }
-        return { 
-            class: "B", 
-            recommendation: "⚠️ Melhorar imagem\n⚠️ Ajustar título\n⚠️ Ads de teste (baixo orçamento)", 
-            tags: ["B - Otimizar"] 
-        };
-    }
-    // Class D
-    else if (profit <= 0) {
-        return { 
-            class: "D", 
-            recommendation: "❌ Não anunciar\n❌ Ajustar preço ou kit\n❌ Queima de estoque", 
-            tags: ["D - Não escalar"] 
-        };
-    }
-    // Class C
-    else if (sales30d === 0 && daysSinceCreation <= 30) {
-        return { 
-            class: "C", 
-            recommendation: "⏳ Não anunciar\n⏳ Aguardar tração orgânica\n⏳ Revisar após 7 dias", 
-            tags: ["C - Aguardar"] 
-        };
-    }
-    // Fallback for old items with 0 sales
-    else if (sales30d === 0 && daysSinceCreation > 30) {
-        return { 
-            class: "D", 
-            recommendation: "❌ Produto parado há muito tempo\n❌ Avaliar queima", 
-            tags: ["D - Parado"] 
+        return {
+            class: "A",
+            recommendation: "✅ Ativar Ads\n✅ Aumentar orçamento\n✅ Prioridade máxima",
+            tags: ["A - Escalar"],
         };
     }
 
-    return { class: "C", recommendation: "", tags: [] };
+    // Curva B: tração moderada (1-4 vendas em 30d OU total >=5) e margem positiva
+    if (profit > 0 && (sales30d >= 1 || totalSales >= 5)) {
+        if (!inStock) {
+            return {
+                class: "B",
+                recommendation: "🚨 Sugerir Recompra\n⚠️ Potencial de crescimento",
+                tags: ["B - Recompra"],
+            };
+        }
+        return {
+            class: "B",
+            recommendation: "⚠️ Melhorar imagem\n⚠️ Ajustar título\n⚠️ Ads de teste (baixo orçamento)",
+            tags: ["B - Otimizar"],
+        };
+    }
+
+    // Curva D: margem negativa ou produto parado por muito tempo
+    if (profit <= 0) {
+        return {
+            class: "D",
+            recommendation: "❌ Não anunciar\n❌ Ajustar preço ou kit\n❌ Queima de estoque",
+            tags: ["D - Não escalar"],
+        };
+    }
+
+    // Curva C: nova ou em teste, pouca ou nenhuma venda
+    if (sales30d === 0 && daysSinceCreation <= 45) {
+        return {
+            class: "C",
+            recommendation: "⏳ Não anunciar\n⏳ Aguardar tração orgânica\n⏳ Revisar após 7 dias",
+            tags: ["C - Aguardar"],
+        };
+    }
+
+    // Fallback para itens antigos sem vendas recentes: manter como D para não escalar
+    return {
+        class: "D",
+        recommendation: "❌ Produto parado há muito tempo\n❌ Avaliar queima",
+        tags: ["D - Parado"],
+    };
 }
 
 export async function syncFullAnalyticsForWorkspace(workspaceId: string) {

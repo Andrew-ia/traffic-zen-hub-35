@@ -60,7 +60,7 @@ let shipmentsCacheTableReady: Promise<void> | null = null;
 
 const normalizeBaseUrl = (value?: string | null) => {
     if (!value) return "";
-    const trimmed = String(value).trim();
+    const trimmed = String(value).trim().replace(/^['"]|['"]$/g, "");
     if (!trimmed) return "";
     return trimmed.replace(/\/$/, "");
 };
@@ -518,6 +518,25 @@ router.get("/search", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/auth/status
+ * Verifica se existem credenciais válidas para o workspace
+ */
+router.get("/auth/status", async (req, res) => {
+    try {
+        const { workspaceId } = req.query;
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        
+        const exists = await credentialsExist(String(workspaceId));
+        return res.json({ connected: exists });
+    } catch (error: any) {
+        console.error("Error checking auth status:", error);
+        return res.status(500).json({ error: "Failed to check status" });
+    }
+});
+
+/**
  * GET /api/integrations/mercadolivre/auth/url
  * Gera URL de autorização OAuth do Mercado Livre
  */
@@ -543,18 +562,65 @@ router.get("/auth/url", async (req, res) => {
             });
         }
 
+        const safeRedirectUri = redirectUri ? redirectUri.trim().replace(/^['"]|['"]$/g, "") : "";
+        const safeClientId = clientId ? clientId.trim().replace(/^['"]|['"]$/g, "") : "";
+        
+        // CloudFront blocks requests with localhost/127.0.0.1 in redirect_uri param (WAF rule).
+        // To bypass this in development, we use the production Vercel URL as the redirect_uri.
+        const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
+        
+        // HARDCODED FIX: Always use the Vercel URL as redirect_uri when in localhost to avoid CloudFront 403
+        // and ensure the redirect_uri matches during token exchange.
+        let finalRedirectUri = safeRedirectUri;
+        if (isLocalhost) {
+             finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
+             console.log("⚠️ Localhost detected. Forcing redirect_uri to Vercel production URL to bypass CloudFront WAF:", finalRedirectUri);
+        }
+
         // URL de autorização do Mercado Livre (Brasil)
-        const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${workspaceId}`;
+        // Always send redirect_uri (required by ML), but use the "safe" one (Vercel) if localhost
+        // Added explicit scopes for Advertising
+        const scopes = "offline_access read write advertising";
+        let authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`;
+        
+        console.log("Generated ML Auth URL (Force-Safe):", authUrl);
 
         return res.json({
             authUrl,
-            redirectUri,
+            redirectUri: finalRedirectUri,
         });
     } catch (error: any) {
         console.error("Error generating auth URL:", error);
         return res.status(500).json({
             error: "Failed to generate auth URL",
             details: error.message,
+        });
+    }
+});
+
+/**
+ * DELETE /api/integrations/mercadolivre/auth
+ * Remove credenciais do Mercado Livre (Desconectar)
+ */
+router.delete("/auth", async (req, res) => {
+    try {
+        const { workspaceId } = req.query;
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const pool = getPool();
+        await pool.query(
+            "DELETE FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2",
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
+        );
+
+        return res.json({ success: true, message: "Disconnected successfully" });
+    } catch (error: any) {
+        console.error("Error disconnecting Mercado Livre:", error);
+        return res.status(500).json({
+            error: "Failed to disconnect",
+            details: error.message
         });
     }
 });
@@ -777,6 +843,29 @@ router.get("/categories/:categoryId/attributes", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/callback
+ * Endpoint para lidar com redirecionamento incorreto (quando ML redireciona para o backend via GET)
+ * Redireciona para o frontend com os parâmetros de query.
+ */
+router.get("/callback", (req, res) => {
+    const { code, state, error, error_description } = req.query;
+    const redirectBase = buildRedirectUri(req as Request);
+
+    if (!redirectBase) {
+        return res.status(500).send("Frontend URL not configured");
+    }
+
+    // Construct the frontend URL with query params
+    const frontendUrl = new URL(redirectBase);
+    if (code) frontendUrl.searchParams.set("code", String(code));
+    if (state) frontendUrl.searchParams.set("state", String(state));
+    if (error) frontendUrl.searchParams.set("error", String(error));
+    if (error_description) frontendUrl.searchParams.set("error_description", String(error_description));
+
+    return res.redirect(frontendUrl.toString());
+});
+
+/**
  * POST /api/integrations/mercadolivre/auth/callback
  * Processa callback OAuth e troca código por tokens
  */
@@ -805,13 +894,27 @@ router.post("/auth/callback", async (req, res) => {
             });
         }
 
-        const payload = new URLSearchParams({
+        const safeRedirectUri = redirectUri ? redirectUri.trim().replace(/^['"]|['"]$/g, "") : "";
+        const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
+
+        // HARDCODED FIX: Always use the Vercel URL as redirect_uri when in localhost
+        // This MUST match what was sent in the auth step (GET /auth/url)
+        let finalRedirectUri = safeRedirectUri;
+        if (isLocalhost) {
+             finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
+        }
+
+        const payloadParams: Record<string, string> = {
             grant_type: "authorization_code",
             client_id: clientId,
             client_secret: clientSecret,
             code,
-            redirect_uri: redirectUri,
-        });
+            redirect_uri: finalRedirectUri // Always include redirect_uri
+        };
+        
+        // Removed conditional check - always send redirect_uri as now we have a valid one (Vercel) even for localhost
+
+        const payload = new URLSearchParams(payloadParams);
 
         // Trocar código por access token
         const tokenResponse = await axios.post(
