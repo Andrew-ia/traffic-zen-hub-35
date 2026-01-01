@@ -975,10 +975,14 @@ router.post("/auth/callback", async (req, res) => {
         // Extract a more meaningful error message if available
         const errorMessage = mlError?.message || mlError?.error_description || mlError?.error || "Failed to authenticate with Mercado Livre";
 
+        const clientIdPrefix = process.env.MERCADO_LIVRE_CLIENT_ID ? process.env.MERCADO_LIVRE_CLIENT_ID.substring(0, 5) + "..." : "UNDEFINED";
+
         return res.status(statusCode).json({
             error: errorMessage,
             details: mlError || error.message,
             step: "token_exchange",
+            possibleCause: errorMessage.includes("invalid_client") ? "Client ID/Secret mismatch in Vercel Environment Variables" : "Check Redirect URI whitelist",
+            clientIdUsed: clientIdPrefix,
             redirectUriUsed: process.env.NODE_ENV === "development" ? "HIDDEN" : "Check Logs" 
         });
     }
