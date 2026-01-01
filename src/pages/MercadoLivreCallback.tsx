@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,8 +19,11 @@ export default function MercadoLivreCallback() {
         refreshToken?: string;
         userId?: string;
     }>({});
+    const hasFetched = useRef(false);
 
     useEffect(() => {
+        if (hasFetched.current) return;
+
         const code = searchParams.get("code");
         const state = searchParams.get("state"); // workspace ID
         const error = searchParams.get("error");
@@ -37,6 +40,7 @@ export default function MercadoLivreCallback() {
             return;
         }
 
+        hasFetched.current = true;
         setWorkspaceId(state);
         // Trocar código por tokens
         exchangeCodeForTokens(code, state);

@@ -969,13 +969,17 @@ router.post("/auth/callback", async (req, res) => {
         console.error("❌ Error in OAuth callback:", error);
         
         const mlError = error.response?.data;
+        const statusCode = error.response?.status || 500;
         console.error("ML API Error Details:", mlError);
 
-        return res.status(500).json({
-            error: "Failed to authenticate with Mercado Livre",
+        // Extract a more meaningful error message if available
+        const errorMessage = mlError?.message || mlError?.error_description || mlError?.error || "Failed to authenticate with Mercado Livre";
+
+        return res.status(statusCode).json({
+            error: errorMessage,
             details: mlError || error.message,
             step: "token_exchange",
-            redirectUriUsed: process.env.NODE_ENV === "development" ? "HIDDEN" : "Check Logs" // Don't expose in prod response unless needed, but for debugging user needs it
+            redirectUriUsed: process.env.NODE_ENV === "development" ? "HIDDEN" : "Check Logs" 
         });
     }
 });

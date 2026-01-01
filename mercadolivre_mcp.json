@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mercadolibre-mcp-server": {
+      "url": "https://mcp.mercadolibre.com/mcp",
+      "headers": {
+        "Authorization": "Bearer SEU_ACCESS_TOKEN_AQUI"
+      }
+    }
+  }
+}

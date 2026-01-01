@@ -82,7 +82,22 @@ router.post('/automation/apply', async (req, res) => {
         error: 'Falha ao criar anúncios na campanha pelo Product Ads API. Verifique permissões e estado da campanha.',
       });
     }
-    return res.status(500).json({ error: 'Failed to apply automation', details: message });
+
+    if (message === 'ml_ads_permission_denied_write') {
+      return res.status(403).json({
+        error: 'Permissão negada pelo Mercado Livre. Por favor, desconecte e conecte novamente sua conta do Mercado Livre para atualizar as permissões de publicidade.',
+        code: 'ml_reauth_required'
+      });
+    }
+
+    const axiosData = (err as any).response?.data;
+    const details = axiosData ? JSON.stringify(axiosData) : message;
+    
+    return res.status(500).json({ 
+      error: 'Failed to apply automation', 
+      details,
+      fullError: axiosData
+    });
   }
 });
 
