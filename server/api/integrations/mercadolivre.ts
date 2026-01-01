@@ -921,6 +921,8 @@ router.post("/auth/callback", async (req, res) => {
 
         const payload = new URLSearchParams(payloadParams);
 
+        console.log("🔄 Exchanging code for token with Redirect URI:", finalRedirectUri);
+
         // Trocar código por access token
         const tokenResponse = await axios.post(
             `${MERCADO_LIVRE_API_BASE}/oauth/token`,
@@ -946,28 +948,34 @@ router.post("/auth/callback", async (req, res) => {
             clientSecret,
         };
         tokenStore.set(String(workspaceId), creds);
-        void persistMercadoLivreCredentials(String(workspaceId), creds);
+        
+        const persisted = await persistMercadoLivreCredentials(String(workspaceId), creds);
+        if (!persisted) {
+             console.error("⚠️ Failed to persist Mercado Livre credentials to DB");
+        }
+
         console.log("✅ Mercado Livre OAuth Success:");
-        console.log("Access Token:", access_token);
-        console.log("Refresh Token:", refresh_token);
+        console.log("Access Token:", access_token ? "Recieved" : "Missing");
         console.log("User ID:", user_id);
-        console.log("\n📝 Add these to your .env.local:");
-        console.log(`MERCADO_LIVRE_ACCESS_TOKEN=${access_token}`);
-        console.log(`MERCADO_LIVRE_REFRESH_TOKEN=${refresh_token}`);
-        console.log(`MERCADO_LIVRE_USER_ID=${user_id}`);
 
         return res.json({
             success: true,
             accessToken: access_token,
             refreshToken: refresh_token,
             userId: user_id,
-            message: "Authentication successful! Check server logs for tokens to add to .env.local",
+            message: "Authentication successful!",
         });
     } catch (error: any) {
-        console.error("Error in OAuth callback:", error);
+        console.error("❌ Error in OAuth callback:", error);
+        
+        const mlError = error.response?.data;
+        console.error("ML API Error Details:", mlError);
+
         return res.status(500).json({
-            error: "Failed to authenticate",
-            details: error.response?.data || error.message,
+            error: "Failed to authenticate with Mercado Livre",
+            details: mlError || error.message,
+            step: "token_exchange",
+            redirectUriUsed: process.env.NODE_ENV === "development" ? "HIDDEN" : "Check Logs" // Don't expose in prod response unless needed, but for debugging user needs it
         });
     }
 });
