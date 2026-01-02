@@ -28,7 +28,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, Edit3, Pause, Play, RefreshCw, Rocket, ShieldCheck, Zap } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Activity, Edit3, Pause, Play, RefreshCw, Rocket, ShieldCheck, Zap, ListChecks } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ export default function MercadoAdsCampaigns() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id || null;
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const { data, isLoading, refetch } = useMercadoAdsCampaigns(workspaceId);
   const { mutateAsync: planAutomation, isPending: isPlanning } = useRunMercadoAdsAutomation();
@@ -420,6 +422,9 @@ export default function MercadoAdsCampaigns() {
             disabled={isLoading || isRefreshing}
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} /> Atualizar
+          </Button>
+          <Button variant="outline" onClick={() => navigate("/mercado-ads/manual")}>
+            <ListChecks className="w-4 h-4 mr-2" /> Classificar Manualmente
           </Button>
           <Button onClick={handlePlan} disabled={isPlanning || !workspaceId}>
             {isPlanning ? <Activity className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />} Planejar automação

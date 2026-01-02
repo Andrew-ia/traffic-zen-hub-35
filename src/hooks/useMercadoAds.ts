@@ -118,6 +118,41 @@ export function useMercadoAdsCampaigns(workspaceId: string | null) {
   });
 }
 
+export function useMercadoAdsPreview(workspaceId: string | null) {
+  const { token } = useAuth();
+  return useQuery<{
+    items: Array<{
+      productId: string;
+      mlItemId: string;
+      curve: "A" | "B" | "C";
+      title?: string | null;
+      sku?: string | null;
+      reason?: string;
+      sales30d?: number;
+      revenue30d?: number;
+      cost30d?: number;
+      acos?: number;
+    }>;
+    summary: Record<string, number>;
+  }>({
+    queryKey: ["mercado-ads", "preview", workspaceId, token],
+    enabled: !!workspaceId && !!token,
+    queryFn: async () => {
+      if (!workspaceId) throw new Error("workspaceId is required");
+      
+      const headers = getAuthHeaders(token);
+      const resp = await fetch(`/api/integrations/mercado-ads/automation/preview?workspaceId=${workspaceId}`, {
+        headers,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to preview automation");
+      }
+      return resp.json();
+    },
+  });
+}
+
 export function useRunMercadoAdsAutomation() {
   const queryClient = useQueryClient();
   const { token } = useAuth();

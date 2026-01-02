@@ -43,6 +43,19 @@ router.get('/curves', async (req, res) => {
   }
 });
 
+router.get('/automation/preview', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const result = await automation.classifyProducts(workspaceId);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('[MercadoAds] Preview error:', err);
+    return res.status(500).json({ error: 'Failed to preview automation', details: err?.message });
+  }
+});
+
 router.post('/automation/plan', async (req, res) => {
   try {
     const { id: workspaceId } = resolveWorkspaceId(req);

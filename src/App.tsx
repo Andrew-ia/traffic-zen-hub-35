@@ -19,6 +19,7 @@ import MercadoLivreDescriptionBuilder from "./pages/MercadoLivreDescriptionBuild
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
 import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
 import MercadoAdsCampaigns from "./pages/MercadoAdsCampaigns";
+import MercadoAdsManual from "./pages/MercadoAdsManual";
 import Integrations from "./pages/Integrations";
 import Products from "./pages/Products";
 import ProductHub from "./pages/ProductHub";
@@ -84,6 +85,7 @@ const App = () => (
             <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
             <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
             <Route path="/mercado-ads" element={<RequireAuth><MercadoAdsCampaigns /></RequireAuth>} />
+            <Route path="/mercado-ads/manual" element={<RequireAuth><MercadoAdsManual /></RequireAuth>} />
 
                 <Route path="/product-hub" element={<RequireAuth><ProductHub /></RequireAuth>} />
                 <Route path="/product-hub/:id" element={<RequireAuth><ProductHubDetail /></RequireAuth>} />
