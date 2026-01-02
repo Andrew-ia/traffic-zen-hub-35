@@ -933,6 +933,34 @@ export class MercadoAdsAutomationService {
     return map;
   }
 
+  private getDateRange(days: number = 30) {
+    const timeZone = 'America/Sao_Paulo';
+    const now = new Date();
+    
+    // Helper to format date object to YYYY-MM-DD in specific timezone
+    const formatDate = (d: Date) => {
+        const fmt = new Intl.DateTimeFormat('pt-BR', {
+          timeZone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+        const parts = fmt.formatToParts(d);
+        const day = parts.find(p => p.type === 'day')?.value;
+        const month = parts.find(p => p.type === 'month')?.value;
+        const year = parts.find(p => p.type === 'year')?.value;
+        return `${year}-${month}-${day}`;
+    };
+
+    const dateTo = formatDate(now);
+    
+    const dateFromDate = new Date(now);
+    dateFromDate.setDate(dateFromDate.getDate() - days);
+    const dateFrom = formatDate(dateFromDate);
+    
+    return { dateFrom, dateTo };
+  }
+
   private async syncCampaignProducts(workspaceId: string) {
     const pool = getPool();
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
@@ -949,11 +977,7 @@ export class MercadoAdsAutomationService {
       });
 
       const productIdCache = new Map<string, string | null>();
-      const today = new Date();
-      const dateTo = today.toISOString().slice(0, 10);
-      const dateFromDate = new Date();
-      dateFromDate.setDate(dateFromDate.getDate() - 30);
-      const dateFrom = dateFromDate.toISOString().slice(0, 10);
+      const { dateFrom, dateTo } = this.getDateRange(30);
 
       let offset = 0;
       const limit = 200;
@@ -1057,11 +1081,7 @@ export class MercadoAdsAutomationService {
   } | null> {
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
     const metricsList = 'clicks,prints,cost,cpc,acos,roas,units_quantity,total_amount,organic_units_quantity,organic_units_amount';
-    const today = new Date();
-    const date_to = today.toISOString().slice(0, 10);
-    const dateFromDate = new Date();
-    dateFromDate.setDate(dateFromDate.getDate() - 30);
-    const date_from = dateFromDate.toISOString().slice(0, 10);
+    const { dateFrom: date_from, dateTo: date_to } = this.getDateRange(30);
 
     // Summary
     let summary: Record<string, number> = {
