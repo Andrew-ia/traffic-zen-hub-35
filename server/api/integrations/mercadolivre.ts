@@ -434,7 +434,15 @@ export async function refreshAccessToken(workspaceId: string): Promise<MercadoLi
         void persistMercadoLivreCredentials(workspaceId, updated);
         return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId, clientId, clientSecret };
     } catch (err: any) {
+        const status = err?.response?.status;
         const errCode = err?.response?.data?.error;
+        
+        // Se o refresh token for inválido (revogado/expirado), limpar cache para forçar nova autenticação ou busca no banco
+        if (status === 400 || status === 401 || errCode === "invalid_grant" || errCode === "invalid_client") {
+            console.warn(`[MercadoLivre] Refresh token inválido (${errCode || status}). Limpando cache para workspace ${workspaceId}.`);
+            tokenStore.delete(workspaceId);
+        }
+
         if (errCode === "invalid_client") {
             const msg = err?.response?.data?.message || err?.message || "invalid_client";
             throw new Error(`ml_invalid_client:${msg}`);
@@ -449,9 +457,15 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
 
     // Refresh antecipado se token estiver perto de expirar
     if (tokenNeedsRefresh(creds)) {
-        const refreshed = await refreshAccessToken(workspaceId);
-        if (refreshed) {
-            creds = refreshed;
+        try {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) {
+                creds = refreshed;
+            }
+        } catch (e) {
+            console.warn("[MercadoLivre] Falha no refresh antecipado:", e);
+            // Se falhar o refresh, tentamos com o token atual (vai que funciona ou cai no 401 e tenta de novo)
+            // Mas se o erro foi "invalid_grant", o cache já foi limpo pelo refreshAccessToken
         }
     }
 
@@ -461,10 +475,22 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
     } catch (err: any) {
         const status = err?.response?.status;
         if (status === 401) {
-            const refreshed = await refreshAccessToken(workspaceId);
-            if (!refreshed) throw err;
-            const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers } });
-            return resp.data as any;
+            console.log(`[MercadoLivre] 401 detectado. Tentando refresh token para workspace ${workspaceId}...`);
+            try {
+                const refreshed = await refreshAccessToken(workspaceId);
+                if (!refreshed) {
+                     tokenStore.delete(workspaceId); // Ensure cache is cleared if refresh returns null
+                     throw err;
+                }
+                const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers } });
+                return resp.data as any;
+            } catch (refreshErr) {
+                 // Se o refresh falhar (ex: invalid_grant), o cache já foi limpo.
+                 // Repassamos o erro original ou o de refresh?
+                 // Melhor limpar o cache aqui também por segurança
+                 tokenStore.delete(workspaceId);
+                 throw refreshErr;
+            }
         }
         throw err;
     }
