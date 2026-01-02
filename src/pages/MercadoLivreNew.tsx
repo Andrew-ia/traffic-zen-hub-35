@@ -469,6 +469,17 @@ export default function MercadoLivreNew() {
                         <p className="text-sm font-black">{metrics?.totalSales || 0}</p>
                     </div>
                 </div>
+
+                {/* Total Compradores */}
+                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
+                    <div className="h-8 w-8 rounded-lg bg-[#3483FA]/10 flex items-center justify-center">
+                        <Users className="h-4 w-4 text-[#3483FA]" />
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Compradores</p>
+                        <p className="text-sm font-black">{metrics?.totalBuyers || 0}</p>
+                    </div>
+                </div>
                 <div className="hidden lg:flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
                     <div className="h-8 w-8 rounded-lg bg-[#F52F41]/10 flex items-center justify-center">
                         <DollarSign className="h-4 w-4 text-[#F52F41]" />
@@ -476,17 +487,6 @@ export default function MercadoLivreNew() {
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Valor Cancelado</p>
                         <p className="text-sm font-black text-[#F52F41]">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
-                    </div>
-                </div>
-                <div className="hidden lg:flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#3483FA]/10 flex items-center justify-center">
-                        <Truck className="h-4 w-4 text-[#3483FA]" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Envios</p>
-                        <p className="text-sm font-black">
-                            {shipmentsLoading ? "..." : shipmentsSummary.total} Hoje
-                        </p>
                     </div>
                 </div>
             </div>

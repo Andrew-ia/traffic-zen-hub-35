@@ -1100,6 +1100,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
     let totalShippingCosts = 0;
     const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
     const hourlySales: Array<{ date: string; sales: number; revenue: number }> = [];
+    const uniqueBuyers = new Set<string>();
 
     // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
     try {
@@ -1245,6 +1246,10 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             dayData.sales += totalQuantity;
             dayData.orders += 1;
             totalOrders += 1;
+            if (order.buyer?.id) {
+                const buyerId = String(order.buyer.id);
+                uniqueBuyers.add(buyerId);
+            }
 
             // Calcular taxas de venda
             let saleFee = 0;
@@ -1452,6 +1457,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
     return {
         totalSales,
+        totalBuyers: uniqueBuyers.size,
         totalRevenue,
         totalVisits,
         totalOrders,

@@ -380,10 +380,10 @@ export default function MercadoAdsCampaigns() {
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip
-                  formatter={(value: any, key: any) => {
-                    if (key === "roas") return [`${Number(value).toFixed(2)}x`, "ROAS"];
-                    if (key === "receita") return [`R$ ${Number(value).toFixed(2)}`, "Receita"];
-                    return [value, key === "vendasAds" ? "Vendas Product Ads" : "Vendas orgânicas"];
+                  formatter={(value: any, name: any) => {
+                    if (name === "ROAS") return [`${Number(value).toFixed(2)}x`, "ROAS"];
+                    if (name === "Receita") return [`R$ ${Number(value).toFixed(2)}`, "Receita"];
+                    return [value, name];
                   }}
                   labelFormatter={(label: any) => `Dia ${label}`}
                   contentStyle={{ borderRadius: 8, borderColor: "hsl(var(--border))" }}

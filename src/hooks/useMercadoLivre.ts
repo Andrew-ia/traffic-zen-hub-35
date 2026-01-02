@@ -12,6 +12,8 @@ const getAuthHeaders = (): HeadersInit => {
 // Interface para métricas do Mercado Livre
 export interface MercadoLivreMetrics {
     totalSales: number;
+    totalBuyers?: number;
+    totalBuyersToday?: number;
     totalOrders?: number;
     canceledOrders?: number;
     canceledRevenue?: number;
