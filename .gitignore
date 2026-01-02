@@ -25,6 +25,7 @@ dist-ssr
 
 # MCP Config (contains sensitive tokens)
 mcp-config.json
+mercadolivre_mcp.json
 
 # Secrets (service account keys)
 secrets/
