@@ -935,30 +935,39 @@ export class MercadoAdsAutomationService {
 
   private getDateRange(days: number = 30) {
     const timeZone = 'America/Sao_Paulo';
-    const now = new Date();
     
-    // Helper to format date object to YYYY-MM-DD in specific timezone
-    const formatDate = (d: Date) => {
-        const fmt = new Intl.DateTimeFormat('pt-BR', {
-          timeZone,
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit'
-        });
-        const parts = fmt.formatToParts(d);
-        const day = parts.find(p => p.type === 'day')?.value;
-        const month = parts.find(p => p.type === 'month')?.value;
-        const year = parts.find(p => p.type === 'year')?.value;
-        return `${year}-${month}-${day}`;
-    };
+    // 1. Get current date components in Brazil Time
+    const fmt = new Intl.DateTimeFormat('pt-BR', {
+      timeZone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric'
+    });
+    
+    const parts = fmt.formatToParts(new Date());
+    const day = parseInt(parts.find(p => p.type === 'day')?.value || '1', 10);
+    const month = parseInt(parts.find(p => p.type === 'month')?.value || '1', 10);
+    const year = parseInt(parts.find(p => p.type === 'year')?.value || '1970', 10);
 
-    const dateTo = formatDate(now);
+    // 2. Construct "Noon" date object to safely perform arithmetic
+    // Using local server time for the Date object is fine because we just want to subtract 24h chunks
+    // and we already have the correct "Brazil" day/month/year as starting point.
+    // Noon (12:00) avoids any edge cases with midnight boundaries.
+    const dateToObj = new Date(year, month - 1, day, 12, 0, 0);
     
-    const dateFromDate = new Date(now);
-    dateFromDate.setDate(dateFromDate.getDate() - days);
-    const dateFrom = formatDate(dateFromDate);
+    const dateFromObj = new Date(dateToObj);
+    // Subtract days-1 to include today in the count (e.g., 30 days = Today + 29 past days)
+    dateFromObj.setDate(dateFromObj.getDate() - (days - 1));
+
+    // 3. Format back to YYYY-MM-DD
+    const toStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
-    return { dateFrom, dateTo };
+    const fDay = dateFromObj.getDate();
+    const fMonth = dateFromObj.getMonth() + 1;
+    const fYear = dateFromObj.getFullYear();
+    const fromStr = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
+    
+    return { dateFrom: fromStr, dateTo: toStr };
   }
 
   private async syncCampaignProducts(workspaceId: string) {
