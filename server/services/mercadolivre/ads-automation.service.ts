@@ -5,6 +5,7 @@ const ADS_PRODUCT_API_BASE = 'https://api.mercadolibre.com/advertising/product_a
 // API v2 usa o mesmo prefixo para campanhas e ads: /advertising/product_ads/advertisers/{id}
 const ADS_ADVERTISER_API_BASE = `${ADS_PRODUCT_API_BASE}/advertisers`;
 const MKT_ADS_API_BASE = 'https://api.mercadolibre.com/advertising';
+const MKT_ADS_MARKETPLACE_BASE = 'https://api.mercadolibre.com/marketplace/advertising';
 const BRAZIL_CURRENCY = 'BRL';
 const DEFAULT_SITE = process.env.MERCADO_LIVRE_SITE_ID || 'MLB';
 let schemaReady: Promise<void> | null = null;
@@ -36,6 +37,7 @@ type CampaignRow = {
   automation_status: 'managed' | 'manual' | 'sync_only';
   last_synced_at: string | null;
   last_automation_at: string | null;
+  metadata?: any;
 };
 
 type ClassifiedProduct = {
@@ -45,6 +47,7 @@ type ClassifiedProduct = {
   title?: string | null;
   sku?: string | null;
   reason?: string;
+  action?: 'active' | 'paused';
   sales30d?: number;
   revenue30d?: number;
   cost30d?: number;
@@ -214,7 +217,9 @@ export class MercadoAdsAutomationService {
   }
 
   private resolveBudget(curve: 'A' | 'B' | 'C'): number {
-    const fallback = { A: 15, B: 10, C: 5 };
+    // Orçamento recomendado: A (60-70%), B (20-25%), C (5-10%)
+    // Base 100 para manter a proporção
+    const fallback = { A: 65, B: 25, C: 10 };
     const envKey = `ML_ADS_BUDGET_${curve}`;
     const raw = process.env[envKey];
     if (!raw) return fallback[curve];
@@ -312,54 +317,137 @@ export class MercadoAdsAutomationService {
     return this.ensureCurveDefaults(workspaceId);
   }
 
-  private async fetchAdsCostByItem(workspaceId: string, itemIds: string[]): Promise<Map<string, number>> {
-    const uniqueIds = Array.from(new Set(itemIds.filter(Boolean)));
-    const result = new Map<string, number>();
-    const concurrency = 5;
-    let index = 0;
+  private async fetchAdsMetricsByItem(workspaceId: string, itemIds: string[]): Promise<Map<string, {
+    cost: number;
+    clicks: number;
+    prints: number;
+    sales: number;
+    revenue: number;
+    cpc: number;
+    ctr: number;
+  }>> {
+    const result = new Map<string, { cost: number; clicks: number; prints: number; sales: number; revenue: number; cpc: number; ctr: number }>();
+    const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
+    const { dateFrom, dateTo } = this.getDateRange(30);
 
-    const runWorker = async () => {
-      while (index < uniqueIds.length) {
-        const current = uniqueIds[index++];
-        try {
-          const data = await requestWithAuth<any>(
-            workspaceId,
-            `${ADS_PRODUCT_API_BASE}/items/${current}`,
-            { headers: { 'api-version': '2' } },
-          );
-          const cost = Number(data?.metrics_summary?.cost || 0);
-          result.set(current, Number.isFinite(cost) ? cost : 0);
-        } catch (err) {
-          console.warn(`[MercadoAds] Falha ao buscar métricas do item ${current}:`, (err as any)?.message || err);
-          result.set(current, 0);
+    // Initialize with zeros
+    for (const id of itemIds) {
+      result.set(id, { cost: 0, clicks: 0, prints: 0, sales: 0, revenue: 0, cpc: 0, ctr: 0 });
+    }
+
+    try {
+      let offset = 0;
+      const limit = 50;
+      while (true) {
+        // Busca métricas de TODOS os anúncios (ativos/pausados) nos últimos 30 dias
+        // Isso garante que a classificação use dados reais do período, não lifetime
+        const resp = await requestWithAuth<any>(
+          workspaceId,
+          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+          {
+            params: {
+              limit,
+              offset,
+              date_from: dateFrom,
+              date_to: dateTo,
+              metrics: 'clicks,prints,cost,units_quantity,total_amount',
+              // Não filtramos por status para pegar histórico recente mesmo se pausado
+            },
+            headers: { 'api-version': '2' },
+          },
+        );
+
+        const results = resp?.results || [];
+        if (results.length === 0) break;
+
+        for (const ad of results) {
+          const itemId = ad.item_id;
+          if (itemId && result.has(itemId)) {
+            const current = result.get(itemId)!;
+            // Acumula métricas (pode haver mais de um ad para o mesmo item em campanhas diferentes ou recriações)
+            current.clicks += Number(ad.clicks || 0);
+            current.prints += Number(ad.prints || 0);
+            current.cost += Number(ad.cost || 0);
+            current.sales += Number(ad.units_quantity || 0);
+            current.revenue += Number(ad.total_amount || 0);
+          } else if (itemId) {
+            // Se o item não estava na lista inicial (itemIds), podemos ignorar ou adicionar?
+            // Vamos adicionar para garantir completude se itemIds for apenas um subset
+             const current = { cost: 0, clicks: 0, prints: 0, sales: 0, revenue: 0, cpc: 0, ctr: 0 };
+             current.clicks += Number(ad.clicks || 0);
+             current.prints += Number(ad.prints || 0);
+             current.cost += Number(ad.cost || 0);
+             current.sales += Number(ad.units_quantity || 0);
+             current.revenue += Number(ad.total_amount || 0);
+             result.set(itemId, current);
+          }
         }
-      }
-    };
 
-    const workers = Array.from({ length: Math.min(concurrency, uniqueIds.length) }, () => runWorker());
-    await Promise.all(workers);
+        if (results.length < limit) break;
+        offset += limit;
+      }
+
+      // Calcula derivados (CPC, CTR)
+      for (const m of result.values()) {
+        m.cpc = m.clicks > 0 ? m.cost / m.clicks : 0;
+        m.ctr = m.prints > 0 ? m.clicks / m.prints : 0;
+      }
+
+    } catch (err) {
+      console.warn('[MercadoAds] Falha ao buscar métricas em lote (ads/search):', (err as any)?.message || err);
+      // Fallback silencioso (retorna zeros) ou poderia tentar fallback individual
+    }
+
     return result;
   }
 
-  private pickCurve(metrics: { revenue: number; sales: number; cost: number; profitUnit?: number | null }) {
-    const sales = metrics.sales || 0;
-    const revenue = metrics.revenue || 0;
-    const cost = metrics.cost || 0;
-    const avgTicket = sales > 0 ? revenue / sales : 25; // fallback ticket médio
-    const profitUnit = typeof metrics.profitUnit === 'number' ? metrics.profitUnit : 5; // fallback margem unitária
+  private pickCurve(metrics: { 
+    revenue: number; 
+    sales: number; 
+    cost: number; 
+    clicks: number;
+    profitUnit?: number | null 
+  }) {
+    // Métricas de ADS (30d)
+    const { sales, revenue, cost, clicks } = metrics;
+    
+    // Métricas calculadas
+    const avgTicket = sales > 0 ? revenue / sales : 0;
+    const profitUnit = typeof metrics.profitUnit === 'number' ? metrics.profitUnit : 5;
+    // Margem para ACOS: se não tem receita, assume 20%
     const allowedAcos = revenue > 0 ? Math.min(0.6, Math.max(0.05, profitUnit / avgTicket)) : 0.2;
     const acos = revenue > 0 ? cost / revenue : cost > 0 ? Infinity : 0;
 
-    if (sales >= 10 && acos <= allowedAcos * 1.1) {
-      return { curve: 'A' as const, reason: `Vendas ${sales} e ACOS ${acos.toFixed(2)} <= ${ (allowedAcos*1.1).toFixed(2) }` };
+    // --- LÓGICA PADRÃO PROFISSIONAL ML ADS ---
+
+    // 🔴 CURVA C (TESTE CONTROLADO)
+    // Objetivo: validação rápida ou descarte
+    // Regra dura: 15-20 cliques sem venda -> PAUSA
+    if (sales === 0 && clicks >= 15) {
+      // Retorna C mas com indicação de pausa (será tratado no classifyProducts)
+      return { curve: 'C' as const, action: 'paused' as const, reason: `Teste falhou: ${clicks} cliques sem venda` };
     }
-    if (sales >= 5 && acos <= Math.min(0.45, allowedAcos * 1.6)) {
-      return { curve: 'B' as const, reason: `Vendas ${sales} e ACOS ${acos.toFixed(2)} <= ${ Math.min(0.45, allowedAcos*1.6).toFixed(2) }` };
+    
+    // 🟢 CURVA A (ESCALA / PERFORMANCE)
+    // Objetivo: lucro + volume
+    // Critério: >= 2 vendas em Ads E ACOS dentro da margem
+    // Regra: Nunca misturar produto fraco aqui
+    if (sales >= 2 && acos <= allowedAcos * 1.2) {
+      return { curve: 'A' as const, action: 'active' as const, reason: `Performance: ${sales} vendas, ACOS ${acos.toFixed(2)}` };
     }
-    if (sales >= 1 && acos <= Math.min(0.7, allowedAcos * 2)) {
-      return { curve: 'C' as const, reason: `Vendas ${sales} e ACOS ${acos.toFixed(2)} <= ${ Math.min(0.7, allowedAcos*2).toFixed(2) }` };
+
+    // 🟡 CURVA B (OTIMIZAÇÃO / PROMESSA)
+    // Objetivo: descobrir próximos vencedores
+    // Critério: 1 venda (ou mais mas ACOS ainda não ideal para A)
+    // Regra: Produto bate 2 vendas -> PROMOVE para A (se ACOS permitir)
+    if (sales >= 1) {
+      // Se tiver 2 vendas mas ACOS ruim, fica na B (Otimização)
+      return { curve: 'B' as const, action: 'active' as const, reason: `Otimização: ${sales} vendas` };
     }
-    return { curve: 'C' as const, reason: 'Sem vendas ou ACOS alto: manter em teste' };
+
+    // Se sales === 0 e clicks < 15:
+    // Produto novo, refeito ou sazonal -> Entra em C
+    return { curve: 'C' as const, action: 'active' as const, reason: `Teste: ${clicks} cliques (novo/sazonal)` };
   }
 
   async classifyProducts(workspaceId: string): Promise<{ items: ClassifiedProduct[]; summary: Record<string, number> }> {
@@ -374,30 +462,35 @@ export class MercadoAdsAutomationService {
     );
 
     const mlItemIds = rows.map((r) => r.ml_item_id as string);
-    const costByItem = await this.fetchAdsCostByItem(workspaceId, mlItemIds);
+    const metricsByItem = await this.fetchAdsMetricsByItem(workspaceId, mlItemIds);
     const items: ClassifiedProduct[] = [];
     const summary: Record<string, number> = { A: 0, B: 0, C: 0 };
 
     for (const row of rows) {
-      const revenue = Number(row.revenue_30d || 0);
-      const sales = Number(row.sales_30d || 0);
-      const cost = Number(costByItem.get(row.ml_item_id) || 0);
+      // NOTE: Estamos usando as métricas do Ads (metricsByItem) para decidir a curva, 
+      // e não mais o revenue_30d/sales_30d gerais do produto que vinham do banco.
+      const adsMetrics = metricsByItem.get(row.ml_item_id) || { cost: 0, clicks: 0, prints: 0, sales: 0, revenue: 0, cpc: 0, ctr: 0 };
+      
+      const revenue = adsMetrics.revenue;
+      const sales = adsMetrics.sales;
+      const cost = adsMetrics.cost;
+      const clicks = adsMetrics.clicks;
       const profitUnit = typeof row.profit_unit === 'number' ? row.profit_unit : null;
       const classification = String(row.classification || '').toUpperCase();
 
       // Prefer the classification calculated pelo Analytics Full
       const decision = (() => {
-        if (['A', 'B', 'C', 'D'].includes(classification)) {
-          // Só temos curvas A/B/C nas campanhas; D cai para teste/controlado (C)
+        if (['A', 'B', 'C'].includes(classification)) {
+          // Só temos curvas A/B/C nas campanhas
           const curve: 'A' | 'B' | 'C' = classification === 'A'
             ? 'A'
             : classification === 'B'
               ? 'B'
               : 'C';
-          return { curve, reason: `Classificação Full: ${classification}` };
+          return { curve, action: 'active' as const, reason: `Classificação Full: ${classification}` };
         }
         // Fallback para heurística baseada em ACOS se não houver classificação
-        return this.pickCurve({ revenue, sales, cost, profitUnit });
+        return this.pickCurve({ revenue, sales, cost, clicks, profitUnit });
       })();
 
       const productCurve = decision.curve;
@@ -410,6 +503,7 @@ export class MercadoAdsAutomationService {
         title: row.title,
         sku: row.sku,
         reason: decision.reason,
+        action: decision.action,
         sales30d: sales,
         revenue30d: revenue,
         cost30d: cost,
@@ -544,7 +638,7 @@ export class MercadoAdsAutomationService {
       try {
         const created = await requestWithAuth<any>(
           workspaceId,
-          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns`,
+          `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns`,
           {
             method: 'POST',
             data: createPayload,
@@ -555,17 +649,43 @@ export class MercadoAdsAutomationService {
       } catch (err: any) {
         const status = err?.response?.status;
         const data = err?.response?.data;
-        console.error('[MercadoAds] Create campaign failed:', status, JSON.stringify(data, null, 2));
+        console.warn(`[MercadoAds] Create campaign via Standard API failed (${status}). Trying Marketplace API...`);
 
-        if (status === 401 && (data === 'User does not have permission to write.' || data?.message === 'User does not have permission to write.')) {
-           throw new Error('ml_ads_permission_denied_write');
+        // Fallback: Tentar via Marketplace API se a API padrão falhar (401/403)
+        if (status === 401 || status === 403) {
+            try {
+                const created = await requestWithAuth<any>(
+                    workspaceId,
+                    `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns`,
+                    {
+                        method: 'POST',
+                        data: createPayload,
+                        headers: { 'api-version': '2' },
+                    },
+                );
+                mlCampaignId = created?.id || created?.campaign_id || null;
+            } catch (err2: any) {
+                const status2 = err2?.response?.status;
+                const data2 = err2?.response?.data;
+                console.error('[MercadoAds] Create campaign via Marketplace API failed:', status2, JSON.stringify(data2, null, 2));
+                
+                // Se ambas falharem com erro de permissão, lançar erro específico
+                if (status2 === 401 || status2 === 403) {
+                    throw new Error('ml_ads_permission_denied_write');
+                }
+                // Se retornar 404, assume que não suporta criação
+                if (status2 === 404 || status2 === 405) {
+                    throw new Error('ml_ads_campaign_create_not_supported');
+                }
+                throw err2;
+            }
+        } else {
+             // Se API retorna 404/405 na API padrão, provavelmente a conta está em modo automático ou sem permissão de Product Ads.
+            if (status === 404 || status === 405) {
+                throw new Error('ml_ads_campaign_create_not_supported');
+            }
+            throw err;
         }
-
-        // Se API retorna 404/405, provavelmente a conta está em modo automático ou sem permissão de Product Ads.
-        if (status === 404 || status === 405) {
-          throw new Error('ml_ads_campaign_create_not_supported');
-        }
-        throw err;
       }
     }
 
@@ -588,7 +708,7 @@ export class MercadoAdsAutomationService {
        returning *`,
       [
         workspaceId,
-        curve.id,
+        null, // curve.id might be invalid UUID or not needed
         curve.curve,
         curve.campaign_type,
         advertiserId,
@@ -654,10 +774,11 @@ export class MercadoAdsAutomationService {
     const currentAdId = existing.rows[0]?.ml_ad_id || null;
 
     let remoteId = currentAdId;
+    const status = product.action === 'paused' ? 'paused' : 'active';
     const payload = {
       campaign_id: campaign.ml_campaign_id,
       item_id: product.mlItemId,
-      status: 'active',
+      status,
       bid: { max_cpc: bid },
     };
 
@@ -665,7 +786,7 @@ export class MercadoAdsAutomationService {
       try {
         await requestWithAuth(
           workspaceId,
-          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/${remoteId}`,
+          `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/${remoteId}`,
           { method: 'PUT', data: payload, headers: { 'api-version': '2' } },
         );
       } catch (err: any) {
@@ -676,12 +797,32 @@ export class MercadoAdsAutomationService {
         }
       }
     } else {
-      const created = await requestWithAuth<any>(
-        workspaceId,
-        `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads`,
-        { method: 'POST', data: payload, headers: { 'api-version': '2' } },
-      );
-      remoteId = created?.id || created?.product_ad_id || null;
+      try {
+        const created = await requestWithAuth<any>(
+          workspaceId,
+          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads`,
+          { method: 'POST', data: payload, headers: { 'api-version': '2' } },
+        );
+        remoteId = created?.id || created?.product_ad_id || null;
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+           console.warn(`[MercadoAds] Create ad via Standard API failed (${status}). Trying Marketplace API...`);
+           try {
+             const created = await requestWithAuth<any>(
+                workspaceId,
+                `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads`,
+                { method: 'POST', data: payload, headers: { 'api-version': '2' } },
+             );
+             remoteId = created?.id || created?.product_ad_id || null;
+           } catch (err2: any) {
+             console.error('[MercadoAds] Create ad via Marketplace API failed:', err2?.response?.status, JSON.stringify(err2?.response?.data, null, 2));
+             throw err2;
+           }
+        } else {
+            throw err;
+        }
+      }
     }
 
     if (!remoteId) {
@@ -697,7 +838,7 @@ export class MercadoAdsAutomationService {
     await pool.query(
       `insert into ml_ads_campaign_products (
          workspace_id, campaign_id, product_id, ml_item_id, ml_ad_id, curve, source, status, added_at, last_moved_at
-       ) values ($1,$2,$3,$4,$5,$6,'automation','active', now(), now())
+       ) values ($1,$2,$3,$4,$5,$6,'automation',$7, now(), now())
        on conflict (campaign_id, ml_item_id) do update set
          product_id = excluded.product_id,
          ml_ad_id = coalesce(excluded.ml_ad_id, ml_ads_campaign_products.ml_ad_id),
@@ -711,6 +852,7 @@ export class MercadoAdsAutomationService {
         product.mlItemId,
         remoteId,
         curve,
+        status,
       ],
     );
 
@@ -767,6 +909,102 @@ export class MercadoAdsAutomationService {
     };
   }
 
+  private async fetchCampaignHistory(
+    workspaceId: string,
+    advertiserId: string,
+    siteId: string,
+    mlCampaignId: string,
+    days: number
+  ) {
+    const { dateFrom, dateTo } = this.getDateRange(days);
+    try {
+      const resp = await requestWithAuth<any>(
+        workspaceId,
+        `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/${mlCampaignId}/search`,
+        {
+          params: {
+            date_from: dateFrom,
+            date_to: dateTo,
+            metrics: 'roas',
+            aggregation_type: 'DAILY',
+          },
+          headers: { 'api-version': '2' },
+        },
+      );
+      return resp?.results || [];
+    } catch (err) {
+      console.warn(`[MercadoAds] Failed to fetch history for campaign ${mlCampaignId}`, err);
+      return [];
+    }
+  }
+
+  private async optimizeBudgets(
+    workspaceId: string,
+    advertiserId: string,
+    siteId: string,
+    campaigns: Map<'A' | 'B' | 'C', CampaignRow>
+  ) {
+    const curveA = campaigns.get('A');
+    if (!curveA?.ml_campaign_id || !curveA.daily_budget) return;
+
+    // Check frequency: only run once every 24h
+    const lastOpt = curveA.metadata?.last_budget_opt;
+    if (lastOpt) {
+      const lastDate = new Date(lastOpt);
+      const now = new Date();
+      const diffHours = (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60);
+      if (diffHours < 24) {
+        console.log('[MercadoAds] Skipping budget optimization (last run < 24h ago)');
+        return;
+      }
+    }
+
+    // Regras apenas para Curva A por enquanto
+    // Se ROAS >= 3 por 7 dias → +20% orçamento
+    // Se ROAS < 2 por 3 dias → −30% orçamento
+
+    const history7d = await this.fetchCampaignHistory(workspaceId, advertiserId, siteId, curveA.ml_campaign_id, 7);
+    
+    if (history7d.length === 0) return;
+
+    // Ordenar por data (mais recente por último)
+    const sorted = history7d.sort((a: any, b: any) => a.date.localeCompare(b.date));
+    
+    // Check last 7 days for ROAS >= 3
+    // Precisa ter dados de 7 dias
+    const last7 = sorted.slice(-7);
+    const allAbove3 = last7.length >= 7 && last7.every((d: any) => Number(d.roas || 0) >= 3);
+
+    // Check last 3 days for ROAS < 2
+    const last3 = sorted.slice(-3);
+    const allBelow2 = last3.length >= 3 && last3.every((d: any) => Number(d.roas || 0) < 2);
+
+    let newBudget = Number(curveA.daily_budget);
+    let changed = false;
+
+    if (allAbove3) {
+      newBudget = newBudget * 1.2;
+      changed = true;
+      console.log(`[MercadoAds] Increasing Curve A budget: ${curveA.daily_budget} -> ${newBudget} (ROAS >= 3 for 7 days)`);
+    } else if (allBelow2) {
+      newBudget = newBudget * 0.7;
+      changed = true;
+      console.log(`[MercadoAds] Decreasing Curve A budget: ${curveA.daily_budget} -> ${newBudget} (ROAS < 2 for 3 days)`);
+    }
+
+    if (changed) {
+      try {
+        await this.updateCampaignBudget(workspaceId, curveA.id, Math.round(newBudget));
+        // Update metadata
+        const pool = getPool();
+        const newMeta = { ...(curveA.metadata || {}), last_budget_opt: new Date().toISOString() };
+        await pool.query(`update ml_ads_campaigns set metadata = $1 where id = $2`, [newMeta, curveA.id]);
+      } catch (err) {
+        console.error('[MercadoAds] Failed to update budget:', err);
+      }
+    }
+  }
+
   async applyAutomation(workspaceId: string, input?: PlanInput) {
     const credentials = await getMercadoLivreCredentials(workspaceId);
     if (!credentials) {
@@ -787,10 +1025,26 @@ export class MercadoAdsAutomationService {
         if (campaigns.size === 0) {
           throw new Error('ml_ads_no_existing_campaigns');
         }
+        
+        // Se a criação falhou e estamos usando fallback, precisamos garantir que as curvas
+        // estão devidamente mapeadas. O getExistingCampaignsMap pode ter colapsado tudo
+        // em uma única campanha, o que não é desejado para a automação completa.
+        const missing = curves.filter(c => {
+             const camp = campaigns.get(c.curve);
+             return !camp || camp.curve !== c.curve;
+        });
+        
+        if (missing.length > 0) {
+           console.warn('[MercadoAds] Falta mapeamento para curvas:', missing.map(c => c.curve));
+           throw new Error('ml_ads_manual_campaign_creation_required');
+        }
       } else {
         throw err;
       }
     }
+
+    // Otimização de Orçamento (Regras da Curva A)
+    await this.optimizeBudgets(workspaceId, advertiserId, siteId, campaigns);
 
     const errors: Array<{ productId: string; error: string }> = [];
     let processedCount = 0;
@@ -1202,11 +1456,30 @@ export class MercadoAdsAutomationService {
 
     if (campaign.ml_campaign_id) {
       const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
-      await requestWithAuth(
-        workspaceId,
-        `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/${campaign.ml_campaign_id}`,
-        { method: 'PUT', data: { status }, headers: { 'api-version': '2' } },
-      );
+      try {
+        await requestWithAuth(
+          workspaceId,
+          `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/${campaign.ml_campaign_id}`,
+          { method: 'PUT', data: { status }, headers: { 'api-version': '2' } },
+        );
+      } catch (err: any) {
+         const statusCode = err?.response?.status;
+         if (statusCode === 401 || statusCode === 403) {
+             console.warn(`[MercadoAds] Update status via Standard API failed (${statusCode}). Trying Marketplace API...`);
+             try {
+                await requestWithAuth(
+                  workspaceId,
+                  `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/${campaign.ml_campaign_id}`,
+                  { method: 'PUT', data: { status }, headers: { 'api-version': '2' } },
+                );
+             } catch (err2: any) {
+                 console.error('[MercadoAds] Update status via Marketplace API failed:', err2?.response?.status, JSON.stringify(err2?.response?.data, null, 2));
+                 throw err2;
+             }
+         } else {
+             throw err;
+         }
+      }
     }
 
     await pool.query(
@@ -1227,15 +1500,38 @@ export class MercadoAdsAutomationService {
 
     if (campaign.ml_campaign_id) {
       const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
-      await requestWithAuth(
-        workspaceId,
-        `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/${campaign.ml_campaign_id}`,
-        {
-          method: 'PUT',
-          data: { budget: dailyBudget },
-          headers: { 'api-version': '2' },
-        },
-      );
+      try {
+          await requestWithAuth(
+            workspaceId,
+            `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/${campaign.ml_campaign_id}`,
+            {
+              method: 'PUT',
+              data: { budget: dailyBudget },
+              headers: { 'api-version': '2' },
+            },
+          );
+      } catch (err: any) {
+          const statusCode = err?.response?.status;
+          if (statusCode === 401 || statusCode === 403) {
+              console.warn(`[MercadoAds] Update budget via Standard API failed (${statusCode}). Trying Marketplace API...`);
+              try {
+                  await requestWithAuth(
+                    workspaceId,
+                    `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/${campaign.ml_campaign_id}`,
+                    {
+                      method: 'PUT',
+                      data: { budget: dailyBudget },
+                      headers: { 'api-version': '2' },
+                    },
+                  );
+              } catch (err2: any) {
+                  console.error('[MercadoAds] Update budget via Marketplace API failed:', err2?.response?.status, JSON.stringify(err2?.response?.data, null, 2));
+                  throw err2;
+              }
+          } else {
+              throw err;
+          }
+      }
     }
 
     await pool.query(

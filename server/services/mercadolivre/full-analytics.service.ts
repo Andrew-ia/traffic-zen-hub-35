@@ -64,12 +64,12 @@ function calculateClassification(item: any, sales30d: number, profit: number): {
         };
     }
 
-    // Curva D: margem negativa ou produto parado por muito tempo
+    // Curva C (Margem Negativa): Ajustar antes de escalar
     if (profit <= 0) {
         return {
-            class: "D",
-            recommendation: "❌ Não anunciar\n❌ Ajustar preço ou kit\n❌ Queima de estoque",
-            tags: ["D - Não escalar"],
+            class: "C",
+            recommendation: "⚠️ Margem Negativa: Ajustar preço ou kit\n⚠️ Teste Controlado",
+            tags: ["C - Ajustar"],
         };
     }
 
@@ -82,11 +82,11 @@ function calculateClassification(item: any, sales30d: number, profit: number): {
         };
     }
 
-    // Fallback para itens antigos sem vendas recentes: manter como D para não escalar
+    // Fallback para itens antigos sem vendas recentes: tratar como C
     return {
-        class: "D",
-        recommendation: "❌ Produto parado há muito tempo\n❌ Avaliar queima",
-        tags: ["D - Parado"],
+        class: "C",
+        recommendation: "⚠️ Produto parado há muito tempo\n⚠️ Teste Controlado",
+        tags: ["C - Parado"],
     };
 }
 
@@ -258,8 +258,8 @@ export async function syncFullAnalyticsForWorkspace(workspaceId: string) {
             else if (oldClass === 'B' && classification === 'A') {
                 alerts.push({ item, oldClass, newClass: classification });
             }
-            // A -> D (Critical)
-            else if (oldClass === 'A' && classification === 'D') {
+            // A -> C (Critical)
+            else if (oldClass === 'A' && classification === 'C') {
                 alerts.push({ item, oldClass, newClass: classification });
             }
         }
@@ -325,9 +325,9 @@ async function sendAlerts(workspaceId: string, alerts: Array<{ item: any, oldCla
     // Group by type
     const cToB = alerts.filter(a => a.oldClass === 'C' && a.newClass === 'B');
     const bToA = alerts.filter(a => a.oldClass === 'B' && a.newClass === 'A');
-    const aToD = alerts.filter(a => a.oldClass === 'A' && a.newClass === 'D');
+    const aToC = alerts.filter(a => a.oldClass === 'A' && a.newClass === 'C');
 
-    if (cToB.length === 0 && bToA.length === 0 && aToD.length === 0) return;
+    if (cToB.length === 0 && bToA.length === 0 && aToC.length === 0) return;
 
     let message = "<b>📊 Atualização Full Analytics</b>\n\n";
 
@@ -343,9 +343,9 @@ async function sendAlerts(workspaceId: string, alerts: Array<{ item: any, oldCla
         message += "\n";
     }
 
-    if (aToD.length > 0) {
-        message += "🚨 <b>ALERTA CRÍTICO (A → D):</b>\n";
-        aToD.forEach(a => message += `- ${a.item.title} (${a.item.id})\n`);
+    if (aToC.length > 0) {
+        message += "🚨 <b>ALERTA CRÍTICO (A → C):</b>\n";
+        aToC.forEach(a => message += `- ${a.item.title} (${a.item.id})\n`);
         message += "\n";
     }
 

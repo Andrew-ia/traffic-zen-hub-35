@@ -103,6 +103,12 @@ router.post('/automation/apply', async (req, res) => {
       });
     }
 
+    if (message === 'ml_ads_manual_campaign_creation_required') {
+      return res.status(400).json({
+        error: 'Não foi possível criar as campanhas automaticamente. Por favor, crie manualmente 3 campanhas no Mercado Ads com os nomes "Curva A", "Curva B" e "Curva C" (ou mapeie as existentes) para que a automação possa funcionar.',
+      });
+    }
+
     const axiosData = (err as any).response?.data;
     const details = axiosData ? JSON.stringify(axiosData) : message;
     
@@ -146,8 +152,12 @@ router.put('/campaigns/:campaignId/budget', async (req, res) => {
     const campaigns = await automation.updateCampaignBudget(workspaceId, campaignId, dailyBudget);
     return res.json({ success: true, campaigns });
   } catch (err: any) {
-    console.error('[MercadoAds] Failed to update budget:', err);
-    return res.status(500).json({ error: 'Failed to update budget', details: err?.message });
+    const axiosData = (err as any).response?.data;
+    console.error('[MercadoAds] Failed to update budget:', err, axiosData ? JSON.stringify(axiosData) : '');
+    return res.status(500).json({ 
+      error: 'Failed to update budget', 
+      details: axiosData ? JSON.stringify(axiosData) : err?.message 
+    });
   }
 });
 

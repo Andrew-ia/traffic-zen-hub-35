@@ -102,12 +102,11 @@ export default function MercadoLivreFullAnalytics() {
     }, [products, search, classFilter, sortBy]);
 
     const stats = useMemo(() => {
-        if (!products) return { A: 0, B: 0, C: 0, D: 0 };
+        if (!products) return { A: 0, B: 0, C: 0 };
         return {
             A: products.filter(p => p.classification === "A").length,
             B: products.filter(p => p.classification === "B").length,
             C: products.filter(p => p.classification === "C").length,
-            D: products.filter(p => p.classification === "D").length,
         };
     }, [products]);
 
@@ -116,7 +115,6 @@ export default function MercadoLivreFullAnalytics() {
             case "A": return "bg-green-100 text-green-800 border-green-200";
             case "B": return "bg-yellow-100 text-yellow-800 border-yellow-200";
             case "C": return "bg-blue-100 text-blue-800 border-blue-200";
-            case "D": return "bg-red-100 text-red-800 border-red-200";
             default: return "bg-gray-100 text-gray-800";
         }
     };
@@ -126,7 +124,6 @@ export default function MercadoLivreFullAnalytics() {
             case "A": return <CheckCircle2 className="h-4 w-4 text-green-600" />;
             case "B": return <TrendingUp className="h-4 w-4 text-yellow-600" />;
             case "C": return <Clock className="h-4 w-4 text-blue-600" />;
-            case "D": return <XCircle className="h-4 w-4 text-red-600" />;
             default: return null;
         }
     };
@@ -175,7 +172,7 @@ export default function MercadoLivreFullAnalytics() {
             </div>
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-green-50/50 border-green-100">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-green-800">Classe A - Escalar</CardTitle>
@@ -203,17 +200,7 @@ export default function MercadoLivreFullAnalytics() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-blue-900">{stats.C}</div>
-                        <p className="text-xs text-blue-600 mt-1">Produtos novos (&lt;30d)</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-red-50/50 border-red-100">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-red-800">Classe D - Problema</CardTitle>
-                        <XCircle className="h-4 w-4 text-red-600" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-red-900">{stats.D}</div>
-                        <p className="text-xs text-red-600 mt-1">Margem negativa ou parados</p>
+                        <p className="text-xs text-blue-600 mt-1">Produtos novos ou recuperação</p>
                     </CardContent>
                 </Card>
             </div>
@@ -238,7 +225,6 @@ export default function MercadoLivreFullAnalytics() {
                         <SelectItem value="A">Classe A</SelectItem>
                         <SelectItem value="B">Classe B</SelectItem>
                         <SelectItem value="C">Classe C</SelectItem>
-                        <SelectItem value="D">Classe D</SelectItem>
                     </SelectContent>
                 </Select>
                 <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>

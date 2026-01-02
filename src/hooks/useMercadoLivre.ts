@@ -129,7 +129,7 @@ export interface MercadoLivreFullProduct {
     revenue_30d: number;
     sales_30d: number;
     profit_unit: number;
-    classification: 'A' | 'B' | 'C' | 'D' | 'N/A';
+    classification: 'A' | 'B' | 'C' | 'N/A';
     recommendation: string;
     tags: string[];
     ml_tax_rate: number;
