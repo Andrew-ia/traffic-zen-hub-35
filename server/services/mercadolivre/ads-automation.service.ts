@@ -432,12 +432,18 @@ export class MercadoAdsAutomationService {
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
     const pool = getPool();
     const { rows } = await pool.query(`select * from ml_ads_curves where workspace_id = $1 limit 1`, [workspaceId]);
-    const curve = (rows[0] as CurveRow) || {
+    const curve: CurveRow = (rows[0] as CurveRow) || {
+       id: 'test-curve-id',
+       workspace_id: workspaceId,
        curve: 'C',
-       min_roas: 5,
-       daily_budget: 10,
+       name: 'Curve C',
        campaign_type: 'PRODUCT_ADS',
-       name: 'Curve C'
+       daily_budget: 10,
+       min_revenue_30d: 0,
+       min_orders_30d: 0,
+       min_roas: 5,
+       min_conversion: 0,
+       priority: 3
      };
     
     // if (!curve) throw new Error('No curves found for workspace');
