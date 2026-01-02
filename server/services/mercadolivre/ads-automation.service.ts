@@ -1131,17 +1131,22 @@ export class MercadoAdsAutomationService {
         results = data?.results || [];
       } catch (err: any) {
          const status = err?.response?.status;
-         if (status === 401 || status === 403) {
+         if (status === 401 || status === 403 || status === 404) {
              console.warn(`[MercadoAds] Search campaigns via Standard API failed (${status}). Trying Marketplace API...`);
-             const data = await requestWithAuth<any>(
-               workspaceId,
-               `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/search`,
-               {
-                 params: { limit: 50, offset: 0 },
-                 headers: { 'api-version': '2' },
-               },
-             );
-             results = data?.results || [];
+             try {
+               const data = await requestWithAuth<any>(
+                 workspaceId,
+                 `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/search`,
+                 {
+                   params: { limit: 50, offset: 0 },
+                   headers: { 'api-version': '2' },
+                 },
+               );
+               results = data?.results || [];
+             } catch (err2: any) {
+                console.error('[MercadoAds] Search campaigns via Marketplace API failed:', err2?.message);
+                throw err2;
+             }
          } else {
              throw err;
          }
@@ -1187,6 +1192,7 @@ export class MercadoAdsAutomationService {
         );
       }
     } catch (err: any) {
+      console.error('[MercadoAds] Sync existing campaigns failed:', err?.message, err?.response?.data);
       // 404/405 indicam que a conta/token não tem permissões para Product Ads API
       const status = err?.response?.status;
       if (status === 404 || status === 405) return;
