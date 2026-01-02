@@ -1118,41 +1118,71 @@ export class MercadoAdsAutomationService {
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
 
     try {
-      const data = await requestWithAuth<any>(
-        workspaceId,
-        `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/search`,
-        {
-          params: { limit: 50, offset: 0 },
-        },
-      );
+      let results: any[] = [];
+      try {
+        const data = await requestWithAuth<any>(
+          workspaceId,
+          `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/search`,
+          {
+            params: { limit: 50, offset: 0 },
+            headers: { 'api-version': '2' },
+          },
+        );
+        results = data?.results || [];
+      } catch (err: any) {
+         const status = err?.response?.status;
+         if (status === 401 || status === 403) {
+             console.warn(`[MercadoAds] Search campaigns via Standard API failed (${status}). Trying Marketplace API...`);
+             const data = await requestWithAuth<any>(
+               workspaceId,
+               `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/search`,
+               {
+                 params: { limit: 50, offset: 0 },
+                 headers: { 'api-version': '2' },
+               },
+             );
+             results = data?.results || [];
+         } else {
+             throw err;
+         }
+      }
 
-      const results = data?.results || [];
       for (const camp of results) {
         const remoteId = camp.id || camp.campaign_id || camp.ml_campaign_id;
         if (!remoteId) continue;
         const status = camp.status || 'active';
         const budget = typeof camp.budget === 'number' ? camp.budget : null;
+        const name = camp.name || `Campanha ${remoteId}`;
+
+        // Auto-detect curve from name (Manual workaround support)
+        let detectedCurve: string | null = null;
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('curva a')) detectedCurve = 'A';
+        else if (lowerName.includes('curva b')) detectedCurve = 'B';
+        else if (lowerName.includes('curva c')) detectedCurve = 'C';
 
         await pool.query(
           `insert into ml_ads_campaigns (
              workspace_id, curve, campaign_type, advertiser_id, ml_campaign_id, name, status, daily_budget,
              automation_status, last_synced_at, updated_at
-           ) values ($1, null, 'PRODUCT_ADS', $2, $3, $4, $5, $6, 'manual', now(), now())
+           ) values ($1, $7, 'PRODUCT_ADS', $2, $3, $4, $5, $6, 'manual', now(), now())
            on conflict (workspace_id, ml_campaign_id) do update set
              name = excluded.name,
              status = excluded.status,
              daily_budget = excluded.daily_budget,
              advertiser_id = excluded.advertiser_id,
              automation_status = excluded.automation_status,
+             curve = coalesce(ml_ads_campaigns.curve, excluded.curve), -- Keep existing curve if set, else use detected
              last_synced_at = now(),
              updated_at = now()`,
           [
             workspaceId,
             advertiserId,
             String(remoteId),
-            camp.name || `Campanha ${remoteId}`,
+            name,
             status,
             budget,
+            detectedCurve,
           ],
         );
       }
