@@ -7,7 +7,7 @@ import * as XLSX from "xlsx";
 import { promises as fs } from "fs";
 import path from "path";
 import { getPool } from "../../config/database.js";
-import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
+import { decryptCredentials } from "../../services/encryption.js";
 import { resolveWorkspaceId } from "../../utils/workspace.js";
 // import { authMiddleware } from "../auth";
 
@@ -29,7 +29,9 @@ const categoriesCache = new Map<string, { data: any[]; ts: number }>();
 const ADV_SEARCH_TTL_MS = 30 * 60 * 1000; // 30 minutos
 const advancedSearchCache = new Map<string, { data: any; ts: number }>();
 const ML_ITEM_NOTIFICATIONS_ENABLED = process.env.ML_NOTIFY_ITEM_UPDATES === "true";
-const FALLBACK_WORKSPACE_ENV = (process.env.VITE_WORKSPACE_ID || process.env.WORKSPACE_ID || "").trim();
+const FALLBACK_WORKSPACE_ENV = (process.env.MERCADO_LIVRE_DEFAULT_WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || process.env.WORKSPACE_ID || "").trim();
+const FALLBACK_ML_USER_ID = (process.env.MERCADO_LIVRE_USER_ID || "").trim();
+const ML_PLAINTEXT_IV = "plain";
 const BRAZIL_TIME_ZONE = "America/Sao_Paulo";
 const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
     timeZone: BRAZIL_TIME_ZONE,
@@ -111,6 +113,32 @@ async function updateEnvLocalTokens(updates: Record<string, string | undefined>)
     await fs.writeFile(envPath, output.endsWith("\n") ? output : `${output}\n`, "utf8");
     return true;
 }
+
+const serializeMercadoLivreCredentials = (payload: Record<string, any>) => ({
+    encrypted_credentials: JSON.stringify(payload),
+    encryption_iv: ML_PLAINTEXT_IV,
+});
+
+const parseMercadoLivreCredentialsPayload = (encryptedCredentials: string, encryptionIv?: string | null) => {
+    const normalizedIv = String(encryptionIv || "").trim();
+    if (!normalizedIv || normalizedIv === ML_PLAINTEXT_IV) {
+        const parsed = JSON.parse(encryptedCredentials);
+        if (!parsed || typeof parsed !== "object") {
+            throw new Error("Invalid MercadoLivre credentials payload");
+        }
+        return parsed as Record<string, any>;
+    }
+
+    try {
+        return decryptCredentials(encryptedCredentials, normalizedIv) as Record<string, any>;
+    } catch (error) {
+        const fallbackParsed = JSON.parse(encryptedCredentials);
+        if (!fallbackParsed || typeof fallbackParsed !== "object") {
+            throw error;
+        }
+        return fallbackParsed as Record<string, any>;
+    }
+};
 
 const SHIPMENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour cache for shipment details
 let shipmentsCacheTableReady: Promise<void> | null = null;
@@ -257,10 +285,25 @@ async function credentialsExist(workspaceId: string): Promise<boolean> {
     try {
         const pool = getPool();
         const result = await pool.query(
-            `SELECT 1 FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2 LIMIT 1`,
+            `SELECT encrypted_credentials, encryption_iv
+             FROM integration_credentials
+             WHERE workspace_id = $1 AND platform_key = $2
+             LIMIT 1`,
             [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
         );
-        return result.rows.length > 0;
+        if (!result.rows.length) return false;
+        try {
+            const dec = parseMercadoLivreCredentialsPayload(
+                result.rows[0].encrypted_credentials,
+                result.rows[0].encryption_iv
+            ) as any;
+            const accessToken = dec?.accessToken || dec?.access_token;
+            const userId = dec?.userId || dec?.user_id;
+            return Boolean(accessToken && userId);
+        } catch (error) {
+            console.warn("[MercadoLivre] Credenciais existentes invalidas, regravando:", error instanceof Error ? error.message : error);
+            return false;
+        }
     } catch (error) {
         console.warn("[MercadoLivre] Falha ao verificar credenciais existentes:", error instanceof Error ? error.message : error);
         return false;
@@ -275,6 +318,11 @@ async function findWorkspaceIdByMLUserId(userId: string): Promise<string | null>
         return userIdToWorkspaceCache.get(trimmedUserId)!;
     }
 
+    if (FALLBACK_ML_USER_ID && FALLBACK_WORKSPACE_ENV && FALLBACK_ML_USER_ID === trimmedUserId) {
+        userIdToWorkspaceCache.set(trimmedUserId, FALLBACK_WORKSPACE_ENV);
+        return FALLBACK_WORKSPACE_ENV;
+    }
+
     try {
         const pool = getPool();
         const result = await pool.query(
@@ -286,14 +334,17 @@ async function findWorkspaceIdByMLUserId(userId: string): Promise<string | null>
 
         for (const row of result.rows) {
             try {
-                const dec = decryptCredentials(row.encrypted_credentials, row.encryption_iv) as any;
+                const dec = parseMercadoLivreCredentialsPayload(row.encrypted_credentials, row.encryption_iv) as any;
                 const decUserId = String(dec.userId || dec.user_id || "").trim();
                 if (decUserId && decUserId === trimmedUserId) {
                     userIdToWorkspaceCache.set(trimmedUserId, row.workspace_id);
                     return row.workspace_id;
                 }
             } catch (e) {
-                console.warn("[MercadoLivre] Falha ao tentar identificar workspace pelo userId:", e instanceof Error ? e.message : e);
+                console.warn(
+                    "[MercadoLivre] Falha ao tentar identificar workspace pelo userId:",
+                    e instanceof Error ? e.message : e
+                );
             }
         }
     } catch (error) {
@@ -318,7 +369,7 @@ export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): 
     if (alreadySaved) return false;
 
     const payload = { accessToken, refreshToken, userId, clientId, clientSecret };
-    const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
+    const { encrypted_credentials, encryption_iv } = serializeMercadoLivreCredentials(payload);
 
     try {
         const pool = getPool();
@@ -354,7 +405,7 @@ async function persistMercadoLivreCredentials(
             clientId: credentials.clientId,
             clientSecret: credentials.clientSecret
         };
-        const { encrypted_credentials, encryption_iv } = encryptCredentials(payload);
+        const { encrypted_credentials, encryption_iv } = serializeMercadoLivreCredentials(payload);
 
         await pool.query(
             `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
@@ -403,7 +454,7 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
 
         if (!result.rows.length) return null;
 
-        const decrypted = decryptCredentials(
+        const decrypted = parseMercadoLivreCredentialsPayload(
             result.rows[0].encrypted_credentials,
             result.rows[0].encryption_iv
         ) as any;
@@ -416,7 +467,7 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
 
         if (!accessToken || !userId) return null;
 
-        return {
+        const credentials = {
             accessToken: String(accessToken),
             refreshToken: String(refreshToken || ""),
             userId: String(userId),
@@ -424,6 +475,12 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
             clientId: clientId ? String(clientId) : undefined,
             clientSecret: clientSecret ? String(clientSecret) : undefined,
         };
+        const normalizedIv = String(result.rows[0].encryption_iv || "").trim();
+        if (normalizedIv && normalizedIv !== ML_PLAINTEXT_IV) {
+            void persistMercadoLivreCredentials(workspaceId, credentials);
+        }
+
+        return credentials;
     } catch (error) {
         console.warn("[MercadoLivre] Falha ao buscar tokens no banco:", error instanceof Error ? error.message : error);
         return null;
@@ -2366,8 +2423,30 @@ router.get("/products", async (req, res) => {
             console.error("Error fetching ML item IDs:", err);
         }
 
-        // Agregados globais (status, tipo e estoque)
-        // NOTE: Since we are paginating, these stats will only reflect the current page.
+        // Contagens globais (ativos/pausados) para KPI
+        let globalActiveCount = 0;
+        const fetchTotalByStatus = async (status?: string) => {
+            const params: any = { limit: 1, offset: 0 };
+            if (status) params.status = status;
+            if (searchQuery) params.q = searchQuery;
+            const resp = await axios.get(
+                `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                {
+                    params,
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                }
+            );
+            return Number(resp.data?.paging?.total || 0);
+        };
+
+        try {
+            globalActiveCount = await fetchTotalByStatus("active");
+        } catch (err) {
+            console.warn("[Products] Falha ao buscar contagens globais:", (err as any)?.message || err);
+        }
+
+        // Agregados de página (status, tipo e estoque)
+        // NOTE: Estes stats refletem apenas a página atual.
         let countsActive = 0;
         let countsFull = 0;
         let countsNormal = 0;
@@ -2594,9 +2673,9 @@ router.get("/products", async (req, res) => {
         return res.json({
             items: filteredItems,
             totalCount,
-            activeCount: countsActive,
+            activeCount: globalActiveCount || countsActive,
             counts: {
-                active: countsActive,
+                active: globalActiveCount || countsActive,
                 full: countsFull,
                 normal: countsNormal,
             },
@@ -8200,7 +8279,7 @@ router.get("/debug/config", async (req, res) => {
         const configs = [];
         for (const row of result.rows) {
             try {
-                const dec = decryptCredentials(row.encrypted_credentials, row.encryption_iv) as any;
+                const dec = parseMercadoLivreCredentialsPayload(row.encrypted_credentials, row.encryption_iv) as any;
                 configs.push({
                     workspaceId: row.workspace_id,
                     userId: dec.userId || dec.user_id,

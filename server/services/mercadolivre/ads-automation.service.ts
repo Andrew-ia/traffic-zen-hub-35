@@ -1118,41 +1118,88 @@ export class MercadoAdsAutomationService {
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
 
     try {
-      let results: any[] = [];
+      const fetchCampaigns = async (url: string) => {
+        const campaigns: any[] = [];
+        let offset = 0;
+        const limit = 50;
+        while (true) {
+          const data = await requestWithAuth<any>(
+            workspaceId,
+            url,
+            {
+              params: { limit, offset },
+              headers: { 'api-version': '2' },
+            },
+          );
+          const page = data?.results || [];
+          campaigns.push(...page);
+          if (page.length < limit) break;
+          offset += limit;
+        }
+        return campaigns;
+      };
+
+      const resultsById = new Map<string, any>();
+      let standardFailed = false;
       try {
-        const data = await requestWithAuth<any>(
-          workspaceId,
-          `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/search`,
-          {
-            params: { limit: 50, offset: 0 },
-            headers: { 'api-version': '2' },
-          },
-        );
-        results = data?.results || [];
+        const standard = await fetchCampaigns(`${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns/search`);
+        for (const camp of standard) {
+          const remoteId = camp?.id || camp?.campaign_id || camp?.ml_campaign_id;
+          if (!remoteId) continue;
+          resultsById.set(String(remoteId), camp);
+        }
       } catch (err: any) {
-         const status = err?.response?.status;
-         if (status === 401 || status === 403 || status === 404) {
-             console.warn(`[MercadoAds] Search campaigns via Standard API failed (${status}). Trying Marketplace API...`);
-             try {
-               const data = await requestWithAuth<any>(
-                 workspaceId,
-                 `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/search`,
-                 {
-                   params: { limit: 50, offset: 0 },
-                   headers: { 'api-version': '2' },
-                 },
-               );
-               results = data?.results || [];
-             } catch (err2: any) {
-                console.error('[MercadoAds] Search campaigns via Marketplace API failed:', err2?.message);
-                throw err2;
-             }
-         } else {
-             throw err;
-         }
+        const status = err?.response?.status;
+        if (status === 401 || status === 403 || status === 404) {
+          console.warn(`[MercadoAds] Search campaigns via Standard API failed (${status}). Trying Marketplace API...`);
+          standardFailed = true;
+        } else {
+          throw err;
+        }
       }
 
-      for (const camp of results) {
+      const marketplaceUrl = `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns/search`;
+      if (standardFailed || resultsById.size === 0) {
+        try {
+          const marketplace = await fetchCampaigns(marketplaceUrl);
+          for (const camp of marketplace) {
+            const remoteId = camp?.id || camp?.campaign_id || camp?.ml_campaign_id;
+            if (!remoteId) continue;
+            if (!resultsById.has(String(remoteId))) {
+              resultsById.set(String(remoteId), camp);
+            }
+          }
+        } catch (err2: any) {
+          console.error('[MercadoAds] Search campaigns via Marketplace API failed:', err2?.message);
+          if (standardFailed) throw err2;
+        }
+      } else {
+        try {
+          const marketplace = await fetchCampaigns(marketplaceUrl);
+          for (const camp of marketplace) {
+            const remoteId = camp?.id || camp?.campaign_id || camp?.ml_campaign_id;
+            if (!remoteId) continue;
+            if (!resultsById.has(String(remoteId))) {
+              resultsById.set(String(remoteId), camp);
+            }
+          }
+        } catch (err2: any) {
+          console.warn('[MercadoAds] Marketplace campaigns fetch skipped:', err2?.message);
+        }
+      }
+
+      const { rows: existingRows } = await pool.query<{ id: string; ml_campaign_id: string | null; curve: string | null }>(
+        `select id, ml_campaign_id, curve from ml_ads_campaigns where workspace_id = $1`,
+        [workspaceId],
+      );
+      const existingByRemoteId = new Map<string, { id: string; curve: string | null }>();
+      const existingByCurve = new Map<string, { id: string; ml_campaign_id: string | null }>();
+      existingRows.forEach((row) => {
+        if (row.ml_campaign_id) existingByRemoteId.set(String(row.ml_campaign_id), { id: row.id, curve: row.curve });
+        if (row.curve) existingByCurve.set(row.curve, { id: row.id, ml_campaign_id: row.ml_campaign_id });
+      });
+
+      for (const camp of resultsById.values()) {
         const remoteId = camp.id || camp.campaign_id || camp.ml_campaign_id;
         if (!remoteId) continue;
         const status = camp.status || 'active';
@@ -1166,7 +1213,94 @@ export class MercadoAdsAutomationService {
         else if (lowerName.includes('curva b')) detectedCurve = 'B';
         else if (lowerName.includes('curva c')) detectedCurve = 'C';
 
-        await pool.query(
+        const existing = existingByRemoteId.get(String(remoteId));
+        if (existing) {
+          await pool.query(
+            `update ml_ads_campaigns
+               set name = $1,
+                   status = $2,
+                   daily_budget = $3,
+                   advertiser_id = $4,
+                   automation_status = 'manual',
+                   curve = coalesce(curve, $5),
+                   last_synced_at = now(),
+                   updated_at = now()
+             where id = $6`,
+            [
+              name,
+              status,
+              budget,
+              advertiserId,
+              detectedCurve,
+              existing.id,
+            ],
+          );
+          continue;
+        }
+
+        if (detectedCurve && existingByCurve.has(detectedCurve)) {
+          const existingCurve = existingByCurve.get(detectedCurve)!;
+          const { rows } = await pool.query<{ id: string }>(
+            `update ml_ads_campaigns
+               set ml_campaign_id = $1,
+                   name = $2,
+                   status = $3,
+                   daily_budget = $4,
+                   advertiser_id = $5,
+                   automation_status = 'manual',
+                   last_synced_at = now(),
+                   updated_at = now()
+             where workspace_id = $6 and curve = $7
+             returning id`,
+            [
+              String(remoteId),
+              name,
+              status,
+              budget,
+              advertiserId,
+              workspaceId,
+              detectedCurve,
+            ],
+          );
+          const updatedId = rows[0]?.id || existingCurve.id;
+          existingByRemoteId.set(String(remoteId), { id: updatedId, curve: detectedCurve });
+          continue;
+        }
+
+        if (detectedCurve) {
+          const { rows } = await pool.query<{ id: string }>(
+            `insert into ml_ads_campaigns (
+               workspace_id, curve, campaign_type, advertiser_id, ml_campaign_id, name, status, daily_budget,
+               automation_status, last_synced_at, updated_at
+             ) values ($1, $7, 'PRODUCT_ADS', $2, $3, $4, $5, $6, 'manual', now(), now())
+             on conflict (workspace_id, curve) do update set
+               ml_campaign_id = excluded.ml_campaign_id,
+               name = excluded.name,
+               status = excluded.status,
+               daily_budget = excluded.daily_budget,
+               advertiser_id = excluded.advertiser_id,
+               automation_status = excluded.automation_status,
+               last_synced_at = now(),
+               updated_at = now()
+             returning id`,
+            [
+              workspaceId,
+              advertiserId,
+              String(remoteId),
+              name,
+              status,
+              budget,
+              detectedCurve,
+            ],
+          );
+          if (rows[0]?.id) {
+            existingByRemoteId.set(String(remoteId), { id: rows[0].id, curve: detectedCurve });
+            existingByCurve.set(detectedCurve, { id: rows[0].id, ml_campaign_id: String(remoteId) });
+          }
+          continue;
+        }
+
+        const { rows } = await pool.query<{ id: string }>(
           `insert into ml_ads_campaigns (
              workspace_id, curve, campaign_type, advertiser_id, ml_campaign_id, name, status, daily_budget,
              automation_status, last_synced_at, updated_at
@@ -1177,9 +1311,10 @@ export class MercadoAdsAutomationService {
              daily_budget = excluded.daily_budget,
              advertiser_id = excluded.advertiser_id,
              automation_status = excluded.automation_status,
-             curve = coalesce(ml_ads_campaigns.curve, excluded.curve), -- Keep existing curve if set, else use detected
+             curve = coalesce(ml_ads_campaigns.curve, excluded.curve),
              last_synced_at = now(),
-             updated_at = now()`,
+             updated_at = now()
+           returning id`,
           [
             workspaceId,
             advertiserId,
@@ -1190,6 +1325,10 @@ export class MercadoAdsAutomationService {
             detectedCurve,
           ],
         );
+        if (rows[0]?.id) {
+          existingByRemoteId.set(String(remoteId), { id: rows[0].id, curve: detectedCurve });
+          if (detectedCurve) existingByCurve.set(detectedCurve, { id: rows[0].id, ml_campaign_id: String(remoteId) });
+        }
       }
     } catch (err: any) {
       console.error('[MercadoAds] Sync existing campaigns failed:', err?.message, err?.response?.data);
@@ -1277,81 +1416,127 @@ export class MercadoAdsAutomationService {
 
       const productIdCache = new Map<string, string | null>();
       const { dateFrom, dateTo } = this.getDateRange(30);
-
-      let offset = 0;
       const limit = 200;
-      const byCampaign = new Map<string, { total: number; active: number }>();
 
-      while (true) {
-        const data = await requestWithAuth<any>(
-          workspaceId,
-          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
-          {
-            params: {
-              limit,
-              offset,
-              date_from: dateFrom,
-              date_to: dateTo,
-              metrics: 'clicks,prints,cost,cpc,acos,roas,units_quantity,total_amount',
-              'filters[statuses]': 'active,paused,idle',
-            },
-            headers: { 'api-version': '2' },
-          },
-        );
-
-        const results = data?.results || [];
-        for (const ad of results) {
-          const cid = ad.campaign_id ? String(ad.campaign_id) : null;
-          if (!cid) continue;
-          const campaignRef = campaignByRemoteId.get(cid);
-          // Upsert vínculo produto-campanha quando soubermos o campaign_id interno
-          if (campaignRef) {
-            const mlItemId = ad.item_id || ad.itemId || ad.id;
-            const mlAdId = ad.id || ad.ad_id || ad.product_ad_id || null;
-            let productId: string | null = null;
-            if (mlItemId) {
-              if (productIdCache.has(mlItemId)) {
-                productId = productIdCache.get(mlItemId) as string | null;
-              } else {
-                const { rows: prodRows } = await pool.query(
-                  `select id from products where workspace_id = $1 and ml_item_id = $2 limit 1`,
-                  [workspaceId, mlItemId],
-                );
-                productId = prodRows[0]?.id || null;
-                productIdCache.set(mlItemId, productId);
-              }
-            }
-
-            await pool.query(
-              `insert into ml_ads_campaign_products (
-                 workspace_id, campaign_id, product_id, ml_item_id, ml_ad_id, curve, source, status, added_at, last_moved_at
-               ) values ($1,$2,$3,$4,$5,$6,'manual',$7, now(), now())
-               on conflict (campaign_id, ml_item_id) do update set
-                 product_id = coalesce(excluded.product_id, ml_ads_campaign_products.product_id),
-                 ml_ad_id = coalesce(excluded.ml_ad_id, ml_ads_campaign_products.ml_ad_id),
-                 curve = excluded.curve,
-                 status = excluded.status,
-                 last_moved_at = now()`,
-              [
-                workspaceId,
-                campaignRef.id,
-                productId,
-                mlItemId || null,
-                mlAdId,
-                campaignRef.curve || 'C',
-                (ad.status || 'active').toLowerCase(),
-              ],
+      let useMarketplace = false;
+      const fetchAdsPage = async (params: Record<string, any>) => {
+        if (useMarketplace) {
+          return requestWithAuth<any>(
+            workspaceId,
+            `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+            { params, headers: { 'api-version': '2' } },
+          );
+        }
+        try {
+          return await requestWithAuth<any>(
+            workspaceId,
+            `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+            { params, headers: { 'api-version': '2' } },
+          );
+        } catch (err: any) {
+          const status = err?.response?.status;
+          if (status === 401 || status === 403 || status === 404) {
+            useMarketplace = true;
+            return requestWithAuth<any>(
+              workspaceId,
+              `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+              { params, headers: { 'api-version': '2' } },
             );
           }
+          throw err;
+        }
+      };
 
-          const bucket = byCampaign.get(cid) || { total: 0, active: 0 };
-          bucket.total += 1;
-          if ((ad.status || '').toLowerCase() === 'active') bucket.active += 1;
-          byCampaign.set(cid, bucket);
+      const needsDateRange = (err: any) => {
+        const status = err?.response?.status;
+        if (status !== 400) return false;
+        const message = String(err?.response?.data?.message || err?.response?.data?.error || err?.message || '').toLowerCase();
+        return message.includes('date_from') || message.includes('date_to') || message.includes('date');
+      };
+
+      const runSearch = async (withDateRange: boolean) => {
+        const byCampaign = new Map<string, { total: number; active: number }>();
+        let offset = 0;
+        while (true) {
+          const params: Record<string, any> = {
+            limit,
+            offset,
+            'filters[statuses]': 'active,paused,idle',
+          };
+          if (withDateRange) {
+            params.date_from = dateFrom;
+            params.date_to = dateTo;
+            params.metrics = 'clicks,prints,cost,cpc,acos,roas,units_quantity,total_amount';
+          }
+
+          const data = await fetchAdsPage(params);
+          const results = data?.results || [];
+          for (const ad of results) {
+            const cid = ad.campaign_id ? String(ad.campaign_id) : null;
+            if (!cid) continue;
+            const campaignRef = campaignByRemoteId.get(cid);
+            // Upsert vínculo produto-campanha quando soubermos o campaign_id interno
+            if (campaignRef) {
+              const mlItemId = ad.item_id || ad.itemId || ad.id;
+              const mlAdId = ad.id || ad.ad_id || ad.product_ad_id || null;
+              let productId: string | null = null;
+              if (mlItemId) {
+                if (productIdCache.has(mlItemId)) {
+                  productId = productIdCache.get(mlItemId) as string | null;
+                } else {
+                  const { rows: prodRows } = await pool.query(
+                    `select id from products where workspace_id = $1 and ml_item_id = $2 limit 1`,
+                    [workspaceId, mlItemId],
+                  );
+                  productId = prodRows[0]?.id || null;
+                  productIdCache.set(mlItemId, productId);
+                }
+              }
+
+              await pool.query(
+                `insert into ml_ads_campaign_products (
+                   workspace_id, campaign_id, product_id, ml_item_id, ml_ad_id, curve, source, status, added_at, last_moved_at
+                 ) values ($1,$2,$3,$4,$5,$6,'manual',$7, now(), now())
+                 on conflict (campaign_id, ml_item_id) do update set
+                   product_id = coalesce(excluded.product_id, ml_ads_campaign_products.product_id),
+                   ml_ad_id = coalesce(excluded.ml_ad_id, ml_ads_campaign_products.ml_ad_id),
+                   curve = excluded.curve,
+                   status = excluded.status,
+                   last_moved_at = now()`,
+                [
+                  workspaceId,
+                  campaignRef.id,
+                  productId,
+                  mlItemId || null,
+                  mlAdId,
+                  campaignRef.curve || 'C',
+                  (ad.status || 'active').toLowerCase(),
+                ],
+              );
+            }
+
+            const bucket = byCampaign.get(cid) || { total: 0, active: 0 };
+            bucket.total += 1;
+            if ((ad.status || '').toLowerCase() === 'active') bucket.active += 1;
+            byCampaign.set(cid, bucket);
+          }
+
+          if (!results.length || results.length < limit) break;
+          offset += limit;
         }
 
-        if (!results.length || results.length < limit) break;
-        offset += limit;
+        return byCampaign;
+      };
+
+      let byCampaign: Map<string, { total: number; active: number }>;
+      try {
+        byCampaign = await runSearch(false);
+      } catch (err: any) {
+        if (needsDateRange(err)) {
+          byCampaign = await runSearch(true);
+        } else {
+          throw err;
+        }
       }
 
       for (const [cid, counts] of byCampaign.entries()) {

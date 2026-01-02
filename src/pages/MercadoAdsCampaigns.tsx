@@ -7,6 +7,7 @@ import {
   useToggleMercadoAdsCampaign,
   useUpdateMercadoAdsBudget,
 } from "@/hooks/useMercadoAds";
+import { useMercadoLivreDailySales } from "@/hooks/useMercadoLivreOrders";
 import { useToast } from "@/hooks/use-toast";
 import {
   Card,
@@ -44,6 +45,8 @@ export default function MercadoAdsCampaigns() {
   const { mutate: applyAutomation, isPending: isApplying } = useApplyMercadoAdsAutomation();
   const { mutate: toggleCampaign, isPending: isToggling } = useToggleMercadoAdsCampaign();
   const { mutate: updateBudget, isPending: isSavingBudget } = useUpdateMercadoAdsBudget();
+  const metrics = data?.metrics || null;
+  const { data: dailySales } = useMercadoLivreDailySales(workspaceId, metrics?.date_from, metrics?.date_to);
 
   const campaigns = useMemo(() => data?.campaigns ?? [], [data?.campaigns]);
   const curves = useMemo(() => data?.curves ?? [], [data?.curves]);
@@ -113,10 +116,12 @@ export default function MercadoAdsCampaigns() {
     return map;
   }, [curves]);
 
-  const metrics = data?.metrics || null;
-
   const kpis = useMemo(() => {
     const s = metrics?.summary;
+    const totalSales = dailySales?.totalSales;
+    const organicFromOrders = typeof totalSales === "number"
+      ? Math.max(0, totalSales - Number(s?.units || 0))
+      : s?.organic_units;
     return [
       {
         label: "Vendas por Product Ads",
@@ -126,9 +131,9 @@ export default function MercadoAdsCampaigns() {
       },
       {
         label: "Vendas sem Product Ads",
-        value: s ? `${s.organic_units.toLocaleString('pt-BR')}` : "—",
-        helper: s ? "Últimos 30 dias" : "Requer métricas",
-        positive: Boolean(s && s.organic_units > 0),
+        value: s && organicFromOrders !== undefined ? `${Number(organicFromOrders || 0).toLocaleString('pt-BR')}` : "—",
+        helper: s ? (typeof totalSales === "number" ? "Últimos 30 dias (pedidos)" : "Últimos 30 dias") : "Requer métricas",
+        positive: Boolean(s && Number(organicFromOrders || 0) > 0),
       },
       {
         label: "Cliques",
@@ -161,17 +166,32 @@ export default function MercadoAdsCampaigns() {
         positive: Boolean(s && s.cpc > 0),
       },
     ];
-  }, [totalProducts, totalProductsActive, metrics]);
+  }, [dailySales?.totalSales, totalProducts, totalProductsActive, metrics]);
 
   const chartData = useMemo(() => {
-    if (metrics?.daily?.length) {
-      return metrics.daily.map((d) => ({
-        name: d.date.slice(5), // MM-DD
-        vendasAds: d.units || 0,
-        vendasOrg: d.organic_units || 0,
-        roas: d.roas || 0,
-        receita: d.revenue || 0,
-      }));
+    const adsDaily = metrics?.daily ?? [];
+    const ordersDaily = dailySales?.dailySales ?? [];
+    if (adsDaily.length || ordersDaily.length) {
+      const adsByDate = new Map(adsDaily.map((d) => [d.date, d]));
+      const ordersByDate = new Map(ordersDaily.map((d) => [d.date, d]));
+      const dates = new Set<string>([...adsByDate.keys(), ...ordersByDate.keys()]);
+      return Array.from(dates)
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => {
+          const ads = adsByDate.get(date);
+          const totalSales = ordersByDate.get(date)?.sales;
+          const adsUnits = Number(ads?.units || 0);
+          const organicUnits = typeof totalSales === "number"
+            ? Math.max(0, totalSales - adsUnits)
+            : Number(ads?.organic_units || 0);
+          return {
+            name: date.slice(5), // MM-DD
+            vendasAds: adsUnits,
+            vendasOrg: organicUnits,
+            roas: Number(ads?.roas || 0),
+            receita: Number(ads?.revenue || 0),
+          };
+        });
     }
     // Fallback: mantém gráfico mínimo com vendas ativas
     const days = 14;
@@ -366,7 +386,7 @@ export default function MercadoAdsCampaigns() {
               <div>
                 <div className="text-sm font-semibold">Vendas & ROAS</div>
                 <div className="text-xs text-muted-foreground">
-                  Dados reais da API Product Ads (30 dias). Vendas orgânicas exibidas quando informadas.
+                  Dados de Product Ads (30 dias). Vendas orgânicas complementadas com pedidos quando disponíveis.
                 </div>
               </div>
               <div className="text-xs text-muted-foreground flex gap-3">

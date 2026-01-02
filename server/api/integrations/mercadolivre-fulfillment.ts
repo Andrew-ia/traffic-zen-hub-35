@@ -6,6 +6,7 @@ import { decryptCredentials } from "../../services/encryption.js";
 const router = Router();
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
 const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
+const ML_PLAINTEXT_IV = "plain";
 
 /**
  * Interface para credenciais do Mercado Livre
@@ -114,8 +115,8 @@ async function refreshAccessToken(workspaceId: string, current: MercadoLivreCred
 
         // Persistir no banco
         const pool = getPool();
-        const { encryptCredentials } = await import("../../services/encryption.js");
-        const { encrypted_credentials, encryption_iv } = encryptCredentials(updated);
+        const encrypted_credentials = JSON.stringify(updated);
+        const encryption_iv = ML_PLAINTEXT_IV;
         await pool.query(
             `UPDATE integration_credentials
              SET encrypted_credentials = $1, encryption_iv = $2, updated_at = now()
