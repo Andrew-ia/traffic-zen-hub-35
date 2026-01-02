@@ -4,6 +4,8 @@ import axios from "axios";
 import FormData from "form-data";
 import PDFDocument from "pdfkit";
 import * as XLSX from "xlsx";
+import { promises as fs } from "fs";
+import path from "path";
 import { getPool } from "../../config/database.js";
 import { encryptCredentials, decryptCredentials } from "../../services/encryption.js";
 import { resolveWorkspaceId } from "../../utils/workspace.js";
@@ -54,6 +56,61 @@ const toBrazilDayBoundary = (dateKey: string, endOfDay: boolean) => {
     const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
     return new Date(`${dateKey}T${time}-03:00`);
 };
+
+const formatAxiosError = (error: any) => ({
+    status: error?.response?.status,
+    code: error?.response?.data?.error || error?.code,
+    message: error?.response?.data?.message || error?.message || "Unknown error",
+});
+
+const shouldWriteEnvLocal = () => {
+    if (process.env.ML_WRITE_ENV_LOCAL === "true") return true;
+    if (process.env.VERCEL === "1") return false;
+    return process.env.NODE_ENV !== "production";
+};
+
+async function updateEnvLocalTokens(updates: Record<string, string | undefined>): Promise<boolean> {
+    if (!shouldWriteEnvLocal()) return false;
+
+    const normalized: Record<string, string> = {};
+    Object.entries(updates).forEach(([key, value]) => {
+        if (value) normalized[key] = String(value).trim();
+    });
+
+    if (!Object.keys(normalized).length) return false;
+
+    const envPath = path.resolve(process.cwd(), ".env.local");
+    let content = "";
+
+    try {
+        content = await fs.readFile(envPath, "utf8");
+    } catch (error: any) {
+        if (error?.code !== "ENOENT") {
+            throw error;
+        }
+    }
+
+    const lines = content ? content.split(/\r?\n/) : [];
+    const seen = new Set<string>();
+    const nextLines = lines.map((line) => {
+        const match = line.match(/^([A-Z0-9_]+)=/);
+        if (!match) return line;
+        const key = match[1];
+        if (!(key in normalized)) return line;
+        seen.add(key);
+        return `${key}=${normalized[key]}`;
+    });
+
+    Object.entries(normalized).forEach(([key, value]) => {
+        if (!seen.has(key)) {
+            nextLines.push(`${key}=${value}`);
+        }
+    });
+
+    const output = nextLines.join("\n");
+    await fs.writeFile(envPath, output.endsWith("\n") ? output : `${output}\n`, "utf8");
+    return true;
+}
 
 const SHIPMENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour cache for shipment details
 let shipmentsCacheTableReady: Promise<void> | null = null;
@@ -194,6 +251,7 @@ interface MercadoLivreCredentials {
 }
 
 const tokenStore = new Map<string, (MercadoLivreCredentials & { expiresAt?: number })>();
+const invalidRefreshTokens = new Map<string, string>();
 
 async function credentialsExist(workspaceId: string): Promise<boolean> {
     try {
@@ -273,6 +331,7 @@ export async function bootstrapMercadoLivreEnvCredentials(workspaceId: string): 
         );
 
         tokenStore.set(workspaceId, payload);
+        invalidRefreshTokens.delete(workspaceId);
         console.log(`[MercadoLivre] Credenciais aplicadas a partir das envs para workspace ${workspaceId}`);
         return true;
     } catch (error) {
@@ -304,10 +363,30 @@ async function persistMercadoLivreCredentials(
              DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()`,
             [workspaceId, MERCADO_LIVRE_PLATFORM_KEY, encrypted_credentials, encryption_iv]
         );
+        invalidRefreshTokens.delete(workspaceId);
         return true;
     } catch (error) {
         console.warn("[MercadoLivre] Falha ao persistir tokens:", error instanceof Error ? error.message : error);
         return false;
+    }
+}
+
+async function clearMercadoLivreCredentials(workspaceId: string, reason?: string) {
+    tokenStore.delete(workspaceId);
+    try {
+        const pool = getPool();
+        await pool.query(
+            "DELETE FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2",
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
+        );
+        if (reason) {
+            console.warn(`[MercadoLivre] Credenciais removidas (${reason}) para workspace ${workspaceId}.`);
+        }
+    } catch (error) {
+        console.warn(
+            `[MercadoLivre] Falha ao limpar credenciais${reason ? ` (${reason})` : ""}:`,
+            error instanceof Error ? error.message : error
+        );
     }
 }
 
@@ -357,6 +436,17 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
 export async function getMercadoLivreCredentials(
     workspaceId: string
 ): Promise<(MercadoLivreCredentials & { expiresAt?: number }) | null> {
+    const blockedRefreshToken = invalidRefreshTokens.get(workspaceId);
+    if (blockedRefreshToken) {
+        const dbCreds = await getCredentialsFromDb(workspaceId);
+        if (dbCreds?.refreshToken && dbCreds.refreshToken !== blockedRefreshToken) {
+            invalidRefreshTokens.delete(workspaceId);
+            tokenStore.set(workspaceId, dbCreds);
+            return dbCreds;
+        }
+        return null;
+    }
+
     const cached = tokenStore.get(workspaceId);
     if (cached && (!cached.expiresAt || cached.expiresAt > Date.now())) {
         return cached;
@@ -431,29 +521,123 @@ export async function refreshAccessToken(workspaceId: string): Promise<MercadoLi
             expiresAt: typeof expires_in === "number" ? Date.now() + (expires_in * 1000) : undefined,
         };
         tokenStore.set(workspaceId, updated);
+        invalidRefreshTokens.delete(workspaceId);
         void persistMercadoLivreCredentials(workspaceId, updated);
         return { accessToken: updated.accessToken, refreshToken: updated.refreshToken, userId: updated.userId, clientId, clientSecret };
     } catch (err: any) {
         const status = err?.response?.status;
         const errCode = err?.response?.data?.error;
-        
-        // Se o refresh token for inválido (revogado/expirado), limpar cache para forçar nova autenticação ou busca no banco
-        if (status === 400 || status === 401 || errCode === "invalid_grant" || errCode === "invalid_client") {
-            console.warn(`[MercadoLivre] Refresh token inválido (${errCode || status}). Limpando cache para workspace ${workspaceId}.`);
-            tokenStore.delete(workspaceId);
+
+        if (errCode === "invalid_grant") {
+            console.error(`
+🚨 [MercadoLivre] TOKEN INVALIDADO/EXPIRADO (invalid_grant)
+------------------------------------------------------------
+O refresh token para o workspace ${workspaceId} foi rejeitado pelo Mercado Livre.
+Isso geralmente acontece quando:
+1. O usuário revogou o acesso nas configurações do ML.
+2. O token expirou (6 meses sem uso).
+3. A senha da conta do ML foi alterada.
+
+AÇÃO NECESSÁRIA: O usuário deve reconectar a conta no painel de integrações.
+------------------------------------------------------------
+            `);
+            invalidRefreshTokens.set(workspaceId, current.refreshToken);
+            const dbCreds = await getCredentialsFromDb(workspaceId);
+            if (dbCreds?.refreshToken && dbCreds.refreshToken !== current.refreshToken) {
+                invalidRefreshTokens.delete(workspaceId);
+                tokenStore.set(workspaceId, dbCreds);
+                return {
+                    accessToken: dbCreds.accessToken,
+                    refreshToken: dbCreds.refreshToken,
+                    userId: dbCreds.userId,
+                    clientId: dbCreds.clientId,
+                    clientSecret: dbCreds.clientSecret,
+                };
+            }
+
+            await clearMercadoLivreCredentials(workspaceId, "invalid_grant");
+            return null;
         }
 
         if (errCode === "invalid_client") {
             const msg = err?.response?.data?.message || err?.message || "invalid_client";
             throw new Error(`ml_invalid_client:${msg}`);
         }
-        throw err;
+
+        const message = err?.response?.data?.message || err?.message || `ml_refresh_failed:${status || "unknown"}`;
+        throw new Error(message);
+    }
+}
+
+async function verifyMercadoLivreConnection(workspaceId: string): Promise<{ connected: boolean; userId?: string; reason?: string }> {
+    let creds = await getMercadoLivreCredentials(workspaceId);
+    if (!creds) {
+        return { connected: false };
+    }
+
+    if (tokenNeedsRefresh(creds)) {
+        try {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (!refreshed) {
+                return { connected: false, reason: "refresh_failed" };
+            }
+            creds = {
+                ...creds,
+                accessToken: refreshed.accessToken,
+                refreshToken: refreshed.refreshToken,
+                userId: refreshed.userId,
+            };
+        } catch (err: any) {
+            const message = String(err?.message || "");
+            if (message.startsWith("ml_invalid_client")) {
+                await clearMercadoLivreCredentials(workspaceId, "invalid_client");
+                return { connected: false, reason: "invalid_client" };
+            }
+            return { connected: false, reason: "refresh_failed" };
+        }
+    }
+
+    try {
+        await axios.get(`${MERCADO_LIVRE_API_BASE}/users/${creds.userId}`, {
+            headers: { Authorization: `Bearer ${creds.accessToken}` },
+            timeout: 8000,
+        });
+        return { connected: true, userId: creds.userId };
+    } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+            try {
+                const refreshed = await refreshAccessToken(workspaceId);
+                if (refreshed?.accessToken) {
+                    await axios.get(`${MERCADO_LIVRE_API_BASE}/users/${refreshed.userId}`, {
+                        headers: { Authorization: `Bearer ${refreshed.accessToken}` },
+                        timeout: 8000,
+                    });
+                    return { connected: true, userId: refreshed.userId };
+                }
+            } catch (refreshErr: any) {
+                const message = String(refreshErr?.message || "");
+                if (message.startsWith("ml_invalid_client")) {
+                    await clearMercadoLivreCredentials(workspaceId, "invalid_client");
+                    return { connected: false, reason: "invalid_client" };
+                }
+            }
+
+            await clearMercadoLivreCredentials(workspaceId, "auth_status_unauthorized");
+            return { connected: false, reason: "unauthorized" };
+        }
+
+        console.warn("[MercadoLivre] Auth status check failed:", formatAxiosError(err));
+        return { connected: true, userId: creds.userId, reason: "status_check_failed" };
     }
 }
 
 export async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
     let creds = await getMercadoLivreCredentials(workspaceId);
-    if (!creds) throw new Error("ml_not_connected");
+    if (!creds) {
+        console.warn(`[MercadoLivre] Tentativa de acesso sem credenciais para workspace ${workspaceId}.`);
+        throw new Error("ml_not_connected");
+    }
 
     // Refresh antecipado se token estiver perto de expirar
     if (tokenNeedsRefresh(creds)) {
@@ -461,9 +645,18 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
             const refreshed = await refreshAccessToken(workspaceId);
             if (refreshed) {
                 creds = refreshed;
+            } else if (invalidRefreshTokens.has(workspaceId)) {
+                console.warn(`[MercadoLivre] Refresh falhou e token foi invalidado para workspace ${workspaceId}.`);
+                throw new Error("ml_not_connected");
             }
-        } catch (e) {
-            console.warn("[MercadoLivre] Falha no refresh antecipado:", e);
+        } catch (e: any) {
+            if (String(e?.message || "").startsWith("ml_invalid_client")) {
+                throw e;
+            }
+            if (e?.message === "ml_not_connected") {
+                throw e;
+            }
+            console.warn("[MercadoLivre] Falha no refresh antecipado:", formatAxiosError(e));
             // Se falhar o refresh, tentamos com o token atual (vai que funciona ou cai no 401 e tenta de novo)
             // Mas se o erro foi "invalid_grant", o cache já foi limpo pelo refreshAccessToken
         }
@@ -474,13 +667,21 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
         return resp.data as any;
     } catch (err: any) {
         const status = err?.response?.status;
+        
+        // Log detailed error for debugging
+        if (status >= 400) {
+            console.error(`[MercadoLivre] API Error ${status} for ${url}:`, 
+                JSON.stringify(err.response?.data || err.message, null, 2)
+            );
+        }
+
         if (status === 401) {
             console.log(`[MercadoLivre] 401 detectado. Tentando refresh token para workspace ${workspaceId}...`);
             try {
                 const refreshed = await refreshAccessToken(workspaceId);
                 if (!refreshed) {
-                     tokenStore.delete(workspaceId); // Ensure cache is cleared if refresh returns null
-                     throw err;
+                    tokenStore.delete(workspaceId); // Ensure cache is cleared if refresh returns null
+                    throw new Error("ml_not_connected");
                 }
                 const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers } });
                 return resp.data as any;
@@ -554,8 +755,8 @@ router.get("/auth/status", async (req, res) => {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
         
-        const exists = await credentialsExist(String(workspaceId));
-        return res.json({ connected: exists });
+        const status = await verifyMercadoLivreConnection(String(workspaceId));
+        return res.json({ connected: status.connected, userId: status.userId });
     } catch (error: any) {
         console.error("Error checking auth status:", error);
         return res.status(500).json({ error: "Failed to check status" });
@@ -643,12 +844,47 @@ router.delete("/auth", async (req, res) => {
             "DELETE FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2",
             [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
         );
+        tokenStore.delete(String(workspaceId));
+        invalidRefreshTokens.delete(String(workspaceId));
 
         return res.json({ success: true, message: "Disconnected successfully" });
     } catch (error: any) {
         console.error("Error disconnecting Mercado Livre:", error);
         return res.status(500).json({
             error: "Failed to disconnect",
+            details: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/manual-credentials
+ * Permite salvar credenciais manualmente (útil para desenvolvimento local)
+ */
+router.post("/manual-credentials", async (req, res) => {
+    try {
+        const { workspaceId, accessToken, refreshToken, userId } = req.body;
+
+        if (!workspaceId || !accessToken || !refreshToken || !userId) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+        const creds = {
+            accessToken: String(accessToken).trim(),
+            refreshToken: String(refreshToken).trim(),
+            userId: String(userId).trim(),
+        };
+
+        tokenStore.set(workspaceId, creds);
+        // Persistir no banco
+        await persistMercadoLivreCredentials(workspaceId, creds);
+        
+        console.log(`[MercadoLivre] Credenciais manuais aplicadas para workspace ${workspaceId}`);
+        return res.json({ success: true });
+    } catch (error: any) {
+        console.error("Error saving manual credentials:", error);
+        return res.status(500).json({
+            error: "Failed to save credentials",
             details: error.message
         });
     }
@@ -979,6 +1215,20 @@ router.post("/auth/callback", async (req, res) => {
         if (!persisted) {
              console.error("⚠️ Failed to persist Mercado Livre credentials to DB");
         }
+        try {
+            const updated = await updateEnvLocalTokens({
+                MERCADO_LIVRE_ACCESS_TOKEN: access_token,
+                MERCADO_LIVRE_REFRESH_TOKEN: refresh_token,
+                MERCADO_LIVRE_USER_ID: String(user_id),
+                MERCADO_LIVRE_CLIENT_ID: clientId,
+                MERCADO_LIVRE_CLIENT_SECRET: clientSecret,
+            });
+            if (updated) {
+                console.log("[MercadoLivre] .env.local atualizado com credenciais do Mercado Livre");
+            }
+        } catch (error: any) {
+            console.warn("[MercadoLivre] Falha ao atualizar .env.local:", error?.message || error);
+        }
 
         console.log("✅ Mercado Livre OAuth Success:");
         console.log("Access Token:", access_token ? "Recieved" : "Missing");
@@ -992,7 +1242,7 @@ router.post("/auth/callback", async (req, res) => {
             message: "Authentication successful!",
         });
     } catch (error: any) {
-        console.error("❌ Error in OAuth callback:", error);
+        console.error("❌ Error in OAuth callback:", formatAxiosError(error));
         
         const mlError = error.response?.data;
         const statusCode = error.response?.status || 500;
@@ -1072,6 +1322,20 @@ router.post("/auth/refresh", async (req, res) => {
         };
         tokenStore.set(String(workspaceId), creds);
         void persistMercadoLivreCredentials(String(workspaceId), creds);
+        try {
+            const updated = await updateEnvLocalTokens({
+                MERCADO_LIVRE_ACCESS_TOKEN: access_token,
+                MERCADO_LIVRE_REFRESH_TOKEN: refresh_token || credentials.refreshToken,
+                MERCADO_LIVRE_USER_ID: String(credentials.userId),
+                MERCADO_LIVRE_CLIENT_ID: clientId,
+                MERCADO_LIVRE_CLIENT_SECRET: clientSecret,
+            });
+            if (updated) {
+                console.log("[MercadoLivre] .env.local atualizado com tokens do Mercado Livre");
+            }
+        } catch (error: any) {
+            console.warn("[MercadoLivre] Falha ao atualizar .env.local:", error?.message || error);
+        }
         console.log("✅ Token refreshed successfully");
         console.log(`MERCADO_LIVRE_ACCESS_TOKEN=${access_token}`);
         console.log(`MERCADO_LIVRE_REFRESH_TOKEN=${refresh_token}`);
@@ -1082,7 +1346,7 @@ router.post("/auth/refresh", async (req, res) => {
             refreshToken: refresh_token,
         });
     } catch (error: any) {
-        console.error("Error refreshing token:", error);
+        console.error("Error refreshing token:", formatAxiosError(error));
         return res.status(500).json({
             error: "Failed to refresh token",
             details: error.response?.data || error.message,
@@ -1149,15 +1413,30 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 params['order.date_created.from'] = dateFromFinal.toISOString();
                 params['order.date_created.to'] = dateToFinal.toISOString();
 
-                const ordersResponse = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${credentials.accessToken}`,
-                        },
-                        params,
-                    }
-                );
+                let ordersResponse;
+                try {
+                    ordersResponse = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        }
+                    );
+                } catch (e) {
+                    console.warn("[Metrics] Failed with sort, retrying without sort");
+                    delete params.sort;
+                    ordersResponse = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        }
+                    );
+                }
 
                 const orders = ordersResponse.data.results || [];
                 allOrders.push(...orders);
@@ -1172,6 +1451,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                         credentials = refreshed;
                         continue; // Retry com o novo token
                     }
+                    throw new Error("ml_not_connected");
                 }
                 console.error("[Metrics] Erro ao buscar pedidos:", apiError.message);
                 hasMore = false;
@@ -1217,7 +1497,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                      }
                 });
             } catch (err) {
-                console.error("[Metrics] Error fetching shipments chunk:", err);
+                console.error("[Metrics] Error fetching shipments chunk:", formatAxiosError(err));
             }
         };
 
@@ -1328,7 +1608,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             totalRevenue += dayData.revenue;
         }
     } catch (err) {
-        console.error("[Metrics] Erro ao agregar pedidos:", err);
+        console.error("[Metrics] Erro ao agregar pedidos:", formatAxiosError(err));
         for (let i = daysCount - 1; i >= 0; i--) {
             const d = new Date(dateToFinal);
             d.setDate(d.getDate() - i);
@@ -1514,10 +1794,43 @@ router.get("/orders", async (req, res) => {
     try {
         const { id: targetWorkspaceId } = resolveWorkspaceId(req);
         if (!targetWorkspaceId) {
+            console.error('[MercadoLivre Orders] Workspace ID missing');
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const { dateFrom, dateTo, limit = 50, offset = 0, status } = req.query as any;
+        const getQueryParam = (val: any): string | undefined => {
+            if (Array.isArray(val)) return val.length > 0 && typeof val[0] === 'string' ? val[0] : undefined;
+            return typeof val === 'string' ? val : undefined;
+        };
+
+        const dateFrom = getQueryParam(req.query.dateFrom);
+        const dateTo = getQueryParam(req.query.dateTo);
+        const status = getQueryParam(req.query.status);
+        
+        const limitParam = getQueryParam(req.query.limit);
+        const offsetParam = getQueryParam(req.query.offset);
+        
+        const limit = limitParam ? Number(limitParam) : 50;
+        const offset = offsetParam ? Number(offsetParam) : 0;
+
+        // Validation
+        if (isNaN(limit) || limit < 1) {
+             console.error(`[MercadoLivre Orders] Invalid limit: ${req.query.limit}`);
+             return res.status(400).json({ error: "Invalid limit parameter" });
+        }
+        if (isNaN(offset) || offset < 0) {
+             console.error(`[MercadoLivre Orders] Invalid offset: ${req.query.offset}`);
+             return res.status(400).json({ error: "Invalid offset parameter" });
+        }
+
+        if (dateFrom && isNaN(Date.parse(dateFrom))) {
+            console.error(`[MercadoLivre Orders] Invalid dateFrom: ${dateFrom}`);
+            return res.status(400).json({ error: "Invalid dateFrom parameter" });
+        }
+        if (dateTo && isNaN(Date.parse(dateTo))) {
+             console.error(`[MercadoLivre Orders] Invalid dateTo: ${dateTo}`);
+             return res.status(400).json({ error: "Invalid dateTo parameter" });
+        }
 
         const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
         if (!credentials) {
@@ -1527,8 +1840,8 @@ router.get("/orders", async (req, res) => {
         // Prepare params for ML API
         const params: any = {
             seller: credentials.userId,
-            limit: Number(limit),
-            offset: Number(offset),
+            limit: limit,
+            offset: offset,
             sort: 'date_desc',
         };
 
@@ -1560,11 +1873,22 @@ router.get("/orders", async (req, res) => {
             params['order.status'] = status;
         }
 
-        const data = await requestWithAuth<any>(
-            String(targetWorkspaceId),
-            `${MERCADO_LIVRE_API_BASE}/orders/search`,
-            { params }
-        );
+        let data: any;
+        try {
+            data = await requestWithAuth<any>(
+                String(targetWorkspaceId),
+                `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                { params }
+            );
+        } catch (e) {
+            console.warn("Failed to fetch orders with sort, retrying without sort");
+            delete params.sort;
+            data = await requestWithAuth<any>(
+                String(targetWorkspaceId),
+                `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                { params }
+            );
+        }
 
         let ordersResults = data.results || [];
 
@@ -1714,7 +2038,7 @@ router.get("/orders", async (req, res) => {
         });
 
     } catch (error: any) {
-        console.error("Error fetching orders:", error);
+        console.error("Error fetching orders:", formatAxiosError(error));
         if (error.message === "ml_not_connected") {
             return res.status(401).json({ error: "Mercado Livre not connected" });
         }
@@ -1777,12 +2101,17 @@ router.get("/shipments", async (req, res) => {
             } catch (e) {
                 console.warn("Failed to fetch orders with sort, retrying without sort");
                 delete ordersParams.sort;
-                const ordersDataRetry = await requestWithAuth<any>(
-                    String(targetWorkspaceId),
-                    `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                    { params: ordersParams }
-                );
-                orders = ordersDataRetry.results || [];
+                try {
+                    const ordersDataRetry = await requestWithAuth<any>(
+                        String(targetWorkspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        { params: ordersParams }
+                    );
+                    orders = ordersDataRetry.results || [];
+                } catch (retryErr) {
+                    console.error("Retry failed for orders search:", retryErr);
+                    break;
+                }
             }
 
             if (orders.length === 0) break;
@@ -1902,7 +2231,7 @@ router.get("/shipments", async (req, res) => {
         });
 
     } catch (error: any) {
-        console.error("Error fetching shipments:", error);
+        console.error("Error fetching shipments:", formatAxiosError(error));
         if (error.message === "ml_not_connected") {
             return res.status(401).json({ error: "Mercado Livre not connected" });
         }
@@ -1939,7 +2268,7 @@ router.get("/metrics", async (req, res) => {
 
         return res.json(metrics);
     } catch (error: any) {
-        console.error("Error fetching Mercado Livre metrics:", error);
+        console.error("Error fetching Mercado Livre metrics:", formatAxiosError(error));
         if (error.message === "ml_not_connected") {
             return res.status(401).json({
                 error: "Mercado Livre not connected for this workspace",
@@ -2009,71 +2338,36 @@ router.get("/products", async (req, res) => {
             });
         }
 
-        // Buscar IDs de itens (com busca textual ou listagem geral)
-        const allItemIds: string[] = [];
+        // Buscar IDs de itens (paginado)
         const searchQuery = (req.query as any).search || (req.query as any).q;
+        let pageItemIds: string[] = [];
+        let totalCount = 0;
 
-        if (searchQuery) {
-            // Modo Busca: Filtrar por termo
-            let searchOffset = 0;
-            const searchLimit = 50;
-            let hasMore = true;
-            // Limite de segurança para busca para evitar timeouts em termos muito genéricos
-            const MAX_SEARCH_RESULTS = 500;
+        try {
+            const params: any = {
+                limit,
+                offset,
+            };
+            if (searchQuery) {
+                params.q = searchQuery;
+            }
 
-            while (hasMore && allItemIds.length < MAX_SEARCH_RESULTS) {
-                try {
-                    const resp = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                        {
-                            params: {
-                                q: searchQuery,
-                                limit: searchLimit,
-                                offset: searchOffset
-                            },
-                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                        }
-                    );
-                    const ids = resp.data.results || [];
-                    allItemIds.push(...ids);
-                    hasMore = ids.length === searchLimit;
-                    searchOffset += searchLimit;
-                } catch (err) {
-                    console.error("Error fetching ML item IDs (search):", err);
-                    break;
+            const resp = await axios.get(
+                `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                {
+                    params,
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` },
                 }
-            }
-        } else {
-            // Modo Listagem Geral
-            let searchOffset = 0;
-            const searchLimit = 50;
-            let hasMore = true;
-            while (hasMore) {
-                try {
-                    const resp = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                        {
-                            params: { limit: searchLimit, offset: searchOffset },
-                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                        }
-                    );
-                    const ids = resp.data.results || [];
-                    allItemIds.push(...ids);
-                    hasMore = ids.length === searchLimit;
-                    searchOffset += searchLimit;
-                } catch (err) {
-                    console.error("Error fetching ML item IDs:", err);
-                    break;
-                }
-            }
+            );
+
+            pageItemIds = resp.data.results || [];
+            totalCount = resp.data.paging?.total || 0;
+        } catch (err) {
+            console.error("Error fetching ML item IDs:", err);
         }
 
-        const totalCount = allItemIds.length;
-
-        // IDs da página atual
-        const pageItemIds = allItemIds.slice(offset, offset + limit);
-
         // Agregados globais (status, tipo e estoque)
+        // NOTE: Since we are paginating, these stats will only reflect the current page.
         let countsActive = 0;
         let countsFull = 0;
         let countsNormal = 0;
@@ -2083,7 +2377,7 @@ router.get("/products", async (req, res) => {
 
         // Buscar detalhes e construir mapa para reuso na página
         const detailsMap = new Map<string, any>();
-        const uniqueItemIds = Array.from(new Set(allItemIds));
+        const uniqueItemIds = Array.from(new Set(pageItemIds));
 
         // Otimização: Buscar detalhes em lotes de 20 (multiget)
         const BATCH_SIZE = 20;
@@ -6344,7 +6638,8 @@ async function handleMessageNotification(notification: any) {
 router.post("/analyze", async (req, res) => {
     const normalizedMlbId = String((req.body?.mlbId) || '').trim().toUpperCase();
     try {
-        const { mlbId, workspaceId } = req.body;
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const { mlbId } = req.body;
         // normalizedMlbId já calculado acima para uso no catch
 
         if (!mlbId) {
@@ -6628,7 +6923,7 @@ router.post("/analyze", async (req, res) => {
 router.get("/analyze/:mlbId", async (req, res) => {
     try {
         const { mlbId } = req.params;
-        const { workspaceId } = req.query;
+        const { id: workspaceId } = resolveWorkspaceId(req);
 
         if (!workspaceId) {
             return res.status(400).json({
@@ -6654,7 +6949,8 @@ router.get("/analyze/:mlbId", async (req, res) => {
  */
 router.post("/smart-suggestions", async (req, res) => {
     try {
-        const { mlbId, workspaceId } = req.body;
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const { mlbId } = req.body;
 
         console.log("[Smart Suggestions] Request:", { mlbId, workspaceId });
 
@@ -6736,7 +7032,8 @@ router.post("/smart-suggestions", async (req, res) => {
  */
 router.post("/optimize-title", async (req, res) => {
     try {
-        const { title, mlbId, workspaceId } = req.body;
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const { title, mlbId } = req.body;
 
         if (!title) {
             return res.status(400).json({
@@ -6849,7 +7146,8 @@ router.post("/generate-description", async (req, res) => {
  */
 router.post("/apply-optimizations", async (req, res) => {
     try {
-        const { mlbId, workspaceId, optimizations } = req.body;
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const { mlbId, optimizations } = req.body;
         const normalizedMlbId = String(mlbId || '').trim().toUpperCase();
 
         if (!normalizedMlbId || !workspaceId || !optimizations) {
@@ -7688,169 +7986,6 @@ router.post("/add-pictures", async (req, res) => {
 });
 
 /**
- * GET /api/integrations/mercadolivre/orders
- * Busca vendas/pedidos do Mercado Livre com filtros de data
- */
-router.get("/orders", async (req, res) => {
-    try {
-        const { workspaceId, dateFrom, dateTo, limit, offset } = req.query;
-
-        if (!workspaceId) {
-            return res.status(400).json({ error: "Workspace ID is required" });
-        }
-
-        let credentials = await getMercadoLivreCredentials(workspaceId as string);
-
-        if (!credentials) {
-            return res.status(401).json({
-                error: "Mercado Livre not connected for this workspace",
-            });
-        }
-
-        // Refresh antecipado se token estiver perto de expirar
-        if (tokenNeedsRefresh(credentials)) {
-            const refreshed = await refreshAccessToken(workspaceId as string);
-            if (refreshed) {
-                credentials = refreshed;
-            }
-        }
-
-        // Parâmetros para a API de Orders
-        const params: any = {
-            seller: credentials.userId,
-        };
-
-        // Filtros opcionais
-        if (dateFrom) {
-            params["order.date_created.from"] = dateFrom;
-        }
-        if (dateTo) {
-            params["order.date_created.to"] = dateTo;
-        }
-        if (limit) {
-            params.limit = Math.min(50, parseInt(limit as string, 10));
-        }
-        if (offset) {
-            params.offset = parseInt(offset as string, 10);
-        }
-
-        try {
-            const ordersResponse = await axios.get(
-                `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${credentials.accessToken}`,
-                    },
-                    params,
-                }
-            );
-
-            const orders = ordersResponse.data.results || [];
-            const paging = ordersResponse.data.paging || {};
-
-            // Processar pedidos para extrair informações relevantes
-            const processedOrders = orders.map((order: any) => {
-                const dateCreated = order.date_created ? new Date(order.date_created) : null;
-                const totalAmount = order.total_amount || 0;
-                const paidAmount = order.paid_amount || 0;
-
-                return {
-                    id: order.id,
-                    status: order.status,
-                    dateCreated: dateCreated ? dateCreated.toISOString() : null,
-                    totalAmount,
-                    paidAmount,
-                    currencyId: order.currency_id,
-                    buyerId: order.buyer?.id,
-                    items: order.order_items?.map((item: any) => ({
-                        itemId: item.item?.id,
-                        title: item.item?.title,
-                        quantity: item.quantity,
-                        unitPrice: item.unit_price,
-                        fullUnitPrice: item.full_unit_price,
-                    })) || [],
-                };
-            });
-
-            return res.json({
-                orders: processedOrders,
-                paging: {
-                    total: paging.total || 0,
-                    offset: paging.offset || 0,
-                    limit: paging.limit || 50,
-                },
-            });
-
-        } catch (apiError: any) {
-            if (apiError.response?.status === 401) {
-                console.error("[Orders] Token expirado, tentando refresh...");
-                const refreshed = await refreshAccessToken(workspaceId as string);
-                if (refreshed) {
-                    credentials = refreshed;
-                    // Tentar novamente com o novo token
-                    const retryResponse = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                            params,
-                        }
-                    );
-
-                    const orders = retryResponse.data.results || [];
-                    const paging = retryResponse.data.paging || {};
-
-                    const processedOrders = orders.map((order: any) => {
-                        const dateCreated = order.date_created ? new Date(order.date_created) : null;
-                        const totalAmount = order.total_amount || 0;
-                        const paidAmount = order.paid_amount || 0;
-
-                        return {
-                            id: order.id,
-                            status: order.status,
-                            dateCreated: dateCreated ? dateCreated.toISOString() : null,
-                            totalAmount,
-                            paidAmount,
-                            currencyId: order.currency_id,
-                            buyerId: order.buyer?.id,
-                            items: order.order_items?.map((item: any) => ({
-                                itemId: item.item?.id,
-                                title: item.item?.title,
-                                quantity: item.quantity,
-                                unitPrice: item.unit_price,
-                                fullUnitPrice: item.full_unit_price,
-                            })) || [],
-                        };
-                    });
-
-                    return res.json({
-                        orders: processedOrders,
-                        paging: {
-                            total: paging.total || 0,
-                            offset: paging.offset || 0,
-                            limit: paging.limit || 50,
-                        },
-                    });
-                }
-            }
-
-            console.error("[Orders] Erro ao buscar pedidos:", apiError.response?.data || apiError.message);
-            return res.status(apiError.response?.status || 500).json({
-                error: apiError.response?.data?.message || "Erro ao buscar pedidos",
-            });
-        }
-
-    } catch (error: any) {
-        console.error("[Orders] Erro geral:", error);
-        return res.status(500).json({
-            error: "Erro ao buscar pedidos do Mercado Livre",
-            details: error?.message || "Erro interno do servidor",
-        });
-    }
-});
-
-/**
  * GET /api/integrations/mercadolivre/orders/daily-sales
  * Agrega vendas por dia para gráficos
  */
@@ -7934,6 +8069,7 @@ router.get("/orders/daily-sales", async (req, res) => {
                         credentials = refreshed;
                         continue; // Retry com o novo token
                     }
+                    throw new Error("ml_not_connected");
                 }
                 console.error("[Daily Sales] Erro ao buscar pedidos:", apiError.message);
                 hasMore = false;
@@ -8037,7 +8173,12 @@ router.get("/orders/daily-sales", async (req, res) => {
         });
 
     } catch (error: any) {
-        console.error("[Daily Sales] Erro geral:", error);
+        if (error?.message === "ml_not_connected") {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
+        console.error("[Daily Sales] Erro geral:", formatAxiosError(error));
         return res.status(500).json({
             error: "Erro ao agregar vendas diárias",
             details: error?.message || "Erro interno do servidor",
@@ -8167,10 +8308,10 @@ router.get("/status", async (req, res) => {
         const { workspaceId } = req.query as { workspaceId: string };
         if (!workspaceId) return res.status(400).json({ error: "Workspace ID required" });
 
-        const credentials = await getMercadoLivreCredentials(workspaceId);
+        const status = await verifyMercadoLivreConnection(workspaceId);
         return res.json({ 
-            connected: !!credentials,
-            userId: credentials?.userId
+            connected: status.connected,
+            userId: status.userId
         });
     } catch (error: any) {
         return res.status(500).json({ error: error.message });

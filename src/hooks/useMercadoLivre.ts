@@ -9,6 +9,40 @@ const getAuthHeaders = (): HeadersInit => {
     };
 };
 
+/**
+ * Hook para verificar status da conexão com Mercado Livre
+ */
+export function useMercadoLivreAuthStatus(workspaceId: string | null) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "auth-status", effectiveWorkspaceId],
+        queryFn: async (): Promise<{ connected: boolean }> => {
+            if (!effectiveWorkspaceId) return { connected: false };
+            const response = await fetch(`/api/integrations/mercadolivre/auth/status?workspaceId=${effectiveWorkspaceId}`, {
+                headers: getAuthHeaders(),
+            });
+            if (!response.ok) return { connected: false };
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId,
+        staleTime: 5 * 60 * 1000, // 5 minutos
+        retry: false, // Não tentar novamente se falhar a verificação de status
+    });
+}
+
+// Helper para configuração de retry
+export const shouldRetry = (failureCount: number, error: Error) => {
+    const message = error.message.toLowerCase();
+    // Não tentar novamente para erros de autenticação ou configuração
+    if (message.includes("401") || message.includes("403") || message.includes("ml_not_connected") || message.includes("workspace id is required")) {
+        return false;
+    }
+    // Limite padrão para outros erros
+    return failureCount < 2;
+};
+
 // Interface para métricas do Mercado Livre
 export interface MercadoLivreMetrics {
     totalSales: number;
@@ -139,10 +173,15 @@ export interface MercadoLivreFullProduct {
 }
 
 export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
-        queryKey: ["mercadolivre-full-analytics", workspaceId],
+        queryKey: ["mercadolivre-full-analytics", effectiveWorkspaceId],
         queryFn: async () => {
-            if (!workspaceId) return [];
+            if (!effectiveWorkspaceId) return [];
             const headers = getAuthHeaders();
             const response = await fetch(`/api/integrations/mercadolivre-full-analytics/products`, {
                 headers: headers as HeadersInit
@@ -152,7 +191,8 @@ export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
             }
             return response.json() as Promise<MercadoLivreFullProduct[]>;
         },
-        enabled: !!workspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
     });
 };
 
@@ -212,6 +252,8 @@ export interface MercadoLivreCategory {
 export function useMercadoLivreCategory(workspaceId: string | null, categoryId: string) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "category", effectiveWorkspaceId, categoryId],
@@ -236,7 +278,8 @@ export function useMercadoLivreCategory(workspaceId: string | null, categoryId: 
 
             return response.json();
         },
-        enabled: !!categoryId,
+        enabled: !!categoryId && isConnected,
+        retry: shouldRetry,
         staleTime: 60 * 60 * 1000, // 1 hora
     });
 }
@@ -247,6 +290,8 @@ export function useMercadoLivreCategory(workspaceId: string | null, categoryId: 
 export function useMercadoLivreTrends(workspaceId: string | null, categoryId: string) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "trends", effectiveWorkspaceId, categoryId],
@@ -271,7 +316,8 @@ export function useMercadoLivreTrends(workspaceId: string | null, categoryId: st
 
             return response.json();
         },
-        enabled: !!categoryId,
+        enabled: !!categoryId && isConnected,
+        retry: shouldRetry,
         staleTime: 10 * 60 * 1000, // 10 minutos
     });
 }
@@ -282,6 +328,8 @@ export function useMercadoLivreTrends(workspaceId: string | null, categoryId: st
 export function useMercadoLivreCategoryTopProducts(workspaceId: string | null, categoryId: string) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "category-top-products", effectiveWorkspaceId, categoryId],
@@ -306,7 +354,8 @@ export function useMercadoLivreCategoryTopProducts(workspaceId: string | null, c
 
             return response.json();
         },
-        enabled: !!categoryId,
+        enabled: !!categoryId && isConnected,
+        retry: shouldRetry,
         staleTime: 10 * 60 * 1000,
     });
 }
@@ -318,6 +367,9 @@ export function useMercadoLivreCategoryTopProducts(workspaceId: string | null, c
 export function useMercadoLivreMetrics(workspaceId: string | null, days: number = 30, range?: { dateFrom?: string; dateTo?: string }) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
         queryKey: ["mercadolivre", "metrics", effectiveWorkspaceId, days, range?.dateFrom, range?.dateTo],
         queryFn: async (): Promise<MercadoLivreMetrics> => {
@@ -345,7 +397,8 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
 
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         staleTime: 5 * 60 * 1000, // 5 minutos
     });
 }
@@ -360,6 +413,8 @@ export function useMercadoLivreProducts(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category, search],
@@ -408,7 +463,8 @@ export function useMercadoLivreProducts(
 
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         staleTime: 5 * 60 * 1000,
     });
 }
@@ -421,6 +477,8 @@ export function useMercadoLivreListings(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "listings", effectiveWorkspaceId, category, page, limit],
@@ -455,7 +513,8 @@ export function useMercadoLivreListings(
             }
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         staleTime: 2 * 60 * 1000,
     });
 }
@@ -469,6 +528,9 @@ export function useMercadoLivreQuestions(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
         queryKey: ["mercadolivre", "questions", effectiveWorkspaceId, days],
         queryFn: async (): Promise<{
@@ -496,7 +558,8 @@ export function useMercadoLivreQuestions(
 
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         staleTime: 2 * 60 * 1000, // 2 minutos (perguntas precisam de atualização mais frequente)
     });
 }
@@ -701,6 +764,9 @@ export function useMercadoLivreAdvancedSearch(
         offset = 0,
     } = params;
 
+    const { data: authStatus } = useMercadoLivreAuthStatus(workspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
         queryKey: [
             "mercadolivre",
@@ -764,7 +830,8 @@ export function useMercadoLivreAdvancedSearch(
             }
             return response.json();
         },
-        enabled: !!workspaceId && !!categoryId,
+        enabled: !!workspaceId && !!categoryId && isConnected,
+        retry: shouldRetry,
         staleTime: 30 * 60 * 1000,
     });
 }

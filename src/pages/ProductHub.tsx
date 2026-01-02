@@ -29,7 +29,7 @@ export default function ProductHub() {
     limit: 48,
   });
 
-  const items = data?.items || [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
 
   const primaryImage = (assets?: any[]) => {
     if (!assets || assets.length === 0) return null;

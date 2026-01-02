@@ -31,6 +31,7 @@ import {
     useMercadoLivreMetrics,
     useMercadoLivreProducts,
     useMercadoLivreQuestions,
+    useMercadoLivreAuthStatus,
     useSyncMercadoLivre
 } from "@/hooks/useMercadoLivre";
 import { useMercadoLivreDailySales, useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
@@ -41,6 +42,7 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
+import { MercadoLivreManualTokenDialog } from "@/components/MercadoLivreManualTokenDialog";
 import { supabase } from "@/lib/supabaseClient";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import { JewelryAnalysisDialog } from "@/components/mercadolivre/JewelryAnalysisDialog";
@@ -141,6 +143,32 @@ export default function MercadoLivreNew() {
         start_date: format(resolvedRange.from, "yyyy-MM-dd"),
         end_date: format(resolvedRange.to, "yyyy-MM-dd"),
     }), [resolvedRange]);
+
+    const { data: authStatus, isLoading: authStatusLoading } = useMercadoLivreAuthStatus(workspaceId);
+
+    useEffect(() => {
+        if (!workspaceId || authStatusLoading || authStatus?.connected) return;
+
+        const autoConnectKey = `ml-autoconnect-${workspaceId}`;
+        if (sessionStorage.getItem(autoConnectKey) === "1") return;
+
+        const attemptAutoConnect = async () => {
+            try {
+                const response = await fetch(`/api/integrations/mercadolivre/auth/url?workspaceId=${workspaceId}`);
+                const data = await response.json();
+                if (!response.ok || !data?.authUrl) {
+                    throw new Error(data?.error || "Não foi possível iniciar a conexão do Mercado Livre");
+                }
+
+                sessionStorage.setItem(autoConnectKey, "1");
+                window.location.href = data.authUrl;
+            } catch (error: any) {
+                toast.error(error?.message || "Falha ao iniciar conexão automática do Mercado Livre");
+            }
+        };
+
+        void attemptAutoConnect();
+    }, [authStatus?.connected, authStatusLoading, workspaceId]);
 
     // Hooks de dados
     const { data: metrics, isLoading: metricsLoading } = useMercadoLivreMetrics(
@@ -398,6 +426,8 @@ export default function MercadoLivreNew() {
                         <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                         <span className="font-bold text-xs uppercase tracking-tight">Sync</span>
                     </Button>
+
+                    <MercadoLivreManualTokenDialog />
 
                     <MercadoLivreConnectButton
                         size="sm"

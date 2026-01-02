@@ -45,8 +45,8 @@ export default function MercadoAdsCampaigns() {
   const { mutate: toggleCampaign, isPending: isToggling } = useToggleMercadoAdsCampaign();
   const { mutate: updateBudget, isPending: isSavingBudget } = useUpdateMercadoAdsBudget();
 
-  const campaigns = data?.campaigns || [];
-  const curves = data?.curves || [];
+  const campaigns = useMemo(() => data?.campaigns ?? [], [data?.campaigns]);
+  const curves = useMemo(() => data?.curves ?? [], [data?.curves]);
   const activeCampaigns = campaigns.filter((c) => c.status === "active").length;
   const totalBudget = campaigns.reduce((acc, c) => acc + Number(c.daily_budget || 0), 0);
   const totalProducts = campaigns.reduce((acc, c) => acc + Number(c.total_products || 0), 0);

@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMercadoLivreAuthStatus, shouldRetry } from "./useMercadoLivre";
 
 export interface MLCategory {
     id: string;
@@ -25,16 +26,23 @@ export interface CategoryPrediction {
  * Hook para buscar todas as categorias do Mercado Livre
  */
 export function useMLCategories(workspaceId?: string | null) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
-        queryKey: ["ml-categories", workspaceId],
+        queryKey: ["ml-categories", effectiveWorkspaceId],
         queryFn: async () => {
             const params = new URLSearchParams({
-                ...(workspaceId ? { workspaceId } : {}),
+                ...(effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : {}),
             });
             const response = await fetch(`/api/integrations/mercadolivre/categories?${params.toString()}`);
             if (!response.ok) throw new Error("Failed to fetch ML categories");
             return response.json();
         },
+        enabled: isConnected,
+        retry: shouldRetry,
         staleTime: 1000 * 60 * 60, // Cache por 1 hora
     });
 }
@@ -43,18 +51,24 @@ export function useMLCategories(workspaceId?: string | null) {
  * Hook para buscar detalhes de uma categoria específica
  */
 export function useMLCategoryDetails(categoryId: string | null, workspaceId?: string | null) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
-        queryKey: ["ml-category", categoryId, workspaceId],
+        queryKey: ["ml-category", categoryId, effectiveWorkspaceId],
         queryFn: async () => {
             if (!categoryId) throw new Error("Category ID required");
             const params = new URLSearchParams({
-                ...(workspaceId ? { workspaceId } : {}),
+                ...(effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : {}),
             });
             const response = await fetch(`/api/integrations/mercadolivre/categories/${categoryId}?${params.toString()}`);
             if (!response.ok) throw new Error("Failed to fetch category details");
             return response.json();
         },
-        enabled: !!categoryId,
+        enabled: !!categoryId && isConnected,
+        retry: shouldRetry,
         staleTime: 1000 * 60 * 30, // Cache por 30 minutos
     });
 }

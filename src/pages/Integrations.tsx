@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { ShoppingBag, Loader2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
+import { MercadoLivreManualTokenDialog } from "@/components/MercadoLivreManualTokenDialog";
 import { Separator } from "@/components/ui/separator";
 
 export default function Integrations() {
@@ -14,14 +15,7 @@ export default function Integrations() {
     const [isConnected, setIsConnected] = useState(false);
     const [checkingStatus, setCheckingStatus] = useState(true);
 
-    // Check connection status
-    useEffect(() => {
-        if (currentWorkspace?.id) {
-            checkConnection();
-        }
-    }, [currentWorkspace?.id]);
-
-    const checkConnection = async () => {
+    const checkConnection = useCallback(async () => {
         if (!currentWorkspace?.id) return;
         setCheckingStatus(true);
         try {
@@ -37,7 +31,14 @@ export default function Integrations() {
         } finally {
             setCheckingStatus(false);
         }
-    };
+    }, [currentWorkspace?.id]);
+
+    // Check connection status
+    useEffect(() => {
+        if (currentWorkspace?.id) {
+            void checkConnection();
+        }
+    }, [currentWorkspace?.id, checkConnection]);
 
     const handleDisconnect = async () => {
         if (!currentWorkspace?.id) return;
@@ -124,7 +125,12 @@ export default function Integrations() {
                                     Desconectar
                                 </Button>
                             ) : (
-                                <MercadoLivreConnectButton />
+                                <div className="flex items-center gap-2">
+                                    <MercadoLivreManualTokenDialog 
+                                        onSuccess={checkConnection} 
+                                    />
+                                    <MercadoLivreConnectButton />
+                                </div>
                             )}
                         </div>
                     </CardContent>

@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,51 @@ const PRESET_CATEGORIES = [
     { id: "MLB1442", name: "Pulseiras" },
 ];
 
+const normalizeStats = (raw: any): MarketStats => {
+    const totalListings = Number(raw?.total_listings || 0);
+    const scannedListings = raw?.scanned_listings === undefined || raw?.scanned_listings === null
+        ? totalListings
+        : Number(raw.scanned_listings);
+
+    return {
+        total_listings: totalListings,
+        scanned_listings: scannedListings,
+        unique_sellers: Number(raw?.unique_sellers || 0),
+        official_stores_count: Number(raw?.official_stores_count || 0),
+        fulfillment_count: Number(raw?.fulfillment_count || 0),
+        free_shipping_count: Number(raw?.free_shipping_count || 0),
+        mercado_lider_count: Number(raw?.mercado_lider_count || 0),
+        created_today_count: Number(raw?.created_today_count || 0),
+        total_revenue: Number(raw?.total_revenue || 0),
+        average_price: Number(raw?.average_price || 0),
+        total_sold_quantity: Number(raw?.total_sold_quantity || 0),
+        average_listing_age_days: raw?.average_listing_age_days === null || raw?.average_listing_age_days === undefined
+            ? null
+            : Number(raw.average_listing_age_days),
+        sample_truncated: Boolean(raw?.sample_truncated),
+    };
+};
+
+const normalizeProduct = (item: any): Product => ({
+    id: String(item?.id || ""),
+    title: String(item?.title || ""),
+    price: Number(item?.price || 0),
+    sold_quantity: Number(item?.sold_quantity || 0),
+    permalink: String(item?.permalink || ""),
+    thumbnail: String(item?.thumbnail || ""),
+    ad_age_days: item?.ad_age_days === null || item?.ad_age_days === undefined ? null : Number(item.ad_age_days),
+    sales_per_day: item?.sales_per_day === null || item?.sales_per_day === undefined ? null : Number(item.sales_per_day),
+    official_store_id: item?.official_store_id ?? null,
+    logistic_type: item?.logistic_type ?? null,
+    shipping_free_shipping: Boolean(item?.shipping_free_shipping),
+    seller_power_seller_status: item?.seller_power_seller_status ?? null,
+    seller_id: item?.seller_id ?? null,
+    seller_nickname: item?.seller_nickname ?? null,
+    seller_reputation_level: item?.seller_reputation_level ?? null,
+    seller_transactions: item?.seller_transactions ?? null,
+    seller_listings: item?.seller_listings ?? null,
+});
+
 export default function MercadoLivreMarketAnalysis() {
     const { currentWorkspace } = useWorkspace();
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
@@ -104,7 +149,7 @@ export default function MercadoLivreMarketAnalysis() {
     const [isConnected, setIsConnected] = useState(true);
     const [checkStatusLoading, setCheckStatusLoading] = useState(false);
 
-    const checkConnection = async () => {
+    const checkConnection = useCallback(async () => {
         if (!effectiveWorkspaceId) return;
         setCheckStatusLoading(true);
         try {
@@ -116,7 +161,7 @@ export default function MercadoLivreMarketAnalysis() {
         } finally {
             setCheckStatusLoading(false);
         }
-    };
+    }, [effectiveWorkspaceId]);
 
     const handleCategoryChange = (value: string) => {
         setCategoryId(value);
@@ -125,60 +170,11 @@ export default function MercadoLivreMarketAnalysis() {
         }
     };
 
-    const getActiveCategoryId = () => {
-        return categoryId === "custom" ? customId : categoryId;
-    };
-
-    const normalizeStats = (raw: any): MarketStats => {
-        const totalListings = Number(raw?.total_listings || 0);
-        const scannedListings = raw?.scanned_listings === undefined || raw?.scanned_listings === null
-            ? totalListings
-            : Number(raw.scanned_listings);
-
-        return {
-            total_listings: totalListings,
-            scanned_listings: scannedListings,
-            unique_sellers: Number(raw?.unique_sellers || 0),
-        official_stores_count: Number(raw?.official_stores_count || 0),
-        fulfillment_count: Number(raw?.fulfillment_count || 0),
-        free_shipping_count: Number(raw?.free_shipping_count || 0),
-        mercado_lider_count: Number(raw?.mercado_lider_count || 0),
-        created_today_count: Number(raw?.created_today_count || 0),
-        total_revenue: Number(raw?.total_revenue || 0),
-        average_price: Number(raw?.average_price || 0),
-        total_sold_quantity: Number(raw?.total_sold_quantity || 0),
-        average_listing_age_days: raw?.average_listing_age_days === null || raw?.average_listing_age_days === undefined
-            ? null
-            : Number(raw.average_listing_age_days),
-        sample_truncated: Boolean(raw?.sample_truncated),
-        };
-    };
-
-    const normalizeProduct = (item: any): Product => ({
-        id: String(item?.id || ""),
-        title: String(item?.title || ""),
-        price: Number(item?.price || 0),
-        sold_quantity: Number(item?.sold_quantity || 0),
-        permalink: String(item?.permalink || ""),
-        thumbnail: String(item?.thumbnail || ""),
-        ad_age_days: item?.ad_age_days === null || item?.ad_age_days === undefined ? null : Number(item.ad_age_days),
-        sales_per_day: item?.sales_per_day === null || item?.sales_per_day === undefined ? null : Number(item.sales_per_day),
-        official_store_id: item?.official_store_id ?? null,
-        logistic_type: item?.logistic_type ?? null,
-        shipping_free_shipping: Boolean(item?.shipping_free_shipping),
-        seller_power_seller_status: item?.seller_power_seller_status ?? null,
-        seller_id: item?.seller_id ?? null,
-        seller_nickname: item?.seller_nickname ?? null,
-        seller_reputation_level: item?.seller_reputation_level ?? null,
-        seller_transactions: item?.seller_transactions ?? null,
-        seller_listings: item?.seller_listings ?? null,
-    });
-
-    const fetchData = async (refresh: boolean = false) => {
+    const fetchData = useCallback(async (refresh: boolean = false) => {
         setIsLoading(true);
         try {
             if (analysisMode === "category") {
-                const activeId = getActiveCategoryId();
+                const activeId = categoryId === "custom" ? customId : categoryId;
                 if (!activeId) {
                     toast.error("Por favor, insira um ID de categoria válido.");
                     return;
@@ -263,18 +259,21 @@ export default function MercadoLivreMarketAnalysis() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [analysisMode, categoryId, customId, effectiveWorkspaceId, productId]);
 
     useEffect(() => {
         if (effectiveWorkspaceId) {
-            checkConnection();
-            // Auto-fetch only for category mode on load if default is set, 
-            // but to be safe and avoid errors, let's wait for user action or check if we have a valid category
-            if (analysisMode === "category") {
-                fetchData();
-            }
+            void checkConnection();
         }
-    }, [effectiveWorkspaceId]); 
+    }, [checkConnection, effectiveWorkspaceId]);
+
+    useEffect(() => {
+        // Auto-fetch only for category mode on load if default is set,
+        // but to be safe and avoid errors, let's wait for user action or check if we have a valid category
+        if (effectiveWorkspaceId && analysisMode === "category") {
+            void fetchData();
+        }
+    }, [analysisMode, effectiveWorkspaceId, fetchData]);
 
     useEffect(() => {
         if (!hasModeInitialized.current) {

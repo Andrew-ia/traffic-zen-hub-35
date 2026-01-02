@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMercadoLivreAuthStatus, shouldRetry } from "./useMercadoLivre";
 
 /**
  * Interface para item de pedido
@@ -74,6 +75,9 @@ export function useMercadoLivreOrders(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
         queryKey: ["mercadolivre", "orders", effectiveWorkspaceId, options],
         queryFn: async (): Promise<OrdersResponse> => {
@@ -100,7 +104,8 @@ export function useMercadoLivreOrders(
 
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         staleTime: 5 * 60 * 1000, // 5 minutos
     });
 }
@@ -115,6 +120,9 @@ export function useMercadoLivreDailySales(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
     return useQuery({
         queryKey: ["mercadolivre", "daily-sales", effectiveWorkspaceId, dateFrom, dateTo],
         queryFn: async (): Promise<DailySalesResponse> => {
@@ -144,7 +152,8 @@ export function useMercadoLivreDailySales(
 
             return data;
         },
-        enabled: !!effectiveWorkspaceId && !!dateFrom && !!dateTo,
+        enabled: !!effectiveWorkspaceId && !!dateFrom && !!dateTo && isConnected,
+        retry: shouldRetry,
         staleTime: 10 * 60 * 1000, // 10 minutos
         gcTime: 15 * 60 * 1000, // 15 minutos
         refetchOnWindowFocus: false,

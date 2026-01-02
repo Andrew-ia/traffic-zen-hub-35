@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useWorkspace } from './useWorkspace';
+import { useMercadoLivreAuthStatus } from './useMercadoLivre';
 
 export interface MLBAnalysisResult {
     success: boolean;
@@ -242,6 +243,10 @@ export interface SEODescriptionResult {
 
 export function useMLBAnalyzer() {
     const { currentWorkspace } = useWorkspace();
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = currentWorkspace?.id || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [currentAnalysis, setCurrentAnalysis] = useState<MLBAnalysisResult | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -312,7 +317,16 @@ export function useMLBAnalyzer() {
         }
     };
 
-    const optimizeTitle = async (mlbId: string): Promise<TitleOptimizationResult | null> => {
+    const optimizeTitle = async (title: string, mlbId?: string): Promise<TitleOptimizationResult | null> => {
+        if (!title || !title.trim()) {
+            setError("Título é obrigatório.");
+            return null;
+        }
+        if (!isConnected) {
+             setError("Integração com Mercado Livre não conectada.");
+             return null;
+        }
+
         setIsAnalyzing(true);
         setError(null);
 
@@ -323,8 +337,9 @@ export function useMLBAnalyzer() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    mlbId: mlbId,
-                    workspaceId: currentWorkspace?.id
+                    title: title.trim(),
+                    ...(mlbId ? { mlbId } : {}),
+                    ...(effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : {})
                 })
             });
 
@@ -403,6 +418,7 @@ export function useMLBAnalyzer() {
         lastAnalyzed,
         analysisHistory,
         currentWorkspace,
+        isConnected,
 
         // Métodos
         analyzeProduct,

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMercadoLivreAuthStatus, shouldRetry } from "./useMercadoLivre";
 
 export interface ShipmentItem {
     id: string;
@@ -63,6 +64,8 @@ export function useMercadoLivreShipments(
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
         queryKey: ["mercadolivre", "shipments", effectiveWorkspaceId, options],
@@ -88,7 +91,8 @@ export function useMercadoLivreShipments(
 
             return response.json();
         },
-        enabled: !!effectiveWorkspaceId,
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
         // refetchInterval: 60000, // Refresh every minute - Removed per user request
     });
 }
