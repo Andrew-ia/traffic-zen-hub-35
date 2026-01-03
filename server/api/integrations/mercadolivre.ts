@@ -2107,6 +2107,142 @@ router.get("/orders", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/orders/detail/:orderId
+ * Busca detalhes completos de um pedido
+ */
+router.get("/orders/detail/:orderId", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const orderId = String(req.params.orderId || "").trim();
+        if (!orderId) {
+            return res.status(400).json({ error: "Order ID is required" });
+        }
+
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
+        if (!credentials) {
+            return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+
+        const orderDetails = await requestWithAuth<any>(
+            String(targetWorkspaceId),
+            `${MERCADO_LIVRE_API_BASE}/orders/${orderId}`,
+            { headers: { 'x-format-new': 'true' } }
+        );
+
+        let shippingDetails = orderDetails.shipping;
+        if (orderDetails.shipping?.id && !orderDetails.shipping?.logistic_type) {
+            try {
+                const shipment = await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/shipments/${orderDetails.shipping.id}`,
+                    { headers: { 'x-format-new': 'true' } }
+                );
+                shippingDetails = { ...orderDetails.shipping, ...shipment };
+            } catch (shipErr: any) {
+                console.warn(`[MercadoLivre Orders] Failed to fetch shipment ${orderDetails.shipping?.id}:`, shipErr.message);
+            }
+        }
+
+        const itemIds = new Set<string>();
+        (orderDetails.order_items || []).forEach((item: any) => {
+            if (item.item?.id) itemIds.add(item.item.id);
+        });
+
+        const itemsMap = new Map<string, any>();
+        if (itemIds.size > 0) {
+            const idsArray = Array.from(itemIds);
+            const chunkSize = 20;
+            for (let i = 0; i < idsArray.length; i += chunkSize) {
+                const chunk = idsArray.slice(i, i + chunkSize);
+                try {
+                    const itemsResp = await requestWithAuth<any>(
+                        String(targetWorkspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/items`,
+                        { params: { ids: chunk.join(',') } }
+                    );
+                    const responseData = Array.isArray(itemsResp) ? itemsResp : [];
+                    responseData.forEach((itemRes: any) => {
+                        if (itemRes.code === 200 && itemRes.body) {
+                            itemsMap.set(itemRes.body.id, itemRes.body);
+                        }
+                    });
+                } catch (err) {
+                    console.warn("[MercadoLivre Orders] Failed to fetch items details:", err);
+                }
+            }
+        }
+
+        let saleFee = 0;
+        if (orderDetails.order_items && Array.isArray(orderDetails.order_items)) {
+            saleFee = orderDetails.order_items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
+        }
+
+        if (saleFee === 0 && orderDetails.payments && Array.isArray(orderDetails.payments)) {
+            orderDetails.payments.forEach((payment: any) => {
+                if (payment.fee_details && Array.isArray(payment.fee_details)) {
+                    payment.fee_details.forEach((fee: any) => {
+                        if (fee.fee_payer === 'collector') {
+                            saleFee += fee.amount;
+                        }
+                    });
+                } else if (payment.marketplace_fee) {
+                    saleFee += payment.marketplace_fee;
+                }
+            });
+        }
+
+        let shippingCost = 0;
+        if (shippingDetails) {
+            shippingCost = shippingDetails.base_cost ?? shippingDetails.cost ?? shippingDetails.shipping_option?.cost ?? 0;
+        }
+
+        const totalAmount = orderDetails.total_amount || orderDetails.paid_amount || 0;
+        const paidAmount = orderDetails.paid_amount || 0;
+        const netIncome = totalAmount - saleFee - shippingCost;
+
+        const items = (orderDetails.order_items || []).map((item: any) => {
+            const itemId = item.item?.id || item.item_id;
+            const itemDetails = itemId ? itemsMap.get(itemId) : null;
+            return {
+                itemId: itemId || "",
+                title: item.item?.title || item.item_title || "Item",
+                quantity: item.quantity,
+                unitPrice: item.unit_price,
+                fullUnitPrice: item.full_unit_price,
+                thumbnail: (itemDetails?.secure_thumbnail || itemDetails?.thumbnail || "").replace(/^http:\/\//, "https://") || null,
+                permalink: itemDetails?.permalink || null
+            };
+        });
+
+        return res.json({
+            order: { ...orderDetails, shipping: shippingDetails },
+            items,
+            summary: {
+                totalAmount,
+                paidAmount,
+                saleFee,
+                shippingCost,
+                netIncome,
+                currencyId: orderDetails.currency_id
+            }
+        });
+    } catch (error: any) {
+        console.error("Error fetching order details:", formatAxiosError(error));
+        if (error.message === "ml_not_connected") {
+            return res.status(401).json({ error: "Mercado Livre not connected" });
+        }
+        return res.status(error?.response?.status || 500).json({
+            error: "Failed to fetch order details",
+            details: error?.response?.data || error?.message
+        });
+    }
+});
+
+/**
  * GET /api/integrations/mercadolivre/shipments
  * Busca envios do Mercado Livre
  */

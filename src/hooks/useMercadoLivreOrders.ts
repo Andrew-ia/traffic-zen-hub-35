@@ -26,6 +26,9 @@ export interface MercadoLivreOrder {
     paidAmount: number;
     currencyId: string;
     buyerId: string;
+    saleFee?: number;
+    shippingCost?: number;
+    netIncome?: number;
     items: OrderItem[];
 }
 
@@ -49,6 +52,21 @@ export interface OrdersResponse {
         offset: number;
         limit: number;
     };
+}
+
+export interface OrderDetailsSummary {
+    totalAmount: number;
+    paidAmount: number;
+    saleFee: number;
+    shippingCost: number;
+    netIncome: number;
+    currencyId?: string;
+}
+
+export interface OrderDetailsResponse {
+    order: any;
+    items: OrderItem[];
+    summary: OrderDetailsSummary;
 }
 
 /**
@@ -105,6 +123,48 @@ export function useMercadoLivreOrders(
             return response.json();
         },
         enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 5 * 60 * 1000, // 5 minutos
+    });
+}
+
+/**
+ * Hook para buscar detalhes de um pedido específico
+ */
+export function useMercadoLivreOrderDetails(
+    workspaceId: string | null,
+    orderId?: string | null
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "orders", "detail", effectiveWorkspaceId, orderId],
+        queryFn: async (): Promise<OrderDetailsResponse> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID é obrigatório");
+            }
+            if (!orderId) {
+                throw new Error("Order ID é obrigatório");
+            }
+
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+            });
+
+            const response = await fetch(
+                `/api/integrations/mercadolivre/orders/detail/${orderId}?${params}`
+            );
+
+            if (!response.ok) {
+                throw new Error("Falha ao buscar detalhes do pedido");
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && !!orderId && isConnected,
         retry: shouldRetry,
         staleTime: 5 * 60 * 1000, // 5 minutos
     });

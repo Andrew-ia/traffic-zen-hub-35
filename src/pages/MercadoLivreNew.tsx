@@ -606,6 +606,7 @@ export default function MercadoLivreNew() {
                         loading={ordersLoading} 
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
+                        workspaceId={workspaceId}
                     />
 
                     {/* Financial Summary Snippet */}
