@@ -72,7 +72,7 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     <span className="text-muted-foreground">vendidas em</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-[hsl(47.9_95.8%_53.1%)]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[hsl(var(--chart-2))]"></div>
                     <span className="font-medium">{totalOrdersCount} pedidos</span>
                 </div>
                 <span className="text-xs text-muted-foreground italic">
@@ -84,16 +84,16 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
             <ComposedChart data={chartData} margin={{ top: 10, right: 24, left: 0, bottom: 10 }}>
                 <defs>
                     <linearGradient id="gradSales" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6D5EF7" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#6D5EF7" stopOpacity={0} />
+                        <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#58C4DC" stopOpacity={0.30} />
-                        <stop offset="100%" stopColor="#58C4DC" stopOpacity={0} />
+                        <stop offset="0%" stopColor="hsl(var(--chart-2))" stopOpacity={0.30} />
+                        <stop offset="100%" stopColor="hsl(var(--chart-2))" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="gradOrders" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#F5D76E" stopOpacity={0.30} />
-                        <stop offset="100%" stopColor="#F5D76E" stopOpacity={0} />
+                        <stop offset="0%" stopColor="hsl(var(--chart-3))" stopOpacity={0.30} />
+                        <stop offset="100%" stopColor="hsl(var(--chart-3))" stopOpacity={0} />
                     </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="4 6" className="stroke-muted" />
@@ -159,10 +159,10 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     yAxisId="left"
                     type="monotone"
                     dataKey="sales"
-                    stroke="#6D5EF7"
+                    stroke="hsl(var(--chart-1))"
                     strokeWidth={2.5}
                     fill="url(#gradSales)"
-                    dot={{ r: 3, stroke: "#6D5EF7", fill: "transparent", strokeWidth: 2 }}
+                    dot={{ r: 3, stroke: "hsl(var(--chart-1))", fill: "transparent", strokeWidth: 2 }}
                     activeDot={{ r: 5 }}
                     name="sales"
                 />
@@ -170,10 +170,10 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     yAxisId="right"
                     type="monotone"
                     dataKey="revenue"
-                    stroke="#58C4DC"
+                    stroke="hsl(var(--chart-2))"
                     strokeWidth={2.5}
                     fill="url(#gradRevenue)"
-                    dot={{ r: 3, stroke: "#58C4DC", fill: "transparent", strokeWidth: 2 }}
+                    dot={{ r: 3, stroke: "hsl(var(--chart-2))", fill: "transparent", strokeWidth: 2 }}
                     activeDot={{ r: 5 }}
                     name="revenue"
                 />
@@ -181,10 +181,10 @@ export function DailySalesChart({ data, loading }: DailySalesChartProps) {
                     yAxisId="left"
                     type="monotone"
                     dataKey="orders"
-                    stroke="#F5D76E"
+                    stroke="hsl(var(--chart-3))"
                     strokeWidth={2}
                     fill="url(#gradOrders)"
-                    dot={{ r: 3, stroke: "#F5D76E", fill: "transparent", strokeWidth: 2 }}
+                    dot={{ r: 3, stroke: "hsl(var(--chart-3))", fill: "transparent", strokeWidth: 2 }}
                     activeDot={{ r: 5 }}
                     name="orders"
                 />

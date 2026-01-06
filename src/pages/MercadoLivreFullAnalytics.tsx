@@ -96,7 +96,11 @@ export default function MercadoLivreFullAnalytics() {
             .sort((a, b) => {
                 if (sortBy === "profit") return b.profit_unit - a.profit_unit;
                 if (sortBy === "sales") return b.sales_30d - a.sales_30d;
-                if (sortBy === "class") return a.classification.localeCompare(b.classification);
+                if (sortBy === "class") {
+                    const classA = a.classification ?? "N/A";
+                    const classB = b.classification ?? "N/A";
+                    return classA.localeCompare(classB);
+                }
                 return 0;
             });
     }, [products, search, classFilter, sortBy]);

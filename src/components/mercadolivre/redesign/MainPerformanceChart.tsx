@@ -98,7 +98,7 @@ export function MainPerformanceChart({ data, loading, title = "Desempenho de Ven
                                                     {payload[1] && (
                                                         <div className="flex items-center justify-between gap-8">
                                                             <span className="text-sm font-medium flex items-center gap-2">
-                                                                <div className="h-2 w-2 rounded-full bg-green-500" />
+                                                                <div className="h-2 w-2 rounded-full bg-[hsl(var(--chart-2))]" />
                                                                 Vendas
                                                             </span>
                                                             <span className="text-sm font-bold">

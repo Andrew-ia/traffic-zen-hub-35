@@ -8,7 +8,7 @@ interface MercadoLivreKPICardProps {
     trend?: string;
     trendUp?: boolean;
     trendValue?: string;
-    iconColor?: "green" | "blue" | "purple" | "orange";
+    iconColor?: "primary" | "info" | "success" | "warning" | "muted";
     loading?: boolean;
 }
 
@@ -19,21 +19,19 @@ export function MercadoLivreKPICard({
     trend,
     trendUp,
     trendValue,
-    iconColor = "blue",
+    iconColor = "primary",
     loading
 }: MercadoLivreKPICardProps) {
 
-    const getColors = (color: string) => {
-        switch (color) {
-            case "green": return { bg: "bg-green-500", text: "text-white" };
-            case "blue": return { bg: "bg-blue-500", text: "text-white" };
-            case "purple": return { bg: "bg-purple-500", text: "text-white" };
-            case "orange": return { bg: "bg-orange-500", text: "text-white" };
-            default: return { bg: "bg-blue-500", text: "text-white" };
-        }
+    const iconStyles: Record<NonNullable<MercadoLivreKPICardProps["iconColor"]>, { bg: string; text: string }> = {
+        primary: { bg: "bg-primary/10", text: "text-primary" },
+        info: { bg: "bg-info/10", text: "text-info" },
+        success: { bg: "bg-success/10", text: "text-success" },
+        warning: { bg: "bg-warning/10", text: "text-warning" },
+        muted: { bg: "bg-muted/40", text: "text-muted-foreground" },
     };
 
-    const colors = getColors(iconColor);
+    const colors = iconStyles[iconColor];
 
     if (loading) {
         return (
@@ -50,7 +48,7 @@ export function MercadoLivreKPICard({
     }
 
     return (
-        <Card className="border-none shadow-md bg-white dark:bg-card h-[120px] relative overflow-hidden">
+        <Card className="border-border/40 bg-card/50 shadow-md h-[120px] relative overflow-hidden">
             <CardContent className="p-6 h-full flex flex-col justify-between relative z-10">
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">
@@ -59,14 +57,14 @@ export function MercadoLivreKPICard({
                             {value}
                         </div>
                     </div>
-                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center shadow-lg ${colors.bg} ${colors.text}`}>
+                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center ring-1 ring-border/40 ${colors.bg} ${colors.text}`}>
                         <Icon className="h-5 w-5" />
                     </div>
                 </div>
 
                 {trend && (
                     <div className="flex items-center gap-2 text-sm mt-1">
-                        <span className={`font-semibold flex items-center ${trendUp ? "text-green-500" : "text-red-500"}`}>
+                        <span className={`font-semibold flex items-center ${trendUp ? "text-success" : "text-destructive"}`}>
                             {trendUp ? "↑" : "↓"} {trendValue || trend}
                         </span>
                         <span className="text-muted-foreground text-xs">

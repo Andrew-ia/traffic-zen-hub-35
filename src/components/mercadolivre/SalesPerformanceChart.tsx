@@ -38,7 +38,7 @@ export function SalesPerformanceChart({ data, loading }: SalesPerformanceChartPr
 
     if (loading) {
         return (
-            <Card className="border-none shadow-md h-full">
+            <Card className="border-border/40 bg-card/50 shadow-md h-full">
                 <CardHeader>
                     <Skeleton className="h-6 w-48" />
                 </CardHeader>
@@ -55,7 +55,7 @@ export function SalesPerformanceChart({ data, loading }: SalesPerformanceChartPr
     };
 
     return (
-        <Card className="border-none shadow-md bg-white dark:bg-card h-full">
+        <Card className="border-border/40 bg-card/50 shadow-md h-full">
             <CardHeader className="pb-0 pt-6 px-6">
                 <CardTitle className="text-base font-bold text-foreground">
                     Desempenho de Vendas (7 dias)
@@ -70,31 +70,31 @@ export function SalesPerformanceChart({ data, loading }: SalesPerformanceChartPr
                         >
                             <defs>
                                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.8} /> {/* Purple-ish */}
-                                    <stop offset="95%" stopColor="#4F46E5" stopOpacity={0} />
+                                    <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
-                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#E5E7EB" />
+                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                             <XAxis
                                 dataKey="dayOfWeek"
                                 axisLine={false}
                                 tickLine={false}
-                                tick={{ fill: "#6B7280", fontSize: 12 }}
+                                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
                                 dy={10}
                             />
                             <YAxis
                                 axisLine={false}
                                 tickLine={false}
-                                tick={{ fill: "#6B7280", fontSize: 12 }}
+                                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
                                 tickFormatter={formatValue}
                                 dx={-10}
                             />
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: "white",
-                                    border: "none",
+                                    backgroundColor: "hsl(var(--background))",
+                                    border: "1px solid hsl(var(--border))",
                                     borderRadius: "8px",
-                                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                                    boxShadow: "0 4px 10px -2px rgb(0 0 0 / 0.35)",
                                 }}
                                 formatter={(value: number) => [
                                     new Intl.NumberFormat("pt-BR", {
@@ -113,7 +113,7 @@ export function SalesPerformanceChart({ data, loading }: SalesPerformanceChartPr
                             <Area
                                 type="monotone"
                                 dataKey="value"
-                                stroke="#4F46E5"
+                                stroke="hsl(var(--chart-1))"
                                 strokeWidth={3}
                                 fillOpacity={1}
                                 fill="url(#colorValue)"

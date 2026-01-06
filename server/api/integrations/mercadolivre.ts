@@ -13,6 +13,7 @@ import { resolveWorkspaceId } from "../../utils/workspace.js";
 
 import { TelegramNotificationService } from "../../services/telegramNotification.service.js";
 import { MarketAnalysisService } from "../../services/mercadolivre/market-analysis.service.js";
+import { syncMercadoLivreAnalytics30d, syncMercadoLivreProducts } from "../../services/mercadolivre/analytics-30d.service.js";
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
@@ -1448,6 +1449,12 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
     const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
     const hourlySales: Array<{ date: string; sales: number; revenue: number }> = [];
     const uniqueBuyers = new Set<string>();
+    const canceledOrderIds = new Set<string>();
+    const isDateInRange = (date: Date | null) => {
+        if (!date) return false;
+        const ts = date.getTime();
+        return ts >= rangeStartTs && ts <= rangeEndTs;
+    };
 
     // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
     try {
@@ -1530,6 +1537,42 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             .filter(id => id); // filter undefined/null
         
         const shipmentCostMap = new Map<string, number>();
+        let shipmentsMultigetSupported: boolean | null = null;
+        let shipmentsMultigetWarningShown = false;
+
+        const applyShipmentResults = (payload: any) => {
+            const normalized = Array.isArray(payload)
+                ? payload
+                : (Array.isArray(payload?.results) ? payload.results : []);
+            if (!normalized.length) return;
+
+            normalized.forEach((entry: any) => {
+                if (entry && entry.id) {
+                    shipmentCostMap.set(String(entry.id), entry.base_cost || 0);
+                    return;
+                }
+                if (entry && entry.code === 200 && entry.body) {
+                    shipmentCostMap.set(String(entry.body.id), entry.body.base_cost || 0);
+                }
+            });
+        };
+
+        const fetchShipmentById = async (shipmentId: string) => {
+            try {
+                const shipmentResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments/${shipmentId}`, {
+                    headers: { Authorization: `Bearer ${credentials?.accessToken}` },
+                });
+                const shipment = shipmentResp.data;
+                if (shipment && shipment.id) {
+                    shipmentCostMap.set(String(shipment.id), shipment.base_cost || 0);
+                }
+            } catch (err) {
+                console.warn("[Metrics] Failed to fetch shipment:", {
+                    shipmentId,
+                    ...formatAxiosError(err),
+                });
+            }
+        };
         
         // Process shipments in chunks of 20, with concurrency to speed up
         const uniqueShipmentIds = [...new Set(shipmentIds)]; // Deduplicate just in case
@@ -1541,20 +1584,36 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         // Helper to fetch a chunk
         const fetchShipmentChunk = async (chunk: string[]) => {
             if (chunk.length === 0) return;
+
+            if (shipmentsMultigetSupported === false) {
+                for (const shipmentId of chunk) {
+                    await fetchShipmentById(shipmentId);
+                }
+                return;
+            }
+
             try {
                 const shipmentsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments`, {
                     params: { ids: chunk.join(',') },
-                    headers: { Authorization: `Bearer ${credentials?.accessToken}` }
+                    headers: { Authorization: `Bearer ${credentials?.accessToken}` },
                 });
-                
-                const shipments = shipmentsResp.data || [];
-                shipments.forEach((s: any) => {
-                     if (s && s.id) {
-                         shipmentCostMap.set(String(s.id), s.base_cost || 0);
-                     }
-                });
+
+                applyShipmentResults(shipmentsResp.data);
+                shipmentsMultigetSupported = true;
             } catch (err) {
-                console.error("[Metrics] Error fetching shipments chunk:", formatAxiosError(err));
+                const formatted = formatAxiosError(err);
+                if (formatted.status === 404) {
+                    shipmentsMultigetSupported = false;
+                    if (!shipmentsMultigetWarningShown) {
+                        console.warn("[Metrics] Shipments multiget not available; falling back to single fetch.");
+                        shipmentsMultigetWarningShown = true;
+                    }
+                    for (const shipmentId of chunk) {
+                        await fetchShipmentById(shipmentId);
+                    }
+                    return;
+                }
+                console.error("[Metrics] Error fetching shipments chunk:", formatted);
             }
         };
 
@@ -1594,12 +1653,18 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             const dayData = salesByDay.get(dateKey)!;
 
             if (status === "cancelled") {
+                const cancelledAt = order.date_closed ? new Date(order.date_closed) : null;
+                const shouldCountCancel = isDateInRange(cancelledAt || orderDate);
                 // ML costuma considerar cancelados pagos; evita contar pedidos sem pagamento
                 const hadPayment = Number(order.paid_amount || 0) > 0 || (Array.isArray(order.payments) && order.payments.length > 0);
-                if (hadPayment) {
-                    canceledOrders += 1;
-                    // Valor cancelado alinhado ao painel: apenas valor de produtos, sem frete
-                    canceledRevenue += totalAmount;
+                if (shouldCountCancel && hadPayment) {
+                    const orderId = String(order.id || "");
+                    if (orderId && !canceledOrderIds.has(orderId)) {
+                        canceledOrders += 1;
+                        canceledOrderIds.add(orderId);
+                        // Valor cancelado alinhado ao painel: apenas valor de produtos, sem frete
+                        canceledRevenue += totalAmount;
+                    }
                 }
                 // Cancelados não contam como venda realizada
                 continue; 
@@ -1652,6 +1717,69 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
             dayData.revenue += totalAmount;
             salesByDay.set(dateKey, dayData);
+        }
+
+        try {
+            const canceledByClosed: any[] = [];
+            let canceledOffset = 0;
+            const canceledLimit = 50;
+            let canceledHasMore = true;
+
+            while (canceledHasMore && canceledByClosed.length < MAX_ORDERS) {
+                const params: any = {
+                    seller: credentials.userId,
+                    limit: canceledLimit,
+                    offset: canceledOffset,
+                };
+                params["order.date_closed.from"] = dateFromFinal.toISOString();
+                params["order.date_closed.to"] = dateToFinal.toISOString();
+                params["order.status"] = "cancelled";
+
+                try {
+                    const response = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                            params,
+                        }
+                    );
+                    const orders = response.data.results || [];
+                    canceledByClosed.push(...orders);
+                    canceledHasMore = orders.length === canceledLimit;
+                    canceledOffset += canceledLimit;
+                } catch (apiError: any) {
+                    if (apiError.response?.status === 401) {
+                        console.error("[Metrics] Token expirado, tentando refresh...");
+                        const refreshed = await refreshAccessToken(workspaceId as string);
+                        if (refreshed) {
+                            credentials = refreshed;
+                            continue;
+                        }
+                        throw new Error("ml_not_connected");
+                    }
+                    console.error("[Metrics] Erro ao buscar cancelados por date_closed:", formatAxiosError(apiError));
+                    canceledHasMore = false;
+                }
+            }
+
+            for (const order of canceledByClosed) {
+                const status = String(order.status || "").toLowerCase();
+                if (status !== "cancelled") continue;
+                const cancelledAt = order.date_closed ? new Date(order.date_closed) : null;
+                if (!isDateInRange(cancelledAt)) continue;
+                // ML costuma considerar cancelados pagos; evita contar pedidos sem pagamento
+                const hadPayment = Number(order.paid_amount || 0) > 0 || (Array.isArray(order.payments) && order.payments.length > 0);
+                if (!hadPayment) continue;
+                const orderId = String(order.id || "");
+                if (!orderId || canceledOrderIds.has(orderId)) continue;
+                const totalAmount = order.total_amount || order.paid_amount || 0;
+                canceledOrders += 1;
+                canceledOrderIds.add(orderId);
+                // Valor cancelado alinhado ao painel: apenas valor de produtos, sem frete
+                canceledRevenue += totalAmount;
+            }
+        } catch (err) {
+            console.error("[Metrics] Erro ao buscar cancelados por date_closed:", formatAxiosError(err));
         }
 
         // Converter para série temporal, preenchendo dias faltantes com zero
@@ -5005,203 +5133,170 @@ router.get("/questions", async (req, res) => {
  */
 router.post("/sync", async (req, res) => {
     try {
-        const { workspaceId } = req.body;
+        const { id: workspaceId } = resolveWorkspaceId(req);
 
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const credentials = await getMercadoLivreCredentials(workspaceId);
-
-        if (!credentials) {
-            return res.status(401).json({
-                error: "Mercado Livre not connected for this workspace",
-            });
-        }
-
-        const syncStats = {
-            processed: 0,
-            created: 0,
-            updated: 0,
-            errors: 0,
-            errorDetails: [] as any[]
-        };
-
-        // 1. Buscar todos os itens do vendedor no ML
-        console.log(`[ML Sync] Iniciando sincronização para workspace ${workspaceId}`);
-
-        let offset = 0;
-        const limit = 50;
-        let hasMore = true;
-        const allItemIds = [];
-
-        // Buscar todas as páginas de itens
-        while (hasMore) {
-            try {
-                const itemsResponse = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                    {
-                        params: { limit, offset },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                    }
-                );
-
-                const itemIds = itemsResponse.data.results || [];
-                allItemIds.push(...itemIds);
-
-                hasMore = itemIds.length === limit;
-                offset += limit;
-
-                console.log(`[ML Sync] Encontrados ${itemIds.length} itens (offset: ${offset})`);
-            } catch (error) {
-                console.error(`[ML Sync] Erro ao buscar itens (offset ${offset}):`, error);
-                break;
-            }
-        }
-
-        console.log(`[ML Sync] Total de ${allItemIds.length} produtos encontrados no ML`);
-
-        // 2. Processar cada item individualmente
-        for (const itemId of allItemIds) {
-            try {
-                syncStats.processed++;
-
-                // Buscar detalhes completos do item
-                const [itemResponse, visitsResponse] = await Promise.allSettled([
-                    axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                    }),
-                    axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`, {
-                        params: {
-                            date_from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                            date_to: new Date().toISOString().split('T')[0],
-                        },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                    })
-                ]);
-
-                if (itemResponse.status === 'rejected') {
-                    throw new Error(`Falha ao buscar item ${itemId}: ${itemResponse.reason}`);
-                }
-
-                const item = itemResponse.value.data;
-                const visits = visitsResponse.status === 'fulfilled' ?
-                    visitsResponse.value.data.total_visits || 0 : 0;
-
-                // Preparar dados do produto para insert/update
-                const productData = {
-                    workspace_id: workspaceId,
-                    ml_item_id: item.id,
-                    title: item.title,
-                    description: item.descriptions?.[0]?.plain_text || item.subtitle || '',
-                    price: item.price,
-                    original_price: item.original_price || null,
-                    available_quantity: item.available_quantity || 0,
-                    sold_quantity: item.sold_quantity || 0,
-                    condition: item.condition || 'new',
-                    ml_category_id: item.category_id,
-                    ml_listing_type: item.listing_type_id || 'gold_special',
-                    ml_permalink: item.permalink,
-                    currency: item.currency_id || 'BRL',
-                    status: item.status === 'active' ? 'active' : 'paused',
-                    published_on_ml: true,
-                    published_at: item.start_time ? new Date(item.start_time) : new Date(),
-                    images: item.pictures ? item.pictures.map((pic: any) => pic.secure_url) : [],
-                    attributes: item.attributes ? item.attributes.map((attr: any) => ({
-                        id: attr.id,
-                        name: attr.name,
-                        value_id: attr.value_id,
-                        value_name: attr.value_name
-                    })) : [],
-                    free_shipping: item.shipping?.free_shipping || false,
-                    shipping_mode: item.shipping?.mode || 'me2',
-                    local_pickup: item.shipping?.local_pick_up || false,
-                    warranty_type: item.warranty?.type,
-                    warranty_time: item.warranty?.time,
-                    video_url: item.video_id ? `https://www.youtube.com/watch?v=${item.video_id}` : null,
-                    weight_kg: item.shipping?.dimensions ? parseFloat(item.shipping.dimensions.split('x')[3]) / 1000 : null,
-                    height_cm: item.shipping?.dimensions ? parseFloat(item.shipping.dimensions.split('x')[1]) : null,
-                    width_cm: item.shipping?.dimensions ? parseFloat(item.shipping.dimensions.split('x')[0]) : null,
-                    length_cm: item.shipping?.dimensions ? parseFloat(item.shipping.dimensions.split('x')[2]) : null,
-                    updated_at: new Date()
-                };
-
-                // TODO: Aqui você precisa implementar a lógica do banco de dados
-                // Por enquanto vou simular o processo
-
-                // Verificar se produto já existe na tabela
-                // const existingProduct = await db.query(
-                //     'SELECT id FROM products WHERE workspace_id = $1 AND ml_item_id = $2',
-                //     [workspaceId, item.id]
-                // );
-
-                // if (existingProduct.rows.length > 0) {
-                //     // Atualizar produto existente
-                //     await db.query(`
-                //         UPDATE products SET 
-                //             title = $1, description = $2, price = $3, 
-                //             original_price = $4, available_quantity = $5, 
-                //             sold_quantity = $6, status = $7, updated_at = NOW()
-                //         WHERE workspace_id = $8 AND ml_item_id = $9
-                //     `, [
-                //         productData.title, productData.description, productData.price,
-                //         productData.original_price, productData.available_quantity,
-                //         productData.sold_quantity, productData.status,
-                //         workspaceId, item.id
-                //     ]);
-                //     syncStats.updated++;
-                // } else {
-                //     // Criar novo produto
-                //     await db.query(`
-                //         INSERT INTO products (workspace_id, ml_item_id, title, description, ...)
-                //         VALUES ($1, $2, $3, $4, ...)
-                //     `, [...productData values...]);
-                //     syncStats.created++;
-                // }
-
-                // Por enquanto simular sucesso
-                if (Math.random() > 0.8) {
-                    syncStats.updated++;
-                } else {
-                    syncStats.created++;
-                }
-
-                // Salvar histórico de publicação
-                // await saveProductPublication(item.id, visits, productData);
-
-                if (syncStats.processed % 10 === 0) {
-                    console.log(`[ML Sync] Processados ${syncStats.processed}/${allItemIds.length} produtos`);
-                }
-
-            } catch (error: any) {
-                syncStats.errors++;
-                syncStats.errorDetails.push({
-                    itemId,
-                    error: error.message
-                });
-                console.error(`[ML Sync] Erro ao processar produto ${itemId}:`, error.message);
-
-                // Limitar a 5 erros consecutivos
-                if (syncStats.errors >= 5) {
-                    console.error('[ML Sync] Muitos erros, parando sincronização');
-                    break;
-                }
-            }
-        }
-
-        console.log('[ML Sync] Sincronização concluída:', syncStats);
+        const result = await syncMercadoLivreProducts(String(workspaceId));
 
         return res.json({
             success: true,
             message: "Sincronização concluída com sucesso",
             timestamp: new Date().toISOString(),
-            stats: syncStats
+            stats: result
         });
 
     } catch (error: any) {
+        if (error?.message === "ml_not_connected") {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
         console.error("Error syncing Mercado Livre data:", error);
         return res.status(500).json({
             error: "Failed to sync data",
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/analytics/sync
+ * Sincroniza pedidos (30d) e atualiza métricas de vendas/lucro nos produtos
+ */
+router.post("/analytics/sync", async (req, res) => {
+    try {
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const requestedDays = Number((req.body as any)?.days || 30);
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        if (requestedDays !== 30) {
+            return res.status(400).json({ error: "Only the 30-day window is supported right now." });
+        }
+
+        const result = await syncMercadoLivreAnalytics30d(String(workspaceId), 30);
+        return res.json(result);
+    } catch (error: any) {
+        if (error?.message === "ml_not_connected") {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
+        console.error("Error syncing Mercado Livre analytics:", error);
+        return res.status(500).json({
+            error: "Failed to sync analytics",
+            details: error.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/analytics/top
+ * Lista top produtos por vendas e lucro (30d) a partir do banco
+ */
+router.get("/analytics/top", async (req, res) => {
+    try {
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        const limit = Math.min(50, Math.max(1, Number((req.query as any).limit || 10)));
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const pool = getPool();
+        const baseQuery = `
+            SELECT
+                id,
+                ml_item_id,
+                title,
+                price,
+                sales_30d,
+                revenue_30d,
+                profit_unit,
+                cost_price,
+                overhead_cost,
+                fixed_fee,
+                cac,
+                ml_tax_rate,
+                ml_listing_type,
+                ml_permalink,
+                status
+            FROM products
+            WHERE workspace_id = $1 AND ml_item_id IS NOT NULL
+        `;
+
+        const salesRes = await pool.query(
+            `${baseQuery} ORDER BY sales_30d DESC NULLS LAST, revenue_30d DESC NULLS LAST LIMIT $2`,
+            [workspaceId, limit]
+        );
+        const profitRes = await pool.query(
+            `${baseQuery} ORDER BY (sales_30d * profit_unit) DESC NULLS LAST, revenue_30d DESC NULLS LAST LIMIT $2`,
+            [workspaceId, limit]
+        );
+
+        let lastSyncedAt: string | null = null;
+        try {
+            const lastSyncRes = await pool.query(
+                `SELECT MAX(updated_at) as last_synced_at FROM ml_orders WHERE workspace_id = $1`,
+                [workspaceId]
+            );
+            lastSyncedAt = lastSyncRes.rows[0]?.last_synced_at || null;
+        } catch (err) {
+            console.warn("[ML Analytics] ml_orders table not ready:", (err as any)?.message || err);
+        }
+
+        let missingCostCount = 0;
+        try {
+            const missingCostRes = await pool.query(
+                `SELECT COUNT(*)::int as missing_cost
+                 FROM products
+                 WHERE workspace_id = $1 AND ml_item_id IS NOT NULL
+                   AND cost_price IS NULL AND overhead_cost IS NULL AND cac IS NULL`,
+                [workspaceId]
+            );
+            missingCostCount = missingCostRes.rows[0]?.missing_cost || 0;
+        } catch (err) {
+            console.warn("[ML Analytics] Falha ao contar custos pendentes:", (err as any)?.message || err);
+        }
+
+        const normalize = (row: any) => {
+            const sales30d = Number(row.sales_30d || 0);
+            const revenue30d = Number(row.revenue_30d || 0);
+            const profitUnit = Number(row.profit_unit || 0);
+            const profit30d = sales30d * profitUnit;
+            return {
+                id: row.id,
+                mlItemId: row.ml_item_id,
+                title: row.title,
+                price: Number(row.price || 0),
+                sales30d,
+                revenue30d,
+                profitUnit,
+                profit30d,
+                profitMargin: revenue30d > 0 ? profit30d / revenue30d : 0,
+                costMissing: row.cost_price == null && row.overhead_cost == null && row.cac == null,
+                listingType: row.ml_listing_type,
+                mlPermalink: row.ml_permalink,
+                status: row.status,
+            };
+        };
+
+        return res.json({
+            days: 30,
+            lastSyncedAt,
+            missingCostCount,
+            topSales: salesRes.rows.map(normalize),
+            topProfit: profitRes.rows.map(normalize),
+        });
+    } catch (error: any) {
+        console.error("Error fetching Mercado Livre analytics top products:", error);
+        return res.status(500).json({
+            error: "Failed to fetch analytics",
             details: error.message,
         });
     }

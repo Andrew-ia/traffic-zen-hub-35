@@ -62,10 +62,10 @@ export function SalesHeatmap({ data, loading }: SalesHeatmapProps) {
     const getColor = (sales: number) => {
         if (sales === 0) return "bg-muted/20";
         const intensity = sales / maxSales;
-        if (intensity > 0.75) return "bg-green-600 dark:bg-green-500";
-        if (intensity > 0.5) return "bg-green-500 dark:bg-green-600";
-        if (intensity > 0.25) return "bg-green-400 dark:bg-green-700";
-        return "bg-green-300 dark:bg-green-800";
+        if (intensity > 0.75) return "bg-primary/50";
+        if (intensity > 0.5) return "bg-primary/40";
+        if (intensity > 0.25) return "bg-primary/30";
+        return "bg-primary/20";
     };
 
     // Horas do dia (0-23)
@@ -87,10 +87,10 @@ export function SalesHeatmap({ data, loading }: SalesHeatmapProps) {
                             <span>Menos vendas</span>
                             <div className="flex items-center gap-1">
                                 <div className="w-4 h-4 rounded bg-muted/20 border border-border/50" />
-                                <div className="w-4 h-4 rounded bg-green-300 dark:bg-green-800" />
-                                <div className="w-4 h-4 rounded bg-green-400 dark:bg-green-700" />
-                                <div className="w-4 h-4 rounded bg-green-500 dark:bg-green-600" />
-                                <div className="w-4 h-4 rounded bg-green-600 dark:bg-green-500" />
+                                <div className="w-4 h-4 rounded bg-primary/20" />
+                                <div className="w-4 h-4 rounded bg-primary/30" />
+                                <div className="w-4 h-4 rounded bg-primary/40" />
+                                <div className="w-4 h-4 rounded bg-primary/50" />
                             </div>
                             <span>Mais vendas</span>
                         </div>

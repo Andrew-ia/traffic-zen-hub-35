@@ -128,7 +128,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                 <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-border/10 bg-muted/5">
                     <div className="flex items-center gap-2">
                         <CardTitle className="text-lg font-bold flex items-center gap-2">
-                            <ShoppingBag className="h-5 w-5 text-[#3483FA]" />
+                            <ShoppingBag className="h-5 w-5 text-primary" />
                             Atividade Recente
                         </CardTitle>
                     </div>
@@ -156,7 +156,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 />
                             </PopoverContent>
                         </Popover>
-                        <Badge variant="secondary" className="bg-[#3483FA]/10 text-[#3483FA] border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
+                        <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
                             Live
                         </Badge>
                     </div>
@@ -179,11 +179,11 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                         className="w-full p-5 hover:bg-muted/10 transition-all cursor-pointer flex items-center gap-4 group/item text-left"
                                         aria-label={`Ver detalhes do pedido ${order.id}`}
                                     >
-                                        <div className="h-12 w-12 rounded-2xl bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden relative group-hover/item:ring-2 ring-[#3483FA]/20 transition-all">
+                                        <div className="h-12 w-12 rounded-2xl bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden relative group-hover/item:ring-2 ring-primary/20 transition-all">
                                             {imageUrl ? (
                                                 <img src={imageUrl} alt="" className="w-full h-full object-cover" />
                                             ) : (
-                                                <ShoppingBag className="h-5 w-5 text-muted-foreground group-hover/item:text-[#3483FA] transition-colors" />
+                                                <ShoppingBag className="h-5 w-5 text-muted-foreground group-hover/item:text-primary transition-colors" />
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
@@ -191,11 +191,11 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                                 <p className="text-sm font-bold truncate text-foreground/90" title={title}>{title}</p>
                                             </div>
                                             <div className="text-right flex flex-col items-end">
-                                                <p className="text-sm font-black text-[#3483FA]">
+                                                <p className="text-sm font-black text-primary">
                                                     {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.totalAmount)}
                                                 </p>
                                                 {order.netIncome !== undefined && (
-                                                    <p className="text-[10px] font-bold text-green-600 dark:text-green-400" title={`Taxas: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.saleFee || 0)} | Envio: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.shippingCost || 0)}`}>
+                                                    <p className="text-[10px] font-bold text-success" title={`Taxas: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.saleFee || 0)} | Envio: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.shippingCost || 0)}`}>
                                                         Lucro: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.netIncome)}
                                                     </p>
                                                 )}
@@ -301,7 +301,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                         )}
 
                         {detailsError && (
-                            <div className="rounded-xl border border-red-200 bg-red-50/80 p-3 text-xs text-red-700">
+                            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
                                 Não foi possível carregar todos os detalhes deste pedido.
                             </div>
                         )}
@@ -335,7 +335,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                     </div>
                                     <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
                                         <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Lucro</div>
-                                        <div className="text-sm font-bold text-green-600">
+                                        <div className="text-sm font-bold text-success">
                                             {formatCurrency(summary?.netIncome ?? selectedOrder?.netIncome, currencyId)}
                                         </div>
                                     </div>

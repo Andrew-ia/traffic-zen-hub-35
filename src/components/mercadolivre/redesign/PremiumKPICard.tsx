@@ -10,7 +10,7 @@ interface PremiumKPICardProps {
     trend?: string;
     trendUp?: boolean;
     chartData?: any[];
-    color?: string;
+    tone?: "primary" | "info" | "success" | "warning" | "danger" | "muted";
     loading?: boolean;
 }
 
@@ -29,26 +29,18 @@ export function PremiumKPICard({
         { value: 550 },
         { value: 700 },
     ],
-    color = "blue",
+    tone = "primary",
     loading
 }: PremiumKPICardProps) {
-    const colorClasses: Record<string, string> = {
-        blue: "text-[#3483FA] bg-[#3483FA]/10",
-        green: "text-[#00A650] bg-[#00A650]/10",
-        orange: "text-[#FF7733] bg-[#FF7733]/10",
-        purple: "text-[#A855F7] bg-[#A855F7]/10",
-        yellow: "text-[#FFD100] bg-[#FFD100]/10",
-        red: "text-[#F52F41] bg-[#F52F41]/10",
+    const toneStyles: Record<NonNullable<PremiumKPICardProps["tone"]>, { text: string; bg: string; stroke: string }> = {
+        primary: { text: "text-primary", bg: "bg-primary/10", stroke: "hsl(var(--chart-1))" },
+        info: { text: "text-info", bg: "bg-info/10", stroke: "hsl(var(--chart-2))" },
+        success: { text: "text-success", bg: "bg-success/10", stroke: "hsl(var(--success))" },
+        warning: { text: "text-warning", bg: "bg-warning/10", stroke: "hsl(var(--warning))" },
+        danger: { text: "text-destructive", bg: "bg-destructive/10", stroke: "hsl(var(--destructive))" },
+        muted: { text: "text-muted-foreground", bg: "bg-muted/40", stroke: "hsl(var(--muted-foreground))" },
     };
-
-    const gradientColors: Record<string, string> = {
-        blue: "#3483FA",
-        green: "#00A650",
-        orange: "#FF7733",
-        purple: "#A855F7",
-        yellow: "#FFD100",
-        red: "#F52F41",
-    };
+    const palette = toneStyles[tone];
 
     if (loading) {
         return (
@@ -71,7 +63,7 @@ export function PremiumKPICard({
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-4">
                     <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-                    <div className={`p-2.5 rounded-xl ${colorClasses[color]} ring-1 ring-white/10`}>
+                    <div className={`p-2.5 rounded-xl ${palette.bg} ${palette.text} ring-1 ring-border/60`}>
                         <Icon className="h-5 w-5" />
                     </div>
                 </div>
@@ -80,7 +72,7 @@ export function PremiumKPICard({
                     <h3 className="text-3xl font-bold tracking-tight">{value}</h3>
                     {trend && (
                         <div className="flex items-center gap-1.5 pt-1">
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${trendUp ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${trendUp ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
                                 {trendUp ? "+" : ""}{trend}
                             </span>
                             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">vs período anterior</span>
@@ -94,18 +86,18 @@ export function PremiumKPICard({
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData}>
                         <defs>
-                            <linearGradient id={`gradient-${color}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={gradientColors[color]} stopOpacity={0.8} />
-                                <stop offset="95%" stopColor={gradientColors[color]} stopOpacity={0} />
+                            <linearGradient id={`gradient-${tone}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={palette.stroke} stopOpacity={0.8} />
+                                <stop offset="95%" stopColor={palette.stroke} stopOpacity={0} />
                             </linearGradient>
                         </defs>
                         <Area
                             type="monotone"
                             dataKey="value"
-                            stroke={gradientColors[color]}
+                            stroke={palette.stroke}
                             strokeWidth={2}
                             fillOpacity={1}
-                            fill={`url(#gradient-${color})`}
+                            fill={`url(#gradient-${tone})`}
                             isAnimationActive={true}
                         />
                     </AreaChart>

@@ -32,7 +32,9 @@ import {
     useMercadoLivreProducts,
     useMercadoLivreQuestions,
     useMercadoLivreAuthStatus,
-    useSyncMercadoLivre
+    useSyncMercadoLivre,
+    useMercadoLivreAnalyticsTop,
+    useSyncMercadoLivreAnalytics
 } from "@/hooks/useMercadoLivre";
 import { useMercadoLivreDailySales, useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreShipments } from "@/hooks/useMercadoLivreShipments";
@@ -40,12 +42,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { differenceInCalendarDays, format, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
 import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
 import { MercadoLivreManualTokenDialog } from "@/components/MercadoLivreManualTokenDialog";
 import { supabase } from "@/lib/supabaseClient";
 import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
-import { JewelryAnalysisDialog } from "@/components/mercadolivre/JewelryAnalysisDialog";
 import { PremiumKPICard } from "@/components/mercadolivre/redesign/PremiumKPICard";
 import { MainPerformanceChart } from "@/components/mercadolivre/redesign/MainPerformanceChart";
 import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivity";
@@ -64,7 +64,6 @@ const formatCurrency = (value: number, fractionDigits: number = 0) =>
 const formatNumber = (value: number) => new Intl.NumberFormat("pt-BR").format(value);
 
 export default function MercadoLivreNew() {
-    const navigate = useNavigate();
     const { workspaces, currentWorkspace, switchWorkspace, isLoading: workspacesLoading } = useWorkspace();
     const [dateRange, setDateRange] = useState("30");
     const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>(() => {
@@ -240,6 +239,8 @@ export default function MercadoLivreNew() {
         limit: 50
     });
     const syncMutation = useSyncMercadoLivre();
+    const analyticsSyncMutation = useSyncMercadoLivreAnalytics();
+    const { data: analyticsTop, isLoading: analyticsTopLoading } = useMercadoLivreAnalyticsTop(workspaceId);
 
     const handleSyncData = async () => {
         if (!workspaceId) return;
@@ -248,6 +249,16 @@ export default function MercadoLivreNew() {
             toast.success("Sincronização iniciada com sucesso!");
         } catch (error) {
             toast.error("Erro ao iniciar sincronização.");
+        }
+    };
+
+    const handleSyncAnalytics = async () => {
+        if (!workspaceId) return;
+        try {
+            await analyticsSyncMutation.mutateAsync(workspaceId);
+            toast.success("Analytics 30d atualizada com sucesso!");
+        } catch (error) {
+            toast.error("Erro ao atualizar analytics 30d.");
         }
     };
 
@@ -272,6 +283,7 @@ export default function MercadoLivreNew() {
     // Cálculos
     const totalRevenue = metrics?.totalRevenue ?? 0;
     const totalOrders = metrics?.totalOrders ?? 0;
+    const totalSales = metrics?.totalSales ?? 0;
     const totalVisits = metrics?.totalVisits ?? 0;
     const conversionRate = metrics?.conversionRate ?? 0;
 
@@ -308,26 +320,39 @@ export default function MercadoLivreNew() {
 
     const reputationLevel = metrics?.reputationMetrics?.level || metrics?.reputation || (metricsLoading ? "Carregando..." : "-");
     const reputationColor = metrics?.reputationMetrics?.color || "Verde";
-    const reputationColorClass = reputationColor === "Verde" ? "text-green-500" :
-        reputationColor === "Amarelo" ? "text-yellow-500" :
-            reputationColor === "Laranja" ? "text-orange-500" :
-                reputationColor === "Vermelho" ? "text-red-500" : (metricsLoading ? "text-muted-foreground" : "text-green-500");
+    const reputationColorClass = metricsLoading
+        ? "text-muted-foreground"
+        : reputationColor === "Verde"
+            ? "text-success"
+            : reputationColor === "Amarelo"
+                ? "text-warning"
+                : reputationColor === "Laranja"
+                    ? "text-warning"
+                    : reputationColor === "Vermelho"
+                        ? "text-destructive"
+                        : "text-muted-foreground";
 
     const averageTicket = (metrics?.totalRevenue && metrics?.totalSales) 
         ? metrics.totalRevenue / metrics.totalSales 
         : 0;
 
+    const topSales = analyticsTop?.topSales || [];
+    const topProfit = analyticsTop?.topProfit || [];
+    const analyticsLastSync = analyticsTop?.lastSyncedAt
+        ? new Date(analyticsTop.lastSyncedAt).toLocaleString("pt-BR")
+        : null;
+
     return (
-        <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#0F1115] text-foreground p-4 sm:p-8 space-y-8 animate-in fade-in duration-700">
+        <div className="min-h-screen bg-background text-foreground p-4 sm:p-8 space-y-8 animate-in fade-in duration-700">
             {/* Header Section */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-[#FFF159] p-6 rounded-[2.5rem] border border-[#FFD100] shadow-2xl shadow-yellow-500/20">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 rounded-[2.5rem] border border-border/50 bg-card/70 p-6 shadow-xl shadow-black/20 backdrop-blur-md">
                 <div className="flex items-center gap-5">
-                    <div className="h-16 w-16 bg-yellow-400 rounded-3xl flex items-center justify-center shadow-lg shadow-yellow-400/20 rotate-3 group hover:rotate-0 transition-transform duration-500">
-                        <ShoppingBag className="h-8 w-8 text-black" />
+                    <div className="h-16 w-16 bg-primary/10 rounded-3xl flex items-center justify-center shadow-lg shadow-black/20 rotate-3 group hover:rotate-0 transition-transform duration-500">
+                        <ShoppingBag className="h-8 w-8 text-primary" />
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h1 className="text-3xl font-black tracking-tight text-[#2D3277]">
+                            <h1 className="text-3xl font-black tracking-tight text-foreground">
                                 Mercado Livre Pro
                             </h1>
                         </div>
@@ -349,7 +374,7 @@ export default function MercadoLivreNew() {
                     <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
 
                     <div className="flex items-center gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-[#2D3277]/70">Loja</div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Loja</div>
                         <Select
                             value={workspaceId || ""}
                             onValueChange={handleWorkspaceChange}
@@ -371,7 +396,7 @@ export default function MercadoLivreNew() {
                     <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
 
                     <div className="flex items-center gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-[#2D3277]/70">Período</div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Período</div>
                         <div className="flex items-center gap-2">
                             <Select value={dateRange} onValueChange={setDateRange}>
                                 <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/50 border-border/40">
@@ -427,6 +452,16 @@ export default function MercadoLivreNew() {
                         <span className="font-bold text-xs uppercase tracking-tight">Sync</span>
                     </Button>
 
+                    <Button
+                        variant="outline"
+                        onClick={handleSyncAnalytics}
+                        disabled={analyticsSyncMutation.isPending}
+                        className="h-11 px-5 rounded-2xl border-border/40 bg-background/50 hover:bg-background/80 hover:scale-105 transition-all gap-2"
+                    >
+                        <TrendingUp className={`h-4 w-4 ${analyticsSyncMutation.isPending ? 'animate-pulse' : ''}`} />
+                        <span className="font-bold text-xs uppercase tracking-tight">Analytics 30d</span>
+                    </Button>
+
                     <MercadoLivreManualTokenDialog />
 
                     <MercadoLivreConnectButton
@@ -443,23 +478,14 @@ export default function MercadoLivreNew() {
                         dateFrom={period.start_date}
                         dateTo={period.end_date}
                     />
-
-                    <JewelryAnalysisDialog workspaceId={workspaceId || ""} />
-
-                    <Button
-                        className="h-11 px-6 rounded-2xl bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-all shadow-xl shadow-black/10 dark:shadow-white/5 font-black text-xs uppercase tracking-widest"
-                        onClick={() => navigate("/mercado-livre/full-analytics")}
-                    >
-                        Full Insights
-                    </Button>
                 </div>
             </div>
 
             {/* Quick Stats Bar */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 bg-primary/5 p-2 rounded-[2rem] border border-primary/10">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 bg-card/50 p-2 rounded-[2rem] border border-border/50">
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#3483FA]/10 flex items-center justify-center">
-                        <Layers className="h-4 w-4 text-[#3483FA]" />
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Layers className="h-4 w-4 text-primary" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Anúncios</p>
@@ -469,8 +495,8 @@ export default function MercadoLivreNew() {
                 
                 {/* Preço Médio */}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#00A650]/10 flex items-center justify-center">
-                        <DollarSign className="h-4 w-4 text-[#00A650]" />
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <DollarSign className="h-4 w-4 text-primary" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Médio</p>
@@ -480,19 +506,19 @@ export default function MercadoLivreNew() {
 
                 {/* Vendas Canceladas */}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#F52F41]/10 flex items-center justify-center">
-                        <AlertCircle className="h-4 w-4 text-[#F52F41]" />
+                    <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+                        <AlertCircle className="h-4 w-4 text-destructive" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Cancelados</p>
-                        <p className="text-sm font-black text-[#F52F41]">{metrics?.canceledOrders || 0}</p>
+                        <p className="text-sm font-black text-destructive">{metrics?.canceledOrders || 0}</p>
                     </div>
                 </div>
 
                 {/* Unidades Vendidas */}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#3483FA]/10 flex items-center justify-center">
-                        <Package className="h-4 w-4 text-[#3483FA]" />
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Package className="h-4 w-4 text-primary" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Und. Vendidas</p>
@@ -502,8 +528,8 @@ export default function MercadoLivreNew() {
 
                 {/* Total Compradores */}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#3483FA]/10 flex items-center justify-center">
-                        <Users className="h-4 w-4 text-[#3483FA]" />
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Users className="h-4 w-4 text-primary" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Compradores</p>
@@ -511,12 +537,12 @@ export default function MercadoLivreNew() {
                     </div>
                 </div>
                 <div className="hidden lg:flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-[#F52F41]/10 flex items-center justify-center">
-                        <DollarSign className="h-4 w-4 text-[#F52F41]" />
+                    <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+                        <DollarSign className="h-4 w-4 text-destructive" />
                     </div>
                     <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">Valor Cancelado</p>
-                        <p className="text-sm font-black text-[#F52F41]">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
+                        <p className="text-sm font-black text-destructive">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
                     </div>
                 </div>
             </div>
@@ -531,7 +557,7 @@ export default function MercadoLivreNew() {
                             title="Faturamento do Dia"
                             value={formatCurrency(todayMetrics.revenue)}
                             icon={DollarSign}
-                            color="green"
+                            tone="primary"
                             trend={`${Math.abs(todayMetrics.revenueTrend).toFixed(1)}%`}
                             trendUp={todayMetrics.revenueTrend >= 0}
                             chartData={dailySales?.dailySales?.map(d => ({ value: d.revenue }))}
@@ -541,7 +567,7 @@ export default function MercadoLivreNew() {
                             title="Vendas do Dia"
                             value={formatNumber(todayMetrics.orders)}
                             icon={ShoppingBag}
-                            color="blue"
+                            tone="info"
                             trend={`${Math.abs(todayMetrics.ordersTrend).toFixed(1)}%`}
                             trendUp={todayMetrics.ordersTrend >= 0}
                             chartData={dailySales?.dailySales?.map(d => ({ value: d.orders }))}
@@ -551,7 +577,7 @@ export default function MercadoLivreNew() {
                             title="Faturamento Bruto"
                             value={formatCurrency(totalRevenue)}
                             icon={DollarSign}
-                            color="green"
+                            tone="primary"
                             trend={revenueTrend.value}
                             trendUp={revenueTrend.up}
                             chartData={dailySales?.dailySales?.map(d => ({ value: d.revenue }))}
@@ -561,7 +587,7 @@ export default function MercadoLivreNew() {
                             title="Vendas Realizadas"
                             value={formatNumber(totalOrders)}
                             icon={ShoppingCart}
-                            color="blue"
+                            tone="info"
                             trend={ordersTrend.value}
                             trendUp={ordersTrend.up}
                             chartData={dailySales?.dailySales?.map(d => ({ value: d.orders }))}
@@ -571,7 +597,7 @@ export default function MercadoLivreNew() {
                             title="Visitas aos Anúncios"
                             value={formatNumber(totalVisits)}
                             icon={MousePointer}
-                            color="purple"
+                            tone="info"
                             trend={visitsTrend.value}
                             trendUp={visitsTrend.up}
                             chartData={dailySales?.dailySales?.map(d => ({ value: d.sales / 10 }))} // Approximation for visits trend if not available
@@ -581,7 +607,7 @@ export default function MercadoLivreNew() {
                             title="Taxa de Conversão"
                             value={`${conversionRate.toFixed(2)}%`}
                             icon={Users}
-                            color="orange"
+                            tone="info"
                             trend={conversionTrend.value}
                             trendUp={conversionTrend.up}
                             chartData={dailySales?.dailySales?.map(d => ({ value: (d.orders / (d.sales || 1)) * 100 }))}
@@ -595,7 +621,112 @@ export default function MercadoLivreNew() {
                         loading={dailySalesLoading}
                     />
 
-                    {/* Bottom section removed (SAC/Logística/Top Produtos) */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
+                            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+                                <div className="flex items-center justify-between gap-3">
+                                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                        <ShoppingBag className="h-5 w-5 text-primary" />
+                                        Top Vendidos (30d)
+                                    </CardTitle>
+                                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                                        {analyticsLastSync ? `Atualizado ${analyticsLastSync}` : "Sem sync"}
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-6">
+                                {analyticsTopLoading ? (
+                                    <Skeleton className="h-48 w-full" />
+                                ) : (
+                                    <div className="space-y-3">
+                                        {topSales.slice(0, 5).map((product, index) => (
+                                            <div
+                                                key={product.id}
+                                                className="flex items-center justify-between p-3 rounded-2xl bg-muted/10 hover:bg-muted/20 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-xs font-black text-primary">
+                                                        {index + 1}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold truncate">{product.title}</p>
+                                                        <p className="text-[10px] text-muted-foreground truncate">{product.mlItemId}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black">{formatNumber(product.sales30d)}</p>
+                                                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">vendas</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {topSales.length === 0 && (
+                                            <div className="text-sm text-muted-foreground text-center py-8">
+                                                Sem dados. Rode o Analytics 30d.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
+                            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+                                <div className="flex items-center justify-between gap-3">
+                                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                        <DollarSign className="h-5 w-5 text-success" />
+                                        Top Lucro (30d)
+                                    </CardTitle>
+                                    {analyticsTop?.missingCostCount ? (
+                                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
+                                            {analyticsTop.missingCostCount} custos pendentes
+                                        </Badge>
+                                    ) : null}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-6">
+                                {analyticsTopLoading ? (
+                                    <Skeleton className="h-48 w-full" />
+                                ) : (
+                                    <div className="space-y-3">
+                                        {topProfit.slice(0, 5).map((product, index) => (
+                                            <div
+                                                key={product.id}
+                                                className="flex items-center justify-between p-3 rounded-2xl bg-muted/10 hover:bg-muted/20 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-8 h-8 rounded-xl bg-success/10 flex items-center justify-center text-xs font-black text-success">
+                                                        {index + 1}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold truncate">{product.title}</p>
+                                                        <p className="text-[10px] text-muted-foreground truncate">{product.mlItemId}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black text-success">
+                                                        {formatCurrency(product.profit30d, 2)}
+                                                    </p>
+                                                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                                                        margem {(product.profitMargin * 100).toFixed(1)}%
+                                                    </p>
+                                                    {product.costMissing && (
+                                                        <Badge variant="outline" className="mt-2 text-[10px] uppercase tracking-widest">
+                                                            custo pendente
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {topProfit.length === 0 && (
+                                            <div className="text-sm text-muted-foreground text-center py-8">
+                                                Sem dados. Rode o Analytics 30d.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
                 </div>
 
                 {/* Right Column - Side Panels */}
@@ -612,27 +743,25 @@ export default function MercadoLivreNew() {
                     {/* Financial Summary Snippet */}
                     <FinancialAnalysis
                         totalRevenue={totalRevenue}
-                        totalSales={totalOrders}
+                        totalSales={totalSales}
                         loading={metricsLoading}
                         realTotalFees={metrics?.totalSaleFees}
-                        realTotalShipping={metrics?.totalShippingCosts}
-                        realNetIncome={metrics?.totalNetIncome}
                     />
                 </div>
             </div>
 
             {/* System Notifications / Warnings Footer */}
             {metrics?.alerts && metrics.alerts.length > 0 && (
-                <div className="bg-orange-500/5 border border-orange-500/20 p-6 rounded-[2.5rem] mt-12">
+                <div className="bg-warning/10 border border-warning/20 p-6 rounded-[2.5rem] mt-12">
                     <div className="flex items-center gap-3 mb-4">
-                        <AlertCircle className="h-5 w-5 text-orange-500" />
-                        <h3 className="text-lg font-black uppercase tracking-widest text-orange-900 dark:text-orange-400">Notificações Críticas</h3>
+                        <AlertCircle className="h-5 w-5 text-warning" />
+                        <h3 className="text-lg font-black uppercase tracking-widest text-warning">Notificações Críticas</h3>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {metrics.alerts.map((alert: any, idx: number) => (
-                            <div key={idx} className="bg-background/40 backdrop-blur-sm p-4 rounded-3xl border border-orange-500/10 hover:border-orange-500/30 transition-colors">
-                                <p className="text-sm font-black text-orange-900 dark:text-orange-200 uppercase tracking-tighter">{alert.title}</p>
-                                <p className="text-xs text-orange-700/80 dark:text-orange-400/80 mt-1 font-medium leading-relaxed">{alert.message}</p>
+                            <div key={idx} className="bg-background/40 backdrop-blur-sm p-4 rounded-3xl border border-warning/20 hover:border-warning/40 transition-colors">
+                                <p className="text-sm font-black text-warning uppercase tracking-tighter">{alert.title}</p>
+                                <p className="text-xs text-warning/80 mt-1 font-medium leading-relaxed">{alert.message}</p>
                             </div>
                         ))}
                     </div>

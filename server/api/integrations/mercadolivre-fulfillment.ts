@@ -476,4 +476,61 @@ router.get("/summary", async (req, res) => {
     }
 });
 
+import { updateReplenishmentSuggestions, ensureReplenishmentSchema } from "../../services/mercadolivre/replenishment.service.js";
+
+/**
+ * GET /api/integrations/mercadolivre-fulfillment/replenishment
+ * Retorna dados consolidados de sugestão de envio
+ */
+router.get("/replenishment", async (req, res) => {
+    try {
+        const { workspaceId, refresh } = req.query;
+
+        if (!workspaceId || typeof workspaceId !== "string") {
+            return res.status(400).json({ error: "workspaceId é obrigatório" });
+        }
+
+        // Garante que as colunas existem
+        await ensureReplenishmentSchema();
+
+        // Se refresh=true, recalcula as sugestões
+        if (refresh === "true") {
+            const creds = await getMercadoLivreCredentials(workspaceId);
+            if (creds) {
+                await updateReplenishmentSuggestions(workspaceId, creds.userId);
+            }
+        }
+
+        const pool = getPool();
+        const result = await pool.query(`
+            SELECT 
+                id, 
+                ml_item_id, 
+                title, 
+                ml_full_stock, 
+                sales_30d,
+                stock_cover_days,
+                replenishment_suggestion,
+                last_replenishment_calc_at,
+                images->>0 as thumbnail
+            FROM products 
+            WHERE workspace_id = $1 
+            AND ml_logistic_type = 'fulfillment'
+            ORDER BY replenishment_suggestion DESC
+        `, [workspaceId]);
+
+        return res.json({
+            items: result.rows,
+            count: result.rowCount
+        });
+
+    } catch (error: any) {
+        console.error("[Fulfillment] Erro ao buscar sugestões de reabastecimento:", error.message);
+        return res.status(500).json({
+            error: "Erro ao buscar sugestões de reabastecimento",
+            details: error.message
+        });
+    }
+});
+
 export default router;

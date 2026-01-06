@@ -43,7 +43,7 @@ export function MercadoLivreQuestionsList({
             <CardHeader className="border-b border-border/50 bg-muted/10 pb-4">
                 <div className="flex items-center justify-between">
                     <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <MessageCircle className="h-4 w-4 text-blue-500" />
+                        <MessageCircle className="h-4 w-4 text-primary" />
                         Perguntas Recentes
                     </CardTitle>
                     {totalUnanswered > 0 && (
@@ -75,7 +75,7 @@ export function MercadoLivreQuestionsList({
                                         </div>
                                         <Badge 
                                             variant={q.answered ? "outline" : "default"}
-                                            className={q.answered ? "text-green-600 border-green-200 bg-green-50" : "bg-yellow-500 hover:bg-yellow-600 text-white border-0"}
+                                            className={q.answered ? "text-success border-success/30 bg-success/10" : "bg-warning/10 hover:bg-warning/20 text-warning border border-warning/20"}
                                         >
                                             {q.answered ? (
                                                 <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -94,7 +94,7 @@ export function MercadoLivreQuestionsList({
                                             href={`https://questions.mercadolivre.com.br/question/${q.id}`} 
                                             target="_blank" 
                                             rel="noopener noreferrer"
-                                            className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                            className="text-xs font-medium text-primary hover:text-primary/80 hover:underline flex items-center gap-1"
                                         >
                                             Responder
                                             <MessageCircle className="h-3 w-3" />

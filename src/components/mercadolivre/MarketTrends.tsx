@@ -47,7 +47,7 @@ export function MarketTrends({ workspaceId = null }: MarketTrendsProps) {
                     <div className="flex items-center justify-between">
                         <div className="space-y-1">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <TrendingUp className="h-5 w-5 text-purple-500" />
+                                <TrendingUp className="h-5 w-5 text-primary" />
                                 Análise de Mercado
                             </CardTitle>
                             <CardDescription>
@@ -176,7 +176,7 @@ export function MarketTrends({ workspaceId = null }: MarketTrendsProps) {
                                             <div className="flex items-center gap-3">
                                                 <span className={`
                                                     flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium
-                                                    ${globalIndex <= 3 ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800'}
+                                                    ${globalIndex <= 3 ? 'bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground'}
                                                 `}>
                                                     {globalIndex}
                                                 </span>
@@ -255,11 +255,11 @@ export function MarketTrends({ workspaceId = null }: MarketTrendsProps) {
                                             <img 
                                                 src={thumbnail} 
                                                 alt={title} 
-                                                className="w-16 h-16 object-contain rounded-md bg-white p-1"
+                                                className="w-16 h-16 object-contain rounded-md bg-muted/20 p-1 border border-border/50"
                                             />
                                             <span className={`
                                                 absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shadow-sm
-                                                ${index < 3 ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-600'}
+                                                ${index < 3 ? 'bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground'}
                                             `}>
                                                 {index + 1}
                                             </span>
@@ -269,7 +269,7 @@ export function MarketTrends({ workspaceId = null }: MarketTrendsProps) {
                                                 {title}
                                             </h4>
                                             <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-sm font-bold text-green-600">
+                                                <span className="text-sm font-bold text-success">
                                                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(price)}
                                                 </span>
                                                 {product.sold_quantity > 0 && (

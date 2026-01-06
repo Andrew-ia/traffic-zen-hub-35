@@ -55,14 +55,14 @@ export function MetricComparison({
 
     const getTrendColor = () => {
         if (isNeutral) return "text-muted-foreground";
-        return isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
+        return isPositive ? "text-success" : "text-destructive";
     };
 
     const getTrendBgColor = () => {
         if (isNeutral) return "bg-muted/30";
         return isPositive
-            ? "bg-green-100 dark:bg-green-950/30"
-            : "bg-red-100 dark:bg-red-950/30";
+            ? "bg-success/10"
+            : "bg-destructive/10";
     };
 
     return (

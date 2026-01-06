@@ -47,7 +47,7 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
                 <Button 
-                    className="h-11 px-6 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:opacity-90 transition-all shadow-xl shadow-purple-500/20 font-black text-xs uppercase tracking-widest"
+                    className="h-11 px-6 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md font-black text-xs uppercase tracking-widest"
                 >
                     <Gem className="mr-2 h-4 w-4" />
                     Analisar Joias
@@ -56,7 +56,7 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
             <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="text-2xl flex items-center gap-2">
-                        <Gem className="h-6 w-6 text-purple-600" />
+                        <Gem className="h-6 w-6 text-primary" />
                         Análise de Joias e Bijuterias
                     </DialogTitle>
                     <DialogDescription>
@@ -101,9 +101,9 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
                                         const isHot = salesPerDay > 1.0;
                                         
                                         return (
-                                        <Card key={product.id} className="overflow-hidden border-l-4 border-l-transparent hover:border-l-purple-500 transition-all">
+                                        <Card key={product.id} className="overflow-hidden border-l-4 border-l-transparent hover:border-l-primary transition-all">
                                             <div className="flex flex-col sm:flex-row gap-4 p-4">
-                                                <div className="h-32 w-32 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
+                                                <div className="h-32 w-32 flex-shrink-0 bg-muted/20 rounded-lg overflow-hidden flex items-center justify-center border border-border/50">
                                                     <img src={product.thumbnail} alt={product.title} className="max-h-full max-w-full object-contain hover:scale-110 transition-transform" />
                                                 </div>
                                                 <div className="flex-1 space-y-3">
@@ -111,7 +111,7 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
                                                         <div>
                                                             <div className="flex gap-2 mb-2">
                                                                 {isHot && (
-                                                                    <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-0">
+                                                                    <Badge className="bg-warning/10 text-warning border border-warning/20 hover:bg-warning/20">
                                                                         🔥 Alta Demanda
                                                                     </Badge>
                                                                 )}
@@ -119,12 +119,12 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
                                                                     {product.id}
                                                                 </Badge>
                                                             </div>
-                                                            <h3 className="font-bold text-lg leading-tight hover:text-purple-600 cursor-pointer" onClick={() => window.open(product.permalink, '_blank')}>
+                                                            <h3 className="font-bold text-lg leading-tight hover:text-primary cursor-pointer" onClick={() => window.open(product.permalink, '_blank')}>
                                                                 {product.title}
                                                             </h3>
                                                         </div>
                                                         <div className="text-right">
-                                                            <span className="block font-black text-2xl text-green-600">R$ {product.price}</span>
+                                                            <span className="block font-black text-2xl text-success">R$ {product.price}</span>
                                                         </div>
                                                     </div>
                                                     
@@ -139,7 +139,7 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
                                                         </div>
                                                         <div className="text-center last:border-0">
                                                             <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Velocidade</p>
-                                                            <p className={`font-black text-lg ${salesPerDay > 1 ? 'text-orange-500' : 'text-blue-500'}`}>
+                                                            <p className={`font-black text-lg ${salesPerDay > 1 ? 'text-success' : 'text-primary'}`}>
                                                                 {salesPerDay.toFixed(1)} / dia
                                                             </p>
                                                         </div>
@@ -158,7 +158,7 @@ export function JewelryAnalysisDialog({ workspaceId }: JewelryAnalysisDialogProp
                                             {report.trends.map((trend: any, index: number) => (
                                                 <div key={index} className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
                                                     <div className="flex items-center gap-4">
-                                                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-100 text-yellow-700 font-bold text-sm">
+                                                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
                                                             {trend.position}
                                                         </span>
                                                         <span className="font-medium">{trend.keyword}</span>

@@ -4,7 +4,7 @@ import { useFulfillmentSummary } from "@/hooks/useFulfillment";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
     Package,
     Search,
@@ -15,7 +15,7 @@ import {
     TrendingDown,
     Warehouse,
     CheckCircle2,
-    XCircle,
+    XCircle
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -126,8 +126,17 @@ export default function FulfillmentManagement() {
                 </Button>
             </div>
 
-            {/* Stats Cards */}
-            {isLoading ? (
+            <Tabs defaultValue="overview" className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="overview" className="flex items-center gap-2">
+                        <Warehouse className="h-4 w-4" />
+                        Visão Geral
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="overview" className="space-y-6">
+                    {/* Stats Cards */}
+                    {isLoading ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[1, 2, 3, 4].map((i) => (
                         <Card key={i}>
@@ -407,6 +416,9 @@ export default function FulfillmentManagement() {
                     )}
                 </CardContent>
             </Card>
+            </TabsContent>
+
+            </Tabs>
         </div>
     );
 }

@@ -25,15 +25,15 @@ export function TodayShipments({ workspaceId }: TodayShipmentsProps) {
             case 'ready_to_ship':
             case 'handling':
             case 'pending':
-                return "bg-yellow-100 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800";
+                return "bg-warning/10 text-warning border-warning/20";
             case 'shipped':
-                return "bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800";
+                return "bg-info/10 text-info border-info/20";
             case 'delivered':
-                return "bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800";
+                return "bg-success/10 text-success border-success/20";
             case 'cancelled':
-                return "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800";
+                return "bg-destructive/10 text-destructive border-destructive/20";
             default:
-                return "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-700";
+                return "bg-muted/20 text-muted-foreground border-border/40";
         }
     };
 
@@ -55,7 +55,7 @@ export function TodayShipments({ workspaceId }: TodayShipmentsProps) {
             <Card className="border-border/50 shadow-sm">
                 <CardHeader className="border-b border-border/50 bg-muted/20">
                     <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-blue-500" />
+                        <Truck className="h-4 w-4 text-primary" />
                         Envios do Dia
                     </CardTitle>
                 </CardHeader>
@@ -75,14 +75,14 @@ export function TodayShipments({ workspaceId }: TodayShipmentsProps) {
             <Card className="border-border/50 shadow-sm">
                 <CardHeader className="border-b border-border/50 bg-muted/20">
                     <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-blue-500" />
+                        <Truck className="h-4 w-4 text-primary" />
                         Envios do Dia
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6">
                     <div className="text-center py-8">
-                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950/30 mb-3">
-                            <Truck className="h-6 w-6 text-blue-500" />
+                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-3">
+                            <Truck className="h-6 w-6 text-primary" />
                         </div>
                         <p className="text-muted-foreground font-medium">Nenhum envio pendente encontrado</p>
                     </div>
@@ -96,7 +96,7 @@ export function TodayShipments({ workspaceId }: TodayShipmentsProps) {
             <CardHeader className="border-b border-border/50 bg-muted/20">
                 <div className="flex items-center justify-between">
                     <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-blue-500" />
+                        <Truck className="h-4 w-4 text-primary" />
                         Envios do Dia
                     </CardTitle>
                     <Badge variant="secondary" className="font-mono">

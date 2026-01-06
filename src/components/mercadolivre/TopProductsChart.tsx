@@ -54,8 +54,13 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
         conversionRate: product.conversionRate,
     }));
 
-    // Cores do gráfico baseadas no Mercado Livre
-    const colors = ["#3483FA", "#FFD100", "#00A650", "#FF7733", "#F52F41"];
+    const colors = [
+        "hsl(var(--chart-1))",
+        "hsl(var(--chart-2))",
+        "hsl(var(--chart-3))",
+        "hsl(var(--chart-4))",
+        "hsl(var(--chart-5))",
+    ];
 
     const getTitle = () => {
         if (type === "sales") return "Top 5 Produtos - Vendas";
@@ -100,7 +105,7 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
                     </div>
                     <div className="text-[10px] text-muted-foreground flex justify-between gap-4">
                         <span className="font-bold uppercase tracking-widest">Receita</span>
-                        <span className="font-black text-[#00A650]">
+                        <span className="font-black text-primary">
                             {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(d.revenue)}
                         </span>
                     </div>
@@ -113,7 +118,7 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
         <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
             <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
                 <CardTitle className="text-lg font-bold flex items-center gap-2">
-                    <span className="text-[#3483FA]">{getIcon()}</span>
+                    <span className="text-primary">{getIcon()}</span>
                     {getTitle()}
                 </CardTitle>
             </CardHeader>
@@ -157,7 +162,7 @@ export function TopProductsChart({ products, loading, type = "sales" }: TopProdu
                                             {product.name}
                                         </span>
                                     </div>
-                                    <span className="text-sm font-black text-[#3483FA] pl-4">{formatValue(product.value)}</span>
+                                    <span className="text-sm font-black text-primary pl-4">{formatValue(product.value)}</span>
                                 </div>
                             ))}
                         </div>

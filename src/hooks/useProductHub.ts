@@ -31,9 +31,12 @@ export interface ProductHubResponse {
   totalPages: number;
 }
 
-export function useProductHub(workspaceId: string | null, opts?: { search?: string; page?: number; limit?: number }) {
+export function useProductHub(
+  workspaceId: string | null,
+  opts?: { search?: string; searchBy?: "name" | "mlb" | "all"; page?: number; limit?: number }
+) {
   return useQuery<ProductHubResponse>({
-    queryKey: ["product-hub", workspaceId, opts?.search, opts?.page, opts?.limit],
+    queryKey: ["product-hub", workspaceId, opts?.search, opts?.searchBy, opts?.page, opts?.limit],
     queryFn: async () => {
       if (!workspaceId) throw new Error("Workspace ID required");
       const params = new URLSearchParams({
@@ -42,6 +45,7 @@ export function useProductHub(workspaceId: string | null, opts?: { search?: stri
         limit: String(opts?.limit || 24),
       });
       if (opts?.search) params.set("search", opts.search);
+      if (opts?.searchBy) params.set("searchBy", opts.searchBy);
 
       const res = await fetch(`/api/product-hub?${params}`);
       if (!res.ok) throw new Error("Failed to fetch product hub");

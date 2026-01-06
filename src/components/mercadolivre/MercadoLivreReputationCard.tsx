@@ -45,26 +45,30 @@ export function MercadoLivreReputationCard({
         );
     }
 
-    // Determine color hex based on reputationColor
-    const getColorHex = (color: string) => {
+    const getReputationTone = (color: string) => {
         switch (color.toLowerCase()) {
-            case "verde": return "#00A650"; // Mercado Livre Green
-            case "amarelo": return "#F5D415";
-            case "laranja": return "#FF7733";
-            case "vermelho": return "#F23D4F";
+            case "verde":
+                return { value: "hsl(var(--success))", className: "text-success" };
+            case "amarelo":
+            case "laranja":
+                return { value: "hsl(var(--warning))", className: "text-warning" };
+            case "vermelho":
+                return { value: "hsl(var(--destructive))", className: "text-destructive" };
             case "cinza":
-            case "gray": return "#9CA3AF"; // Gray-400
-            default: return "#00A650"; // Default to green if unknown, or maybe gray?
+            case "gray":
+                return { value: "hsl(var(--muted-foreground))", className: "text-muted-foreground" };
+            default:
+                return { value: "hsl(var(--success))", className: "text-success" };
         }
     };
 
-    const colorHex = getColorHex(reputationColor);
+    const reputationTone = getReputationTone(reputationColor);
 
     return (
         <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
             <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
                 <CardTitle className="text-lg font-bold flex items-center gap-2">
-                    <Star className="h-5 w-5 text-[#FFD100]" />
+                    <Star className="h-5 w-5 text-primary" />
                     Reputação
                 </CardTitle>
             </CardHeader>
@@ -88,17 +92,17 @@ export function MercadoLivreReputationCard({
                             cy="96"
                             r="80"
                             fill="transparent"
-                            stroke={colorHex}
+                            stroke={reputationTone.value}
                             strokeWidth="12"
                             strokeDasharray={502}
                             strokeDashoffset={0}
                             strokeLinecap="round"
-                            className="drop-shadow-sm transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(0,0,0,0.1)]"
+                            className="drop-shadow-sm transition-all duration-1000 ease-out"
                         />
                     </svg>
 
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <span className="text-3xl font-black tracking-tighter" style={{ color: colorHex }}>
+                        <span className={`text-3xl font-black tracking-tighter ${reputationTone.className}`}>
                             {reputationColor}
                         </span>
                         <Badge variant="secondary" className="mt-2 bg-muted/50 text-[10px] font-bold uppercase tracking-widest border-none">
@@ -112,27 +116,27 @@ export function MercadoLivreReputationCard({
                     <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                             <span className="text-muted-foreground">Reclamações</span>
-                            <span className={claimsRate > 1 ? "text-[#F52F41]" : "text-[#00A650]"}>{claimsRate.toFixed(1)}%</span>
+                            <span className={claimsRate > 1 ? "text-destructive" : "text-success"}>{claimsRate.toFixed(1)}%</span>
                         </div>
-                        <Progress value={(claimsRate / 2) * 100} className="h-1.5 bg-muted/20" indicatorClassName={claimsRate > 1 ? "bg-[#F52F41]" : "bg-[#00A650] shadow-[0_0_8px_rgba(0,166,80,0.4)]"} />
+                        <Progress value={(claimsRate / 2) * 100} className="h-1.5 bg-muted/20" indicatorClassName={claimsRate > 1 ? "bg-destructive" : "bg-success"} />
                     </div>
 
                     {/* Cancelamentos */}
                     <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                             <span className="text-muted-foreground">Cancelamentos</span>
-                            <span className={cancellationsRate > 1 ? "text-[#F52F41]" : "text-[#00A650]"}>{cancellationsRate.toFixed(1)}%</span>
+                            <span className={cancellationsRate > 1 ? "text-destructive" : "text-success"}>{cancellationsRate.toFixed(1)}%</span>
                         </div>
-                        <Progress value={(cancellationsRate / 2) * 100} className="h-1.5 bg-muted/20" indicatorClassName={cancellationsRate > 1 ? "bg-[#F52F41]" : "bg-[#00A650] shadow-[0_0_8px_rgba(0,166,80,0.4)]"} />
+                        <Progress value={(cancellationsRate / 2) * 100} className="h-1.5 bg-muted/20" indicatorClassName={cancellationsRate > 1 ? "bg-destructive" : "bg-success"} />
                     </div>
 
                     {/* Entregas no Prazo */}
                     <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                             <span className="text-muted-foreground font-bold">Entregas no Prazo</span>
-                            <span className={finalOnTimeRate < 97 ? "text-[#F52F41]" : "text-[#3483FA]"}>{finalOnTimeRate.toFixed(1)}%</span>
+                            <span className={finalOnTimeRate < 97 ? "text-destructive" : "text-primary"}>{finalOnTimeRate.toFixed(1)}%</span>
                         </div>
-                        <Progress value={finalOnTimeRate} className="h-1.5 bg-muted/20" indicatorClassName={finalOnTimeRate < 97 ? "bg-[#F52F41]" : "bg-[#3483FA] shadow-[0_0_8px_rgba(52,131,250,0.4)]"} />
+                        <Progress value={finalOnTimeRate} className="h-1.5 bg-muted/20" indicatorClassName={finalOnTimeRate < 97 ? "bg-destructive" : "bg-primary"} />
                     </div>
                 </div>
 

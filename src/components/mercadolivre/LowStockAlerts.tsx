@@ -49,9 +49,9 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
     const outOfStockProducts = products.filter((p) => p.stock === 0);
 
     const getStockBadgeColor = (stock: number) => {
-        if (stock === 0) return "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800";
-        if (stock <= 2) return "bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800";
-        return "bg-yellow-100 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800";
+        if (stock === 0) return "bg-destructive/10 text-destructive border-destructive/20";
+        if (stock <= 2) return "bg-warning/10 text-warning border-warning/20";
+        return "bg-warning/5 text-warning/80 border-warning/20";
     };
 
     const allAlerts = [...lowStockProducts, ...outOfStockProducts];
@@ -67,8 +67,8 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
                 </CardHeader>
                 <CardContent className="p-6">
                     <div className="text-center py-8">
-                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 dark:bg-green-950/30 mb-3">
-                            <PackageX className="h-6 w-6 text-green-600 dark:text-green-400" />
+                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-success/10 mb-3">
+                            <PackageX className="h-6 w-6 text-success" />
                         </div>
                         <p className="text-sm text-muted-foreground">
                             Todos os produtos têm estoque adequado
@@ -84,10 +84,10 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
             <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
                 <div className="flex items-center justify-between">
                     <CardTitle className="text-lg font-bold flex items-center gap-2">
-                        <PackageX className="h-5 w-5 text-[#FF7733]" />
+                        <PackageX className="h-5 w-5 text-warning" />
                         Alertas de Estoque
                     </CardTitle>
-                    <Badge variant="secondary" className="bg-[#FF7733]/10 text-[#FF7733] border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
+                    <Badge variant="secondary" className="bg-warning/10 text-warning border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
                         {allAlerts.length} Alertas
                     </Badge>
                 </div>
@@ -111,7 +111,7 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
                             <div className="flex-1 min-w-0">
                                 <h4 className="font-bold text-sm truncate uppercase tracking-tight">{product.title}</h4>
                                 <div className="flex items-center gap-2 mt-1.5">
-                                    <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${product.stock === 0 ? "bg-[#F52F41]/10 text-[#F52F41]" : "bg-[#FF7733]/10 text-[#FF7733]"
+                                    <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${product.stock === 0 ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"
                                         }`}>
                                         {product.stock === 0 ? "Sem Estoque" : `${product.stock} un. restantes`}
                                     </div>
@@ -139,14 +139,14 @@ export function LowStockAlerts({ products, loading, threshold = 5 }: LowStockAle
                 {/* Resumo */}
                 <div className="p-4 bg-muted/5 border-t border-border/10">
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="p-3 rounded-2xl bg-[#FF7733]/5 border border-[#FF7733]/10 text-center">
-                            <div className="text-xl font-black text-[#FF7733]">
+                        <div className="p-3 rounded-2xl bg-warning/10 border border-warning/20 text-center">
+                            <div className="text-xl font-black text-warning">
                                 {lowStockProducts.length}
                             </div>
                             <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Estoque Baixo</div>
                         </div>
-                        <div className="p-3 rounded-2xl bg-[#F52F41]/5 border border-[#F52F41]/10 text-center">
-                            <div className="text-xl font-black text-[#F52F41]">
+                        <div className="p-3 rounded-2xl bg-destructive/10 border border-destructive/20 text-center">
+                            <div className="text-xl font-black text-destructive">
                                 {outOfStockProducts.length}
                             </div>
                             <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Zerados</div>

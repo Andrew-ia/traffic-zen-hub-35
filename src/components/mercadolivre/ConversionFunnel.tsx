@@ -32,24 +32,29 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
             label: "Visitas",
             value: visits,
             icon: Eye,
-            color: "bg-blue-500",
+            tone: "primary",
             percentage: 100,
         },
         {
             label: "Perguntas",
             value: questions,
             icon: MessageCircle,
-            color: "bg-purple-500",
+            tone: "info",
             percentage: visitToQuestionRate,
         },
         {
             label: "Vendas",
             value: sales,
             icon: ShoppingBag,
-            color: "bg-green-500",
+            tone: "primary",
             percentage: questions > 0 ? questionToSaleRate : visitToSaleRate,
         },
-    ];
+    ] as const;
+
+    const toneStyles = {
+        primary: { bg: "bg-primary/10", text: "text-primary", bar: "bg-primary/60" },
+        info: { bg: "bg-info/10", text: "text-info", bar: "bg-info/60" },
+    } as const;
 
     return (
         <Card className="border-border/50 shadow-sm">
@@ -61,13 +66,14 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                     {stages.map((stage, index) => {
                         const Icon = stage.icon;
                         const width = stage.percentage;
+                        const style = toneStyles[stage.tone];
 
                         return (
                             <div key={stage.label}>
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
-                                        <div className={`p-2 rounded-lg ${stage.color} bg-opacity-10`}>
-                                            <Icon className={`h-4 w-4 ${stage.color.replace('bg-', 'text-')}`} />
+                                        <div className={`p-2 rounded-lg ${style.bg}`}>
+                                            <Icon className={`h-4 w-4 ${style.text}`} />
                                         </div>
                                         <span className="font-medium text-sm">{stage.label}</span>
                                     </div>
@@ -86,7 +92,7 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                                 {/* Barra de progresso */}
                                 <div className="relative h-8 bg-muted/30 rounded-lg overflow-hidden">
                                     <div
-                                        className={`h-full ${stage.color} transition-all duration-500 flex items-center justify-end px-3`}
+                                        className={`h-full ${style.bar} transition-all duration-500 flex items-center justify-end px-3`}
                                         style={{ width: `${width}%` }}
                                     >
                                         {width > 15 && (
@@ -122,19 +128,19 @@ export function ConversionFunnel({ visits, questions, sales, loading }: Conversi
                     <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
                             <div className="text-xs text-muted-foreground mb-1">Taxa Visita → Pergunta</div>
-                            <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
+                            <div className="text-lg font-bold text-info">
                                 {visitToQuestionRate.toFixed(1)}%
                             </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-foreground mb-1">Taxa Pergunta → Venda</div>
-                            <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                            <div className="text-lg font-bold text-primary">
                                 {questions > 0 ? `${questionToSaleRate.toFixed(1)}%` : "—"}
                             </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-foreground mb-1">Taxa de Conversão Total</div>
-                            <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                            <div className="text-lg font-bold text-primary">
                                 {visitToSaleRate.toFixed(1)}%
                             </div>
                         </div>

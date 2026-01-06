@@ -150,26 +150,26 @@ export function AIInsights({ metrics, products = [], loading }: AIInsightsProps)
     const getIcon = (type: Insight["type"]) => {
         switch (type) {
             case "success":
-                return <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />;
+                return <CheckCircle className="h-5 w-5 text-success" />;
             case "warning":
-                return <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />;
+                return <AlertTriangle className="h-5 w-5 text-warning" />;
             case "opportunity":
-                return <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />;
+                return <TrendingUp className="h-5 w-5 text-info" />;
             default:
-                return <Lightbulb className="h-5 w-5 text-purple-600 dark:text-purple-400" />;
+                return <Lightbulb className="h-5 w-5 text-primary" />;
         }
     };
 
     const getBgColor = (type: Insight["type"]) => {
         switch (type) {
             case "success":
-                return "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800";
+                return "bg-success/10 border-success/20";
             case "warning":
-                return "bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800";
+                return "bg-warning/10 border-warning/20";
             case "opportunity":
-                return "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800";
+                return "bg-info/10 border-info/20";
             default:
-                return "bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800";
+                return "bg-primary/10 border-primary/20";
         }
     };
 
@@ -177,7 +177,7 @@ export function AIInsights({ metrics, products = [], loading }: AIInsightsProps)
         <Card className="border-border/50 shadow-sm">
             <CardHeader className="border-b border-border/50 bg-muted/20">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-yellow-500" />
+                    <Lightbulb className="h-4 w-4 text-primary" />
                     Insights Automáticos
                 </CardTitle>
             </CardHeader>

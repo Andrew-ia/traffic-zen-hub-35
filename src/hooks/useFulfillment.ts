@@ -1,5 +1,67 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+export interface ReplenishmentItem {
+    id: string;
+    ml_item_id: string;
+    title: string;
+    ml_full_stock: number;
+    sales_30d: number;
+    stock_cover_days: number;
+    replenishment_suggestion: number;
+    last_replenishment_calc_at: string;
+    thumbnail?: string;
+}
+
+export interface ReplenishmentResponse {
+    items: ReplenishmentItem[];
+    count: number;
+}
+
+/**
+ * Hook para buscar sugestões de reabastecimento
+ */
+export function useReplenishmentSuggestions(workspaceId: string | null, refresh: boolean = false) {
+    return useQuery({
+        queryKey: ["fulfillment", "replenishment", workspaceId, refresh],
+        queryFn: async (): Promise<ReplenishmentResponse> => {
+            if (!workspaceId) {
+                throw new Error("Workspace ID é obrigatório");
+            }
+
+            const response = await fetch(
+                `/api/integrations/mercadolivre-fulfillment/replenishment?workspaceId=${workspaceId}&refresh=${refresh}`
+            );
+
+            if (!response.ok) {
+                throw new Error("Falha ao buscar sugestões de reabastecimento");
+            }
+
+            return response.json();
+        },
+        enabled: !!workspaceId,
+        refetchOnWindowFocus: false,
+    });
+}
+
+/**
+ * Mutation para recalcular sugestões
+ */
+export function useUpdateReplenishment() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (workspaceId: string) => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre-fulfillment/replenishment?workspaceId=${workspaceId}&refresh=true`
+            );
+            if (!response.ok) throw new Error("Falha ao atualizar sugestões");
+            return response.json();
+        },
+        onSuccess: (_, workspaceId) => {
+            queryClient.invalidateQueries({ queryKey: ["fulfillment", "replenishment", workspaceId] });
+        },
+    });
+}
+
 // Interface para detalhes de estoque indisponível
 export interface UnavailableDetail {
     status: string;

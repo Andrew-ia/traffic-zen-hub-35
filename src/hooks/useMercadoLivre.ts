@@ -172,6 +172,30 @@ export interface MercadoLivreFullProduct {
     adsActive?: boolean;
 }
 
+export interface MercadoLivreAnalyticsTopProduct {
+    id: string;
+    mlItemId: string;
+    title: string;
+    price: number;
+    sales30d: number;
+    revenue30d: number;
+    profitUnit: number;
+    profit30d: number;
+    profitMargin: number;
+    costMissing: boolean;
+    listingType?: string | null;
+    mlPermalink?: string | null;
+    status?: string | null;
+}
+
+export interface MercadoLivreAnalyticsTopResponse {
+    days: number;
+    lastSyncedAt: string | null;
+    missingCostCount: number;
+    topSales: MercadoLivreAnalyticsTopProduct[];
+    topProfit: MercadoLivreAnalyticsTopProduct[];
+}
+
 export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
@@ -604,6 +628,77 @@ export function useSyncMercadoLivre() {
                 queryKey: ["mercadolivre", "questions", workspaceId],
             });
         },
+    });
+}
+
+/**
+ * Hook para sincronizar analytics 30d (pedidos + lucro)
+ */
+export function useSyncMercadoLivreAnalytics() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (workspaceId: string) => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre/analytics/sync`,
+                {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ workspaceId, days: 30 }),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to sync analytics (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, workspaceId) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", workspaceId] });
+        },
+    });
+}
+
+/**
+ * Hook para buscar top vendidos e top lucro (30d) no banco
+ */
+export function useMercadoLivreAnalyticsTop(workspaceId: string | null) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "analytics-top", effectiveWorkspaceId],
+        queryFn: async (): Promise<MercadoLivreAnalyticsTopResponse> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+            const response = await fetch(
+                `/api/integrations/mercadolivre/analytics/top?workspaceId=${effectiveWorkspaceId}`,
+                { headers: getAuthHeaders() }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch analytics (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 2 * 60 * 1000,
     });
 }
 
