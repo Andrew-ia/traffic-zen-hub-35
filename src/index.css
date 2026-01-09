@@ -8,75 +8,75 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 213 33% 6%; /* #0B1016 */
-    --foreground: 216 45% 94%; /* #E7EDF6 */
+    --background: 210 40% 98%; /* #F8FAFC */
+    --foreground: 222 47% 11%; /* #111827 */
 
-    --card: 217 31% 11%; /* #141B26 */
-    --card-foreground: 216 45% 94%;
+    --card: 0 0% 100%; /* #FFFFFF */
+    --card-foreground: 222 47% 11%;
 
-    --popover: 217 31% 11%;
-    --popover-foreground: 216 45% 94%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 220 100% 65%; /* #4F8BFF */
-    --primary-foreground: 213 33% 6%;
+    --primary: 221 83% 53%; /* #2563EB */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 218 33% 15%; /* #192232 */
-    --secondary-foreground: 216 45% 94%;
+    --secondary: 210 40% 96%; /* #F1F5F9 */
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 215 36% 9%; /* #0F1620 */
-    --muted-foreground: 217 14% 49%; /* #6C7A90 */
+    --muted: 210 40% 96%; /* #F1F5F9 */
+    --muted-foreground: 215 16% 46%; /* #6B7280 */
 
-    --accent: 165 64% 68%; /* #7AE2C8 */
-    --accent-foreground: 213 33% 6%;
+    --accent: 166 60% 38%; /* #2BAA96 */
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 81% 68%; /* #EF6A6A */
-    --destructive-foreground: 213 33% 6%;
+    --destructive: 0 72% 55%; /* #EF4444 */
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 218 28% 19%; /* #222C3D */
-    --input: 218 28% 19%;
-    --ring: 220 100% 65%;
+    --border: 214 32% 91%; /* #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
 
-    --success: 156 65% 48%; /* #2BCB8B */
-    --success-foreground: 213 33% 6%;
+    --success: 158 64% 40%; /* #16A34A */
+    --success-foreground: 0 0% 100%;
 
-    --warning: 43 72% 59%; /* #E2B84A */
-    --warning-foreground: 213 33% 6%;
+    --warning: 43 96% 50%; /* #F59E0B */
+    --warning-foreground: 222 47% 11%;
 
-    --info: 216 100% 71%; /* #6BA7FF */
-    --info-foreground: 213 33% 6%;
+    --info: 200 89% 55%; /* #38BDF8 */
+    --info-foreground: 0 0% 100%;
 
-    --chart-1: 220 100% 65%;
-    --chart-2: 216 100% 71%;
-    --chart-3: 220 90% 77%;
-    --chart-4: 220 70% 83%;
-    --chart-5: 220 55% 88%;
+    --chart-1: 221 83% 53%;
+    --chart-2: 200 89% 55%;
+    --chart-3: 158 64% 40%;
+    --chart-4: 43 96% 50%;
+    --chart-5: 24 92% 60%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(220 100% 65%) 0%, hsl(220 100% 72%) 100%);
-    --gradient-success: linear-gradient(135deg, hsl(156 65% 48%) 0%, hsl(156 65% 58%) 100%);
-    --gradient-card: linear-gradient(to bottom, hsl(217 31% 11%) 0%, hsl(218 33% 15%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%) 0%, hsl(212 95% 60%) 100%);
+    --gradient-success: linear-gradient(135deg, hsl(158 64% 40%) 0%, hsl(158 64% 50%) 100%);
+    --gradient-card: linear-gradient(to bottom, hsl(0 0% 100%) 0%, hsl(210 40% 96%) 100%);
 
-    --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.25);
-    --shadow-medium: 0 20px 60px rgba(0, 0, 0, 0.35);
+    --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
+    --shadow-medium: 0 20px 60px rgba(15, 23, 42, 0.12);
     
     --radius: 1.5rem; /* 24px */
 
-    --sidebar-background: 215 36% 9%; /* #0F1620 */
-    --sidebar-foreground: 216 21% 72%; /* #A9B5C7 */
-    --sidebar-primary: 220 100% 65%;
-    --sidebar-primary-foreground: 213 33% 6%;
-    --sidebar-accent: 218 33% 15%;
-    --sidebar-accent-foreground: 216 45% 94%;
-    --sidebar-border: 218 28% 19%;
-    --sidebar-ring: 220 100% 65%;
+    --sidebar-background: 0 0% 100%; /* #FFFFFF */
+    --sidebar-foreground: 222 22% 28%; /* #334155 */
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 221 83% 53%;
 
-    --text-primary: 216 45% 94%;
-    --text-secondary: 216 21% 72%;
-    --text-muted: 217 14% 49%;
+    --text-primary: 222 47% 11%;
+    --text-secondary: 215 16% 46%;
+    --text-muted: 215 20% 60%;
 
-    --bg-primary: 213 33% 6%;
-    --bg-elevated: 215 36% 9%;
-    --surface-1: 217 31% 11%;
-    --surface-2: 218 33% 15%;
+    --bg-primary: 210 40% 98%;
+    --bg-elevated: 0 0% 100%;
+    --surface-1: 0 0% 100%;
+    --surface-2: 210 40% 96%;
   }
 
   .dark {

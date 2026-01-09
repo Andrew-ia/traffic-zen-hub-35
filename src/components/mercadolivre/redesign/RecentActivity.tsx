@@ -33,6 +33,28 @@ const formatDateTime = (value?: string | null) => {
     });
 };
 
+const formatShortDateTime = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+};
+
+const normalizeStatus = (value?: string | null) => String(value || "").toLowerCase();
+
+const getStatusLabel = (value?: string | null) => {
+    const normalized = normalizeStatus(value);
+    if (!normalized) return "-";
+    if (normalized === "paid") return "PAGO";
+    if (normalized === "cancelled" || normalized === "canceled") return "CANCELADO";
+    return normalized.toUpperCase();
+};
+
 const InfoRow = ({ label, value, mono }: { label: string; value?: ReactNode; mono?: boolean }) => (
     <div className="flex items-start justify-between gap-3 text-xs">
         <span className="text-muted-foreground">{label}</span>
@@ -75,11 +97,12 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
     const items = orderDetails?.items || selectedOrder?.items || [];
     const orderId = detailsOrder?.id ?? selectedOrder?.id;
     const status = detailsOrder?.status || selectedOrder?.status;
-    const normalizedStatus = typeof status === "string" ? status.toLowerCase() : "";
-    const statusLabel = normalizedStatus === "paid" ? "PAGO" : normalizedStatus ? normalizedStatus.toUpperCase() : "-";
+    const normalizedStatus = normalizeStatus(status);
+    const statusLabel = getStatusLabel(status);
     const currencyId = summary?.currencyId || selectedOrder?.currencyId || "BRL";
     const createdAt = detailsOrder?.date_created || selectedOrder?.dateCreated;
     const updatedAt = detailsOrder?.last_updated || selectedOrder?.lastUpdated;
+    const cancelledAt = detailsOrder?.date_closed || selectedOrder?.dateClosed;
     const buyer = detailsOrder?.buyer;
     const shipping = detailsOrder?.shipping;
     const payments = Array.isArray(detailsOrder?.payments) ? detailsOrder.payments : [];
@@ -169,7 +192,12 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 const imageUrl = item?.thumbnail;
                                 const title = item?.title || `Pedido #${order.id}`;
                                 const quantity = item?.quantity || 1;
-                                const statusLabel = order.status === "paid" ? "PAGO" : order.status;
+                                const normalizedOrderStatus = normalizeStatus(order.status);
+                                const statusLabel = getStatusLabel(order.status);
+                                const isCancelled = normalizedOrderStatus === "cancelled" || normalizedOrderStatus === "canceled";
+                                const createdAtLabel = formatShortDateTime(order.dateCreated);
+                                const cancelledAtLabel = formatShortDateTime(order.dateClosed);
+                                const badgeClass = isCancelled ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground";
 
                                 return (
                                     <button
@@ -208,16 +236,19 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                                         {quantity} {quantity === 1 ? "un" : "uns"}
                                                     </p>
                                                 </div>
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                    <Clock className="h-3 w-3 text-muted-foreground/70" />
-                                                    <p className="text-[10px] text-muted-foreground font-medium">
-                                                        {order.dateCreated ? new Date(order.dateCreated).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "Recent"}
-                                                    </p>
+                                                <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground font-medium shrink-0">
+                                                    <Clock className="h-3 w-3 text-muted-foreground/70 mt-0.5" />
+                                                    <div className="flex flex-col leading-tight">
+                                                        <span>Comprado: {createdAtLabel}</span>
+                                                        {isCancelled && (
+                                                            <span className="text-destructive">Cancelado: {cancelledAtLabel}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             <div className="text-right">
-                                                <Badge className="text-[9px] h-4 bg-muted text-muted-foreground border-none font-black uppercase px-1.5">
+                                                <Badge className={cn("text-[9px] h-4 border-none font-black uppercase px-1.5", badgeClass)}>
                                                     {statusLabel}
                                                 </Badge>
                                             </div>
@@ -275,10 +306,18 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 <div className="text-xs text-muted-foreground">
                                     Criado: {formatDateTime(createdAt)}
                                     {updatedAt ? ` • Atualizado: ${formatDateTime(updatedAt)}` : ""}
+                                    {(normalizedStatus === "cancelled" || normalizedStatus === "canceled") ? ` • Cancelado: ${formatDateTime(cancelledAt)}` : ""}
                                 </div>
                             </div>
                             <div className="flex flex-col items-end gap-2">
-                                <Badge className="text-[10px] h-5 bg-muted text-muted-foreground border-none font-black uppercase px-2">
+                                <Badge
+                                    className={cn(
+                                        "text-[10px] h-5 border-none font-black uppercase px-2",
+                                        (normalizedStatus === "cancelled" || normalizedStatus === "canceled")
+                                            ? "bg-destructive/10 text-destructive"
+                                            : "bg-muted text-muted-foreground"
+                                    )}
+                                >
                                     {statusLabel}
                                 </Badge>
                                 {orderLink && (

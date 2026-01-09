@@ -10,13 +10,15 @@ interface FinancialAnalysisProps {
     totalSales: number;
     loading?: boolean;
     realTotalFees?: number;
+    realTotalShippingCosts?: number;
 }
 
 export function FinancialAnalysis({ 
     totalRevenue, 
     totalSales, 
     loading,
-    realTotalFees
+    realTotalFees,
+    realTotalShippingCosts
 }: FinancialAnalysisProps) {
     // Taxas padrão do Mercado Livre (podem ser ajustadas pelo usuário)
     const [mlFeePercent, setMlFeePercent] = useState(19); // Taxa ML clássico
@@ -41,22 +43,26 @@ export function FinancialAnalysis({
     }
 
     // Cálculos
-    const hasRealData = realTotalFees !== undefined;
+    const hasRealFees = typeof realTotalFees === "number";
+    const hasRealShippingCosts = typeof realTotalShippingCosts === "number";
+    const hasRealData = hasRealFees || hasRealShippingCosts;
     const salesCount = totalSales || 0;
     const mlFeePercentValue = totalRevenue * (mlFeePercent / 100);
     const mlFeeFixedValue = fixedCostPerSale * salesCount;
     const mlFeeTotal = mlFeePercentValue + mlFeeFixedValue;
     const productCost = totalRevenue * (productCostPercent / 100);
+    const feeTotal = hasRealFees ? (realTotalFees ?? 0) : mlFeeTotal;
+    const shippingCost = hasRealShippingCosts ? (realTotalShippingCosts ?? 0) : 0;
     
     // Total costs including product and packaging
-    const totalCosts = mlFeeTotal + productCost;
+    const totalCosts = feeTotal + shippingCost + productCost;
     
     // Net Revenue (Profit)
     const netRevenue = totalRevenue - totalCosts;
     const netMargin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
     
     // Receita Líquida ML (Payout) - O que sobra na mão do vendedor antes de pagar produto/embalagem
-    const payoutML = totalRevenue - mlFeeTotal;
+    const payoutML = totalRevenue - feeTotal - shippingCost;
 
     // Projeção mensal (baseado em 30 dias)
     const dailyRevenue = totalRevenue / 30;
@@ -103,32 +109,36 @@ export function FinancialAnalysis({
                     <div className="p-3 rounded-2xl bg-muted/20 border border-border/20 space-y-4 animate-in slide-in-from-top-2 duration-300">
                         <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">Parâmetros de Custo</h4>
                         <div className="grid grid-cols-1 gap-4">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="mlFee" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    Taxa Mercado Livre (%)
-                                </Label>
-                                <Input
-                                    id="mlFee"
-                                    type="number"
-                                    step="0.1"
-                                    value={mlFeePercent}
-                                    onChange={(e) => setMlFeePercent(Number(e.target.value))}
-                                    className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="fixedCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    Taxa fixa por unidade (R$)
-                                </Label>
-                                <Input
-                                    id="fixedCost"
-                                    type="number"
-                                    step="0.01"
-                                    value={fixedCostPerSale}
-                                    onChange={(e) => setFixedCostPerSale(Number(e.target.value))}
-                                    className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
-                                />
-                            </div>
+                            {!hasRealFees && (
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="mlFee" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        Taxa Mercado Livre (%)
+                                    </Label>
+                                    <Input
+                                        id="mlFee"
+                                        type="number"
+                                        step="0.1"
+                                        value={mlFeePercent}
+                                        onChange={(e) => setMlFeePercent(Number(e.target.value))}
+                                        className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
+                                    />
+                                </div>
+                            )}
+                            {!hasRealFees && (
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="fixedCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        Taxa fixa por unidade (R$)
+                                    </Label>
+                                    <Input
+                                        id="fixedCost"
+                                        type="number"
+                                        step="0.01"
+                                        value={fixedCostPerSale}
+                                        onChange={(e) => setFixedCostPerSale(Number(e.target.value))}
+                                        className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
+                                    />
+                                </div>
+                            )}
                             <div className="space-y-1.5">
                                 <Label htmlFor="productCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                                     Custo Produto (% da receita)
@@ -143,6 +153,11 @@ export function FinancialAnalysis({
                                 />
                             </div>
                         </div>
+                        {hasRealFees && (
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Taxas ML calculadas pela API.
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -168,16 +183,26 @@ export function FinancialAnalysis({
                         </h4>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
-                                <span className="font-medium">Taxas ML ({mlFeePercent.toFixed(1)}%)</span>
+                                <span className="font-medium">
+                                    {hasRealFees ? "Taxas ML (API)" : `Taxas ML (${mlFeePercent.toFixed(1)}%)`}
+                                </span>
                                 <span className="font-bold text-destructive">
-                                    -{formatCurrency(mlFeePercentValue)}
+                                    -{formatCurrency(hasRealFees ? feeTotal : mlFeePercentValue)}
                                 </span>
                             </div>
-                            {mlFeeFixedValue > 0 && (
+                            {!hasRealFees && mlFeeFixedValue > 0 && (
                                 <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
                                     <span className="font-medium">Taxa fixa ML (R$ {fixedCostPerSale.toFixed(2)} x {salesCount})</span>
                                     <span className="font-bold text-destructive">
                                         -{formatCurrency(mlFeeFixedValue)}
+                                    </span>
+                                </div>
+                            )}
+                            {hasRealShippingCosts && (
+                                <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
+                                    <span className="font-medium">Frete pago pelo vendedor (API)</span>
+                                    <span className="font-bold text-destructive">
+                                        -{formatCurrency(shippingCost)}
                                     </span>
                                 </div>
                             )}

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import axios from "axios";
 import FormData from "form-data";
 import PDFDocument from "pdfkit";
@@ -17,6 +17,59 @@ import { syncMercadoLivreAnalytics30d, syncMercadoLivreProducts } from "../../se
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
+
+type OrderSseClient = {
+    res: Response;
+    keepAlive: ReturnType<typeof setInterval>;
+};
+
+const orderSseClients = new Map<string, Set<OrderSseClient>>();
+
+const writeSse = (res: Response, event: string, payload: unknown) => {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+};
+
+const registerOrderSseClient = (workspaceId: string, res: Response) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") {
+        res.flushHeaders();
+    }
+
+    writeSse(res, "ready", { workspaceId });
+
+    const keepAlive = setInterval(() => {
+        if (res.writableEnded) return;
+        res.write("event: ping\ndata: {}\n\n");
+    }, 25000);
+
+    const client: OrderSseClient = { res, keepAlive };
+    const bucket = orderSseClients.get(workspaceId) ?? new Set<OrderSseClient>();
+    bucket.add(client);
+    orderSseClients.set(workspaceId, bucket);
+
+    res.on("close", () => {
+        clearInterval(keepAlive);
+        const current = orderSseClients.get(workspaceId);
+        if (!current) return;
+        current.delete(client);
+        if (current.size === 0) {
+            orderSseClients.delete(workspaceId);
+        }
+    });
+};
+
+const broadcastOrderEvent = (workspaceId: string, payload: unknown) => {
+    const bucket = orderSseClients.get(workspaceId);
+    if (!bucket || bucket.size === 0) return;
+    for (const client of bucket) {
+        writeSse(client.res, "order", payload);
+    }
+};
 
 // Base URL da API do Mercado Livre
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
@@ -65,6 +118,14 @@ const formatAxiosError = (error: any) => ({
     code: error?.response?.data?.error || error?.code,
     message: error?.response?.data?.message || error?.message || "Unknown error",
 });
+
+const resolveMercadoLivreResourceUrl = (resource: string | null | undefined) => {
+    const trimmed = String(resource || "").trim();
+    if (!trimmed) return null;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (trimmed.startsWith("/")) return `${MERCADO_LIVRE_API_BASE}${trimmed}`;
+    return `${MERCADO_LIVRE_API_BASE}/${trimmed}`;
+};
 
 const shouldWriteEnvLocal = () => {
     if (process.env.ML_WRITE_ENV_LOCAL === "true") return true;
@@ -1991,6 +2052,8 @@ router.get("/orders", async (req, res) => {
         const dateFrom = getQueryParam(req.query.dateFrom);
         const dateTo = getQueryParam(req.query.dateTo);
         const status = getQueryParam(req.query.status);
+        const includeCancelledParam = getQueryParam(req.query.includeCancelled);
+        const includeCancelled = includeCancelledParam === "true" || includeCancelledParam === "1";
         
         const limitParam = getQueryParam(req.query.limit);
         const offsetParam = getQueryParam(req.query.offset);
@@ -2030,27 +2093,34 @@ router.get("/orders", async (req, res) => {
             sort: 'date_desc',
         };
 
+        let dateFromIso: string | undefined;
+        let dateToIso: string | undefined;
+
         // Add date filters if provided
         if (dateFrom) {
             // If input is a full ISO string (contains T), use it directly to respect timezone/time
             if (String(dateFrom).includes('T')) {
-                params['order.date_created.from'] = dateFrom;
+                dateFromIso = dateFrom;
+                params['order.date_created.from'] = dateFromIso;
             } else {
                 // Assume input is YYYY-MM-DD. Convert to ISO start of day
                 const d = new Date(dateFrom);
                 d.setHours(0, 0, 0, 0);
-                params['order.date_created.from'] = d.toISOString();
+                dateFromIso = d.toISOString();
+                params['order.date_created.from'] = dateFromIso;
             }
         }
         if (dateTo) {
             // If input is a full ISO string (contains T), use it directly to respect timezone/time
             if (String(dateTo).includes('T')) {
-                params['order.date_created.to'] = dateTo;
+                dateToIso = dateTo;
+                params['order.date_created.to'] = dateToIso;
             } else {
                 // Assume input is YYYY-MM-DD. Convert to ISO end of day
                 const d = new Date(dateTo);
                 d.setHours(23, 59, 59, 999);
-                params['order.date_created.to'] = d.toISOString();
+                dateToIso = d.toISOString();
+                params['order.date_created.to'] = dateToIso;
             }
         }
 
@@ -2077,18 +2147,87 @@ router.get("/orders", async (req, res) => {
 
         let ordersResults = data.results || [];
 
+        if (includeCancelled && (dateFromIso || dateToIso)) {
+            const canceledParams: any = {
+                seller: credentials.userId,
+                limit,
+                offset,
+                sort: "date_desc",
+                "order.status": "cancelled",
+            };
+            if (dateFromIso) canceledParams["order.date_closed.from"] = dateFromIso;
+            if (dateToIso) canceledParams["order.date_closed.to"] = dateToIso;
+
+            try {
+                let canceledData: any;
+                try {
+                    canceledData = await requestWithAuth<any>(
+                        String(targetWorkspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        { params: canceledParams }
+                    );
+                } catch (e) {
+                    console.warn("Failed to fetch cancelled orders with sort, retrying without sort");
+                    delete canceledParams.sort;
+                    canceledData = await requestWithAuth<any>(
+                        String(targetWorkspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        { params: canceledParams }
+                    );
+                }
+                const canceledResults = canceledData?.results || [];
+                if (canceledResults.length > 0) {
+                    const map = new Map<string, any>();
+                    const addOrder = (order: any) => {
+                        const id = String(order?.id || "").trim();
+                        if (!id) return;
+                        const status = String(order?.status || "").toLowerCase();
+                        const existing = map.get(id);
+                        if (!existing) {
+                            map.set(id, order);
+                            return;
+                        }
+                        const existingStatus = String(existing?.status || "").toLowerCase();
+                        if (existingStatus !== "cancelled" && status === "cancelled") {
+                            map.set(id, { ...existing, ...order });
+                        }
+                    };
+                    ordersResults.forEach(addOrder);
+                    canceledResults.forEach(addOrder);
+                    ordersResults = Array.from(map.values());
+                }
+            } catch (err: any) {
+                console.warn("Failed to fetch cancelled orders by date_closed:", formatAxiosError(err));
+            }
+        }
+
         // Filtro manual de datas para garantir consistência com o dashboard
         // A API do Mercado Livre às vezes retorna pedidos fora do intervalo solicitado
         if (dateFrom || dateTo) {
-            const fromTs = dateFrom ? new Date(String(dateFrom)).getTime() : 0;
-            const toTs = dateTo ? new Date(String(dateTo)).getTime() : Infinity;
+            const fromTs = dateFromIso ? new Date(dateFromIso).getTime() : 0;
+            const toTs = dateToIso ? new Date(dateToIso).getTime() : Infinity;
 
             ordersResults = ordersResults.filter((o: any) => {
-                if (!o.date_created) return false;
-                const d = new Date(o.date_created).getTime();
+                const status = String(o.status || "").toLowerCase();
+                const dateField = includeCancelled && status === "cancelled"
+                    ? (o.date_closed || o.date_created)
+                    : o.date_created;
+                if (!dateField) return false;
+                const d = new Date(dateField).getTime();
                 return d >= fromTs && d <= toTs;
             });
         }
+
+        const activityTimestamp = (order: any) => {
+            const status = String(order.status || "").toLowerCase();
+            const dateField = includeCancelled && status === "cancelled"
+                ? (order.date_closed || order.date_created)
+                : order.date_created;
+            const ts = dateField ? new Date(dateField).getTime() : 0;
+            return Number.isNaN(ts) ? 0 : ts;
+        };
+
+        ordersResults.sort((a: any, b: any) => activityTimestamp(b) - activityTimestamp(a));
 
         // Coletar IDs dos itens para buscar imagens
         const itemIds = new Set<string>();
@@ -2127,25 +2266,45 @@ router.get("/orders", async (req, res) => {
         // Buscar detalhes dos envios em lote (custos)
         const shipmentsMap = new Map<string, any>();
         if (shipmentIds.size > 0) {
-            const idsArray = Array.from(shipmentIds);
-            const chunkSize = 20;
-            for (let i = 0; i < idsArray.length; i += chunkSize) {
-                const chunk = idsArray.slice(i, i + chunkSize);
-                try {
-                    const shipmentsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments`, {
-                        params: { ids: chunk.join(',') },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` }
-                    });
-                    // Resposta do multiget: array de { code, body }
-                    const responseData = Array.isArray(shipmentsResp.data) ? shipmentsResp.data : [];
-                    responseData.forEach((res: any) => {
-                        if (res.code === 200 && res.body) {
-                            shipmentsMap.set(String(res.body.id), res.body);
-                        }
-                    });
-                } catch (err) {
-                    console.warn("Failed to fetch shipments details:", err);
+            const workspaceIdStr = String(targetWorkspaceId);
+            const uniqueShipmentIds = Array.from(shipmentIds);
+            const missingShipmentIds: string[] = [];
+
+            for (const shipmentId of uniqueShipmentIds) {
+                const cached = await getCachedShipment(workspaceIdStr, shipmentId);
+                if (cached) {
+                    shipmentsMap.set(String(shipmentId), cached);
+                } else {
+                    missingShipmentIds.push(String(shipmentId));
                 }
+            }
+
+            if (missingShipmentIds.length > 0) {
+                const SHIPMENT_FETCH_CONCURRENCY = 5;
+                await mapWithConcurrency<string, any>(
+                    missingShipmentIds,
+                    SHIPMENT_FETCH_CONCURRENCY,
+                    async (shipmentId) => {
+                        try {
+                            const shipment = await requestWithAuth<any>(
+                                workspaceIdStr,
+                                `${MERCADO_LIVRE_API_BASE}/shipments/${shipmentId}`,
+                                { headers: { "x-format-new": "true" } }
+                            );
+                            if (shipment) {
+                                shipmentsMap.set(String(shipmentId), shipment);
+                                void saveShipmentToCache(workspaceIdStr, shipmentId, shipment);
+                            }
+                            return shipment;
+                        } catch (err) {
+                            console.warn("[MercadoLivre Orders] Failed to fetch shipment:", {
+                                shipmentId,
+                                ...formatAxiosError(err),
+                            });
+                            return null;
+                        }
+                    }
+                );
             }
         }
 
@@ -2194,6 +2353,7 @@ router.get("/orders", async (req, res) => {
                 id: order.id,
                 status: order.status,
                 dateCreated: order.date_created,
+                dateClosed: order.date_closed,
                 lastUpdated: order.last_updated,
                 totalAmount: totalAmount,
                 paidAmount: order.paid_amount,
@@ -6288,6 +6448,19 @@ function calculateRelevanceScore(query: string, categoryName: string): number {
 }
 
 /**
+ * GET /api/integrations/mercadolivre/notifications/stream
+ * SSE stream para atualizações em tempo real de vendas
+ */
+router.get("/notifications/stream", (req, res) => {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) {
+        return res.status(400).json({ error: "Workspace ID is required" });
+    }
+
+    registerOrderSseClient(String(workspaceId), res);
+});
+
+/**
  * POST /api/integrations/mercadolivre/notifications
  * Webhook endpoint para receber notificações em tempo real do Mercado Livre
  * 
@@ -6715,6 +6888,247 @@ router.post("/notifications/replay", async (req, res) => {
         });
     }
 });
+
+let ordersSchemaReady: Promise<void> | null = null;
+
+const ensureOrdersSchema = async () => {
+    if (ordersSchemaReady) return ordersSchemaReady;
+    ordersSchemaReady = (async () => {
+        const pool = getPool();
+        await pool.query(`
+            create table if not exists ml_orders (
+              workspace_id uuid not null references workspaces(id) on delete cascade,
+              order_id text not null,
+              status text,
+              date_created timestamptz,
+              date_closed timestamptz,
+              total_amount numeric(14,2),
+              paid_amount numeric(14,2),
+              currency_id text,
+              buyer_id text,
+              seller_id text,
+              shipping_id text,
+              shipping_logistic_type text,
+              order_json jsonb,
+              updated_at timestamptz not null default now(),
+              primary key (workspace_id, order_id)
+            );
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_orders_workspace_date on ml_orders (workspace_id, date_created desc);
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_orders_workspace_status on ml_orders (workspace_id, status);
+        `);
+        await pool.query(`
+            create table if not exists ml_order_items (
+              workspace_id uuid not null references workspaces(id) on delete cascade,
+              order_id text not null,
+              item_id text not null,
+              quantity integer not null default 0,
+              unit_price numeric(14,2) not null default 0,
+              total_amount numeric(14,2) not null default 0,
+              title text,
+              listing_type_id text,
+              currency_id text,
+              created_at timestamptz not null default now(),
+              primary key (workspace_id, order_id, item_id),
+              constraint ml_order_items_order_fk
+                foreign key (workspace_id, order_id)
+                references ml_orders(workspace_id, order_id)
+                on delete cascade
+            );
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_order_items_workspace_item on ml_order_items (workspace_id, item_id);
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_order_items_workspace_order on ml_order_items (workspace_id, order_id);
+        `);
+    })();
+    return ordersSchemaReady;
+};
+
+const upsertOrderCache = async (workspaceId: string, order: any) => {
+    const orderId = String(order?.id || "").trim();
+    if (!orderId) return { isNew: false };
+
+    await ensureOrdersSchema();
+    const pool = getPool();
+    const shipping = order?.shipping || {};
+
+    const insertResult = await pool.query(
+        `
+        insert into ml_orders (
+            workspace_id, order_id, status, date_created, date_closed,
+            total_amount, paid_amount, currency_id, buyer_id, seller_id,
+            shipping_id, shipping_logistic_type, order_json, updated_at
+        ) values (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10,
+            $11, $12, $13::jsonb, now()
+        )
+        on conflict (workspace_id, order_id) do nothing
+        returning order_id
+        `,
+        [
+            workspaceId,
+            orderId,
+            order?.status || null,
+            order?.date_created ? new Date(order.date_created) : null,
+            order?.date_closed ? new Date(order.date_closed) : null,
+            order?.total_amount || null,
+            order?.paid_amount || null,
+            order?.currency_id || null,
+            order?.buyer?.id ? String(order.buyer.id) : null,
+            order?.seller?.id ? String(order.seller.id) : null,
+            shipping?.id ? String(shipping.id) : null,
+            shipping?.logistic_type || null,
+            JSON.stringify(order || {})
+        ]
+    );
+
+    const isNew = insertResult.rowCount > 0;
+
+    if (!isNew) {
+        await pool.query(
+            `
+            update ml_orders set
+                status = $3,
+                date_created = $4,
+                date_closed = $5,
+                total_amount = $6,
+                paid_amount = $7,
+                currency_id = $8,
+                buyer_id = $9,
+                seller_id = $10,
+                shipping_id = $11,
+                shipping_logistic_type = $12,
+                order_json = $13::jsonb,
+                updated_at = now()
+            where workspace_id = $1 and order_id = $2
+            `,
+            [
+                workspaceId,
+                orderId,
+                order?.status || null,
+                order?.date_created ? new Date(order.date_created) : null,
+                order?.date_closed ? new Date(order.date_closed) : null,
+                order?.total_amount || null,
+                order?.paid_amount || null,
+                order?.currency_id || null,
+                order?.buyer?.id ? String(order.buyer.id) : null,
+                order?.seller?.id ? String(order.seller.id) : null,
+                shipping?.id ? String(shipping.id) : null,
+                shipping?.logistic_type || null,
+                JSON.stringify(order || {})
+            ]
+        );
+    }
+
+    const items = Array.isArray(order?.order_items) ? order.order_items : [];
+    for (const item of items) {
+        const itemId = String(item?.item?.id || item?.item_id || "").trim();
+        if (!itemId) continue;
+        const quantity = Number(item?.quantity || 0);
+        const unitPrice = Number(item?.unit_price ?? item?.full_unit_price ?? 0);
+        const totalAmount = unitPrice * quantity;
+        const title = item?.item?.title || item?.title || null;
+        const listingTypeId = item?.item?.listing_type_id || item?.item?.listing_type || null;
+        const currencyId = order?.currency_id || item?.currency_id || null;
+
+        await pool.query(
+            `
+            insert into ml_order_items (
+                workspace_id, order_id, item_id, quantity, unit_price,
+                total_amount, title, listing_type_id, currency_id
+            ) values (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9
+            )
+            on conflict (workspace_id, order_id, item_id) do update set
+                quantity = excluded.quantity,
+                unit_price = excluded.unit_price,
+                total_amount = excluded.total_amount,
+                title = excluded.title,
+                listing_type_id = excluded.listing_type_id,
+                currency_id = excluded.currency_id
+            `,
+            [
+                workspaceId,
+                orderId,
+                itemId,
+                quantity,
+                unitPrice,
+                totalAmount,
+                title,
+                listingTypeId,
+                currencyId
+            ]
+        );
+    }
+
+    return { isNew };
+};
+
+const buildOrderSummary = (order: any) => {
+    const orderId = String(order?.id || "").trim();
+    if (!orderId) return null;
+
+    const items = Array.isArray(order?.order_items) ? order.order_items : [];
+    const mappedItems = items.map((item: any) => {
+        const unitPrice = Number(item?.unit_price ?? item?.full_unit_price ?? 0);
+        const fullUnitPrice = Number(item?.full_unit_price ?? unitPrice);
+        return {
+            itemId: String(item?.item?.id || item?.item_id || "").trim(),
+            title: item?.item?.title || item?.title || "",
+            quantity: Number(item?.quantity || 0),
+            unitPrice,
+            fullUnitPrice,
+            thumbnail: item?.item?.secure_thumbnail || item?.item?.thumbnail || null,
+            permalink: item?.item?.permalink || null
+        };
+    });
+
+    let saleFee = 0;
+    if (items.length > 0) {
+        saleFee = items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
+    }
+    if (saleFee === 0 && Array.isArray(order?.payments)) {
+        order.payments.forEach((payment: any) => {
+            if (payment.fee_details && Array.isArray(payment.fee_details)) {
+                payment.fee_details.forEach((fee: any) => {
+                    if (fee.fee_payer === "collector") {
+                        saleFee += fee.amount;
+                    }
+                });
+            } else if (payment.marketplace_fee) {
+                saleFee += payment.marketplace_fee;
+            }
+        });
+    }
+
+    const totalAmount = Number(order?.total_amount ?? order?.paid_amount ?? 0);
+    const paidAmount = Number(order?.paid_amount ?? totalAmount);
+    const shippingCost = Number(order?.shipping?.base_cost || 0);
+    const netIncome = totalAmount - saleFee - shippingCost;
+
+    return {
+        id: orderId,
+        status: order?.status || "",
+        dateCreated: order?.date_created || null,
+        lastUpdated: order?.last_updated || null,
+        totalAmount,
+        paidAmount,
+        currencyId: order?.currency_id || "BRL",
+        buyerId: order?.buyer?.id ? String(order.buyer.id) : "",
+        saleFee,
+        shippingCost,
+        netIncome,
+        items: mappedItems
+    };
+};
+
 /**
  * Processar notificação de pedido/venda
  */
@@ -6730,7 +7144,7 @@ export async function handleOrderNotification(notification: any) {
         console.log(`[Order Notification] Pedido: ${notification.resource}`);
 
         // Extrair order ID do resource
-        const orderId = notification.resource.split('/').pop();
+        const orderId = notification.resource.split('/').pop()?.split('?')[0];
         const userId = notification.user_id;
 
         if (!orderId || !userId) {
@@ -6760,10 +7174,15 @@ export async function handleOrderNotification(notification: any) {
         }
 
         // Buscar detalhes completos do pedido
-        const orderDetails = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-        );
+        const resourceUrl = resolveMercadoLivreResourceUrl(notification.resource);
+        if (!resourceUrl) {
+            console.warn("[Order Notification] Resource inválido, ignorando.");
+            return;
+        }
+
+        const orderDetails = await axios.get(resourceUrl, {
+            headers: { Authorization: `Bearer ${credentials.accessToken}` }
+        });
 
         // Se shipping for apenas ID, buscar detalhes do envio
         if (orderDetails.data.shipping?.id && !orderDetails.data.shipping.logistic_type) {
@@ -6788,14 +7207,29 @@ export async function handleOrderNotification(notification: any) {
             return;
         }
 
+        try {
+            const { isNew } = await upsertOrderCache(workspaceId, orderDetails.data);
+            if (isNew) {
+                const orderSummary = buildOrderSummary(orderDetails.data);
+                if (orderSummary) {
+                    broadcastOrderEvent(workspaceId, { workspaceId, order: orderSummary });
+                }
+            }
+        } catch (err: any) {
+            console.error(`[Order Notification] Falha ao atualizar cache local (${orderId}):`, err?.message || err);
+        }
+
         // Enviar notificação Telegram
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyNewOrder(workspaceId, orderDetails.data);
         console.log(`[Order Notification] Sucesso total pedido ${orderId} (Total: ${Date.now() - start}ms)`);
-
-        // TODO: Salvar pedido no banco para cache local
     } catch (error: any) {
-        console.error(`[Order Notification] Erro após ${Date.now() - start}ms:`, error.response?.data || error.message);
+        const formatted = formatAxiosError(error);
+        if (formatted.status === 404) {
+            console.warn(`[Order Notification] Recurso não encontrado (${notification.resource}).`);
+            return;
+        }
+        console.error(`[Order Notification] Erro após ${Date.now() - start}ms:`, formatted);
     }
 }
 
@@ -6812,7 +7246,7 @@ async function handleQuestionNotification(notification: any) {
 
         console.log(`[Question Notification] Pergunta: ${notification.resource}`);
 
-        const questionId = notification.resource.split('/').pop();
+        const questionId = notification.resource.split('/').pop()?.split('?')[0];
         const userId = notification.user_id;
 
         if (!questionId || !userId) {
@@ -6842,10 +7276,15 @@ async function handleQuestionNotification(notification: any) {
         }
 
         // Buscar detalhes da pergunta
-        const questionDetails = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-        );
+        const resourceUrl = resolveMercadoLivreResourceUrl(notification.resource);
+        if (!resourceUrl) {
+            console.warn("[Question Notification] Resource inválido, ignorando.");
+            return;
+        }
+
+        const questionDetails = await axios.get(resourceUrl, {
+            headers: { Authorization: `Bearer ${credentials.accessToken}` }
+        });
 
         console.log(`[Question Notification] Detalhes da pergunta ${questionId} obtidos`);
 
@@ -6853,7 +7292,12 @@ async function handleQuestionNotification(notification: any) {
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyNewQuestion(workspaceId, questionDetails.data);
     } catch (error: any) {
-        console.error("[Question Notification] Erro:", error.response?.data || error.message);
+        const formatted = formatAxiosError(error);
+        if (formatted.status === 404) {
+            console.warn(`[Question Notification] Recurso não encontrado (${notification.resource}).`);
+            return;
+        }
+        console.error("[Question Notification] Erro:", formatted);
     }
 }
 
@@ -6875,7 +7319,7 @@ async function handleItemNotification(notification: any) {
             return;
         }
 
-        const itemId = notification.resource.split('/').pop();
+        const itemId = notification.resource.split('/').pop()?.split('?')[0];
         const userId = notification.user_id;
 
         if (!itemId || !userId) {
@@ -6899,15 +7343,25 @@ async function handleItemNotification(notification: any) {
             if (refreshed) credentials = refreshed;
         }
 
-        const itemResp = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-        );
+        const resourceUrl = resolveMercadoLivreResourceUrl(notification.resource);
+        if (!resourceUrl) {
+            console.warn("[Item Notification] Resource inválido, ignorando.");
+            return;
+        }
+
+        const itemResp = await axios.get(resourceUrl, {
+            headers: { Authorization: `Bearer ${credentials.accessToken}` }
+        });
 
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyItemUpdated(workspaceId, itemResp.data);
-    } catch (error) {
-        console.error("[Item Notification] Erro:", error);
+    } catch (error: any) {
+        const formatted = formatAxiosError(error);
+        if (formatted.status === 404) {
+            console.warn(`[Item Notification] Recurso não encontrado (${notification.resource}).`);
+            return;
+        }
+        console.error("[Item Notification] Erro:", formatted);
     }
 }
 
@@ -6928,15 +7382,26 @@ async function handleMessageNotification(notification: any) {
             if (refreshed) credentials = refreshed;
         }
 
-        const msgResp = await axios.get(
-            `${MERCADO_LIVRE_API_BASE}${notification.resource}`,
-            { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-        ).catch(() => ({ data: { text: "Nova mensagem recebida" } }));
+        const resourceUrl = resolveMercadoLivreResourceUrl(notification.resource);
+        let msgResp: any = { data: { text: "Nova mensagem recebida" } };
+        if (resourceUrl) {
+            try {
+                msgResp = await axios.get(resourceUrl, {
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                });
+            } catch (error: any) {
+                const formatted = formatAxiosError(error);
+                if (formatted.status !== 404) {
+                    console.error("[Message Notification] Erro:", formatted);
+                    return;
+                }
+            }
+        }
 
         const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
         await TelegramNotificationService.notifyNewMessage(workspaceId, msgResp.data);
-    } catch (error) {
-        console.error("[Message Notification] Erro:", error);
+    } catch (error: any) {
+        console.error("[Message Notification] Erro:", formatAxiosError(error));
     }
 }
 

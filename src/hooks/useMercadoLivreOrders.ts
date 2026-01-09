@@ -21,6 +21,7 @@ export interface MercadoLivreOrder {
     id: string;
     status: string;
     dateCreated: string | null;
+    dateClosed?: string | null;
     lastUpdated: string | null;
     totalAmount: number;
     paidAmount: number;
@@ -89,6 +90,7 @@ export function useMercadoLivreOrders(
         dateTo?: string;
         limit?: number;
         offset?: number;
+        includeCancelled?: boolean;
     }
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
@@ -111,6 +113,7 @@ export function useMercadoLivreOrders(
             if (options?.dateTo) params.append("dateTo", options.dateTo);
             if (options?.limit) params.append("limit", options.limit.toString());
             if (options?.offset) params.append("offset", options.offset.toString());
+            if (options?.includeCancelled) params.append("includeCancelled", "true");
 
             const response = await fetch(
                 `/api/integrations/mercadolivre/orders?${params}`

@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     ShoppingBag,
     DollarSign,
@@ -6,19 +7,13 @@ import {
     Package,
     AlertCircle,
     RefreshCcw,
-    Eye,
     Users,
     MousePointer,
     ShoppingCart,
     Layers,
     Search,
     Calendar as CalendarIcon,
-    CalendarRange,
-    ChevronRight,
-    ArrowUpRight,
-    Star,
-    Boxes,
-    Truck
+    CalendarRange
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +60,8 @@ const formatNumber = (value: number) => new Intl.NumberFormat("pt-BR").format(va
 
 export default function MercadoLivreNew() {
     const { workspaces, currentWorkspace, switchWorkspace, isLoading: workspacesLoading } = useWorkspace();
+    const queryClient = useQueryClient();
+    const processedOrdersRef = useRef<Set<string>>(new Set());
     const [dateRange, setDateRange] = useState("30");
     const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>(() => {
         const to = new Date();
@@ -189,7 +186,7 @@ export default function MercadoLivreNew() {
     );
 
     const ordersParams = useMemo(() => {
-        const params: any = { limit: 50 };
+        const params: any = { limit: 50, includeCancelled: true };
         if (recentActivityDate) {
             const start = new Date(recentActivityDate);
             start.setHours(0, 0, 0, 0);
@@ -201,6 +198,157 @@ export default function MercadoLivreNew() {
         }
         return params;
     }, [recentActivityDate]);
+
+    useEffect(() => {
+        processedOrdersRef.current.clear();
+    }, [workspaceId]);
+
+    useEffect(() => {
+        if (!workspaceId) return;
+
+        const params = new URLSearchParams({ workspaceId });
+        const source = new EventSource(`/api/integrations/mercadolivre/notifications/stream?${params.toString()}`);
+
+        const inOrdersRange = (orderDate: Date | null) => {
+            if (!orderDate) return false;
+            const ts = orderDate.getTime();
+            const from = ordersParams?.dateFrom ? new Date(ordersParams.dateFrom).getTime() : null;
+            const to = ordersParams?.dateTo ? new Date(ordersParams.dateTo).getTime() : null;
+            if (from !== null && !Number.isNaN(from) && ts < from) return false;
+            if (to !== null && !Number.isNaN(to) && ts > to) return false;
+            return true;
+        };
+
+        const inCurrentRange = (orderDate: Date | null) => {
+            if (!orderDate) return false;
+            const rangeStart = new Date(`${period.start_date}T00:00:00`);
+            const rangeEnd = new Date(`${period.end_date}T23:59:59.999`);
+            const ts = orderDate.getTime();
+            return ts >= rangeStart.getTime() && ts <= rangeEnd.getTime();
+        };
+
+        const handleOrder = (event: MessageEvent) => {
+            let payload: any;
+            try {
+                payload = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+
+            if (!payload?.order || payload.workspaceId !== workspaceId) return;
+            const order = payload.order;
+            const orderId = String(order?.id || "").trim();
+            if (!orderId) return;
+
+            const cached = queryClient.getQueryData(["mercadolivre", "orders", workspaceId, ordersParams]) as any;
+            const alreadyListed = cached?.orders?.some((o: any) => String(o.id) === orderId);
+            if (alreadyListed || processedOrdersRef.current.has(orderId)) {
+                processedOrdersRef.current.add(orderId);
+                return;
+            }
+            processedOrdersRef.current.add(orderId);
+            const orderDate = order.dateCreated ? new Date(order.dateCreated) : null;
+            const orderTotal = Number(order.totalAmount || 0);
+            const itemsCount = Array.isArray(order.items)
+                ? order.items.reduce((sum: number, item: any) => sum + (Number(item?.quantity || 0)), 0)
+                : 0;
+
+            if (inOrdersRange(orderDate)) {
+                queryClient.setQueryData(
+                    ["mercadolivre", "orders", workspaceId, ordersParams],
+                    (current: any) => {
+                        const limit = current?.paging?.limit || Number(ordersParams?.limit || 50);
+                        const existing = current?.orders || [];
+                        const exists = existing.some((o: any) => String(o.id) === orderId);
+                        const nextOrders = [order, ...existing.filter((o: any) => String(o.id) !== orderId)];
+                        const trimmed = nextOrders.slice(0, limit);
+                        const total = current?.paging?.total ?? existing.length;
+                        const nextTotal = exists ? total : total + 1;
+
+                        return {
+                            orders: trimmed,
+                            paging: {
+                                total: nextTotal,
+                                offset: current?.paging?.offset ?? 0,
+                                limit,
+                            },
+                        };
+                    }
+                );
+            }
+
+            if (inCurrentRange(orderDate)) {
+                const dateKey = orderDate ? format(orderDate, "yyyy-MM-dd") : null;
+                if (dateKey) {
+                    queryClient.setQueryData(
+                        ["mercadolivre", "daily-sales", workspaceId, period.start_date, period.end_date],
+                        (current: any) => {
+                            const nextEntry = {
+                                date: dateKey,
+                                sales: itemsCount,
+                                revenue: orderTotal,
+                                orders: 1,
+                            };
+
+                            if (!current) {
+                                return {
+                                    dailySales: [nextEntry],
+                                    totalOrders: 1,
+                                    totalSales: itemsCount,
+                                    totalRevenue: orderTotal,
+                                };
+                            }
+
+                            const existing = current.dailySales || [];
+                            const idx = existing.findIndex((d: any) => d.date === dateKey);
+                            let nextDailySales = [...existing];
+                            if (idx >= 0) {
+                                nextDailySales[idx] = {
+                                    ...existing[idx],
+                                    sales: Number(existing[idx]?.sales || 0) + itemsCount,
+                                    revenue: Number(existing[idx]?.revenue || 0) + orderTotal,
+                                    orders: Number(existing[idx]?.orders || 0) + 1,
+                                };
+                            } else {
+                                nextDailySales.push(nextEntry);
+                            }
+
+                            nextDailySales.sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+
+                            return {
+                                ...current,
+                                dailySales: nextDailySales,
+                                totalOrders: Number(current.totalOrders || 0) + 1,
+                                totalSales: Number(current.totalSales || 0) + itemsCount,
+                                totalRevenue: Number(current.totalRevenue || 0) + orderTotal,
+                            };
+                        }
+                    );
+                }
+
+                queryClient.setQueryData(
+                    ["mercadolivre", "metrics", workspaceId, resolvedRange.days, period.start_date, period.end_date],
+                    (current: any) => {
+                        if (!current) return current;
+                        return {
+                            ...current,
+                            totalRevenue: Number(current.totalRevenue || 0) + orderTotal,
+                            totalSales: Number(current.totalSales || 0) + itemsCount,
+                            totalOrders: Number(current.totalOrders || 0) + 1,
+                            lastSync: new Date().toISOString(),
+                        };
+                    }
+                );
+            }
+        };
+
+        source.addEventListener("order", handleOrder);
+        source.addEventListener("ping", () => {});
+
+        return () => {
+            source.close();
+        };
+    }, [workspaceId, ordersParams, period.start_date, period.end_date, resolvedRange.days, queryClient]);
 
     const todayMetrics = useMemo(() => {
         if (!dailySales?.dailySales || !recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
@@ -341,228 +489,246 @@ export default function MercadoLivreNew() {
     const analyticsLastSync = analyticsTop?.lastSyncedAt
         ? new Date(analyticsTop.lastSyncedAt).toLocaleString("pt-BR")
         : null;
+    const liveTimestamp = format(new Date(), "dd 'de' MMMM, HH:mm", { locale: ptBR });
 
     return (
-        <div className="min-h-screen bg-background text-foreground p-4 sm:p-8 space-y-8 animate-in fade-in duration-700">
-            {/* Header Section */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 rounded-[2.5rem] border border-border/50 bg-card/70 p-6 shadow-xl shadow-black/20 backdrop-blur-md">
-                <div className="flex items-center gap-5">
-                    <div className="h-16 w-16 bg-primary/10 rounded-3xl flex items-center justify-center shadow-lg shadow-black/20 rotate-3 group hover:rotate-0 transition-transform duration-500">
-                        <ShoppingBag className="h-8 w-8 text-primary" />
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-3xl font-black tracking-tight text-foreground">
-                                Mercado Livre Pro
-                            </h1>
+        <div className="min-h-screen bg-background text-foreground px-4 pb-12 pt-4 sm:px-8 sm:pt-8 animate-in fade-in duration-700">
+            <section className="relative overflow-hidden rounded-[3rem] border border-border/60 bg-gradient-to-b from-amber-200/80 via-amber-100/50 to-background shadow-[0_30px_80px_rgba(15,23,42,0.18)] dark:from-amber-500/10 dark:via-amber-500/5 dark:to-background">
+                <div className="absolute -top-32 left-1/2 h-64 w-[900px] -translate-x-1/2 rounded-[999px] bg-amber-300/80 blur-3xl dark:bg-amber-500/20" />
+                <div className="absolute -bottom-28 left-10 h-56 w-56 rounded-full bg-primary/10 blur-3xl dark:bg-primary/20" />
+                <div className="absolute right-12 top-16 h-24 w-24 rounded-full bg-white/70 blur-2xl dark:bg-white/10" />
+
+                <div className="relative z-10 space-y-10 p-6 sm:p-10">
+                    <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex items-center gap-5">
+                            <div className="h-16 w-16 bg-primary/10 rounded-3xl flex items-center justify-center shadow-lg shadow-black/10 dark:shadow-black/40">
+                                <ShoppingBag className="h-8 w-8 text-primary" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-3xl font-black tracking-tight text-foreground">
+                                        Mercado Livre Pro
+                                    </h1>
+                                    <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-[10px] uppercase tracking-widest">
+                                        Live
+                                    </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground font-medium mt-0.5">
+                                    {format(new Date(), "EEEE, dd 'de' MMMM", { locale: ptBR })}
+                                </p>
+                            </div>
                         </div>
-                        <p className="text-sm text-muted-foreground font-medium mt-0.5">
-                            {format(new Date(), "EEEE, dd 'de' MMMM", { locale: ptBR })}
-                        </p>
-                    </div>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative group hidden sm:block">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                        <Input
-                            placeholder="Buscar anúncio..."
-                            className="pl-10 h-11 w-64 bg-background/50 border-border/40 rounded-2xl focus:ring-primary/20 transition-all"
-                        />
-                    </div>
+                        <div className="flex flex-wrap items-center gap-3 rounded-3xl bg-background/70 border border-border/60 p-3 backdrop-blur">
+                            <div className="relative group hidden sm:block">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                                <Input
+                                    placeholder="Buscar anúncio..."
+                                    className="pl-10 h-11 w-64 bg-background/80 border-border/40 rounded-2xl focus:ring-primary/20 transition-all"
+                                />
+                            </div>
 
-                    <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
+                            <div className="h-10 w-[1px] bg-border/40 mx-1 hidden lg:block" />
 
-                    <div className="flex items-center gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Loja</div>
-                        <Select
-                            value={workspaceId || ""}
-                            onValueChange={handleWorkspaceChange}
-                            disabled={workspacesLoading || !workspaces?.length}
-                        >
-                            <SelectTrigger className="h-11 w-[200px] rounded-2xl bg-background/50 border-border/40">
-                                <SelectValue placeholder={workspacesLoading ? "Carregando..." : "Selecionar loja"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {workspaces?.map((ws) => (
-                                    <SelectItem key={ws.id} value={ws.id}>
-                                        {ws.name || ws.slug || ws.id}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                            <div className="flex items-center gap-2">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Loja</div>
+                                <Select
+                                    value={workspaceId || ""}
+                                    onValueChange={handleWorkspaceChange}
+                                    disabled={workspacesLoading || !workspaces?.length}
+                                >
+                                    <SelectTrigger className="h-11 w-[200px] rounded-2xl bg-background/80 border-border/40">
+                                        <SelectValue placeholder={workspacesLoading ? "Carregando..." : "Selecionar loja"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {workspaces?.map((ws) => (
+                                            <SelectItem key={ws.id} value={ws.id}>
+                                                {ws.name || ws.slug || ws.id}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
 
-                    <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
+                            <div className="h-10 w-[1px] bg-border/40 mx-1 hidden lg:block" />
 
-                    <div className="flex items-center gap-2">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Período</div>
-                        <div className="flex items-center gap-2">
-                            <Select value={dateRange} onValueChange={setDateRange}>
-                                <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/50 border-border/40">
-                                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                                    <SelectValue placeholder="Últimos 30 dias" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="1">Hoje</SelectItem>
-                                    <SelectItem value="7">Últimos 7 dias</SelectItem>
-                                    <SelectItem value="15">Últimos 15 dias</SelectItem>
-                                    <SelectItem value="30">Últimos 30 dias</SelectItem>
-                                    <SelectItem value="60">Últimos 60 dias</SelectItem>
-                                    <SelectItem value="90">Últimos 90 dias</SelectItem>
-                                    <SelectItem value="custom">Personalizado</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <div className="flex items-center gap-2">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Período</div>
+                                <div className="flex items-center gap-2">
+                                    <Select value={dateRange} onValueChange={setDateRange}>
+                                        <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/80 border-border/40">
+                                            <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                                            <SelectValue placeholder="Últimos 30 dias" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="1">Hoje</SelectItem>
+                                            <SelectItem value="7">Últimos 7 dias</SelectItem>
+                                            <SelectItem value="15">Últimos 15 dias</SelectItem>
+                                            <SelectItem value="30">Últimos 30 dias</SelectItem>
+                                            <SelectItem value="60">Últimos 60 dias</SelectItem>
+                                            <SelectItem value="90">Últimos 90 dias</SelectItem>
+                                            <SelectItem value="custom">Personalizado</SelectItem>
+                                        </SelectContent>
+                                    </Select>
 
-                            {isCustomRange && (
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-11 rounded-2xl border-border/40 bg-background/50 gap-2"
-                                        >
-                                            <CalendarRange className="h-4 w-4 text-muted-foreground" />
-                                            <span className="text-xs font-semibold">{dateRangeLabel}</span>
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="range"
-                                            selected={customDateRange}
-                                            defaultMonth={customDateRange?.from ?? new Date()}
-                                            onSelect={setCustomDateRange}
-                                            numberOfMonths={2}
-                                            disabled={(date) => date > new Date()}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            )}
+                                    {isCustomRange && (
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-11 rounded-2xl border-border/40 bg-background/80 gap-2"
+                                                >
+                                                    <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="text-xs font-semibold">{dateRangeLabel}</span>
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0" align="start">
+                                                <Calendar
+                                                    mode="range"
+                                                    selected={customDateRange}
+                                                    defaultMonth={customDateRange?.from ?? new Date()}
+                                                    onSelect={setCustomDateRange}
+                                                    numberOfMonths={2}
+                                                    disabled={(date) => date > new Date()}
+                                                    initialFocus
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                    )}
+                                </div>
+                            </div>
+
+                            <Button
+                                variant="outline"
+                                onClick={handleSyncData}
+                                disabled={syncMutation.isPending}
+                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
+                            >
+                                <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                                <span className="font-bold text-xs uppercase tracking-tight">Sync</span>
+                            </Button>
+
+                            <Button
+                                variant="outline"
+                                onClick={handleSyncAnalytics}
+                                disabled={analyticsSyncMutation.isPending}
+                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
+                            >
+                                <TrendingUp className={`h-4 w-4 ${analyticsSyncMutation.isPending ? 'animate-pulse' : ''}`} />
+                                <span className="font-bold text-xs uppercase tracking-tight">Analytics 30d</span>
+                            </Button>
+
+                            <MercadoLivreManualTokenDialog />
+
+                            <MercadoLivreConnectButton
+                                size="sm"
+                                variant="outline"
+                                className="h-11 px-4 rounded-2xl border-border/40 bg-background/80 hover:bg-background"
+                            />
+
+                            <ExportReportButton
+                                workspaceId={workspaceId || ""}
+                                dateRangeDays={String(resolvedRange.days)}
+                                dateFrom={period.start_date}
+                                dateTo={period.end_date}
+                            />
                         </div>
                     </div>
 
-                    <Button
-                        variant="outline"
-                        onClick={handleSyncData}
-                        disabled={syncMutation.isPending}
-                        className="h-11 px-5 rounded-2xl border-border/40 bg-background/50 hover:bg-background/80 hover:scale-105 transition-all gap-2"
-                    >
-                        <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                        <span className="font-bold text-xs uppercase tracking-tight">Sync</span>
-                    </Button>
-
-                    <Button
-                        variant="outline"
-                        onClick={handleSyncAnalytics}
-                        disabled={analyticsSyncMutation.isPending}
-                        className="h-11 px-5 rounded-2xl border-border/40 bg-background/50 hover:bg-background/80 hover:scale-105 transition-all gap-2"
-                    >
-                        <TrendingUp className={`h-4 w-4 ${analyticsSyncMutation.isPending ? 'animate-pulse' : ''}`} />
-                        <span className="font-bold text-xs uppercase tracking-tight">Analytics 30d</span>
-                    </Button>
-
-                    <MercadoLivreManualTokenDialog />
-
-                    <MercadoLivreConnectButton
-                        size="sm"
-                        variant="outline"
-                        className="h-11 px-4 rounded-2xl border-border/40 bg-background/50 hover:bg-background/80"
-                    />
-
-                    <div className="h-11 w-[1px] bg-border/40 mx-2 hidden lg:block" />
-
-                    <ExportReportButton
-                        workspaceId={workspaceId || ""}
-                        dateRangeDays={String(resolvedRange.days)}
-                        dateFrom={period.start_date}
-                        dateTo={period.end_date}
-                    />
-                </div>
-            </div>
-
-            {/* Quick Stats Bar */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 bg-card/50 p-2 rounded-[2rem] border border-border/50">
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Layers className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Anúncios</p>
-                        <p className="text-sm font-black">{products?.activeCount || 0}</p>
+                    <div className="flex flex-col items-center text-center gap-4">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-background/80 border border-border/60 px-4 py-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground shadow-sm">
+                            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                            Vendas de hoje ao vivo
+                            <span className="text-foreground/70 font-semibold normal-case">{liveTimestamp}</span>
+                        </div>
+                        <div className="w-full max-w-3xl rounded-[2.5rem] border border-border/60 bg-card/90 backdrop-blur-md shadow-2xl p-6 sm:p-10">
+                            <div className="text-xs uppercase text-muted-foreground font-bold tracking-widest">Faturamento do Dia</div>
+                            <div className="mt-3 text-7xl sm:text-8xl font-black tracking-tight leading-none text-foreground">
+                                {formatCurrency(todayMetrics.revenue, 2)}
+                            </div>
+                            <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs">
+                                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${todayMetrics.revenueTrend >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                                    {todayMetrics.revenueTrend >= 0 ? "+" : ""}{Math.abs(todayMetrics.revenueTrend).toFixed(1)}%
+                                </span>
+                                <span className="flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1 font-semibold text-muted-foreground">
+                                    <ShoppingCart className="h-3.5 w-3.5" />
+                                    {formatNumber(todayMetrics.orders)} pedidos hoje
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                
-                {/* Preço Médio */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <DollarSign className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Médio</p>
-                        <p className="text-sm font-black">{formatCurrency(averageTicket, 2)}</p>
-                    </div>
-                </div>
+            </section>
 
-                {/* Vendas Canceladas */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-                        <AlertCircle className="h-4 w-4 text-destructive" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Cancelados</p>
-                        <p className="text-sm font-black text-destructive">{metrics?.canceledOrders || 0}</p>
-                    </div>
-                </div>
+            <div className="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div className="lg:col-span-3 space-y-6">
+                    <Card className="border-border/60 bg-card/70 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
+                        <CardHeader className="pb-3 border-b border-border/10 bg-muted/10">
+                            <CardTitle className="text-base font-bold flex items-center gap-2">
+                                <Layers className="h-4 w-4 text-primary" />
+                                Métricas-chave
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 grid grid-cols-2 gap-3">
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                                    <Layers className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Anúncios</p>
+                                    <p className="text-sm font-black">{products?.activeCount || 0}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                                    <DollarSign className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Médio</p>
+                                    <p className="text-sm font-black">{formatCurrency(averageTicket, 2)}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-destructive/10 flex items-center justify-center">
+                                    <AlertCircle className="h-4 w-4 text-destructive" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Cancelados</p>
+                                    <p className="text-sm font-black text-destructive">{metrics?.canceledOrders || 0}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                                    <Package className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Und. Vendidas</p>
+                                    <p className="text-sm font-black">{metrics?.totalSales || 0}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                                    <Users className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Compradores</p>
+                                    <p className="text-sm font-black">{metrics?.totalBuyers || 0}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
+                                <div className="h-8 w-8 rounded-xl bg-destructive/10 flex items-center justify-center">
+                                    <DollarSign className="h-4 w-4 text-destructive" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Valor Cancelado</p>
+                                    <p className="text-sm font-black text-destructive">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
 
-                {/* Unidades Vendidas */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Package className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Und. Vendidas</p>
-                        <p className="text-sm font-black">{metrics?.totalSales || 0}</p>
-                    </div>
-                </div>
-
-                {/* Total Compradores */}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Users className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Compradores</p>
-                        <p className="text-sm font-black">{metrics?.totalBuyers || 0}</p>
-                    </div>
-                </div>
-                <div className="hidden lg:flex items-center gap-3 px-4 py-3 rounded-2xl bg-background/40">
-                    <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-                        <DollarSign className="h-4 w-4 text-destructive" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Valor Cancelado</p>
-                        <p className="text-sm font-black text-destructive">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                {/* Left Column - Main Charts & KPIs */}
-                <div className="lg:col-span-8 space-y-8">
-                    {/* Top KPIs Row */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <PremiumKPICard
-                            title="Faturamento do Dia"
-                            value={formatCurrency(todayMetrics.revenue)}
-                            icon={DollarSign}
-                            tone="primary"
-                            trend={`${Math.abs(todayMetrics.revenueTrend).toFixed(1)}%`}
-                            trendUp={todayMetrics.revenueTrend >= 0}
-                            chartData={dailySales?.dailySales?.map(d => ({ value: d.revenue }))}
-                            loading={dailySalesLoading}
-                        />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                         <PremiumKPICard
                             title="Vendas do Dia"
                             value={formatNumber(todayMetrics.orders)}
@@ -600,7 +766,7 @@ export default function MercadoLivreNew() {
                             tone="info"
                             trend={visitsTrend.value}
                             trendUp={visitsTrend.up}
-                            chartData={dailySales?.dailySales?.map(d => ({ value: d.sales / 10 }))} // Approximation for visits trend if not available
+                            chartData={dailySales?.dailySales?.map(d => ({ value: d.sales / 10 }))}
                             loading={metricsLoading}
                         />
                         <PremiumKPICard
@@ -614,11 +780,13 @@ export default function MercadoLivreNew() {
                             loading={metricsLoading}
                         />
                     </div>
+                </div>
 
-                    {/* Big Chart Section */}
+                <div className="lg:col-span-6 space-y-6">
                     <MainPerformanceChart
                         data={dailySales?.dailySales || []}
                         loading={dailySalesLoading}
+                        title="Tendências em vendas brutas"
                     />
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -729,9 +897,7 @@ export default function MercadoLivreNew() {
                     </div>
                 </div>
 
-                {/* Right Column - Side Panels */}
-                <div className="lg:col-span-4 space-y-8 lg:sticky lg:top-8">
-                    {/* Recent Activity Feed */}
+                <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-8">
                     <RecentActivity 
                         orders={ordersData?.orders || []} 
                         loading={ordersLoading} 
@@ -740,12 +906,12 @@ export default function MercadoLivreNew() {
                         workspaceId={workspaceId}
                     />
 
-                    {/* Financial Summary Snippet */}
                     <FinancialAnalysis
                         totalRevenue={totalRevenue}
                         totalSales={totalSales}
                         loading={metricsLoading}
                         realTotalFees={metrics?.totalSaleFees}
+                        realTotalShippingCosts={metrics?.totalShippingCosts}
                     />
                 </div>
             </div>
