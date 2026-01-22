@@ -340,8 +340,22 @@ interface MercadoLivreCredentials {
     clientSecret?: string;
 }
 
+type MercadoLivreAppCredentials = {
+    clientId?: string;
+    clientSecret?: string;
+};
+
 const tokenStore = new Map<string, (MercadoLivreCredentials & { expiresAt?: number })>();
 const invalidRefreshTokens = new Map<string, string>();
+
+const normalizeMercadoLivrePayload = (payload: Record<string, any> | null) => ({
+    accessToken: payload?.accessToken || payload?.access_token,
+    refreshToken: payload?.refreshToken || payload?.refresh_token,
+    userId: payload?.userId || payload?.user_id,
+    expiresAt: typeof payload?.expiresAt === "number" ? payload.expiresAt : undefined,
+    clientId: payload?.clientId || payload?.client_id,
+    clientSecret: payload?.clientSecret || payload?.client_secret,
+});
 
 async function credentialsExist(workspaceId: string): Promise<boolean> {
     try {
@@ -370,6 +384,115 @@ async function credentialsExist(workspaceId: string): Promise<boolean> {
         console.warn("[MercadoLivre] Falha ao verificar credenciais existentes:", error instanceof Error ? error.message : error);
         return false;
     }
+}
+
+async function getCredentialsPayloadFromDb(workspaceId: string): Promise<Record<string, any> | null> {
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT encrypted_credentials, encryption_iv
+             FROM integration_credentials
+             WHERE workspace_id = $1 AND platform_key = $2
+             LIMIT 1`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
+        );
+
+        if (!result.rows.length) return null;
+
+        const decrypted = parseMercadoLivreCredentialsPayload(
+            result.rows[0].encrypted_credentials,
+            result.rows[0].encryption_iv
+        ) as any;
+
+        if (!decrypted || typeof decrypted !== "object") return null;
+        return decrypted as Record<string, any>;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao buscar payload de credenciais:", error instanceof Error ? error.message : error);
+        return null;
+    }
+}
+
+async function upsertMercadoLivreCredentialsPayload(
+    workspaceId: string,
+    updates: Record<string, any>
+): Promise<boolean> {
+    if (!updates || typeof updates !== "object") return false;
+
+    const existingPayload = await getCredentialsPayloadFromDb(workspaceId);
+    const normalized = normalizeMercadoLivrePayload(existingPayload);
+    const merged = { ...normalized, ...updates };
+
+    const payload: Record<string, any> = {};
+    Object.entries(merged).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (!trimmed) return;
+            payload[key] = trimmed;
+            return;
+        }
+        payload[key] = value;
+    });
+
+    if (!Object.keys(payload).length) return false;
+
+    try {
+        const pool = getPool();
+        const { encrypted_credentials, encryption_iv } = serializeMercadoLivreCredentials(payload);
+        await pool.query(
+            `INSERT INTO integration_credentials (workspace_id, platform_key, encrypted_credentials, encryption_iv)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (workspace_id, platform_key)
+             DO UPDATE SET encrypted_credentials = EXCLUDED.encrypted_credentials, encryption_iv = EXCLUDED.encryption_iv, updated_at = now()`,
+            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY, encrypted_credentials, encryption_iv]
+        );
+
+        if (payload.accessToken && payload.userId) {
+            tokenStore.set(workspaceId, {
+                accessToken: String(payload.accessToken),
+                refreshToken: String(payload.refreshToken || ""),
+                userId: String(payload.userId),
+                expiresAt: typeof payload.expiresAt === "number" ? payload.expiresAt : undefined,
+                clientId: payload.clientId ? String(payload.clientId) : undefined,
+                clientSecret: payload.clientSecret ? String(payload.clientSecret) : undefined,
+            });
+            invalidRefreshTokens.delete(workspaceId);
+        }
+
+        return true;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao persistir payload:", error instanceof Error ? error.message : error);
+        return false;
+    }
+}
+
+async function getMercadoLivreAppCredentials(workspaceId: string): Promise<MercadoLivreAppCredentials | null> {
+    const cached = tokenStore.get(workspaceId);
+    if (cached?.clientId || cached?.clientSecret) {
+        return { clientId: cached.clientId, clientSecret: cached.clientSecret };
+    }
+
+    const payload = await getCredentialsPayloadFromDb(workspaceId);
+    if (payload) {
+        const normalized = normalizeMercadoLivrePayload(payload);
+        if (normalized.clientId || normalized.clientSecret) {
+            return {
+                clientId: normalized.clientId ? String(normalized.clientId) : undefined,
+                clientSecret: normalized.clientSecret ? String(normalized.clientSecret) : undefined,
+            };
+        }
+    }
+
+    const envClientId = (process.env.MERCADO_LIVRE_CLIENT_ID || "").trim();
+    const envClientSecret = (process.env.MERCADO_LIVRE_CLIENT_SECRET || "").trim();
+    if (envClientId || envClientSecret) {
+        return {
+            clientId: envClientId || undefined,
+            clientSecret: envClientSecret || undefined,
+        };
+    }
+
+    return null;
 }
 
 const userIdToWorkspaceCache = new Map<string, string>();
@@ -894,12 +1017,13 @@ router.get("/auth/url", async (req, res) => {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
+        const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
+        const clientId = appCredentials?.clientId;
         const redirectUri = buildRedirectUri(req as Request);
 
         if (!clientId) {
             return res.status(500).json({
-                error: "Mercado Livre Client ID not configured"
+                error: "Mercado Livre Client ID not configured for this workspace"
             });
         }
         if (!redirectUri) {
@@ -1005,6 +1129,37 @@ router.post("/manual-credentials", async (req, res) => {
         return res.status(500).json({
             error: "Failed to save credentials",
             details: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/app-credentials
+ * Salva client_id/client_secret por workspace sem sobrescrever tokens existentes
+ */
+router.post("/app-credentials", async (req, res) => {
+    try {
+        const { workspaceId, clientId, clientSecret } = req.body;
+
+        if (!workspaceId || !clientId || !clientSecret) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+        const updated = await upsertMercadoLivreCredentialsPayload(String(workspaceId), {
+            clientId: String(clientId).trim(),
+            clientSecret: String(clientSecret).trim(),
+        });
+
+        if (!updated) {
+            return res.status(500).json({ error: "Failed to save app credentials" });
+        }
+
+        return res.json({ success: true });
+    } catch (error: any) {
+        console.error("Error saving app credentials:", error);
+        return res.status(500).json({
+            error: "Failed to save app credentials",
+            details: error.message,
         });
     }
 });
@@ -1263,13 +1418,14 @@ router.post("/auth/callback", async (req, res) => {
             });
         }
 
-        const clientId = process.env.MERCADO_LIVRE_CLIENT_ID;
-        const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
+        const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
+        const clientId = appCredentials?.clientId;
+        const clientSecret = appCredentials?.clientSecret;
         const redirectUri = buildRedirectUri(req as Request);
 
         if (!clientId || !clientSecret) {
             return res.status(500).json({
-                error: "Mercado Livre credentials not configured"
+                error: "Mercado Livre credentials not configured for this workspace"
             });
         }
         if (!redirectUri) {

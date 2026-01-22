@@ -9,6 +9,9 @@ const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
     day: "2-digit",
 });
 
+const WORKSPACE_LABEL_TTL_MS = 10 * 60 * 1000;
+const workspaceLabelCache = new Map<string, { label: string; ts: number }>();
+
 const getBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
 
 const getBrazilDateKeyFromValue = (value: unknown): string | null => {
@@ -19,6 +22,45 @@ const getBrazilDateKeyFromValue = (value: unknown): string | null => {
 };
 
 const getTodayBrazilDateKey = () => getBrazilDateKey(new Date());
+
+const escapeTelegramHtml = (value: string) => {
+    const map: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+    };
+    return value.replace(/[&<>]/g, (char) => map[char] || char);
+};
+
+const getWorkspaceLabel = async (workspaceId: string): Promise<string | null> => {
+    const cached = workspaceLabelCache.get(workspaceId);
+    const now = Date.now();
+    if (cached && now - cached.ts < WORKSPACE_LABEL_TTL_MS) {
+        return cached.label;
+    }
+
+    try {
+        const pool = getPool();
+        const result = await pool.query(
+            `SELECT name, slug
+             FROM workspaces
+             WHERE id = $1
+             LIMIT 1`,
+            [workspaceId]
+        );
+
+        if (!result.rows.length) return null;
+        const row = result.rows[0];
+        const label = String(row.name || row.slug || workspaceId || "").trim();
+        if (!label) return null;
+
+        workspaceLabelCache.set(workspaceId, { label, ts: now });
+        return label;
+    } catch (error) {
+        console.warn("[Telegram] Falha ao buscar workspace:", error);
+        return null;
+    }
+};
 
 interface TelegramConfig {
     botToken: string;
@@ -64,6 +106,45 @@ export class TelegramNotificationService {
             console.error("[Telegram] Erro ao buscar configuração:", error);
             return null;
         }
+    }
+
+    private static async prependWorkspaceLabel(workspaceId: string, message: string): Promise<string> {
+        const label = await getWorkspaceLabel(workspaceId);
+        if (!label) return message;
+        const safeLabel = escapeTelegramHtml(label);
+        return `🏷️ <b>Cliente:</b> ${safeLabel}\n\n${message}`;
+    }
+
+    /**
+     * Envia mensagem personalizada (uso interno)
+     */
+    static async sendCustomMessage(
+        workspaceId: string,
+        message: string,
+        type: string = "custom",
+        referenceId?: string | null
+    ): Promise<boolean> {
+        const config = await this.getTelegramConfig(workspaceId);
+        if (!config) {
+            console.warn("[Telegram] Configuracao nao encontrada para envio custom");
+            return false;
+        }
+
+        const recent = await this.hasRecentNotification(workspaceId, type, referenceId || null, 60);
+        if (recent) return true;
+
+        const messageWithLabel = await this.prependWorkspaceLabel(workspaceId, message);
+        const result = await this.sendTelegramMessage(config.botToken, config.chatId, messageWithLabel, "HTML");
+        await this.logNotification(
+            workspaceId,
+            type,
+            referenceId || null,
+            result.ok ? "sent" : "failed",
+            { message },
+            result.response,
+            result.error || null
+        );
+        return result.ok;
     }
 
     /**
@@ -392,7 +473,7 @@ export class TelegramNotificationService {
                 return false;
             }
 
-            const message = this.formatItemUpdateMessage(itemData);
+            const message = await this.prependWorkspaceLabel(workspaceId, this.formatItemUpdateMessage(itemData));
             const result = await this.sendTelegramMessage(
                 config.botToken,
                 config.chatId,
@@ -450,7 +531,7 @@ export class TelegramNotificationService {
                 return false;
             }
 
-            const message = this.formatNewMessage(messageData);
+            const message = await this.prependWorkspaceLabel(workspaceId, this.formatNewMessage(messageData));
             const result = await this.sendTelegramMessage(
                 config.botToken,
                 config.chatId,
@@ -544,7 +625,7 @@ export class TelegramNotificationService {
                 return false;
             }
 
-            const message = this.formatOrderMessage(orderData);
+            const message = await this.prependWorkspaceLabel(workspaceId, this.formatOrderMessage(orderData));
             const result = await this.sendTelegramMessage(
                 config.botToken,
                 config.chatId,
@@ -637,7 +718,7 @@ export class TelegramNotificationService {
                 return false;
             }
 
-            const message = this.formatQuestionMessage(questionData);
+            const message = await this.prependWorkspaceLabel(workspaceId, this.formatQuestionMessage(questionData));
             const result = await this.sendTelegramMessage(
                 config.botToken,
                 config.chatId,
@@ -686,11 +767,12 @@ export class TelegramNotificationService {
                 return false;
             }
 
+            const messageWithLabel = await this.prependWorkspaceLabel(workspaceId, messageHtml);
             // Enviar mensagem
             const result = await this.sendTelegramMessage(
                 config.botToken,
                 config.chatId,
-                messageHtml,
+                messageWithLabel,
                 "HTML"
             );
 
