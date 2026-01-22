@@ -43,6 +43,111 @@ router.get('/curves', async (req, res) => {
   }
 });
 
+router.get('/automation/rules', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const rules = await automation.listActionRules(workspaceId);
+    return res.json({ rules });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to list rules:', err);
+    return res.status(500).json({ error: 'Failed to list rules', details: err?.message });
+  }
+});
+
+router.post('/automation/rules', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const rules = await automation.updateActionRules(workspaceId, req.body?.rules || []);
+    return res.json({ rules });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to update rules:', err);
+    return res.status(500).json({ error: 'Failed to update rules', details: err?.message });
+  }
+});
+
+router.get('/automation/actions/preview', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const result = await automation.planActions(workspaceId);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to plan actions:', err);
+    return res.status(500).json({ error: 'Failed to plan actions', details: err?.message });
+  }
+});
+
+router.post('/automation/actions/apply', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const actions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+    const result = await automation.applyActions(workspaceId, actions);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to apply actions:', err);
+    return res.status(500).json({ error: 'Failed to apply actions', details: err?.message });
+  }
+});
+
+router.get('/report/weekly/settings', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const settings = await automation.getWeeklyReportSettings(workspaceId);
+    return res.json({ settings });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to load weekly report settings:', err);
+    return res.status(500).json({ error: 'Failed to load weekly settings', details: err?.message });
+  }
+});
+
+router.post('/report/weekly/settings', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const settings = await automation.updateWeeklyReportSettings(workspaceId, req.body?.settings || {});
+    return res.json({ settings });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to update weekly report settings:', err);
+    return res.status(500).json({ error: 'Failed to update weekly settings', details: err?.message });
+  }
+});
+
+router.get('/report/weekly', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const report = await automation.generateWeeklyReport(workspaceId);
+    return res.json({ report });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to generate weekly report:', err);
+    return res.status(500).json({ error: 'Failed to generate weekly report', details: err?.message });
+  }
+});
+
+router.post('/report/weekly/send', async (req, res) => {
+  try {
+    const { id: workspaceId } = resolveWorkspaceId(req);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+    const result = await automation.sendWeeklyReport(workspaceId);
+    return res.json({ success: result.sent, report: result.report });
+  } catch (err: any) {
+    console.error('[MercadoAds] Failed to send weekly report:', err);
+    return res.status(500).json({ error: 'Failed to send weekly report', details: err?.message });
+  }
+});
+
 router.get('/automation/preview', async (req, res) => {
   try {
     const { id: workspaceId } = resolveWorkspaceId(req);

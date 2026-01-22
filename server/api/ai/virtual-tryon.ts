@@ -41,6 +41,23 @@ interface TryOnRequestBody {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const getErrorStatus = (err: any) => {
+  const raw = err?.status || err?.response?.status || err?.code;
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && /^\d+$/.test(raw)) return Number(raw);
+  return null;
+};
+
+const isRetryableError = (err: any) => {
+  const status = getErrorStatus(err);
+  const msg = String(err?.message || '').toLowerCase();
+  if (status === 429 || status === 503) return true;
+  if (msg.includes('quota') || msg.includes('rate') || msg.includes('429')) return true;
+  if (msg.includes('overloaded') || msg.includes('unavailable') || msg.includes('temporar')) return true;
+  if (msg.includes('timeout') || msg.includes('timed out')) return true;
+  return false;
+};
+
 async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   let lastError: Error | undefined;
   for (let i = 0; i < maxRetries; i++) {
@@ -48,10 +65,11 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDel
       return await fn();
     } catch (err: any) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      const msg = (err?.message || '').toLowerCase();
-      if (msg.includes('quota') || msg.includes('429') || msg.includes('rate')) {
-        const retryMatch = (err?.message || '').match(/retry in (\d+\.?\d*)s/i);
-        const suggestedDelay = retryMatch ? parseFloat(retryMatch[1]) * 1000 : baseDelay * Math.pow(2, i);
+      if (isRetryableError(err)) {
+        const retryMatch = String(err?.message || '').match(/retry in (\d+\.?\d*)s/i);
+        const suggestedDelay = retryMatch
+          ? parseFloat(retryMatch[1]) * 1000
+          : baseDelay * Math.pow(2, i);
         await delay(suggestedDelay);
         continue;
       }
@@ -188,7 +206,14 @@ async function generateSingleImage(
   try {
     return await attemptModel(MODEL_PRIMARY);
   } catch (e: any) {
-    if (e?.message?.includes('unavailable') || e?.message?.includes('not found')) {
+    const msg = String(e?.message || '').toLowerCase();
+    const status = getErrorStatus(e);
+    if (
+      status === 503 ||
+      msg.includes('overloaded') ||
+      msg.includes('unavailable') ||
+      msg.includes('not found')
+    ) {
       console.warn(`Modelo ${MODEL_PRIMARY} indisponível, tentando ${MODEL_FALLBACK}...`);
       return await attemptModel(MODEL_FALLBACK);
     }
@@ -307,6 +332,9 @@ export async function virtualTryOn(req: Request, res: Response) {
     }
     if (msg.toLowerCase().includes('quota') || msg.includes('429')) {
       return res.status(429).json({ success: false, error: 'Limite de quota atingido. Tente novamente em alguns minutos.' });
+    }
+    if (msg.toLowerCase().includes('overloaded') || msg.toLowerCase().includes('unavailable')) {
+      return res.status(503).json({ success: false, error: 'Modelo sobrecarregado no momento. Tente novamente em alguns minutos.' });
     }
     // Retornar mensagem completa para facilitar diagnóstico quando houver erro do modelo
     console.error('Erro no virtual try-on:', error);

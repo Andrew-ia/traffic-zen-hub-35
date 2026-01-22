@@ -74,6 +74,7 @@ export default function MercadoLivreNew() {
     );
     const [replaying, setReplaying] = useState(false);
     const [recentActivityDate, setRecentActivityDate] = useState<Date | undefined>(new Date());
+    const [sseConnected, setSseConnected] = useState(false);
 
     // Obter workspace_id
     useEffect(() => {
@@ -208,6 +209,17 @@ export default function MercadoLivreNew() {
 
         const params = new URLSearchParams({ workspaceId });
         const source = new EventSource(`/api/integrations/mercadolivre/notifications/stream?${params.toString()}`);
+        let isActive = true;
+
+        const markConnected = () => {
+            if (!isActive) return;
+            setSseConnected(true);
+        };
+
+        const markDisconnected = () => {
+            if (!isActive) return;
+            setSseConnected(false);
+        };
 
         const inOrdersRange = (orderDate: Date | null) => {
             if (!orderDate) return false;
@@ -301,7 +313,7 @@ export default function MercadoLivreNew() {
 
                             const existing = current.dailySales || [];
                             const idx = existing.findIndex((d: any) => d.date === dateKey);
-                            let nextDailySales = [...existing];
+                            const nextDailySales = [...existing];
                             if (idx >= 0) {
                                 nextDailySales[idx] = {
                                     ...existing[idx],
@@ -343,12 +355,29 @@ export default function MercadoLivreNew() {
         };
 
         source.addEventListener("order", handleOrder);
-        source.addEventListener("ping", () => {});
+        source.addEventListener("ready", markConnected);
+        source.addEventListener("ping", markConnected);
+        source.onopen = markConnected;
+        source.onerror = markDisconnected;
 
         return () => {
+            isActive = false;
             source.close();
+            setSseConnected(false);
         };
     }, [workspaceId, ordersParams, period.start_date, period.end_date, resolvedRange.days, queryClient]);
+
+    useEffect(() => {
+        if (!workspaceId || sseConnected) return;
+
+        const interval = setInterval(() => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "orders", workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "daily-sales", workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "metrics", workspaceId] });
+        }, 60000);
+
+        return () => clearInterval(interval);
+    }, [workspaceId, sseConnected, queryClient]);
 
     const todayMetrics = useMemo(() => {
         if (!dailySales?.dailySales || !recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
@@ -785,6 +814,9 @@ export default function MercadoLivreNew() {
                 <div className="lg:col-span-6 space-y-6">
                     <MainPerformanceChart
                         data={dailySales?.dailySales || []}
+                        hourlyData={metrics?.hourlySales}
+                        comparisonHourlyData={previousMetrics?.hourlySales}
+                        comparisonLabel={resolvedRange.days === 1 ? "Ontem" : "Período anterior"}
                         loading={dailySalesLoading}
                         title="Tendências em vendas brutas"
                     />

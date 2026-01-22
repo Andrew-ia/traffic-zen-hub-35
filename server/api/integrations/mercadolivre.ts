@@ -1672,6 +1672,15 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         const ts = date.getTime();
         return ts >= rangeStartTs && ts <= rangeEndTs;
     };
+    const normalizeStatus = (value: any) => String(value || "").toLowerCase();
+    const isCancelledStatus = (value: any) => {
+        const normalized = normalizeStatus(value);
+        return normalized === "cancelled" || normalized === "canceled";
+    };
+    const isSameBrazilDay = (a?: Date | null, b?: Date | null) => {
+        if (!a || !b) return false;
+        return formatBrazilDateKey(a) === formatBrazilDateKey(b);
+    };
 
     // --------- Pedidos (mesma lógica do endpoint daily-sales) ----------
     try {
@@ -1737,6 +1746,75 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 console.error("[Metrics] Erro ao buscar pedidos:", apiError.message);
                 hasMore = false;
             }
+        }
+
+        const fetchCancelledByCreated = async (statusFilter: string) => {
+            const results: any[] = [];
+            let canceledOffset = 0;
+            let canceledHasMore = true;
+
+            while (canceledHasMore && results.length < MAX_ORDERS) {
+                try {
+                    const params: any = {
+                        seller: credentials.userId,
+                        limit,
+                        offset: canceledOffset,
+                        sort: "date_desc",
+                        "order.status": statusFilter,
+                    };
+                    params["order.date_created.from"] = dateFromFinal.toISOString();
+                    params["order.date_created.to"] = dateToFinal.toISOString();
+
+                    let response;
+                    try {
+                        response = await axios.get(
+                            `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${credentials.accessToken}`,
+                                },
+                                params,
+                            }
+                        );
+                    } catch (e) {
+                        console.warn(`[Metrics] Failed cancelled(${statusFilter}) with sort, retrying without sort`);
+                        delete params.sort;
+                        response = await axios.get(
+                            `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${credentials.accessToken}`,
+                                },
+                                params,
+                            }
+                        );
+                    }
+
+                    const orders = response.data.results || [];
+                    results.push(...orders);
+                    canceledHasMore = orders.length === limit;
+                    canceledOffset += limit;
+                } catch (apiError: any) {
+                    if (apiError.response?.status === 401) {
+                        console.error("[Metrics] Token expirado, tentando refresh (cancelados)...");
+                        const refreshed = await refreshAccessToken(workspaceId as string);
+                        if (refreshed) {
+                            credentials = refreshed;
+                            continue;
+                        }
+                        throw new Error("ml_not_connected");
+                    }
+                    console.error("[Metrics] Erro ao buscar cancelados por date_created:", apiError.message);
+                    canceledHasMore = false;
+                }
+            }
+
+            return results;
+        };
+
+        const canceledByCreated = await fetchCancelledByCreated("cancelled");
+        if (canceledByCreated.length > 0) {
+            allOrders.push(...canceledByCreated);
         }
 
         // Deduplicate orders by ID to prevent double counting
@@ -1845,13 +1923,16 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
         for (const order of allOrders) {
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
-            
+            const status = normalizeStatus(order.status);
+            const isCancelled = isCancelledStatus(status);
+            const dateClosed = order.date_closed ? new Date(order.date_closed) : null;
+            const dateUpdated = order.last_updated ? new Date(order.last_updated) : null;
+            const cancelDate = dateClosed || (isCancelled ? dateUpdated : null);
+
             // Prioriza date_created para alinhar o gráfico com a lista de pedidos e a percepção do usuário de "Vendas do Dia"
-            const orderDate = dateCreated 
+            const orderDate = dateCreated
                 ? dateCreated
-                : (order.date_closed
-                    ? new Date(order.date_closed)
-                    : null);
+                : cancelDate;
 
             if (!orderDate) continue;
             const orderTs = orderDate.getTime();
@@ -1859,7 +1940,6 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
             // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
             const dateKey = formatBrazilDateKey(orderDate);
-            const status = String(order.status || "").toLowerCase();
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
             // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias com paid_amount (que pode incluir juros/taxas extras)
             const totalAmount = order.total_amount || order.paid_amount || 0;
@@ -1869,8 +1949,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             }
             const dayData = salesByDay.get(dateKey)!;
 
-            if (status === "cancelled") {
-                const cancelledAt = order.date_closed ? new Date(order.date_closed) : null;
+            if (isCancelled) {
+                const cancelledAt = cancelDate;
                 const shouldCountCancel = isDateInRange(cancelledAt || orderDate);
                 // ML costuma considerar cancelados pagos; evita contar pedidos sem pagamento
                 const hadPayment = Number(order.paid_amount || 0) > 0 || (Array.isArray(order.payments) && order.payments.length > 0);
@@ -1883,8 +1963,11 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                         canceledRevenue += totalAmount;
                     }
                 }
-                // Cancelados não contam como venda realizada
-                continue; 
+            }
+
+            // Cancelados no mesmo dia não contam como venda realizada
+            if (isCancelled && isSameBrazilDay(dateCreated, cancelDate)) {
+                continue;
             }
 
             // Contabiliza apenas pedidos válidos (não cancelados)
@@ -1980,8 +2063,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             }
 
             for (const order of canceledByClosed) {
-                const status = String(order.status || "").toLowerCase();
-                if (status !== "cancelled") continue;
+                const status = normalizeStatus(order.status);
+                if (!isCancelledStatus(status)) continue;
                 const cancelledAt = order.date_closed ? new Date(order.date_closed) : null;
                 if (!isDateInRange(cancelledAt)) continue;
                 // ML costuma considerar cancelados pagos; evita contar pedidos sem pagamento
@@ -2210,6 +2293,31 @@ router.get("/orders", async (req, res) => {
         const status = getQueryParam(req.query.status);
         const includeCancelledParam = getQueryParam(req.query.includeCancelled);
         const includeCancelled = includeCancelledParam === "true" || includeCancelledParam === "1";
+        const normalizeStatus = (value: any) => String(value || "").toLowerCase();
+        const isCancelledStatus = (value: any) => {
+            const normalized = normalizeStatus(value);
+            return normalized === "cancelled" || normalized === "canceled";
+        };
+        const toTimestamp = (value?: string | null) => {
+            if (!value) return null;
+            const ts = new Date(value).getTime();
+            return Number.isNaN(ts) ? null : ts;
+        };
+        const resolveActivityTimestamp = (order: any, range?: { fromTs: number; toTs: number }) => {
+            const createdTs = toTimestamp(order?.date_created);
+            if (!includeCancelled || !isCancelledStatus(order?.status)) return createdTs;
+            const closedTs = toTimestamp(order?.date_closed);
+            const updatedTs = toTimestamp(order?.last_updated);
+
+            if (range) {
+                const { fromTs, toTs } = range;
+                if (closedTs !== null && closedTs >= fromTs && closedTs <= toTs) return closedTs;
+                if (updatedTs !== null && updatedTs >= fromTs && updatedTs <= toTs) return updatedTs;
+                if (createdTs !== null && createdTs >= fromTs && createdTs <= toTs) return createdTs;
+            }
+
+            return closedTs ?? updatedTs ?? createdTs;
+        };
         
         const limitParam = getQueryParam(req.query.limit);
         const offsetParam = getQueryParam(req.query.offset);
@@ -2303,16 +2411,16 @@ router.get("/orders", async (req, res) => {
 
         let ordersResults = data.results || [];
 
-        if (includeCancelled && (dateFromIso || dateToIso)) {
+        const fetchCancelledOrders = async (statusFilter: string, dateField: "date_closed" | "date_created") => {
             const canceledParams: any = {
                 seller: credentials.userId,
                 limit,
                 offset,
                 sort: "date_desc",
-                "order.status": "cancelled",
+                "order.status": statusFilter,
             };
-            if (dateFromIso) canceledParams["order.date_closed.from"] = dateFromIso;
-            if (dateToIso) canceledParams["order.date_closed.to"] = dateToIso;
+            if (dateFromIso) canceledParams[`order.${dateField}.from`] = dateFromIso;
+            if (dateToIso) canceledParams[`order.${dateField}.to`] = dateToIso;
 
             try {
                 let canceledData: any;
@@ -2323,7 +2431,7 @@ router.get("/orders", async (req, res) => {
                         { params: canceledParams }
                     );
                 } catch (e) {
-                    console.warn("Failed to fetch cancelled orders with sort, retrying without sort");
+                    console.warn(`Failed to fetch ${statusFilter} orders with sort, retrying without sort`);
                     delete canceledParams.sort;
                     canceledData = await requestWithAuth<any>(
                         String(targetWorkspaceId),
@@ -2331,56 +2439,61 @@ router.get("/orders", async (req, res) => {
                         { params: canceledParams }
                     );
                 }
-                const canceledResults = canceledData?.results || [];
-                if (canceledResults.length > 0) {
-                    const map = new Map<string, any>();
-                    const addOrder = (order: any) => {
-                        const id = String(order?.id || "").trim();
-                        if (!id) return;
-                        const status = String(order?.status || "").toLowerCase();
-                        const existing = map.get(id);
-                        if (!existing) {
-                            map.set(id, order);
-                            return;
-                        }
-                        const existingStatus = String(existing?.status || "").toLowerCase();
-                        if (existingStatus !== "cancelled" && status === "cancelled") {
-                            map.set(id, { ...existing, ...order });
-                        }
-                    };
-                    ordersResults.forEach(addOrder);
-                    canceledResults.forEach(addOrder);
-                    ordersResults = Array.from(map.values());
-                }
+                return canceledData?.results || [];
             } catch (err: any) {
-                console.warn("Failed to fetch cancelled orders by date_closed:", formatAxiosError(err));
+                console.warn(`Failed to fetch ${statusFilter} orders by ${dateField}:`, formatAxiosError(err));
+                return [];
+            }
+        };
+
+        if (includeCancelled && (dateFromIso || dateToIso)) {
+            const canceledByClosed = await fetchCancelledOrders("cancelled", "date_closed");
+            const canceledByCreated = await fetchCancelledOrders("cancelled", "date_created");
+
+            const canceledResults = [...canceledByClosed, ...canceledByCreated];
+            if (canceledResults.length > 0) {
+                const map = new Map<string, any>();
+                const addOrder = (order: any) => {
+                    const id = String(order?.id || "").trim();
+                    if (!id) return;
+                    const status = normalizeStatus(order?.status);
+                    const existing = map.get(id);
+                    if (!existing) {
+                        map.set(id, order);
+                        return;
+                    }
+                    const existingStatus = normalizeStatus(existing?.status);
+                    if (!isCancelledStatus(existingStatus) && isCancelledStatus(status)) {
+                        map.set(id, { ...existing, ...order });
+                    }
+                };
+                ordersResults.forEach(addOrder);
+                canceledResults.forEach(addOrder);
+                ordersResults = Array.from(map.values());
             }
         }
 
+        const activityRange = (dateFrom || dateTo)
+            ? {
+                fromTs: dateFromIso ? new Date(dateFromIso).getTime() : 0,
+                toTs: dateToIso ? new Date(dateToIso).getTime() : Infinity,
+            }
+            : undefined;
+
         // Filtro manual de datas para garantir consistência com o dashboard
         // A API do Mercado Livre às vezes retorna pedidos fora do intervalo solicitado
-        if (dateFrom || dateTo) {
-            const fromTs = dateFromIso ? new Date(dateFromIso).getTime() : 0;
-            const toTs = dateToIso ? new Date(dateToIso).getTime() : Infinity;
-
+        if (activityRange) {
+            const { fromTs, toTs } = activityRange;
             ordersResults = ordersResults.filter((o: any) => {
-                const status = String(o.status || "").toLowerCase();
-                const dateField = includeCancelled && status === "cancelled"
-                    ? (o.date_closed || o.date_created)
-                    : o.date_created;
-                if (!dateField) return false;
-                const d = new Date(dateField).getTime();
-                return d >= fromTs && d <= toTs;
+                const ts = resolveActivityTimestamp(o, activityRange);
+                if (ts === null) return false;
+                return ts >= fromTs && ts <= toTs;
             });
         }
 
         const activityTimestamp = (order: any) => {
-            const status = String(order.status || "").toLowerCase();
-            const dateField = includeCancelled && status === "cancelled"
-                ? (order.date_closed || order.date_created)
-                : order.date_created;
-            const ts = dateField ? new Date(dateField).getTime() : 0;
-            return Number.isNaN(ts) ? 0 : ts;
+            const ts = resolveActivityTimestamp(order, activityRange);
+            return ts ?? 0;
         };
 
         ordersResults.sort((a: any, b: any) => activityTimestamp(b) - activityTimestamp(a));
@@ -2504,12 +2617,14 @@ router.get("/orders", async (req, res) => {
 
             const totalAmount = order.total_amount || order.paid_amount || 0;
             const netIncome = totalAmount - saleFee - shippingCost;
+            const isCancelled = isCancelledStatus(order.status);
+            const dateClosed = order.date_closed || (isCancelled ? order.last_updated : null);
 
             return {
                 id: order.id,
                 status: order.status,
                 dateCreated: order.date_created,
-                dateClosed: order.date_closed,
+                dateClosed,
                 lastUpdated: order.last_updated,
                 totalAmount: totalAmount,
                 paidAmount: order.paid_amount,
@@ -8946,6 +9061,15 @@ router.get("/orders/daily-sales", async (req, res) => {
 
         const dateFromKey = normalizeBrazilDateKey(dateFrom as string | undefined);
         const dateToKey = normalizeBrazilDateKey(dateTo as string | undefined);
+        const normalizeStatus = (value: any) => String(value || "").toLowerCase();
+        const isCancelledStatus = (value: any) => {
+            const normalized = normalizeStatus(value);
+            return normalized === "cancelled" || normalized === "canceled";
+        };
+        const isSameBrazilDay = (a?: Date | null, b?: Date | null) => {
+            if (!a || !b) return false;
+            return formatBrazilDateKey(a) === formatBrazilDateKey(b);
+        };
 
         // Buscar todos os pedidos no período
         const allOrders: any[] = [];
@@ -9007,6 +9131,68 @@ router.get("/orders/daily-sales", async (req, res) => {
             }
         }
 
+        const fetchCancelledByCreated = async (statusFilter: string) => {
+            const results: any[] = [];
+            let canceledOffset = 0;
+            let canceledHasMore = true;
+
+            while (canceledHasMore && (!shouldCap || results.length < maxOrders)) {
+                try {
+                    const params: any = {
+                        seller: credentials.userId,
+                        limit,
+                        offset: canceledOffset,
+                        sort: "date_desc",
+                        "order.status": statusFilter,
+                    };
+
+                    const ordersResponse = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        {
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        }
+                    );
+
+                    const orders = ordersResponse.data.results || [];
+                    results.push(...orders);
+
+                    canceledHasMore = orders.length === limit;
+                    if (dateFromKey && orders.length > 0) {
+                        const lastOrder = orders[orders.length - 1];
+                        if (lastOrder?.date_created) {
+                            const lastKey = formatBrazilDateKey(new Date(lastOrder.date_created));
+                            if (lastKey < dateFromKey) {
+                                canceledHasMore = false;
+                            }
+                        }
+                    }
+                    canceledOffset += limit;
+                } catch (apiError: any) {
+                    if (apiError.response?.status === 401) {
+                        console.error("[Daily Sales] Token expirado, tentando refresh (cancelados)...");
+                        const refreshed = await refreshAccessToken(workspaceId as string);
+                        if (refreshed) {
+                            credentials = refreshed;
+                            continue;
+                        }
+                        throw new Error("ml_not_connected");
+                    }
+                    console.error("[Daily Sales] Erro ao buscar cancelados por date_created:", apiError.message);
+                    canceledHasMore = false;
+                }
+            }
+
+            return results;
+        };
+
+        const canceledByCreated = await fetchCancelledByCreated("cancelled");
+        if (canceledByCreated.length > 0) {
+            allOrders.push(...canceledByCreated);
+        }
+
         console.log(`[Daily Sales] Total de ${allOrders.length} pedidos encontrados (antes da deduplicação)`);
 
         // Log todos os IDs de pedidos para debug
@@ -9038,14 +9224,20 @@ router.get("/orders/daily-sales", async (req, res) => {
         const salesByDay = new Map<string, { date: string; sales: number; revenue: number; orders: number }>();
 
         for (const order of uniqueOrders) {
-            // Ignorar pedidos cancelados (mas manter pendentes/pagamento necessário para alinhar com Atividade Recente)
-            const status = String(order.status || "").toLowerCase();
-            if (status === "cancelled") continue;
-
+            const status = normalizeStatus(order.status);
+            const isCancelled = isCancelledStatus(status);
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
+            const dateClosed = order.date_closed ? new Date(order.date_closed) : null;
+            const dateUpdated = order.last_updated ? new Date(order.last_updated) : null;
+            const cancelDate = dateClosed || (isCancelled ? dateUpdated : null);
             if (!dateCreated) continue;
 
             const dateKey = formatBrazilDateKey(dateCreated);
+
+            // Cancelados no mesmo dia não entram no agregado diário
+            if (isCancelled && isSameBrazilDay(dateCreated, cancelDate)) {
+                continue;
+            }
 
             // Filtro de data deve usar a Data Ajustada (dateKey) para consistência
             // Se usarmos o timestamp original (UTC), pedidos feitos à noite (ex: 28/12 22h) que são dia 29/12 UTC

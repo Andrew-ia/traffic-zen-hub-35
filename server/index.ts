@@ -5,6 +5,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startFullAnalyticsScheduler } from './workers/fullAnalyticsScheduler.js';
+import { startAdsWeeklyReportScheduler } from './workers/adsWeeklyReportScheduler.js';
 import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
 import { getPool } from './config/database.js';
 import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
@@ -19,48 +20,6 @@ import mercadoLivreRouter, { bootstrapMercadoLivreEnvCredentials } from './api/i
 import mercadoAdsRouter from './api/integrations/mercado-ads.js';
 import mercadoLivreFulfillmentRouter from './api/integrations/mercadolivre-fulfillment.js';
 import mercadoLivreFullAnalyticsRouter from './api/integrations/mercadolivre-full-analytics.js';
-import {
-  getFolders,
-  getFolderById,
-  createFolder,
-  updateFolder,
-  deleteFolder,
-} from './api/pm/folders.js';
-import {
-  getLists,
-  getAllListsForWorkspace,
-  getListById,
-  createList,
-  updateList,
-  deleteList,
-} from './api/pm/lists.js';
-import {
-  getTasks,
-  getAllTasksForWorkspace,
-  getTaskById,
-  createTask,
-  updateTask,
-  deleteTask,
-  uploadTaskAttachment,
-  getTaskAttachments,
-  deleteTaskAttachment,
-} from './api/pm/tasks.js';
-import {
-  getHierarchy,
-  getFolderHierarchy,
-} from './api/pm/hierarchy.js';
-import {
-  createDocument,
-  getDocuments,
-  uploadAttachment,
-  getAttachments,
-} from './api/pm/documents.js';
-import {
-  createReminder,
-  getReminders,
-  getPendingReminders,
-  markReminderAsSent,
-} from './api/pm/reminders.js';
 import productHubRouter from './api/productHub.js';
 
 // Load environment variables
@@ -154,47 +113,6 @@ app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
 app.use('/api/integrations/mercado-ads', mercadoAdsRouter);
 app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
 app.use('/api/integrations/mercadolivre-full-analytics', mercadoLivreFullAnalyticsRouter);
-
-// Project Management endpoints
-app.get('/api/pm/hierarchy/:workspaceId', getHierarchy);
-app.get('/api/pm/hierarchy/:workspaceId/:folderId', getFolderHierarchy);
-
-app.get('/api/pm/folders/:workspaceId', getFolders);
-app.get('/api/pm/folders/:workspaceId/:folderId', getFolderById);
-app.post('/api/pm/folders/:workspaceId', createFolder);
-app.put('/api/pm/folders/:workspaceId/:folderId', updateFolder);
-app.delete('/api/pm/folders/:workspaceId/:folderId', deleteFolder);
-
-// Task attachments (place BEFORE generic tasks routes to avoid route conflicts)
-app.post('/api/pm/tasks/:taskId/attachments', uploadTaskAttachment);
-app.get('/api/pm/tasks/:taskId/attachments', getTaskAttachments);
-app.delete('/api/pm/tasks/:taskId/attachments/:attachmentId', deleteTaskAttachment);
-
-app.get('/api/pm/lists/:workspaceId', getAllListsForWorkspace);
-app.get('/api/pm/lists/:workspaceId/:folderId', getLists);
-app.get('/api/pm/lists/:workspaceId/list/:listId', getListById);
-app.post('/api/pm/lists/:workspaceId/:folderId', createList);
-app.put('/api/pm/lists/:workspaceId/:listId', updateList);
-app.delete('/api/pm/lists/:workspaceId/:listId', deleteList);
-
-app.get('/api/pm/tasks/:workspaceId', getAllTasksForWorkspace);
-app.get('/api/pm/tasks/:workspaceId/:listId', getTasks);
-app.get('/api/pm/tasks/:workspaceId/:taskId/details', getTaskById);
-app.post('/api/pm/tasks/:workspaceId/:listId', createTask);
-app.put('/api/pm/tasks/:workspaceId/:taskId', updateTask);
-app.delete('/api/pm/tasks/:workspaceId/:taskId', deleteTask);
-
-app.get('/api/pm/documents/:workspaceId', getDocuments);
-app.get('/api/pm/documents/:workspaceId/:listId', getDocuments);
-app.post('/api/pm/documents/:workspaceId/:listId', createDocument);
-app.post('/api/pm/documents/:documentId/attachments', uploadAttachment);
-app.get('/api/pm/documents/:documentId/attachments', getAttachments);
-
-app.get('/api/pm/reminders/pending', getPendingReminders);
-app.get('/api/pm/reminders/:workspaceId', getReminders);
-app.get('/api/pm/reminders/:workspaceId/:listId', getReminders);
-app.post('/api/pm/reminders/:workspaceId/:listId', createReminder);
-app.post('/api/pm/reminders/:reminderId/mark-sent', markReminderAsSent);
 
 // Serve frontend build (SPA) from /dist when deployed online
 const __filename = fileURLToPath(import.meta.url);
@@ -299,6 +217,7 @@ async function start() {
       }
 
       startFullAnalyticsScheduler();
+      startAdsWeeklyReportScheduler();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

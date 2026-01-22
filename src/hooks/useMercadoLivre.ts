@@ -79,6 +79,11 @@ export interface MercadoLivreMetrics {
         revenue: number;
         visits: number;
     }>;
+    hourlySales?: Array<{
+        date: string;
+        sales: number;
+        revenue: number;
+    }>;
     alerts?: Array<{
         title: string;
         message: string;
@@ -661,6 +666,8 @@ export function useSyncMercadoLivreAnalytics() {
         },
         onSuccess: (_, workspaceId) => {
             queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", workspaceId] });
         },
     });
 }

@@ -76,7 +76,6 @@ Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/c
 
 - **Mercado Livre**: dashboard, análises, fulfillment, catálogo e integrações.
 - **Gerador de Looks**: Virtual Try-On + geração de legendas.
-- **Projetos**: gerenciamento de tarefas, documentos e chat interno.
 
 ### Mercado Livre
 

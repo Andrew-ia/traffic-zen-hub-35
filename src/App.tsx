@@ -5,10 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import VirtualTryOn from "./pages/VirtualTryOnV2";
-import InternalChat from "./pages/InternalChat";
-import DriveCreatives from "./pages/DriveCreatives";
 import NotFound from "./pages/NotFound";
-import ProjectManagement from "./pages/ProjectManagementV3";
 import { useEffect } from "react";
 import { gtmPush } from "@/lib/gtm";
 import Login from "./pages/Login";
@@ -72,10 +69,6 @@ const App = () => (
 
                 <Route path="/" element={<RequireAuth><MercadoLivre /></RequireAuth>} />
 
-                <Route path="/projects" element={<RequireAuth><ProjectManagement /></RequireAuth>}>
-                  <Route path="drive-creatives" element={<RequireAuth><DriveCreatives /></RequireAuth>} />
-                  <Route path="internal-chat" element={<RequireAuth><InternalChat /></RequireAuth>} />
-                </Route>
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
                 <Route path="/mercado-livre" element={<RequireAuth><Navigate to="/" replace /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />

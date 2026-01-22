@@ -8,6 +8,8 @@ const MKT_ADS_API_BASE = 'https://api.mercadolibre.com/advertising';
 const MKT_ADS_MARKETPLACE_BASE = 'https://api.mercadolibre.com/marketplace/advertising';
 const BRAZIL_CURRENCY = 'BRL';
 const DEFAULT_SITE = process.env.MERCADO_LIVRE_SITE_ID || 'MLB';
+const ADVERTISER_CACHE_TTL_MS = 15 * 60 * 1000;
+const advertiserContextCache = new Map<string, { advertiserId: string; siteId: string; expiresAt: number }>();
 let schemaReady: Promise<void> | null = null;
 
 type CurveRow = {
@@ -48,10 +50,25 @@ type ClassifiedProduct = {
   sku?: string | null;
   reason?: string;
   action?: 'active' | 'paused';
-  sales30d?: number;
-  revenue30d?: number;
-  cost30d?: number;
-  acos?: number;
+  lifetimeSales?: number;
+  adsClicks30d?: number;
+  adsPrints30d?: number;
+  adsCtr?: number;
+  adsCpc?: number;
+  adsSales30d?: number;
+  adsRevenue30d?: number;
+  adsCost30d?: number;
+  adsAcos?: number;
+  totalSales30d?: number;
+  totalRevenue30d?: number;
+  visits30d?: number | null;
+  conversionRate30d?: number | null;
+  profitUnit?: number | null;
+  stock?: number | null;
+  status?: string | null;
+  publishedAt?: string | null;
+  ageDays?: number | null;
+  hasAdsMetrics?: boolean;
   mlAdId?: string | null;
 };
 
@@ -81,6 +98,44 @@ type MovementPlan = {
   revenue30d?: number;
   cost30d?: number;
   acos?: number;
+};
+
+type AutomationRuleKey =
+  | 'pause_no_sales_ads'
+  | 'pause_no_sales_demand'
+  | 'promote_good_ads'
+  | 'promote_high_conversion'
+  | 'demote_high_acos';
+
+type AutomationRule = {
+  id: string;
+  workspace_id: string;
+  rule_key: AutomationRuleKey;
+  name: string;
+  description: string;
+  enabled: boolean;
+  config: Record<string, number>;
+};
+
+type PlannedAction = {
+  id: string;
+  productId: string;
+  mlItemId: string;
+  type: 'pause_ad' | 'move_curve';
+  currentCurve: 'A' | 'B' | 'C';
+  targetCurve?: 'A' | 'B' | 'C';
+  reason: string;
+  ruleKey: AutomationRuleKey;
+};
+
+type WeeklyReportSettings = {
+  id: string;
+  workspace_id: string;
+  enabled: boolean;
+  send_day: number;
+  send_hour: number;
+  channel: string;
+  last_sent_at: string | null;
 };
 
 export class MercadoAdsAutomationService {
@@ -170,6 +225,37 @@ export class MercadoAdsAutomationService {
           created_at timestamptz not null default now()
         );
         create index if not exists idx_ml_ads_curve_history_workspace on ml_ads_curve_history (workspace_id, created_at desc);
+
+        create table if not exists ml_ads_action_rules (
+          id uuid primary key default gen_random_uuid(),
+          workspace_id uuid not null references workspaces(id) on delete cascade,
+          rule_key text not null,
+          name text not null,
+          description text not null,
+          enabled boolean not null default true,
+          config jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (workspace_id, rule_key)
+        );
+        create index if not exists idx_ml_ads_action_rules_workspace on ml_ads_action_rules (workspace_id);
+
+        create table if not exists ml_ads_weekly_report_settings (
+          id uuid primary key default gen_random_uuid(),
+          workspace_id uuid not null references workspaces(id) on delete cascade,
+          enabled boolean not null default false,
+          send_day integer not null default 1,
+          send_hour integer not null default 9,
+          channel text not null default 'telegram',
+          last_sent_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (workspace_id)
+        );
+        create index if not exists idx_ml_ads_weekly_report_workspace on ml_ads_weekly_report_settings (workspace_id);
+
+        alter table products add column if not exists visits_30d integer default 0;
+        alter table products add column if not exists conversion_rate_30d numeric(10,4) default 0;
       `);
     })();
     return schemaReady;
@@ -496,20 +582,112 @@ export class MercadoAdsAutomationService {
     return rows;
   }
 
+  private getDefaultActionRules() {
+    return [
+      {
+        ruleKey: 'pause_no_sales_ads' as const,
+        name: 'Pausar Ads sem vendas',
+        description: 'Pausa anúncios com muitos cliques e zero vendas no período.',
+        config: { min_clicks: 15 },
+      },
+      {
+        ruleKey: 'pause_no_sales_demand' as const,
+        name: 'Pausar alta demanda sem vendas',
+        description: 'Pausa itens com muitas visitas e zero vendas (sem sinal de Ads).',
+        config: { min_visits: 100 },
+      },
+      {
+        ruleKey: 'promote_good_ads' as const,
+        name: 'Promover Ads com ACOS bom',
+        description: 'Sobe a curva quando Ads já vende com ACOS controlado.',
+        config: { min_sales: 2, max_acos: 0.3 },
+      },
+      {
+        ruleKey: 'promote_high_conversion' as const,
+        name: 'Promover alta conversão com pouco tráfego',
+        description: 'Escala produtos com conversão alta e poucas visitas.',
+        config: { min_conversion: 0.03, max_visits: 50, min_sales: 1 },
+      },
+      {
+        ruleKey: 'demote_high_acos' as const,
+        name: 'Descer curva com ACOS alto',
+        description: 'Reduz a curva quando o ACOS está acima do limite.',
+        config: { min_acos: 0.4, min_sales: 1 },
+      },
+    ];
+  }
+
+  private async ensureActionRuleDefaults(workspaceId: string): Promise<AutomationRule[]> {
+    await this.ensureSchema();
+    const pool = getPool();
+    const defaults = this.getDefaultActionRules();
+
+    for (const rule of defaults) {
+      await pool.query(
+        `insert into ml_ads_action_rules (
+          workspace_id, rule_key, name, description, enabled, config
+        ) values ($1,$2,$3,$4,true,$5::jsonb)
+        on conflict (workspace_id, rule_key) do update set
+          name = excluded.name,
+          description = excluded.description,
+          config = coalesce(ml_ads_action_rules.config, excluded.config),
+          updated_at = now()`,
+        [workspaceId, rule.ruleKey, rule.name, rule.description, JSON.stringify(rule.config)],
+      );
+    }
+
+    const { rows } = await pool.query<AutomationRule>(
+      `select id, workspace_id, rule_key, name, description, enabled, config
+       from ml_ads_action_rules
+       where workspace_id = $1
+       order by name asc`,
+      [workspaceId],
+    );
+    return rows;
+  }
+
   async listCurves(workspaceId: string): Promise<CurveRow[]> {
     return this.ensureCurveDefaults(workspaceId);
   }
 
-  private async fetchAdsMetricsByItem(workspaceId: string, itemIds: string[]): Promise<Map<string, {
-    cost: number;
-    clicks: number;
-    prints: number;
-    sales: number;
-    revenue: number;
-    cpc: number;
-    ctr: number;
-  }>> {
+  async listActionRules(workspaceId: string): Promise<AutomationRule[]> {
+    return this.ensureActionRuleDefaults(workspaceId);
+  }
+
+  async updateActionRules(
+    workspaceId: string,
+    rules: Array<{ ruleKey: AutomationRuleKey; enabled?: boolean; config?: Record<string, number> }>,
+  ): Promise<AutomationRule[]> {
+    await this.ensureActionRuleDefaults(workspaceId);
+    const pool = getPool();
+
+    for (const rule of rules) {
+      await pool.query(
+        `update ml_ads_action_rules
+         set enabled = coalesce($3, enabled),
+             config = coalesce($4::jsonb, config),
+             updated_at = now()
+         where workspace_id = $1 and rule_key = $2`,
+        [workspaceId, rule.ruleKey, rule.enabled ?? null, rule.config ? JSON.stringify(rule.config) : null],
+      );
+    }
+
+    const { rows } = await pool.query<AutomationRule>(
+      `select id, workspace_id, rule_key, name, description, enabled, config
+       from ml_ads_action_rules
+       where workspace_id = $1
+       order by name asc`,
+      [workspaceId],
+    );
+    return rows;
+  }
+
+  private async fetchAdsMetricsByItem(workspaceId: string, itemIds: string[]): Promise<{
+    metrics: Map<string, { cost: number; clicks: number; prints: number; sales: number; revenue: number; cpc: number; ctr: number }>;
+    error?: { message: string; status?: number };
+  }> {
     const result = new Map<string, { cost: number; clicks: number; prints: number; sales: number; revenue: number; cpc: number; ctr: number }>();
+    let error: { message: string; status?: number } | undefined;
 
     // Initialize with zeros
     for (const id of itemIds) {
@@ -522,7 +700,7 @@ export class MercadoAdsAutomationService {
       ({ advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId, { purpose: 'read' }));
     } catch (err: any) {
       const message = err?.message || '';
-      if (message === 'ml_ads_advertiser_unavailable' || message === 'ml_ads_missing_advertiser') {
+      if (message === 'ml_ads_advertiser_unavailable' || message === 'ml_ads_missing_advertiser' || message === 'ml_not_connected') {
         return result;
       }
       throw err;
@@ -578,24 +756,26 @@ export class MercadoAdsAutomationService {
         if (results.length === 0) break;
 
         for (const ad of results) {
-          const itemId = ad.item_id;
+          const itemId = ad.item_id || ad.itemId || ad.item?.id || ad.item?.item_id || ad.product_id || ad.productId;
           if (itemId && result.has(itemId)) {
             const current = result.get(itemId)!;
+            const metrics = ad.metrics || ad.metrics_summary || ad;
             // Acumula métricas (pode haver mais de um ad para o mesmo item em campanhas diferentes ou recriações)
-            current.clicks += Number(ad.clicks || 0);
-            current.prints += Number(ad.prints || 0);
-            current.cost += Number(ad.cost || 0);
-            current.sales += Number(ad.units_quantity || 0);
-            current.revenue += Number(ad.total_amount || 0);
+            current.clicks += Number(metrics.clicks || 0);
+            current.prints += Number(metrics.prints || 0);
+            current.cost += Number(metrics.cost || metrics.consumed_budget || 0);
+            current.sales += Number(metrics.units_quantity || metrics.sales || 0);
+            current.revenue += Number(metrics.total_amount || metrics.revenue || 0);
           } else if (itemId) {
             // Se o item não estava na lista inicial (itemIds), podemos ignorar ou adicionar?
             // Vamos adicionar para garantir completude se itemIds for apenas um subset
              const current = { cost: 0, clicks: 0, prints: 0, sales: 0, revenue: 0, cpc: 0, ctr: 0 };
-             current.clicks += Number(ad.clicks || 0);
-             current.prints += Number(ad.prints || 0);
-             current.cost += Number(ad.cost || 0);
-             current.sales += Number(ad.units_quantity || 0);
-             current.revenue += Number(ad.total_amount || 0);
+             const metrics = ad.metrics || ad.metrics_summary || ad;
+             current.clicks += Number(metrics.clicks || 0);
+             current.prints += Number(metrics.prints || 0);
+             current.cost += Number(metrics.cost || metrics.consumed_budget || 0);
+             current.sales += Number(metrics.units_quantity || metrics.sales || 0);
+             current.revenue += Number(metrics.total_amount || metrics.revenue || 0);
              result.set(itemId, current);
           }
         }
@@ -611,11 +791,15 @@ export class MercadoAdsAutomationService {
       }
 
     } catch (err) {
-      console.warn('[MercadoAds] Falha ao buscar métricas em lote (ads/search):', (err as any)?.message || err);
+      error = {
+        message: String((err as any)?.response?.data?.message || (err as any)?.response?.data?.error || (err as any)?.message || 'ads_metrics_failed'),
+        status: (err as any)?.response?.status,
+      };
+      console.warn('[MercadoAds] Falha ao buscar métricas em lote (ads/search):', error.message);
       // Fallback silencioso (retorna zeros) ou poderia tentar fallback individual
     }
 
-    return result;
+    return { metrics: result, error };
   }
 
   private pickCurve(metrics: { 
@@ -667,10 +851,22 @@ export class MercadoAdsAutomationService {
     return { curve: 'C' as const, action: 'active' as const, reason: `Teste: ${clicks} cliques (novo/sazonal)` };
   }
 
-  async classifyProducts(workspaceId: string): Promise<{ items: ClassifiedProduct[]; summary: Record<string, number> }> {
+  async classifyProducts(workspaceId: string): Promise<{
+    items: ClassifiedProduct[];
+    summary: Record<string, number>;
+    diagnostics: {
+      adsMetricsAvailable: boolean;
+      itemsWithMetrics: number;
+      demandMetricsAvailable: boolean;
+      itemsWithDemand: number;
+      totalItems: number;
+      adsMetricsError?: { message: string; status?: number };
+    };
+  }> {
     const pool = getPool();
     const { rows } = await pool.query(
-      `select id, ml_item_id, classification, revenue_30d, sales_30d, conversion_rate_30d, profit_unit, ads_active, title, sku
+      `select id, ml_item_id, classification, revenue_30d, sales_30d, visits_30d, conversion_rate_30d, profit_unit, ads_active, title, sku,
+              available_quantity, status, published_at, created_at, sold_quantity
        from products
        where workspace_id = $1
          and status != 'deleted'
@@ -679,21 +875,42 @@ export class MercadoAdsAutomationService {
     );
 
     const mlItemIds = rows.map((r) => r.ml_item_id as string);
-    const metricsByItem = await this.fetchAdsMetricsByItem(workspaceId, mlItemIds);
+    const { metrics: metricsByItem, error: adsMetricsError } = await this.fetchAdsMetricsByItem(workspaceId, mlItemIds);
     const items: ClassifiedProduct[] = [];
     const summary: Record<string, number> = { A: 0, B: 0, C: 0 };
+    let itemsWithMetrics = 0;
+    let itemsWithDemand = 0;
 
     for (const row of rows) {
       // NOTE: Estamos usando as métricas do Ads (metricsByItem) para decidir a curva, 
       // e não mais o revenue_30d/sales_30d gerais do produto que vinham do banco.
       const adsMetrics = metricsByItem.get(row.ml_item_id) || { cost: 0, clicks: 0, prints: 0, sales: 0, revenue: 0, cpc: 0, ctr: 0 };
       
-      const revenue = adsMetrics.revenue;
-      const sales = adsMetrics.sales;
-      const cost = adsMetrics.cost;
-      const clicks = adsMetrics.clicks;
-      const profitUnit = typeof row.profit_unit === 'number' ? row.profit_unit : null;
+      const revenue = Number(adsMetrics.revenue || 0);
+      const sales = Number(adsMetrics.sales || 0);
+      const cost = Number(adsMetrics.cost || 0);
+      const clicks = Number(adsMetrics.clicks || 0);
+      const prints = Number(adsMetrics.prints || 0);
+      const profitUnitRaw = row.profit_unit !== null && row.profit_unit !== undefined ? Number(row.profit_unit) : null;
+      const profitUnit = Number.isFinite(profitUnitRaw as number) ? (profitUnitRaw as number) : null;
       const classification = String(row.classification || '').toUpperCase();
+      const totalSales30d = Number(row.sales_30d || 0);
+      const totalRevenue30d = Number(row.revenue_30d || 0);
+      const visits30d = row.visits_30d !== null && row.visits_30d !== undefined ? Number(row.visits_30d) : null;
+      const conversionRateRaw = row.conversion_rate_30d !== null && row.conversion_rate_30d !== undefined
+        ? Number(row.conversion_rate_30d)
+        : null;
+      const conversionRate30d = conversionRateRaw !== null
+        ? conversionRateRaw
+        : visits30d !== null
+          ? (visits30d > 0 ? totalSales30d / visits30d : 0)
+          : null;
+      const lifetimeSales = Number(row.sold_quantity || 0);
+      const stock = row.available_quantity !== null && row.available_quantity !== undefined ? Number(row.available_quantity) : null;
+      const status = row.status ? String(row.status) : null;
+      const publishedAtRaw = row.published_at || row.created_at || null;
+      const publishedAt = publishedAtRaw ? new Date(publishedAtRaw).toISOString() : null;
+      const ageDays = publishedAtRaw ? Math.floor((Date.now() - new Date(publishedAtRaw).getTime()) / (1000 * 60 * 60 * 24)) : null;
 
       // Prefer the classification calculated pelo Analytics Full
       const decision = (() => {
@@ -711,7 +928,15 @@ export class MercadoAdsAutomationService {
       })();
 
       const productCurve = decision.curve;
-      const acos = revenue > 0 ? cost / revenue : cost > 0 ? Infinity : 0;
+      const adsAcosRaw = revenue > 0 ? cost / revenue : cost > 0 ? Infinity : 0;
+      const adsAcos = Number.isFinite(adsAcosRaw) ? adsAcosRaw : null;
+      const adsCtrRaw = prints > 0 ? clicks / prints : 0;
+      const adsCtr = Number.isFinite(adsCtrRaw) ? adsCtrRaw : null;
+      const adsCpcRaw = clicks > 0 ? cost / clicks : 0;
+      const adsCpc = Number.isFinite(adsCpcRaw) ? adsCpcRaw : null;
+      const hasMetrics = clicks > 0 || prints > 0 || cost > 0 || sales > 0 || revenue > 0;
+      if (hasMetrics) itemsWithMetrics += 1;
+      if (visits30d !== null) itemsWithDemand += 1;
 
       items.push({
         productId: row.id,
@@ -721,15 +946,452 @@ export class MercadoAdsAutomationService {
         sku: row.sku,
         reason: decision.reason,
         action: decision.action,
-        sales30d: sales,
-        revenue30d: revenue,
-        cost30d: cost,
-        acos,
+        adsClicks30d: clicks,
+        adsPrints30d: prints,
+        adsCtr,
+        adsCpc,
+        adsSales30d: sales,
+        adsRevenue30d: revenue,
+        adsCost30d: cost,
+        adsAcos,
+        lifetimeSales,
+        totalSales30d,
+        totalRevenue30d,
+        visits30d,
+        conversionRate30d,
+        profitUnit,
+        stock,
+        status,
+        publishedAt,
+        ageDays,
+        hasAdsMetrics: hasMetrics,
       });
       summary[productCurve] = (summary[productCurve] || 0) + 1;
     }
 
-    return { items, summary };
+    return {
+      items,
+      summary,
+      diagnostics: {
+        adsMetricsAvailable: itemsWithMetrics > 0,
+        itemsWithMetrics,
+        demandMetricsAvailable: itemsWithDemand > 0,
+        itemsWithDemand,
+        totalItems: rows.length,
+        adsMetricsError,
+      },
+    };
+  }
+
+  private buildActionId(action: PlannedAction) {
+    return `${action.ruleKey}:${action.productId}:${action.type}:${action.targetCurve || 'n/a'}`;
+  }
+
+  private getCurveRank(curve: 'A' | 'B' | 'C') {
+    return curve === 'A' ? 3 : curve === 'B' ? 2 : 1;
+  }
+
+  async planActions(workspaceId: string): Promise<{
+    rules: AutomationRule[];
+    actions: PlannedAction[];
+    summary: { pause: number; promote: number; demote: number };
+  }> {
+    const rules = await this.ensureActionRuleDefaults(workspaceId);
+    const rulesByKey = new Map<AutomationRuleKey, AutomationRule>();
+    rules.forEach((rule) => {
+      rulesByKey.set(rule.rule_key, rule);
+    });
+
+    const classification = await this.classifyProducts(workspaceId);
+    const actionsByProduct = new Map<string, { action: PlannedAction; priority: number }>();
+
+    const addAction = (action: PlannedAction, priority: number) => {
+      const existing = actionsByProduct.get(action.productId);
+      if (!existing || priority < existing.priority) {
+        actionsByProduct.set(action.productId, { action: { ...action, id: this.buildActionId(action) }, priority });
+      }
+    };
+
+    const curveUp: Record<'A' | 'B' | 'C', 'A' | 'B' | 'C' | null> = { A: null, B: 'A', C: 'B' };
+    const curveDown: Record<'A' | 'B' | 'C', 'A' | 'B' | 'C' | null> = { A: 'B', B: 'C', C: null };
+
+    for (const item of classification.items) {
+      const currentCurve = item.curve;
+      const adsSales = Number(item.adsSales30d || 0);
+      const adsClicks = Number(item.adsClicks30d || 0);
+      const adsAcos = item.adsAcos ?? null;
+      const visits = item.visits30d ?? null;
+      const totalSales = Number(item.totalSales30d || 0);
+      const conversionRate = item.conversionRate30d ?? (visits ? (visits > 0 ? totalSales / visits : 0) : null);
+
+      const rulePauseAds = rulesByKey.get('pause_no_sales_ads');
+      if (rulePauseAds?.enabled) {
+        const minClicks = Number(rulePauseAds.config?.min_clicks || 0);
+        if (item.hasAdsMetrics && adsSales === 0 && adsClicks >= minClicks) {
+          addAction({
+            id: '',
+            productId: item.productId,
+            mlItemId: item.mlItemId,
+            type: 'pause_ad',
+            currentCurve,
+            reason: `Sem vendas com ${adsClicks} cliques`,
+            ruleKey: 'pause_no_sales_ads',
+          }, 1);
+        }
+      }
+
+      const rulePauseDemand = rulesByKey.get('pause_no_sales_demand');
+      if (rulePauseDemand?.enabled) {
+        const minVisits = Number(rulePauseDemand.config?.min_visits || 0);
+        if (visits !== null && visits >= minVisits && totalSales === 0) {
+          addAction({
+            id: '',
+            productId: item.productId,
+            mlItemId: item.mlItemId,
+            type: 'pause_ad',
+            currentCurve,
+            reason: `Sem vendas com ${visits} visitas`,
+            ruleKey: 'pause_no_sales_demand',
+          }, 2);
+        }
+      }
+
+      const ruleDemote = rulesByKey.get('demote_high_acos');
+      if (ruleDemote?.enabled) {
+        const minAcos = Number(ruleDemote.config?.min_acos || 0);
+        const minSales = Number(ruleDemote.config?.min_sales || 0);
+        const targetCurve = curveDown[currentCurve];
+        if (targetCurve && item.hasAdsMetrics && adsAcos !== null && adsAcos >= minAcos && adsSales >= minSales) {
+          addAction({
+            id: '',
+            productId: item.productId,
+            mlItemId: item.mlItemId,
+            type: 'move_curve',
+            currentCurve,
+            targetCurve,
+            reason: `ACOS ${adsAcos.toFixed(2)} acima do limite`,
+            ruleKey: 'demote_high_acos',
+          }, 3);
+        }
+      }
+
+      const rulePromoteAds = rulesByKey.get('promote_good_ads');
+      if (rulePromoteAds?.enabled) {
+        const minSales = Number(rulePromoteAds.config?.min_sales || 0);
+        const maxAcos = Number(rulePromoteAds.config?.max_acos || 0);
+        const targetCurve = curveUp[currentCurve];
+        if (targetCurve && item.hasAdsMetrics && adsSales >= minSales && adsAcos !== null && adsAcos <= maxAcos) {
+          addAction({
+            id: '',
+            productId: item.productId,
+            mlItemId: item.mlItemId,
+            type: 'move_curve',
+            currentCurve,
+            targetCurve,
+            reason: `Ads com ${adsSales} vendas e ACOS ${adsAcos.toFixed(2)}`,
+            ruleKey: 'promote_good_ads',
+          }, 4);
+        }
+      }
+
+      const rulePromoteConv = rulesByKey.get('promote_high_conversion');
+      if (rulePromoteConv?.enabled) {
+        const minConv = Number(rulePromoteConv.config?.min_conversion || 0);
+        const maxVisits = Number(rulePromoteConv.config?.max_visits || 0);
+        const minSales = Number(rulePromoteConv.config?.min_sales || 0);
+        const targetCurve = curveUp[currentCurve];
+        if (targetCurve && conversionRate !== null && conversionRate >= minConv && visits !== null && visits <= maxVisits && totalSales >= minSales) {
+          addAction({
+            id: '',
+            productId: item.productId,
+            mlItemId: item.mlItemId,
+            type: 'move_curve',
+            currentCurve,
+            targetCurve,
+            reason: `Conversao ${(conversionRate * 100).toFixed(1)}% com baixo trafego`,
+            ruleKey: 'promote_high_conversion',
+          }, 5);
+        }
+      }
+    }
+
+    const actions = Array.from(actionsByProduct.values()).map((entry) => entry.action);
+    const summary = { pause: 0, promote: 0, demote: 0 };
+    actions.forEach((action) => {
+      if (action.type === 'pause_ad') summary.pause += 1;
+      if (action.type === 'move_curve' && action.targetCurve) {
+        const currentRank = this.getCurveRank(action.currentCurve);
+        const targetRank = this.getCurveRank(action.targetCurve);
+        if (targetRank > currentRank) summary.promote += 1;
+        if (targetRank < currentRank) summary.demote += 1;
+      }
+    });
+
+    return { rules, actions, summary };
+  }
+
+  async applyActions(workspaceId: string, actions: PlannedAction[]) {
+    if (!actions.length) {
+      return { applied: 0, skipped: 0, errors: [] as Array<{ productId: string; error: string }> };
+    }
+
+    const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
+    const pool = getPool();
+    const classification = await this.classifyProducts(workspaceId);
+    const productsById = new Map(classification.items.map((item) => [item.productId, item]));
+
+    const moveActions = actions.filter((action) => action.type === 'move_curve' && action.targetCurve);
+    let campaignsByCurve = new Map<'A' | 'B' | 'C', CampaignRow>();
+    if (moveActions.length > 0) {
+      const curves = await this.ensureCurveDefaults(workspaceId);
+      campaignsByCurve = await this.ensureCampaigns(workspaceId, advertiserId, siteId, curves);
+    } else {
+      const { rows } = await pool.query<CampaignRow>(
+        `select * from ml_ads_campaigns where workspace_id = $1 and ml_campaign_id is not null`,
+        [workspaceId],
+      );
+      campaignsByCurve = rows.reduce((acc, row) => {
+        if (row.curve && ['A', 'B', 'C'].includes(row.curve)) {
+          acc.set(row.curve as 'A' | 'B' | 'C', row);
+        }
+        return acc;
+      }, new Map<'A' | 'B' | 'C', CampaignRow>());
+    }
+
+    const { rows: campaignRows } = await pool.query<CampaignRow>(
+      `select * from ml_ads_campaigns where workspace_id = $1`,
+      [workspaceId],
+    );
+    const campaignById = new Map<string, CampaignRow>();
+    campaignRows.forEach((row) => campaignById.set(row.id, row));
+
+    let applied = 0;
+    let skipped = 0;
+    const errors: Array<{ productId: string; error: string }> = [];
+
+    for (const action of actions) {
+      const product = productsById.get(action.productId);
+      if (!product) {
+        skipped += 1;
+        errors.push({ productId: action.productId, error: 'product_not_found' });
+        continue;
+      }
+
+      if (action.type === 'pause_ad') {
+        const { rows } = await pool.query<{ ml_ad_id: string | null; campaign_id: string | null }>(
+          `select ml_ad_id, campaign_id
+           from ml_ads_campaign_products
+           where workspace_id = $1 and ml_item_id = $2
+           order by added_at desc
+           limit 1`,
+          [workspaceId, product.mlItemId],
+        );
+        const current = rows[0];
+        if (!current?.ml_ad_id || !current.campaign_id) {
+          skipped += 1;
+          errors.push({ productId: action.productId, error: 'ad_not_found' });
+          continue;
+        }
+        const campaign = campaignById.get(current.campaign_id);
+        if (!campaign?.ml_campaign_id || !campaign.curve) {
+          skipped += 1;
+          errors.push({ productId: action.productId, error: 'campaign_not_found' });
+          continue;
+        }
+        try {
+          await this.upsertProductAd(
+            workspaceId,
+            advertiserId,
+            siteId,
+            campaign,
+            campaign.curve as 'A' | 'B' | 'C',
+            {
+              ...product,
+              curve: campaign.curve as 'A' | 'B' | 'C',
+              action: 'paused',
+            },
+          );
+          applied += 1;
+        } catch (err: any) {
+          errors.push({ productId: action.productId, error: err?.message || 'pause_failed' });
+        }
+        continue;
+      }
+
+      if (action.type === 'move_curve' && action.targetCurve) {
+        const campaign = campaignsByCurve.get(action.targetCurve);
+        if (!campaign?.ml_campaign_id) {
+          skipped += 1;
+          errors.push({ productId: action.productId, error: 'target_campaign_missing' });
+          continue;
+        }
+        try {
+          await this.upsertProductAd(
+            workspaceId,
+            advertiserId,
+            siteId,
+            campaign,
+            action.targetCurve,
+            {
+              ...product,
+              curve: action.targetCurve,
+              action: 'active',
+            },
+          );
+          applied += 1;
+        } catch (err: any) {
+          errors.push({ productId: action.productId, error: err?.message || 'move_failed' });
+        }
+        continue;
+      }
+    }
+
+    return { applied, skipped, errors };
+  }
+
+  private async ensureWeeklyReportSettings(workspaceId: string): Promise<WeeklyReportSettings> {
+    await this.ensureSchema();
+    const pool = getPool();
+    const { rows } = await pool.query<WeeklyReportSettings>(
+      `select * from ml_ads_weekly_report_settings where workspace_id = $1 limit 1`,
+      [workspaceId],
+    );
+    if (rows[0]) return rows[0];
+
+    const { rows: inserted } = await pool.query<WeeklyReportSettings>(
+      `insert into ml_ads_weekly_report_settings (workspace_id, enabled, send_day, send_hour, channel)
+       values ($1, false, 1, 9, 'telegram')
+       returning *`,
+      [workspaceId],
+    );
+    return inserted[0];
+  }
+
+  async getWeeklyReportSettings(workspaceId: string) {
+    return this.ensureWeeklyReportSettings(workspaceId);
+  }
+
+  async updateWeeklyReportSettings(
+    workspaceId: string,
+    input: Partial<Pick<WeeklyReportSettings, 'enabled' | 'send_day' | 'send_hour' | 'channel'>>,
+  ) {
+    await this.ensureWeeklyReportSettings(workspaceId);
+    const pool = getPool();
+    const { rows } = await pool.query<WeeklyReportSettings>(
+      `update ml_ads_weekly_report_settings
+         set enabled = coalesce($2, enabled),
+             send_day = coalesce($3, send_day),
+             send_hour = coalesce($4, send_hour),
+             channel = coalesce($5, channel),
+             updated_at = now()
+       where workspace_id = $1
+       returning *`,
+      [workspaceId, input.enabled ?? null, input.send_day ?? null, input.send_hour ?? null, input.channel ?? null],
+    );
+    return rows[0];
+  }
+
+  async generateWeeklyReport(workspaceId: string) {
+    const metrics = await this.fetchCampaignMetrics(workspaceId).catch(() => null);
+    const daily = metrics?.daily || [];
+    const last7 = daily.slice(-7);
+    const sum = (key: keyof (typeof last7)[number]) => last7.reduce((acc, row) => acc + Number(row[key] || 0), 0);
+    const adsSummary = {
+      clicks: sum('clicks'),
+      prints: sum('prints'),
+      cost: sum('cost'),
+      revenue: sum('revenue'),
+      units: sum('units'),
+    };
+    const adsAcos = adsSummary.revenue > 0 ? adsSummary.cost / adsSummary.revenue : 0;
+    const adsRoas = adsSummary.cost > 0 ? adsSummary.revenue / adsSummary.cost : 0;
+
+    const pool = getPool();
+    const { rows } = await pool.query<{
+      sales_30d: string | number;
+      revenue_30d: string | number;
+      visits_30d: string | number;
+    }>(
+      `select
+         coalesce(sum(sales_30d), 0) as sales_30d,
+         coalesce(sum(revenue_30d), 0) as revenue_30d,
+         coalesce(sum(visits_30d), 0) as visits_30d
+       from products
+       where workspace_id = $1
+         and status != 'deleted'
+         and ml_item_id is not null`,
+      [workspaceId],
+    );
+    const totalsRow = rows[0] || { sales_30d: 0, revenue_30d: 0, visits_30d: 0 };
+    const totalSales30d = Number(totalsRow.sales_30d || 0);
+    const totalRevenue30d = Number(totalsRow.revenue_30d || 0);
+    const totalVisits30d = Number(totalsRow.visits_30d || 0);
+    const conversion30d = totalVisits30d > 0 ? totalSales30d / totalVisits30d : 0;
+
+    const actionPlan = await this.planActions(workspaceId);
+    const topPause = actionPlan.actions.filter((a) => a.type === 'pause_ad').slice(0, 5);
+    const topMoves = actionPlan.actions.filter((a) => a.type === 'move_curve').slice(0, 5);
+
+    return {
+      range: { from: metrics?.date_from || '', to: metrics?.date_to || '' },
+      ads: {
+        ...adsSummary,
+        acos: adsAcos,
+        roas: adsRoas,
+      },
+      totals: {
+        sales30d: totalSales30d,
+        revenue30d: totalRevenue30d,
+        visits30d: totalVisits30d,
+        conversion30d,
+      },
+      actions: actionPlan.summary,
+      highlights: {
+        pause: topPause,
+        moves: topMoves,
+      },
+    };
+  }
+
+  async sendWeeklyReport(workspaceId: string) {
+    const report = await this.generateWeeklyReport(workspaceId);
+    const formatCurrency = (value: number) =>
+      new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+    const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
+
+    const message = [
+      `<b>Relatorio semanal Mercado Ads</b>`,
+      report.range?.from && report.range?.to ? `Periodo Ads: ${report.range.from} a ${report.range.to}` : 'Periodo Ads: ultimos 7 dias',
+      '',
+      `<b>Ads (7d)</b>`,
+      `Vendas: ${report.ads.units} | Receita: ${formatCurrency(report.ads.revenue)} | ACOS: ${formatPercent(report.ads.acos)} | ROAS: ${report.ads.roas.toFixed(2)}`,
+      '',
+      `<b>Loja (30d)</b>`,
+      `Vendas: ${report.totals.sales30d} | Receita: ${formatCurrency(report.totals.revenue30d)} | Visitas: ${report.totals.visits30d} | Conv: ${formatPercent(report.totals.conversion30d)}`,
+      '',
+      `<b>Acoes sugeridas</b>`,
+      `Pausas: ${report.actions.pause} | Promocoes: ${report.actions.promote} | Reducoes: ${report.actions.demote}`,
+    ].join('\n');
+
+    const { TelegramNotificationService } = await import('../telegramNotification.service.js');
+    const sent = await TelegramNotificationService.sendCustomMessage(
+      workspaceId,
+      message,
+      'ads_weekly_report',
+      report.range?.to || null,
+    );
+
+    if (sent) {
+      const pool = getPool();
+      await pool.query(
+        `update ml_ads_weekly_report_settings
+           set last_sent_at = now()
+         where workspace_id = $1`,
+        [workspaceId],
+      );
+    }
+
+    return { sent, report };
   }
 
   private buildCampaignName(curve: 'A' | 'B' | 'C', override?: string | null) {

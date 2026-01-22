@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useMLBAnalyzer } from '@/hooks/useMLBAnalyzer';
 import { MLBAnalyzerInput } from '@/components/analyzer/MLBAnalyzerInput';
-import { CompetitorSearch } from '@/components/analyzer/CompetitorSearch';
 import { MLBAnalysisResults } from '@/components/analyzer/MLBAnalysisResults';
 import { MarketTrends } from "@/components/mercadolivre/MarketTrends";
 import { History, ShoppingBag } from 'lucide-react';
@@ -88,9 +87,8 @@ export default function MercadoLivreAnalyzer() {
 
             {!currentAnalysis && (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 max-w-[600px] mb-8 mx-auto">
+                    <TabsList className="grid w-full grid-cols-2 max-w-[480px] mb-8 mx-auto">
                         <TabsTrigger value="direct">Análise Direta</TabsTrigger>
-                        <TabsTrigger value="search">Buscar Concorrentes</TabsTrigger>
                         <TabsTrigger value="trends">Tendências de Mercado</TabsTrigger>
                     </TabsList>
 
@@ -104,20 +102,6 @@ export default function MercadoLivreAnalyzer() {
                         <MLBAnalyzerInput
                             onAnalyze={analyzeProduct}
                             isLoading={isAnalyzing}
-                        />
-                    </TabsContent>
-
-                    <TabsContent value="search" className="space-y-4">
-                        <div className="max-w-3xl mx-auto text-center mb-8">
-                            <h2 className="text-2xl font-semibold mb-2">Encontre seu Concorrente</h2>
-                            <p className="text-muted-foreground">
-                                Busque por palavras-chave para encontrar os anúncios mais relevantes e analisar suas estratégias.
-                            </p>
-                        </div>
-                        <CompetitorSearch
-                            onAnalyze={analyzeProduct}
-                            isAnalyzing={isAnalyzing}
-                            workspaceId={currentWorkspace?.id}
                         />
                     </TabsContent>
 

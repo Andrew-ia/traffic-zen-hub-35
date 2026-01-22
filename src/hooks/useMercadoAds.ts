@@ -84,6 +84,27 @@ type PlanResponse = {
   advertiserId: string;
 };
 
+type AutomationRule = {
+  id: string;
+  workspace_id: string;
+  rule_key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  config: Record<string, number>;
+};
+
+type PlannedAction = {
+  id: string;
+  productId: string;
+  mlItemId: string;
+  type: "pause_ad" | "move_curve";
+  currentCurve: "A" | "B" | "C";
+  targetCurve?: "A" | "B" | "C";
+  reason: string;
+  ruleKey: string;
+};
+
 const getAuthHeaders = (token?: string | null): HeadersInit => {
   const resolvedToken = token || localStorage.getItem("trafficpro.auth.token");
   return {
@@ -111,7 +132,7 @@ export function useMercadoAdsCampaigns(workspaceId: string | null) {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to fetch campaigns");
+        throw new Error(err.details || err.error || "Failed to fetch campaigns");
       }
       return resp.json();
     },
@@ -128,12 +149,39 @@ export function useMercadoAdsPreview(workspaceId: string | null) {
       title?: string | null;
       sku?: string | null;
       reason?: string;
-      sales30d?: number;
-      revenue30d?: number;
-      cost30d?: number;
-      acos?: number;
+      action?: "active" | "paused";
+      adsClicks30d?: number;
+      adsPrints30d?: number;
+      adsCtr?: number;
+      adsCpc?: number;
+      adsSales30d?: number;
+      adsRevenue30d?: number;
+      adsCost30d?: number;
+      adsAcos?: number;
+      lifetimeSales?: number;
+      totalSales30d?: number;
+      totalRevenue30d?: number;
+      visits30d?: number | null;
+      conversionRate30d?: number | null;
+      profitUnit?: number | null;
+      stock?: number | null;
+      status?: string | null;
+      publishedAt?: string | null;
+      ageDays?: number | null;
+      hasAdsMetrics?: boolean;
     }>;
     summary: Record<string, number>;
+    diagnostics?: {
+      adsMetricsAvailable: boolean;
+      itemsWithMetrics: number;
+      demandMetricsAvailable: boolean;
+      itemsWithDemand: number;
+      totalItems: number;
+      adsMetricsError?: {
+        message: string;
+        status?: number;
+      };
+    };
   }>({
     queryKey: ["mercado-ads", "preview", workspaceId, token],
     enabled: !!workspaceId && !!token,
@@ -146,7 +194,7 @@ export function useMercadoAdsPreview(workspaceId: string | null) {
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to preview automation");
+        throw new Error(err.details || err.error || "Failed to preview automation");
       }
       return resp.json();
     },
@@ -190,6 +238,154 @@ export function useApplyMercadoAdsAutomation() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns"] });
+    },
+  });
+}
+
+export function useMercadoAdsAutomationRules(workspaceId: string | null) {
+  const { token } = useAuth();
+  return useQuery<{ rules: AutomationRule[] }>({
+    queryKey: ["mercado-ads", "rules", workspaceId, token],
+    enabled: !!workspaceId && !!token,
+    queryFn: async () => {
+      if (!workspaceId) throw new Error("workspaceId is required");
+      const resp = await fetch(`/api/integrations/mercado-ads/automation/rules?workspaceId=${workspaceId}`, {
+        headers: getAuthHeaders(token),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to fetch rules");
+      }
+      return resp.json();
+    },
+  });
+}
+
+export function useUpdateMercadoAdsAutomationRules() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { workspaceId: string; rules: Array<{ ruleKey: string; enabled: boolean; config: Record<string, number> }> }) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/automation/rules`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({ workspaceId: input.workspaceId, rules: input.rules }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to update rules");
+      }
+      return resp.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "rules", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "actions", variables.workspaceId] });
+    },
+  });
+}
+
+export function useMercadoAdsActionPlan(workspaceId: string | null) {
+  const { token } = useAuth();
+  return useQuery<{
+    rules: AutomationRule[];
+    actions: PlannedAction[];
+    summary: { pause: number; promote: number; demote: number };
+  }>({
+    queryKey: ["mercado-ads", "actions", workspaceId, token],
+    enabled: !!workspaceId && !!token,
+    queryFn: async () => {
+      if (!workspaceId) throw new Error("workspaceId is required");
+      const resp = await fetch(`/api/integrations/mercado-ads/automation/actions/preview?workspaceId=${workspaceId}`, {
+        headers: getAuthHeaders(token),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to preview actions");
+      }
+      return resp.json();
+    },
+  });
+}
+
+export function useApplyMercadoAdsActions() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { workspaceId: string; actions: PlannedAction[] }) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/automation/actions/apply`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({ workspaceId: input.workspaceId, actions: input.actions }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to apply actions");
+      }
+      return resp.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "actions", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", variables.workspaceId] });
+    },
+  });
+}
+
+export function useMercadoAdsWeeklyReportSettings(workspaceId: string | null) {
+  const { token } = useAuth();
+  return useQuery<{ settings: { enabled: boolean; send_day: number; send_hour: number; channel: string; last_sent_at?: string | null } }>({
+    queryKey: ["mercado-ads", "weekly-settings", workspaceId, token],
+    enabled: !!workspaceId && !!token,
+    queryFn: async () => {
+      if (!workspaceId) throw new Error("workspaceId is required");
+      const resp = await fetch(`/api/integrations/mercado-ads/report/weekly/settings?workspaceId=${workspaceId}`, {
+        headers: getAuthHeaders(token),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to fetch weekly settings");
+      }
+      return resp.json();
+    },
+  });
+}
+
+export function useUpdateMercadoAdsWeeklyReportSettings() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { workspaceId: string; settings: { enabled: boolean; send_day: number; send_hour: number; channel: string } }) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/report/weekly/settings`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({ workspaceId: input.workspaceId, settings: input.settings }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to update weekly settings");
+      }
+      return resp.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "weekly-settings", variables.workspaceId] });
+    },
+  });
+}
+
+export function useSendMercadoAdsWeeklyReport() {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (workspaceId: string) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/report/weekly/send`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to send weekly report");
+      }
+      return resp.json();
     },
   });
 }

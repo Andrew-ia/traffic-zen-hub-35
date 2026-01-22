@@ -6,6 +6,8 @@ const ITEMS_BATCH_SIZE = 20;
 const ORDER_PAGE_LIMIT = 50;
 const MAX_ORDERS = 5000;
 const ITEM_STATUSES = ["active", "paused", "closed"];
+const VISITS_CONCURRENCY = Number(process.env.ML_VISITS_CONCURRENCY || 5);
+const VISITS_MAX_ITEMS = Number(process.env.ML_VISITS_MAX_ITEMS || 500);
 
 let schemaReady: Promise<void> | null = null;
 
@@ -108,6 +110,8 @@ async function ensureAnalyticsSchema() {
         `);
         await pool.query(`alter table products add column if not exists sales_30d integer default 0;`);
         await pool.query(`alter table products add column if not exists revenue_30d numeric(14,2) default 0;`);
+        await pool.query(`alter table products add column if not exists visits_30d integer default 0;`);
+        await pool.query(`alter table products add column if not exists conversion_rate_30d numeric(10,4) default 0;`);
         await pool.query(`alter table products add column if not exists profit_unit numeric(14,2) default 0;`);
         await pool.query(`alter table products add column if not exists ml_tax_rate numeric(6,4) default 0;`);
         await pool.query(`alter table products add column if not exists fixed_fee numeric(10,2) default 0;`);
@@ -224,6 +228,44 @@ async function fetchItemsDetails(workspaceId: string, itemIds: string[]): Promis
         });
     }
     return items;
+}
+
+async function fetchVisitsByItem(workspaceId: string, itemIds: string[], days: number): Promise<Map<string, number>> {
+    const visitsByItem = new Map<string, number>();
+    const uniqueItemIds = Array.from(new Set(itemIds.filter((id) => Boolean(id))));
+    if (uniqueItemIds.length === 0) return visitsByItem;
+
+    const dateTo = new Date();
+    const dateFrom = new Date();
+    const daysBack = Math.max(1, days);
+    dateFrom.setDate(dateFrom.getDate() - (daysBack - 1));
+
+    const dateFromStr = dateFrom.toISOString().split("T")[0];
+    const dateToStr = dateTo.toISOString().split("T")[0];
+
+    let index = 0;
+    const concurrency = Math.max(1, Math.min(VISITS_CONCURRENCY, uniqueItemIds.length));
+
+    const worker = async () => {
+        while (index < uniqueItemIds.length) {
+            const itemId = uniqueItemIds[index++];
+            if (!itemId) continue;
+            try {
+                const data = await requestWithAuth<any>(
+                    workspaceId,
+                    `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
+                    { params: { date_from: dateFromStr, date_to: dateToStr } }
+                );
+                const total = Number(data?.total_visits ?? data?.total ?? 0);
+                visitsByItem.set(itemId, total);
+            } catch (error) {
+                // Best-effort: keep missing to avoid overwriting existing visits.
+            }
+        }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    return visitsByItem;
 }
 
 async function fetchOrders(workspaceId: string, userId: string, days: number) {
@@ -467,6 +509,8 @@ export async function syncMercadoLivreProducts(
         metricsByItem?: Map<string, ItemMetricSummary>;
         fallbackItems?: Map<string, ItemMetricSummary>;
         includeMetrics?: boolean;
+        visitsByItem?: Map<string, number>;
+        days?: number;
     } = {}
 ): Promise<ProductSyncSummary> {
     await ensureAnalyticsSchema();
@@ -477,7 +521,14 @@ export async function syncMercadoLivreProducts(
         throw new Error("ml_not_connected");
     }
 
-    const { items: providedItems, metricsByItem, fallbackItems, includeMetrics = false } = options;
+    const {
+        items: providedItems,
+        metricsByItem,
+        fallbackItems,
+        includeMetrics = false,
+        visitsByItem,
+        days = 30
+    } = options;
 
     const itemIds = providedItems
         ? providedItems.map((item) => String(item.id))
@@ -488,9 +539,26 @@ export async function syncMercadoLivreProducts(
     const extraItemIds = metricsByItem ? Array.from(metricsByItem.keys()) : [];
     const fallbackItemIds = fallbackItems ? Array.from(fallbackItems.keys()) : [];
     const allItemIds = Array.from(new Set([...itemIds, ...extraItemIds, ...fallbackItemIds]));
+    const allItemIdsUnique = Array.from(new Set(allItemIds));
 
     const skus = items.map(extractSku).filter((sku): sku is string => Boolean(sku));
     const { existingByItemId, existingBySku } = await loadExistingProducts(pool, workspaceId, allItemIds, skus);
+
+    let visitsByItemMap: Map<string, number> | null = null;
+    if (includeMetrics) {
+        if (visitsByItem) {
+            visitsByItemMap = visitsByItem;
+        } else if (allItemIdsUnique.length > 0) {
+            const prioritizedIds = metricsByItem
+                ? Array.from(metricsByItem.entries())
+                    .sort((a, b) => Number(b[1]?.quantity || 0) - Number(a[1]?.quantity || 0))
+                    .map(([itemId]) => itemId)
+                : [];
+            const visitLimit = VISITS_MAX_ITEMS > 0 ? VISITS_MAX_ITEMS : allItemIdsUnique.length;
+            const visitItemIds = Array.from(new Set([...prioritizedIds, ...allItemIdsUnique])).slice(0, visitLimit);
+            visitsByItemMap = await fetchVisitsByItem(workspaceId, visitItemIds, days);
+        }
+    }
 
     const summary: ProductSyncSummary = {
         processed: 0,
@@ -522,8 +590,14 @@ export async function syncMercadoLivreProducts(
         const profitUnit = computeProfitUnit(price, taxRate, fixedFee, existing?.cost_price, existing?.overhead_cost, existing?.cac);
 
         const metrics = metricsByItem?.get(itemId);
-        const sales30d = includeMetrics ? Number(metrics?.quantity || 0) : undefined;
-        const revenue30d = includeMetrics ? Number(metrics?.revenue || 0) : undefined;
+        const sales30d = includeMetrics ? Number(metrics?.quantity || 0) : null;
+        const revenue30d = includeMetrics ? Number(metrics?.revenue || 0) : null;
+        const visits30d = includeMetrics && visitsByItemMap?.has(itemId)
+            ? Number(visitsByItemMap.get(itemId) || 0)
+            : null;
+        const conversionRate30d = visits30d !== null
+            ? (visits30d > 0 ? Number(sales30d || 0) / visits30d : 0)
+            : null;
 
         const pics = Array.isArray(item.pictures) ? item.pictures : [];
         const images = pics
@@ -557,6 +631,8 @@ export async function syncMercadoLivreProducts(
             item.status || null,
             includeMetrics ? revenue30d : null,
             includeMetrics ? sales30d : null,
+            includeMetrics ? visits30d : null,
+            includeMetrics ? conversionRate30d : null,
             profitUnit,
             taxRate,
             fixedFee
@@ -590,13 +666,15 @@ export async function syncMercadoLivreProducts(
                     status = $22,
                     revenue_30d = coalesce($23, revenue_30d),
                     sales_30d = coalesce($24, sales_30d),
-                    profit_unit = $25,
-                    ml_tax_rate = $26,
-                    fixed_fee = $27,
+                    visits_30d = coalesce($25, visits_30d),
+                    conversion_rate_30d = coalesce($26, conversion_rate_30d),
+                    profit_unit = $27,
+                    ml_tax_rate = $28,
+                    fixed_fee = $29,
                     published_on_ml = true,
-                    published_at = coalesce(published_at, $28),
+                    published_at = coalesce(published_at, $30),
                     updated_at = now()
-                where id = $29
+                where id = $31
                 `,
                 [
                     ...payload,
@@ -634,6 +712,8 @@ export async function syncMercadoLivreProducts(
                     status,
                     revenue_30d,
                     sales_30d,
+                    visits_30d,
+                    conversion_rate_30d,
                     profit_unit,
                     ml_tax_rate,
                     fixed_fee,
@@ -674,6 +754,8 @@ export async function syncMercadoLivreProducts(
                     $29,
                     $30,
                     $31,
+                    $32,
+                    $33,
                     now(),
                     now()
                 )
@@ -704,6 +786,8 @@ export async function syncMercadoLivreProducts(
                     item.status || null,
                     includeMetrics ? revenue30d : 0,
                     includeMetrics ? sales30d : 0,
+                    includeMetrics ? visits30d : null,
+                    includeMetrics ? conversionRate30d : null,
                     profitUnit,
                     taxRate,
                     fixedFee,
@@ -735,6 +819,12 @@ export async function syncMercadoLivreProducts(
             const profitUnit = computeProfitUnit(price, taxRate, fixedFee, existing?.cost_price, existing?.overhead_cost, existing?.cac);
             const sales30d = Number(metrics?.quantity || 0);
             const revenue30d = Number(metrics?.revenue || 0);
+            const visits30d = visitsByItemMap?.has(itemId)
+                ? Number(visitsByItemMap.get(itemId) || 0)
+                : null;
+            const conversionRate30d = visits30d !== null
+                ? (visits30d > 0 ? sales30d / visits30d : 0)
+                : null;
 
             if (existing?.id) {
                 await pool.query(
@@ -742,14 +832,18 @@ export async function syncMercadoLivreProducts(
                     update products set
                         sales_30d = $1,
                         revenue_30d = $2,
-                        profit_unit = $3,
-                        ml_tax_rate = $4,
-                        fixed_fee = $5
-                    where id = $6
+                        visits_30d = coalesce($3, visits_30d),
+                        conversion_rate_30d = coalesce($4, conversion_rate_30d),
+                        profit_unit = $5,
+                        ml_tax_rate = $6,
+                        fixed_fee = $7
+                    where id = $8
                     `,
                     [
                         sales30d,
                         revenue30d,
+                        visits30d,
+                        conversionRate30d,
                         profitUnit,
                         taxRate,
                         fixedFee,
@@ -768,6 +862,8 @@ export async function syncMercadoLivreProducts(
                         ml_listing_type,
                         revenue_30d,
                         sales_30d,
+                        visits_30d,
+                        conversion_rate_30d,
                         profit_unit,
                         ml_tax_rate,
                         fixed_fee,
@@ -787,6 +883,8 @@ export async function syncMercadoLivreProducts(
                         $9,
                         $10,
                         $11,
+                        $12,
+                        $13,
                         true,
                         now(),
                         now()
@@ -800,6 +898,8 @@ export async function syncMercadoLivreProducts(
                         listingTypeId,
                         revenue30d,
                         sales30d,
+                        visits30d,
+                        conversionRate30d,
                         profitUnit,
                         taxRate,
                         fixedFee,
@@ -836,7 +936,8 @@ export async function syncMercadoLivreAnalytics30d(workspaceId: string, days = 3
     const productsSummary = await syncMercadoLivreProducts(workspaceId, {
         metricsByItem,
         fallbackItems: fallbackByItem,
-        includeMetrics: true
+        includeMetrics: true,
+        days
     });
 
     return {

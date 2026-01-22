@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clock, Command as CommandIcon, ShoppingBag, TrendingUp, Package, Sparkles, Kanban } from "lucide-react";
+import { Clock, Command as CommandIcon, ShoppingBag, TrendingUp, Package, Sparkles } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -212,13 +212,6 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
           icon: Sparkles,
           shortcut: "L",
           action: () => onSelectRoute("/gerador-looks"),
-        },
-        {
-          label: "Projetos",
-          hint: "Abrir quadro e tarefas",
-          icon: Kanban,
-          shortcut: "J",
-          action: () => onSelectRoute("/projects"),
         },
       ];
     },
