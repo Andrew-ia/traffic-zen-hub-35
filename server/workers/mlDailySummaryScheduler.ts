@@ -241,7 +241,7 @@ async function fetchCancelledOrders(workspaceId: string, userId: string, dateFro
     const canceled = new Map<string, any>();
     const dateFromIso = dateFrom.toISOString();
     const dateToIso = dateTo.toISOString();
-    const statuses = ["cancelled", "canceled"];
+    const statuses = ["cancelled"];
 
     for (const status of statuses) {
         let offset = 0;
@@ -264,13 +264,19 @@ async function fetchCancelledOrders(workspaceId: string, userId: string, dateFro
             } catch (err) {
                 if (params.sort) {
                     delete params.sort;
-                    response = await requestWithAuth<any>(
-                        workspaceId,
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        { params }
-                    );
+                    try {
+                        response = await requestWithAuth<any>(
+                            workspaceId,
+                            `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                            { params }
+                        );
+                    } catch (retryErr) {
+                        console.warn(`[ML Daily Summary] Falha ao buscar cancelados (${status}):`, retryErr);
+                        break;
+                    }
                 } else {
-                    throw err;
+                    console.warn(`[ML Daily Summary] Falha ao buscar cancelados (${status}):`, err);
+                    break;
                 }
             }
 
