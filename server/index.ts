@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { startFullAnalyticsScheduler } from './workers/fullAnalyticsScheduler.js';
 import { startAdsWeeklyReportScheduler } from './workers/adsWeeklyReportScheduler.js';
+import { startMercadoLivreDailySummaryScheduler } from './workers/mlDailySummaryScheduler.js';
 import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
 import { getPool } from './config/database.js';
 import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
@@ -218,6 +219,7 @@ async function start() {
 
       startFullAnalyticsScheduler();
       startAdsWeeklyReportScheduler();
+      startMercadoLivreDailySummaryScheduler();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
