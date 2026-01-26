@@ -44,7 +44,8 @@ import {
     Eye,
     Info,
     DownloadCloud,
-    FileText
+    FileText,
+    RefreshCw
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
@@ -67,7 +68,9 @@ export default function Products() {
     const {
         data: productsData,
         isLoading,
-        error
+        error,
+        refetch,
+        isFetching
     } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch);
 
     const categoryOptions = useMemo(() => {
@@ -302,6 +305,33 @@ export default function Products() {
         const url = `/api/integrations/mercadolivre/products/export/xlsx?${params.toString()}`;
         window.open(url, "_blank");
     };
+
+    const handleRefreshProducts = async () => {
+        if (!workspaceId) return;
+        try {
+            const result = await refetch();
+            if (result.error) {
+                const message = result.error instanceof Error ? result.error.message : "Falha ao atualizar a lista.";
+                toast({
+                    title: "Erro ao atualizar",
+                    description: message,
+                    variant: "destructive",
+                });
+                return;
+            }
+            toast({
+                title: "Lista atualizada",
+                description: "Anúncios recarregados com sucesso.",
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Falha ao atualizar a lista.";
+            toast({
+                title: "Erro ao atualizar",
+                description: message,
+                variant: "destructive",
+            });
+        }
+    };
     
     // removido: exportação XLSX A4 por produto
 
@@ -332,6 +362,16 @@ export default function Products() {
                     <div className="bg-primary/10 text-primary px-4 py-2 rounded-lg font-medium text-sm border border-primary/20">
                         {totalProducts} produtos encontrados
                     </div>
+                    <Button
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleRefreshProducts}
+                        disabled={isFetching}
+                        title="Recarregar anúncios do Mercado Livre"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+                        {isFetching ? "Atualizando..." : "Atualizar lista"}
+                    </Button>
                     <Button variant="outline" size="sm" className="gap-2" onClick={() => handleDownloadXlsx()}>
                         <DownloadCloud className="h-4 w-4" />
                         Exportar XLSX

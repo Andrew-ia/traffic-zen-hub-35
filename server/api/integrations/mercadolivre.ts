@@ -3923,7 +3923,7 @@ router.get("/products/:productId/pdf", async (req, res) => {
                 .moveTo(doc.page.margins.left, lineY)
                 .lineTo(doc.page.width - doc.page.margins.right, lineY)
                 .lineWidth(0.5)
-                .strokeColor("#e5e7eb")
+                .strokeColor(isLabel ? "#000000" : "#e5e7eb")
                 .stroke();
             doc.moveDown(0.4);
             setLeft();
@@ -4072,13 +4072,15 @@ router.get("/products/:productId/pdf", async (req, res) => {
             price: string;
             imageBuffer: Buffer | null;
             features: Array<[string, string]>;
+            barcodeBuffer: Buffer | null;
+            quantity: string;
         }) => {
             // 1. Title (Centered, larger)
             setLeft();
             doc
                 .font("Helvetica-Bold")
                 .fontSize(14)
-                .fillColor("#111827")
+                .fillColor("#000000")
                 .text(opts.title || "Produto", {
                     width: contentWidth,
                     align: 'center',
@@ -4108,18 +4110,32 @@ router.get("/products/:productId/pdf", async (req, res) => {
 
             // 3. Info Block (SKU Prominent)
             const startInfoY = doc.y;
+            const skuBoxHeight = 45;
+            const barcodeAreaWidth = opts.barcodeBuffer ? Math.min(190, Math.floor(contentWidth * 0.6)) : 0;
+            const skuTextWidth = contentWidth - 20 - (barcodeAreaWidth ? barcodeAreaWidth + 6 : 0);
 
             // SKU Box
-            doc.roundedRect(doc.page.margins.left, startInfoY, contentWidth, 45, 4).fillAndStroke("#f9fafb", "#e5e7eb");
+            doc.roundedRect(doc.page.margins.left, startInfoY, contentWidth, skuBoxHeight, 4).fillAndStroke("#ffffff", "#000000");
 
-            doc.fillColor("#6b7280").font("Helvetica-Bold").fontSize(9).text("SKU / REFERÊNCIA", doc.page.margins.left + 10, startInfoY + 8);
-            doc.fillColor("#111827").font("Helvetica-Bold").fontSize(16).text(opts.sku || "-", doc.page.margins.left + 10, startInfoY + 22, { width: contentWidth - 20, ellipsis: true });
+            doc.fillColor("#000000").font("Helvetica-Bold").fontSize(9).text("SKU / REFERÊNCIA", doc.page.margins.left + 10, startInfoY + 8);
+            doc.fillColor("#000000").font("Helvetica-Bold").fontSize(16).text(opts.sku || "-", doc.page.margins.left + 10, startInfoY + 22, { width: skuTextWidth, ellipsis: true });
 
-            doc.y = startInfoY + 55;
+            if (opts.barcodeBuffer) {
+                const barcodeWidth = barcodeAreaWidth || 160;
+                const barcodeHeight = 24;
+                const barcodeX = doc.page.margins.left + 10 + skuTextWidth + 6;
+                const barcodeY = startInfoY + 16;
+                doc.image(opts.barcodeBuffer, barcodeX, barcodeY, {
+                    fit: [barcodeWidth, barcodeHeight],
+                    align: "center",
+                });
+            }
+
+            doc.y = startInfoY + skuBoxHeight + 10;
 
             // Secondary Info
             setLeft();
-            doc.font("Helvetica").fontSize(9).fillColor("#374151")
+            doc.font("Helvetica").fontSize(9).fillColor("#000000")
                 .text(`MLB: ${opts.id}   |   Variação: ${opts.variation || "-"}`, { align: 'center' });
 
             doc.moveDown(0.5);
@@ -4140,8 +4156,8 @@ router.get("/products/:productId/pdf", async (req, res) => {
                     const x = startX + col * (colWidth + colGap);
                     const y = startFeatY + row * 20;
 
-                    doc.font("Helvetica-Bold").fontSize(8).fillColor("#4b5563").text(label + ":", x, y, { continued: true });
-                    doc.font("Helvetica").fontSize(8).fillColor("#111827").text(" " + (value || "-"), { width: colWidth, lineBreak: false, ellipsis: true });
+                    doc.font("Helvetica-Bold").fontSize(8).fillColor("#000000").text(label + ":", x, y, { continued: true });
+                    doc.font("Helvetica").fontSize(8).fillColor("#000000").text(" " + (value || "-"), { width: colWidth, lineBreak: false, ellipsis: true });
                 });
 
                 doc.y = startFeatY + (Math.ceil(opts.features.slice(0, 8).length / 2) * 20) + 10;
@@ -4155,12 +4171,11 @@ router.get("/products/:productId/pdf", async (req, res) => {
             }
 
             // Draw a dashed box or line for quantity
-            doc.rect(doc.page.margins.left, doc.y, contentWidth, 40).strokeColor("#9ca3af").dash(4, { space: 2 }).stroke();
+            doc.rect(doc.page.margins.left, doc.y, contentWidth, 40).strokeColor("#000000").dash(4, { space: 2 }).stroke();
             doc.undash();
 
-            doc.font("Helvetica-Bold").fontSize(14).fillColor("#111827")
-                .text("QUANTIDADE:", doc.page.margins.left + 10, doc.y + 14, { continued: true })
-                .text("  _________", { align: 'right' }); // Manual fill space
+            doc.font("Helvetica-Bold").fontSize(14).fillColor("#000000")
+                .text(`QUANTIDADE: ${opts.quantity || "-"}`, doc.page.margins.left + 10, doc.y + 14);
         };
 
         const priceLabel = item.price ? `R$ ${item.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "-";
@@ -4199,7 +4214,43 @@ router.get("/products/:productId/pdf", async (req, res) => {
             .filter(([, v]) => String(v).trim() !== "-")
             .slice(0, isLabel ? 10 : 999) as Array<[string, string]>;
 
+        const sanitizeBarcodeText = (value?: string | null) => String(value || "").replace(/\D/g, "");
+        const resolveBarcodeType = (text: string) => {
+            if (text.length === 8) return "ean8";
+            if (text.length === 12) return "upca";
+            if (text.length === 13) return "ean13";
+            if (text.length >= 6) return "code128";
+            return null;
+        };
+
+        let barcodeBuffer: Buffer | null = null;
         if (isLabel) {
+            const barcodeText = sanitizeBarcodeText(universalCode);
+            const barcodeType = resolveBarcodeType(barcodeText);
+            if (barcodeType) {
+                try {
+                    const bwipjsModule = await import("bwip-js");
+                    const bwipjs = (bwipjsModule as any).default || bwipjsModule;
+                    barcodeBuffer = await bwipjs.toBuffer({
+                        bcid: barcodeType,
+                        text: barcodeText,
+                        scale: 2.4,
+                        height: 14,
+                        includetext: true,
+                        textxalign: "center",
+                        textsize: 10,
+                        backgroundcolor: "FFFFFF",
+                        barcolor: "000000",
+                    });
+                } catch (err) {
+                    console.warn("Falha ao gerar código de barras:", err);
+                }
+            }
+        }
+
+        if (isLabel) {
+            const initialQuantity = String((item as any).initial_quantity ?? item.available_quantity ?? "-");
+            const labelFeatures = mainFeatures.filter(([label]) => label !== "Material");
             renderLabelTag({
                 title: item.title || "Produto",
                 id: item.id,
@@ -4207,7 +4258,9 @@ router.get("/products/:productId/pdf", async (req, res) => {
                 variation: item.variations?.[0]?.id ? String(item.variations[0].id) : "-",
                 price: priceLabel,
                 imageBuffer,
-                features: mainFeatures.slice(0, 8),
+                features: labelFeatures.slice(0, 8),
+                barcodeBuffer,
+                quantity: initialQuantity,
             });
             doc.end();
             return;

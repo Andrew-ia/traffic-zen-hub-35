@@ -9,7 +9,7 @@ const ORDER_PAGE_LIMIT = 50;
 const MAX_ORDERS = 5000;
 
 const SUMMARY_ENABLED = String(process.env.ML_DAILY_SUMMARY_ENABLED || "true").toLowerCase() !== "false";
-const SUMMARY_HOUR = Number(process.env.ML_DAILY_SUMMARY_HOUR || 11);
+const SUMMARY_HOUR = Number(process.env.ML_DAILY_SUMMARY_HOUR || 23);
 const SUMMARY_MINUTE = Number(process.env.ML_DAILY_SUMMARY_MINUTE || 59);
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
