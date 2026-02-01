@@ -16,7 +16,7 @@ async function debugAuth() {
     // Simular o que o servidor faz: omitir redirect_uri para localhost
     // const redirectUri = "http://localhost:8080/integrations/mercadolivre/callback"; 
     // Em localhost, USAMOS A URL DA VERCEL
-    const redirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
+    const redirectUri = "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback";
 
     console.log('--- Debug Auth Exchange ---');
     console.log('Client ID:', clientId);

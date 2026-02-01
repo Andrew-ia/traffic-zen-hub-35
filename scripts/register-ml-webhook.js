@@ -66,7 +66,7 @@ async function refreshAccessToken() {
 const WEBHOOK_BASE_URL = (process.env.WEBHOOK_BASE_URL || '').trim();
 const NGROK_DOMAIN = (process.env.NGROK_DOMAIN || '').trim();
 const VERCEL_URL = (process.env.VERCEL_URL || '').trim();
-const DEFAULT_VERCEL = 'https://traffic-zen-hub-35.vercel.app';
+const DEFAULT_VERCEL = 'https://traffic-zen-hub-35-ten.vercel.app';
 const API_BASE = (process.env.API_BASE_URL || process.env.VITE_API_URL || process.env.FRONTEND_URL || '').trim();
 const SKIP_WEBHOOK_TEST = (process.env.SKIP_WEBHOOK_TEST || '').toLowerCase() === 'true';
 const WEBHOOK_HEALTH_URL = (process.env.WEBHOOK_HEALTH_URL || '').trim();

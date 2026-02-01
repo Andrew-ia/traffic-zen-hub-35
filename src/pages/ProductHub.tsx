@@ -81,6 +81,17 @@ function parseSizeEntries(value?: string | null): SizeEntry[] {
     .filter((entry) => entry.size || entry.quantity);
 }
 
+function hasSizeEntries(entries: SizeEntry[]) {
+  return entries.some((entry) => entry.size.trim() || entry.quantity.trim());
+}
+
+function isRingProduct(name?: string | null, entries?: SizeEntry[], sizesRaw?: string | null) {
+  if (entries && hasSizeEntries(entries)) return true;
+  if (sizesRaw && parseSizeEntries(sizesRaw).length > 0) return true;
+  const normalized = String(name || "").toLowerCase();
+  return normalized.includes("anel");
+}
+
 function serializeSizeEntries(entries: SizeEntry[]): string {
   const normalized = entries
     .map((entry) => ({
@@ -108,6 +119,8 @@ export default function ProductHub() {
 
   const [search, setSearch] = useState("");
   const [searchBy, setSearchBy] = useState<"name" | "mlb">("name");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 48;
   const [draftName, setDraftName] = useState("");
   const [draftItems, setDraftItems] = useState<DraftPurchaseItem[]>([]);
   const [draftOpen, setDraftOpen] = useState(false);
@@ -117,8 +130,8 @@ export default function ProductHub() {
   const { data, isLoading, isError } = useProductHub(workspaceId, {
     search: search.trim() || undefined,
     searchBy,
-    page: 1,
-    limit: 48,
+    page: currentPage,
+    limit: pageSize,
   });
   const { data: listsData, isLoading: listsLoading } = useProductHubPurchaseLists(workspaceId);
   const { data: listItemsData, isLoading: listItemsLoading } = useProductHubPurchaseListItems(
@@ -139,16 +152,6 @@ export default function ProductHub() {
     if (!assets || assets.length === 0) return null;
     const chosen = assets.find((a) => a.is_primary) || assets[0];
     return chosen?.url || null;
-  };
-
-  const hasSizeEntries = (entries: SizeEntry[]) =>
-    entries.some((entry) => entry.size.trim() || entry.quantity.trim());
-
-  const isRingProduct = (name?: string | null, entries?: SizeEntry[], sizesRaw?: string | null) => {
-    if (entries && hasSizeEntries(entries)) return true;
-    if (sizesRaw && parseSizeEntries(sizesRaw).length > 0) return true;
-    const normalized = String(name || "").toLowerCase();
-    return normalized.includes("anel");
   };
 
   const byPlatform = useMemo(() => {
@@ -508,7 +511,13 @@ export default function ProductHub() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-2">
-              <Select value={searchBy} onValueChange={(value) => setSearchBy(value as "name" | "mlb")}>
+              <Select
+                value={searchBy}
+                onValueChange={(value) => {
+                  setSearchBy(value as "name" | "mlb");
+                  setCurrentPage(1);
+                }}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Filtro" />
                 </SelectTrigger>
@@ -522,7 +531,10 @@ export default function ProductHub() {
                 <Input
                   placeholder={searchBy === "mlb" ? "Buscar por MLB (ex: MLB123)" : "Buscar por nome"}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
                 />
               </div>
             </div>
@@ -806,93 +818,121 @@ export default function ProductHub() {
               <p className="text-muted-foreground text-sm">Nenhum produto no hub ainda.</p>
             </div>
           ) : (
-            <ScrollArea className="h-[70vh]">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pr-3">
-                {items.map((product) => {
-                  const img = primaryImage(product.assets);
-                  const isDrafted = draftIds.has(product.id);
-                  return (
-                    <Card
-                      key={product.id}
-                      className="overflow-hidden hover:shadow-lg transition cursor-pointer"
-                      onClick={() => navigate(`/product-hub/${product.id}`)}
-                    >
-                      {img ? (
-                        <div className="h-40 w-full overflow-hidden bg-muted/40">
-                          <img
-                            src={img}
-                            alt={product.name}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-40 w-full bg-muted/40 flex items-center justify-center text-muted-foreground text-sm">
-                          Sem imagem
-                        </div>
-                      )}
-                      <CardContent className="space-y-2 pt-4">
-                        <div className="flex items-start gap-2">
-                          <Badge variant="outline" className="capitalize">{product.platform}</Badge>
-                          {product.sku && <Badge variant="secondary">SKU {product.sku}</Badge>}
-                        </div>
-                        <div className="font-semibold leading-tight line-clamp-2">{product.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {product.category || "Sem categoria"}
-                        </div>
-                        <div className="text-sm font-semibold">{formatCurrency(product.price)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          ID plataforma: {product.platform_product_id}
-                        </div>
-                        {product.assets && product.assets.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {product.assets.slice(0, 3).map((asset) => (
-                              <Badge key={asset.id} variant="outline" className="text-[11px]">
-                                {asset.type}
-                              </Badge>
-                            ))}
-                            {product.assets.length > 3 && (
-                              <Badge variant="outline" className="text-[11px]">
-                                +{product.assets.length - 3}
-                              </Badge>
-                            )}
+            <div className="space-y-4">
+              <ScrollArea className="h-[70vh]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pr-3">
+                  {items.map((product) => {
+                    const img = primaryImage(product.assets);
+                    const isDrafted = draftIds.has(product.id);
+                    return (
+                      <Card
+                        key={product.id}
+                        className="overflow-hidden hover:shadow-lg transition cursor-pointer"
+                        onClick={() => navigate(`/product-hub/${product.id}`)}
+                      >
+                        {img ? (
+                          <div className="h-40 w-full overflow-hidden bg-muted/40">
+                            <img
+                              src={img}
+                              alt={product.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-40 w-full bg-muted/40 flex items-center justify-center text-muted-foreground text-sm">
+                            Sem imagem
                           </div>
                         )}
-                        {product.platform === "mercadolivre" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => {
-                              const url = product.assets?.find((a) => a.type === "image")?.url;
-                              if (url) window.open(url, "_blank");
-                            }}
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Ver mídia
-                          </Button>
-                        )}
-                        {draftOpen && (
-                          <Button
-                            variant={isDrafted ? "secondary" : "outline"}
-                            size="sm"
-                            className="gap-2"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!isDrafted) addToDraft(product);
-                            }}
-                            disabled={isDrafted}
-                          >
-                            <Plus className="h-4 w-4" />
-                            {isDrafted ? "Adicionado" : "Adicionar à lista"}
-                          </Button>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </ScrollArea>
+                        <CardContent className="space-y-2 pt-4">
+                          <div className="flex items-start gap-2">
+                            <Badge variant="outline" className="capitalize">{product.platform}</Badge>
+                            {product.sku && <Badge variant="secondary">SKU {product.sku}</Badge>}
+                          </div>
+                          <div className="font-semibold leading-tight line-clamp-2">{product.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {product.category || "Sem categoria"}
+                          </div>
+                          <div className="text-sm font-semibold">{formatCurrency(product.price)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            ID plataforma: {product.platform_product_id}
+                          </div>
+                          {product.assets && product.assets.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {product.assets.slice(0, 3).map((asset) => (
+                                <Badge key={asset.id} variant="outline" className="text-[11px]">
+                                  {asset.type}
+                                </Badge>
+                              ))}
+                              {product.assets.length > 3 && (
+                                <Badge variant="outline" className="text-[11px]">
+                                  +{product.assets.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                          {product.platform === "mercadolivre" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => {
+                                const url = product.assets?.find((a) => a.type === "image")?.url;
+                                if (url) window.open(url, "_blank");
+                              }}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Ver mídia
+                            </Button>
+                          )}
+                          {draftOpen && (
+                            <Button
+                              variant={isDrafted ? "secondary" : "outline"}
+                              size="sm"
+                              className="gap-2"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (!isDrafted) addToDraft(product);
+                              }}
+                              disabled={isDrafted}
+                            >
+                              <Plus className="h-4 w-4" />
+                              {isDrafted ? "Adicionado" : "Adicionar à lista"}
+                            </Button>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+
+              {data?.totalPages && data.totalPages > 1 && (
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Página {currentPage} de {data.totalPages}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min(data.totalPages, p + 1))}
+                      disabled={currentPage === data.totalPages}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

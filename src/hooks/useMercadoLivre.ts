@@ -91,6 +91,91 @@ export interface MercadoLivreMetrics {
     }>;
 }
 
+export interface MercadoLivreGrowthMetricComparison {
+    current: number;
+    previous: number;
+    delta: number;
+    deltaPct: number | null;
+}
+
+export interface MercadoLivreGrowthItem {
+    ml_item_id: string;
+    sku?: string | null;
+    title?: string | null;
+    visits: number;
+    units: number;
+    revenue: number;
+    conversion: number | null;
+    prevVisits?: number;
+    prevConversion?: number | null;
+}
+
+export interface MercadoLivreSkuPlan {
+    ml_item_id: string;
+    sku?: string | null;
+    title?: string | null;
+    visits: number;
+    units: number;
+    revenue: number;
+    conversion: number | null;
+    prevVisits?: number;
+    prevConversion?: number | null;
+    price?: number | null;
+    stock?: number | null;
+    logistic_type?: string | null;
+    status?: string | null;
+    priority: "A" | "B" | "C" | "D";
+    diagnosis: string;
+    actions: string[];
+    priceTests?: { current: number; t1: number; t2: number; t3: number } | null;
+    flags?: string[];
+}
+
+export interface MercadoLivreGrowthPeriod {
+    days: number;
+    range: { from: string; to: string; previousFrom: string; previousTo: string };
+    summary: {
+        revenue: MercadoLivreGrowthMetricComparison;
+        orders: MercadoLivreGrowthMetricComparison;
+        units: MercadoLivreGrowthMetricComparison;
+        visits: MercadoLivreGrowthMetricComparison;
+        conversion: MercadoLivreGrowthMetricComparison;
+    };
+    topVisitDrop: MercadoLivreGrowthItem[];
+    topConversionDrop: MercadoLivreGrowthItem[];
+    opportunities: MercadoLivreGrowthItem[];
+    lowTrafficHighConversion: MercadoLivreGrowthItem[];
+}
+
+export interface MercadoLivreGrowthReport {
+    generatedAt: string;
+    workspaceId: string;
+    executiveSummary: {
+        headline: string;
+        mainCauses: string[];
+        metrics: {
+            revenue: MercadoLivreGrowthMetricComparison;
+            orders: MercadoLivreGrowthMetricComparison;
+            visits: MercadoLivreGrowthMetricComparison;
+            conversion: MercadoLivreGrowthMetricComparison;
+        };
+    };
+    periods: MercadoLivreGrowthPeriod[];
+    ads?: {
+        periods: Array<{
+            days: number;
+            range: { from: string; to: string; previousFrom: string; previousTo: string };
+            summary: Record<string, MercadoLivreGrowthMetricComparison>;
+        }>;
+        leaks: Array<{ ml_item_id: string; title?: string | null; cost: number; sales: number; revenue: number }>;
+    };
+    actions: Array<{ title: string; impact: "high" | "medium" | "low"; effort: "low" | "medium" | "high"; category: string }>;
+    checklist: string[];
+    productOpportunityRanking: MercadoLivreGrowthItem[];
+    skuPlans: MercadoLivreSkuPlan[];
+    notes: string[];
+}
+
 // Interface para produtos
 export interface MercadoLivreProduct {
     id: string;
@@ -429,6 +514,54 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
         enabled: !!effectiveWorkspaceId && isConnected,
         retry: shouldRetry,
         staleTime: 5 * 60 * 1000, // 5 minutos
+    });
+}
+
+/**
+ * Hook para buscar relatório executivo de growth do Mercado Livre
+ */
+export function useMercadoLivreGrowthReport(
+    workspaceId: string | null,
+    options?: { periods?: number[]; topN?: number }
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "growth-report", effectiveWorkspaceId, options?.periods?.join(","), options?.topN],
+        queryFn: async (): Promise<MercadoLivreGrowthReport> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+
+            const params = new URLSearchParams({ workspaceId: effectiveWorkspaceId });
+            if (options?.periods?.length) {
+                params.append("periods", options.periods.join(","));
+            }
+            if (options?.topN) {
+                params.append("topN", String(options.topN));
+            }
+
+            const response = await fetch(`/api/integrations/mercadolivre/growth-report?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch growth report (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 5 * 60 * 1000,
     });
 }
 

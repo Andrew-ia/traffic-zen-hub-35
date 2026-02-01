@@ -29,7 +29,7 @@ export default function MercadoLivreAnalyzer() {
     const [activeTab, setActiveTab] = useState("direct");
 
     return (
-        <div className="container mx-auto py-8 space-y-8 animate-fade-in">
+        <div className="w-full px-4 md:px-6 py-8 space-y-8 animate-fade-in">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-yellow-500 to-yellow-600 flex items-center gap-2">

@@ -164,7 +164,7 @@ export default function MercadoLivrePriceCalculator() {
     };
 
     return (
-        <div className="container mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
+        <div className="w-full px-4 md:px-6 py-6 space-y-6">
             <div className="flex items-center gap-3">
                 <TrendingUp className="w-10 h-10 text-amber-500" />
                 <div>

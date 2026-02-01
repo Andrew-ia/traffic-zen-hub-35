@@ -104,7 +104,7 @@ export default function MercadoLivreCallback() {
     };
 
     return (
-        <div className="container mx-auto py-8 px-4 max-w-3xl">
+        <div className="w-full px-4 md:px-6 py-8">
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">

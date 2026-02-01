@@ -79,7 +79,7 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDel
   throw lastError || new Error('Max retries exceeded');
 }
 
-function buildPrompt(aspectRatio: AspectRatio = '9:16', brandName: string = 'Vermezzo') {
+function buildPrompt(aspectRatio: AspectRatio = '9:16') {
   const dims: Record<AspectRatio, { w: number; h: number }> = {
     '1:1': { w: 1080, h: 1080 },
     '9:16': { w: 1080, h: 1920 },
@@ -100,45 +100,12 @@ Requirements:
 Output:
 - Portrait photo in ${aspectRatio} aspect ratio (strictly match this framing)
 - Target resolution ${w}x${h} pixels
-
-DEPOIS de gerar a imagem, analise a ROUPA que você colocou na modelo e crie uma legenda ATRAENTE e VENDEDORA para um post de Instagram da marca "${brandName}".
-
-INSTRUÇÕES PARA A LEGENDA:
-1. COMECE falando DIRETAMENTE sobre a ROUPA (não sobre a modelo)
-2. Descreva o ESTILO, CAIMENTO e VERSATILIDADE da peça
-3. Use um tom casual, elegante e moderno
-4. Destaque conforto, elegância e ocasiões de uso da ROUPA
-5. Use emojis estrategicamente (2-4 no máximo)
-6. Foque em criar DESEJO de comprar essa PEÇA
-7. Inclua call-to-action forte no final
-8. Seja específico sobre a ROUPA, não genérico
-
-FORMATO DA LEGENDA:
-✨ [Nome da Peça/Roupa] ✨
-
-[Parágrafo 1: Descreva a ROUPA - seu estilo, caimento, detalhes especiais]
-
-[Parágrafo 2: Benefícios e versatilidade da PEÇA - como usar, com o que combinar]
-
-👉 Perfeita para: [Ocasiões específicas]
-✨ Dica de styling: [Como combinar essa PEÇA]
-
-🛍️ Disponível na ${brandName}
-📍 Loja física e online
-💬 [Call-to-action forte]
-
-IMPORTANTE:
-- NÃO fale sobre "a modelo está linda" ou "o look completo"
-- NÃO invente preços específicos
-- FOQUE na ROUPA como produto a ser vendido
-
-Retorne a imagem gerada E a legenda como texto.`;
+`;
 }
 
-function extractImagesAndCaptionFromResponse(response: any): { images: string[]; caption: string | null } {
+function extractImagesFromResponse(response: any): string[] {
   const candidates = response?.candidates ?? [];
   const images: string[] = [];
-  let caption: string | null = null;
 
   for (const candidate of candidates) {
     const parts = candidate?.content?.parts ?? [];
@@ -151,14 +118,10 @@ function extractImagesAndCaptionFromResponse(response: any): { images: string[];
           images.push(`data:${mimeType};base64,${data}`);
         }
       }
-      // Extract text (caption)
-      if (part && typeof part === 'object' && 'text' in part && part.text) {
-        caption = part.text;
-      }
     }
   }
 
-  return { images, caption };
+  return images;
 }
 
 async function generateSingleImage(
@@ -167,14 +130,13 @@ async function generateSingleImage(
   clothingBase64: string,
   clothingMimeType: string,
   aspectRatio: AspectRatio,
-  brandName: string = 'Vermezzo',
-): Promise<{ image: string; caption: string | null }> {
+): Promise<string> {
   const genAI = getGeminiClient();
   if (!genAI) {
     throw new Error('Servidor sem GEMINI_API_KEY configurada.');
   }
 
-  const prompt = buildPrompt(aspectRatio, brandName);
+  const prompt = buildPrompt(aspectRatio);
 
   const imageParts = [
     { inlineData: { data: modelBase64, mimeType: modelMimeType } },
@@ -190,8 +152,7 @@ async function generateSingleImage(
         contents,
       });
 
-      const { images, caption } = extractImagesAndCaptionFromResponse(result.response);
-      console.log(`📝 Caption extracted:`, caption ? caption.substring(0, 100) + '...' : 'NULL');
+      const images = extractImagesFromResponse(result.response);
       if (images.length === 0) {
         const textResponse = result.response?.text?.();
         throw new Error(
@@ -200,7 +161,7 @@ async function generateSingleImage(
             : 'Resposta do modelo sem imagens.',
         );
       }
-      return { image: images[0], caption };
+      return images[0];
     });
 
   try {
@@ -228,27 +189,23 @@ async function generateImages(
   clothingMimeType: string,
   aspectRatio: AspectRatio,
   count: number,
-  brandName: string = 'Vermezzo',
-): Promise<{ images: string[]; captions: string[] }> {
+): Promise<{ images: string[] }> {
   const variationsRequested = Math.min(Math.max(count, 1), MAX_VARIATIONS);
   const images: string[] = [];
-  const captions: string[] = [];
   const maxAttempts = variationsRequested + 3;
 
   let attempts = 0;
   while (images.length < variationsRequested && attempts < maxAttempts) {
-    const { image, caption } = await generateSingleImage(
+    const image = await generateSingleImage(
       modelBase64,
       modelMimeType,
       clothingBase64,
       clothingMimeType,
       aspectRatio,
-      brandName,
     );
 
     if (!images.includes(image)) {
       images.push(image);
-      captions.push(caption || '');
     }
     attempts += 1;
 
@@ -259,7 +216,6 @@ async function generateImages(
 
   return {
     images: images.slice(0, variationsRequested),
-    captions: captions.slice(0, variationsRequested),
   };
 }
 
@@ -282,10 +238,9 @@ export async function virtualTryOn(req: Request, res: Response) {
       clothingMimeType,
       aspectRatio = '9:16',
       count = 1,
-      brandName = 'Vermezzo',
     } = req.body as TryOnRequestBody;
 
-    console.log(`📸 Processing: aspectRatio=${aspectRatio}, count=${count}, brand=${brandName}`);
+    console.log(`📸 Processing: aspectRatio=${aspectRatio}, count=${count}`);
 
     if (!modelBase64 || !modelMimeType || !clothingBase64 || !clothingMimeType) {
       return res.status(400).json({ success: false, error: 'Campos obrigatórios ausentes.' });
@@ -302,24 +257,21 @@ export async function virtualTryOn(req: Request, res: Response) {
         ? count
         : parseInt(String(count), 10) || 1;
 
-    console.log(`🚀 Calling Gemini API to generate ${requestedCount} image(s) with captions...`);
-    const { images, captions } = await generateImages(
+    console.log(`🚀 Calling Gemini API to generate ${requestedCount} image(s)...`);
+    const { images } = await generateImages(
       modelBase64,
       modelMimeType,
       clothingBase64,
       clothingMimeType,
       aspectRatio as AspectRatio,
       requestedCount,
-      brandName,
     );
 
-    console.log(`✅ Generated ${images.length} image(s) successfully with captions`);
+    console.log(`✅ Generated ${images.length} image(s) successfully`);
     return res.json({
       success: true,
       images,
       image: images[0],
-      captions,
-      caption: captions[0],
       count: images.length,
     });
   } catch (error: any) {

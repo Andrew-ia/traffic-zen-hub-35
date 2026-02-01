@@ -6,15 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Camera, Loader2, Download, Upload, X, Trash2, Folder, FileText, Copy, Check } from 'lucide-react';
+import { Sparkles, Camera, Loader2, Download, Upload, X, Trash2, Folder } from 'lucide-react';
 import { generateVariations, type AspectRatio } from '@/services/virtualTryOnService';
 import { useTryOnLooks, useDeleteTryOnLook } from '@/hooks/useTryOnLooks';
-import { useGenerateLookCaption } from '@/hooks/useGenerateLookCaption';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useToast } from '@/hooks/use-toast';
 
 export default function VirtualTryOn() {
   const [activeTab, setActiveTab] = useState('generate');
@@ -36,13 +32,6 @@ export default function VirtualTryOn() {
 
   const { data: looksData, isLoading: isLoadingLooks, refetch: refetchLooks } = useTryOnLooks();
   const deleteLookMutation = useDeleteTryOnLook();
-  const generateCaptionMutation = useGenerateLookCaption();
-  const { toast } = useToast();
-
-  const [captionModalOpen, setCaptionModalOpen] = useState(false);
-  const [selectedFolder, setSelectedFolder] = useState<any>(null);
-  const [generatedCaption, setGeneratedCaption] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
 
   const handleModelFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
@@ -157,7 +146,7 @@ export default function VirtualTryOn() {
         );
       }
 
-      // Auto-save generated images to database WITH captions
+      // Auto-save generated images to database
       if (result.images.length > 0) {
         try {
           const response = await fetch(`${API_BASE}/api/creatives/save-tryon`, {
@@ -167,7 +156,6 @@ export default function VirtualTryOn() {
             },
             body: JSON.stringify({
               images: result.images,
-              captions: result.captions,
               workspaceId: WORKSPACE_ID,
               modelName: modelFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
               clothingName: clothingFile.name.replace(/\.[^/.]+$/, ''), // Remove extension
@@ -178,7 +166,7 @@ export default function VirtualTryOn() {
 
           const saveResult = await response.json();
           if (saveResult.success) {
-            console.log(`✅ ${saveResult.savedCount} imagens salvas automaticamente com legendas`);
+            console.log(`✅ ${saveResult.savedCount} imagens salvas automaticamente`);
             // Refetch looks after saving
             refetchLooks();
           } else {
@@ -219,49 +207,9 @@ export default function VirtualTryOn() {
     }
   }, [deleteLookMutation]);
 
-  const handleGenerateCaption = useCallback(async (folder: any) => {
-    setSelectedFolder(folder);
-    setCaptionModalOpen(true);
-
-    // Busca a legenda já gerada do metadata da primeira imagem
-    const firstImage = folder.images?.[0];
-    const existingCaption = firstImage?.metadata?.caption;
-
-    if (existingCaption) {
-      // Se já tem legenda salva, mostra ela
-      setGeneratedCaption(existingCaption);
-      toast({
-        title: 'Legenda carregada!',
-        description: 'Texto foi gerado junto com a imagem',
-      });
-    } else {
-      setGeneratedCaption('Nenhuma legenda foi gerada para este look.');
-    }
-  }, [toast]);
-
-  const handleCopyCaption = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(generatedCaption);
-      setIsCopied(true);
-
-      toast({
-        title: 'Texto copiado!',
-        description: 'Legenda copiada para a área de transferência',
-      });
-
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch (error) {
-      toast({
-        title: 'Erro ao copiar',
-        description: 'Não foi possível copiar o texto',
-        variant: 'destructive',
-      });
-    }
-  }, [generatedCaption, toast]);
-
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <header className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-500 rounded-full mb-4">
@@ -501,24 +449,6 @@ export default function VirtualTryOn() {
                             </p>
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleGenerateCaption(folder)}
-                          disabled={generateCaptionMutation.isPending}
-                        >
-                          {generateCaptionMutation.isPending && selectedFolder?.name === folder.name ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Gerando...
-                            </>
-                          ) : (
-                            <>
-                              <FileText className="w-4 h-4 mr-2" />
-                              Gerar Texto
-                            </>
-                          )}
-                        </Button>
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -556,65 +486,6 @@ export default function VirtualTryOn() {
             )}
           </TabsContent>
         </Tabs>
-
-        {/* Caption Modal */}
-        <Dialog open={captionModalOpen} onOpenChange={setCaptionModalOpen}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Texto Gerado para {selectedFolder?.name}</DialogTitle>
-              <DialogDescription>
-                Legenda criada com IA para compartilhar nas redes sociais
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              {generateCaptionMutation.isPending && !generatedCaption ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-500" />
-                    <p className="text-muted-foreground">Gerando texto com IA...</p>
-                  </div>
-                </div>
-              ) : generatedCaption ? (
-                <>
-                  <Textarea
-                    value={generatedCaption}
-                    onChange={(e) => setGeneratedCaption(e.target.value)}
-                    rows={12}
-                    className="font-mono text-sm"
-                  />
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={handleCopyCaption}
-                      disabled={!generatedCaption}
-                    >
-                      {isCopied ? (
-                        <>
-                          <Check className="w-4 h-4 mr-2" />
-                          Copiado!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copiar Texto
-                        </>
-                      )}
-                    </Button>
-                    <Button onClick={() => handleGenerateCaption(selectedFolder)}>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Gerar Novamente
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-muted-foreground text-center py-6">
-                  Nenhum texto gerado ainda
-                </p>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* Footer */}
         <footer className="text-center py-6 text-muted-foreground/50 mt-12">

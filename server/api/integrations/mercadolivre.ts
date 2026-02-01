@@ -1,6 +1,8 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import axios from "axios";
+import type { AxiosRequestConfig, AxiosResponse } from "axios";
+import { Agent as HttpsAgent } from "https";
 import FormData from "form-data";
 import PDFDocument from "pdfkit";
 import * as XLSX from "xlsx";
@@ -14,6 +16,7 @@ import { resolveWorkspaceId } from "../../utils/workspace.js";
 import { TelegramNotificationService } from "../../services/telegramNotification.service.js";
 import { MarketAnalysisService } from "../../services/mercadolivre/market-analysis.service.js";
 import { syncMercadoLivreAnalytics30d, syncMercadoLivreProducts } from "../../services/mercadolivre/analytics-30d.service.js";
+import { buildMercadoLivreGrowthReport, renderGrowthReportHtml, renderGrowthReportMarkdown } from "../../services/mercadolivre/growth-report.service.js";
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
@@ -74,6 +77,26 @@ const broadcastOrderEvent = (workspaceId: string, payload: unknown) => {
 // Base URL da API do Mercado Livre
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
 const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
+const ML_HTTP_TIMEOUT_MS = Number(process.env.ML_HTTP_TIMEOUT_MS || 12000);
+const ML_HTTP_RETRY_MAX = Number(process.env.ML_HTTP_RETRY_MAX || 2);
+const ML_HTTP_RETRY_BASE_MS = Number(process.env.ML_HTTP_RETRY_BASE_MS || 400);
+const ML_HTTP_RETRY_JITTER_MS = Number(process.env.ML_HTTP_RETRY_JITTER_MS || 250);
+const ML_HTTP_MAX_SOCKETS = Number(process.env.ML_HTTP_MAX_SOCKETS || 24);
+const ML_HTTP_KEEPALIVE = process.env.ML_HTTP_KEEPALIVE !== "false";
+const ML_HTTP_PROBE_TIMEOUT_MS = Number(process.env.ML_HTTP_PROBE_TIMEOUT_MS || 3500);
+
+const mlHttpsAgent = new HttpsAgent({
+    keepAlive: ML_HTTP_KEEPALIVE,
+    maxSockets: ML_HTTP_MAX_SOCKETS,
+    maxFreeSockets: Math.min(ML_HTTP_MAX_SOCKETS, 10),
+    keepAliveMsecs: 1000,
+});
+
+const mlAxios = axios.create({
+    baseURL: MERCADO_LIVRE_API_BASE,
+    timeout: ML_HTTP_TIMEOUT_MS,
+    httpsAgent: mlHttpsAgent,
+});
 
 // Cache simples para categorias do Mercado Livre
 const CATEGORIES_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
@@ -118,6 +141,91 @@ const formatAxiosError = (error: any) => ({
     code: error?.response?.data?.error || error?.code,
     message: error?.response?.data?.message || error?.message || "Unknown error",
 });
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const parseRetryAfterMs = (value: any) => {
+    if (!value) return null;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric * 1000;
+    }
+    const parsed = Date.parse(String(value));
+    if (!Number.isNaN(parsed)) {
+        return Math.max(0, parsed - Date.now());
+    }
+    return null;
+};
+
+const isRetryableMlError = (error: any) => {
+    const status = error?.response?.status;
+    if ([408, 429, 500, 502, 503, 504].includes(Number(status))) {
+        return true;
+    }
+    const code = String(error?.code || "");
+    if ([
+        "ETIMEDOUT",
+        "ECONNRESET",
+        "EAI_AGAIN",
+        "ENOTFOUND",
+        "ECONNABORTED",
+        "EPIPE",
+    ].includes(code)) {
+        return true;
+    }
+    const message = String(error?.message || "").toLowerCase();
+    return message.includes("socket hang up") || message.includes("network error");
+};
+
+const isIdempotentMethod = (method?: string) => {
+    const normalized = String(method || "GET").toUpperCase();
+    return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
+};
+
+type MlRequestOptions = {
+    retries?: number;
+    retryOnWrite?: boolean;
+};
+
+const isMlOfflineError = (error: any) => isRetryableMlError(error);
+
+const ML_OFFLINE_ALERT = {
+    title: "Mercado Livre offline",
+    message: "Não foi possível acessar a API do Mercado Livre. Exibindo dados salvos localmente.",
+    severity: "warning" as const,
+};
+
+const mlRequest = async <T>(config: AxiosRequestConfig, options: MlRequestOptions = {}): Promise<AxiosResponse<T>> => {
+    const retries = Number.isFinite(options.retries) ? Number(options.retries) : ML_HTTP_RETRY_MAX;
+    const allowRetry = options.retryOnWrite === true || isIdempotentMethod(config.method);
+    let attempt = 0;
+
+    while (true) {
+        try {
+            return await mlAxios.request<T>({
+                timeout: ML_HTTP_TIMEOUT_MS,
+                ...config,
+            });
+        } catch (error: any) {
+            attempt += 1;
+            if (!allowRetry || !isRetryableMlError(error) || attempt > retries) {
+                throw error;
+            }
+
+            const retryAfterMs = parseRetryAfterMs(error?.response?.headers?.["retry-after"]);
+            const baseDelay = ML_HTTP_RETRY_BASE_MS * Math.pow(2, attempt - 1);
+            const jitter = Math.floor(Math.random() * ML_HTTP_RETRY_JITTER_MS);
+            const delayMs = Math.min(retryAfterMs ?? (baseDelay + jitter), 15000);
+
+            await sleep(delayMs);
+        }
+    }
+};
+
+type RequestWithAuthConfig = AxiosRequestConfig & {
+    retryOnWrite?: boolean;
+    retries?: number;
+};
 
 const resolveMercadoLivreResourceUrl = (resource: string | null | undefined) => {
     const trimmed = String(resource || "").trim();
@@ -746,13 +854,12 @@ export async function refreshAccessToken(workspaceId: string): Promise<MercadoLi
             refresh_token: current.refreshToken,
         });
 
-        const tokenResponse = await axios.post(
-            `${MERCADO_LIVRE_API_BASE}/oauth/token`,
-            payload,
-            {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            }
-        );
+        const tokenResponse = await mlRequest<any>({
+            url: `${MERCADO_LIVRE_API_BASE}/oauth/token`,
+            method: "POST",
+            data: payload,
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        });
         const { access_token, refresh_token, expires_in } = tokenResponse.data || {};
         const updated: MercadoLivreCredentials & { expiresAt?: number } = {
             accessToken: String(access_token || ""),
@@ -840,7 +947,8 @@ async function verifyMercadoLivreConnection(workspaceId: string): Promise<{ conn
     }
 
     try {
-        await axios.get(`${MERCADO_LIVRE_API_BASE}/users/${creds.userId}`, {
+        await mlRequest({
+            url: `${MERCADO_LIVRE_API_BASE}/users/${creds.userId}`,
             headers: { Authorization: `Bearer ${creds.accessToken}` },
             timeout: 8000,
         });
@@ -851,7 +959,8 @@ async function verifyMercadoLivreConnection(workspaceId: string): Promise<{ conn
             try {
                 const refreshed = await refreshAccessToken(workspaceId);
                 if (refreshed?.accessToken) {
-                    await axios.get(`${MERCADO_LIVRE_API_BASE}/users/${refreshed.userId}`, {
+                    await mlRequest({
+                        url: `${MERCADO_LIVRE_API_BASE}/users/${refreshed.userId}`,
                         headers: { Authorization: `Bearer ${refreshed.accessToken}` },
                         timeout: 8000,
                     });
@@ -874,7 +983,7 @@ async function verifyMercadoLivreConnection(workspaceId: string): Promise<{ conn
     }
 }
 
-export async function requestWithAuth<T>(workspaceId: string, url: string, config: { method?: "GET" | "POST" | "PUT"; params?: any; data?: any; headers?: any } = {}): Promise<T> {
+export async function requestWithAuth<T>(workspaceId: string, url: string, config: RequestWithAuthConfig = {}): Promise<T> {
     let creds = await getMercadoLivreCredentials(workspaceId);
     if (!creds) {
         console.warn(`[MercadoLivre] Tentativa de acesso sem credenciais para workspace ${workspaceId}.`);
@@ -905,7 +1014,17 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
     }
 
     try {
-        const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${creds.accessToken}`, ...config.headers } });
+        const resp = await mlRequest<T>({
+            url,
+            method: config.method || "GET",
+            params: config.params,
+            data: config.data,
+            headers: { Authorization: `Bearer ${creds.accessToken}`, ...config.headers },
+            timeout: config.timeout,
+        }, {
+            retryOnWrite: config.retryOnWrite,
+            retries: config.retries,
+        });
         return resp.data as any;
     } catch (err: any) {
         const status = err?.response?.status;
@@ -925,7 +1044,17 @@ export async function requestWithAuth<T>(workspaceId: string, url: string, confi
                     tokenStore.delete(workspaceId); // Ensure cache is cleared if refresh returns null
                     throw new Error("ml_not_connected");
                 }
-                const resp = await axios.request<T>({ url, method: config.method || "GET", params: config.params, data: config.data, headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers } });
+                const resp = await mlRequest<T>({
+                    url,
+                    method: config.method || "GET",
+                    params: config.params,
+                    data: config.data,
+                    headers: { Authorization: `Bearer ${refreshed.accessToken}`, ...config.headers },
+                    timeout: config.timeout,
+                }, {
+                    retryOnWrite: config.retryOnWrite,
+                    retries: config.retries,
+                });
                 return resp.data as any;
             } catch (refreshErr) {
                  // Se o refresh falhar (ex: invalid_grant), o cache já foi limpo.
@@ -963,7 +1092,8 @@ router.get("/search", async (req, res) => {
             }
         }
 
-        const response = await axios.get(`https://api.mercadolibre.com/sites/MLB/search`, {
+        const response = await mlRequest<any>({
+            url: `${MERCADO_LIVRE_API_BASE}/sites/MLB/search`,
             params: {
                 q,
                 limit,
@@ -996,8 +1126,23 @@ router.get("/auth/status", async (req, res) => {
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
-        
-        const status = await verifyMercadoLivreConnection(String(workspaceId));
+
+        const creds = await getMercadoLivreCredentials(String(workspaceId));
+        if (!creds) {
+            return res.json({ connected: false });
+        }
+
+        const fastTimeout = sleep(ML_HTTP_PROBE_TIMEOUT_MS).then(() => ({
+            connected: true,
+            userId: creds.userId,
+            reason: "status_timeout",
+        }));
+
+        const status = await Promise.race([
+            verifyMercadoLivreConnection(String(workspaceId)),
+            fastTimeout,
+        ]);
+
         return res.json({ connected: status.connected, userId: status.userId });
     } catch (error: any) {
         console.error("Error checking auth status:", error);
@@ -1046,7 +1191,7 @@ router.get("/auth/url", async (req, res) => {
         if (isLocalhost || isVercel) {
              // ALWAYS use the production URL as the callback URI to ensure consistency
              // and match the Whitelist in Mercado Livre Developer Panel.
-             finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
+             finalRedirectUri = "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback";
              console.log("⚠️ Enforcing production redirect_uri (Localhost/Vercel detected):", finalRedirectUri);
         }
 
@@ -1344,7 +1489,7 @@ router.get("/categories/:categoryId", async (req, res) => {
         } catch (err: any) {
             // Fallback to public request for ANY error (401, 403, 404, ml_not_connected, etc.)
             // This ensures that even if auth fails or token is invalid, we try to get public data
-            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}`);
+            const resp = await mlRequest<any>({ url: `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}` });
             return res.json(resp.data);
         }
     } catch (error: any) {
@@ -1370,7 +1515,7 @@ router.get("/categories/:categoryId/attributes", async (req, res) => {
             return res.json(data);
         } catch (err: any) {
             // Fallback to public request
-            const resp = await axios.get(`${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes`);
+            const resp = await mlRequest<any>({ url: `${MERCADO_LIVRE_API_BASE}/categories/${categoryId}/attributes` });
             return res.json(resp.data);
         }
     } catch (error: any) {
@@ -1443,7 +1588,7 @@ router.post("/auth/callback", async (req, res) => {
         // This MUST match what was sent in the auth step (GET /auth/url)
         let finalRedirectUri = safeRedirectUri;
         if (isLocalhost || isVercel) {
-             finalRedirectUri = "https://traffic-zen-hub-35.vercel.app/integrations/mercadolivre/callback";
+             finalRedirectUri = "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback";
         }
 
         const payloadParams: Record<string, string> = {
@@ -1630,6 +1775,372 @@ router.post("/auth/refresh", async (req, res) => {
 });
 
 
+type MetricsRange = {
+    dateFromKey: string;
+    dateToKey: string;
+    dateFromFinal: Date;
+    dateToFinal: Date;
+    daysCount: number;
+};
+
+const buildDailySeries = (
+    range: MetricsRange,
+    dailyMap: Map<string, { sales: number; revenue: number; orders: number }>
+) => {
+    const dailySales: Array<{ date: string; sales: number; revenue: number; orders: number }> = [];
+    for (let i = 0; i < range.daysCount; i++) {
+        const d = new Date(range.dateFromFinal);
+        d.setDate(d.getDate() + i);
+        const key = formatBrazilDateKey(d);
+        const day = dailyMap.get(key) || { sales: 0, revenue: 0, orders: 0 };
+        dailySales.push({
+            date: key,
+            sales: Number(day.sales || 0),
+            revenue: Number(day.revenue || 0),
+            orders: Number(day.orders || 0),
+        });
+    }
+    return dailySales;
+};
+
+const fetchDailySalesFromDb = async (workspaceId: string, dateFromKey: string, dateToKey: string) => {
+    await ensureOrdersSchema();
+    const pool = getPool();
+    const dateFromFinal = toBrazilDayBoundary(dateFromKey, false);
+    const dateToFinal = toBrazilDayBoundary(dateToKey, true);
+    const dateToStart = toBrazilDayBoundary(dateToKey, false);
+    const daysCount = Math.max(1, Math.round((dateToStart.getTime() - dateFromFinal.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+    const range: MetricsRange = { dateFromKey, dateToKey, dateFromFinal, dateToFinal, daysCount };
+
+    const dailyRows = await pool.query(
+        `
+        with orders as (
+          select order_id, date_created, total_amount
+          from ml_orders
+          where workspace_id = $1
+            and date_created >= $2
+            and date_created <= $3
+            and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        ),
+        items as (
+          select order_id, sum(quantity)::int as qty
+          from ml_order_items
+          where workspace_id = $1
+          group by order_id
+        )
+        select
+          to_char(timezone($4, orders.date_created), 'YYYY-MM-DD') as date,
+          coalesce(sum(items.qty), 0)::int as sales,
+          coalesce(sum(orders.total_amount), 0)::numeric as revenue,
+          count(*)::int as orders
+        from orders
+        left join items on items.order_id = orders.order_id
+        group by 1
+        order by 1
+        `,
+        [workspaceId, dateFromFinal, dateToFinal, BRAZIL_TIME_ZONE]
+    );
+
+    const dailyMap = new Map<string, { sales: number; revenue: number; orders: number }>();
+    dailyRows.rows.forEach((row: any) => {
+        const date = String(row.date);
+        dailyMap.set(date, {
+            sales: Number(row.sales || 0),
+            revenue: Number(row.revenue || 0),
+            orders: Number(row.orders || 0),
+        });
+    });
+
+    const dailySales = buildDailySeries(range, dailyMap);
+    const totalSales = dailySales.reduce((sum, d) => sum + Number(d.sales || 0), 0);
+    const totalRevenue = dailySales.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
+    const totalOrders = dailySales.reduce((sum, d) => sum + Number(d.orders || 0), 0);
+
+    return {
+        dailySales,
+        totalOrders,
+        totalSales,
+        totalRevenue,
+    };
+};
+
+const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
+    await ensureOrdersSchema();
+    const pool = getPool();
+
+    const dailyRows = await pool.query(
+        `
+        with orders as (
+          select order_id, date_created, total_amount
+          from ml_orders
+          where workspace_id = $1
+            and date_created >= $2
+            and date_created <= $3
+            and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        ),
+        items as (
+          select order_id, sum(quantity)::int as qty
+          from ml_order_items
+          where workspace_id = $1
+          group by order_id
+        )
+        select
+          to_char(timezone($4, orders.date_created), 'YYYY-MM-DD') as date,
+          coalesce(sum(items.qty), 0)::int as sales,
+          coalesce(sum(orders.total_amount), 0)::numeric as revenue,
+          count(*)::int as orders
+        from orders
+        left join items on items.order_id = orders.order_id
+        group by 1
+        order by 1
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal, BRAZIL_TIME_ZONE]
+    );
+
+    const dailyMap = new Map<string, { sales: number; revenue: number; orders: number }>();
+    dailyRows.rows.forEach((row: any) => {
+        const date = String(row.date);
+        dailyMap.set(date, {
+            sales: Number(row.sales || 0),
+            revenue: Number(row.revenue || 0),
+            orders: Number(row.orders || 0),
+        });
+    });
+
+    const dailySales = buildDailySeries(range, dailyMap);
+    const totalSales = dailySales.reduce((sum, d) => sum + Number(d.sales || 0), 0);
+    const totalRevenue = dailySales.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
+    const totalOrders = dailySales.reduce((sum, d) => sum + Number(d.orders || 0), 0);
+
+    const buyersRes = await pool.query(
+        `
+        select count(distinct buyer_id)::int as buyers
+        from ml_orders
+        where workspace_id = $1
+          and date_created >= $2
+          and date_created <= $3
+          and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal]
+    );
+
+    const canceledRes = await pool.query(
+        `
+        select
+          count(*)::int as canceled_orders,
+          coalesce(sum(total_amount), 0)::numeric as canceled_revenue
+        from ml_orders
+        where workspace_id = $1
+          and coalesce(lower(status), '') in ('cancelled', 'canceled')
+          and coalesce(date_closed, date_created) >= $2
+          and coalesce(date_closed, date_created) <= $3
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal]
+    );
+
+    const lastSyncRes = await pool.query(
+        `select max(updated_at) as last_sync from ml_orders where workspace_id = $1`,
+        [workspaceId]
+    );
+
+    const sellerRes = await pool.query(
+        `select seller_id from ml_orders where workspace_id = $1 and seller_id is not null limit 1`,
+        [workspaceId]
+    );
+
+    const totalVisits = 0;
+    const conversionRate = totalVisits > 0 ? (totalOrders / totalVisits) * 100 : 0;
+    const averageUnitPrice = totalSales > 0 ? totalRevenue / totalSales : 0;
+    const averageOrderPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    const salesTimeSeries = dailySales.map((d) => ({
+        date: d.date,
+        sales: d.sales,
+        revenue: d.revenue,
+        visits: 0,
+    }));
+
+    const totalNetIncome = totalRevenue;
+
+    return {
+        totalSales,
+        totalBuyers: Number(buyersRes.rows[0]?.buyers || 0),
+        totalRevenue,
+        totalVisits,
+        totalOrders,
+        canceledOrders: Number(canceledRes.rows[0]?.canceled_orders || 0),
+        canceledRevenue: Number(canceledRes.rows[0]?.canceled_revenue || 0),
+        totalSaleFees: 0,
+        totalShippingCosts: 0,
+        totalNetIncome,
+        averageUnitPrice,
+        averageOrderPrice,
+        conversionRate,
+        responseRate: 0,
+        reputation: "-",
+        reputationMetrics: {
+            level: "-",
+            color: "Gray",
+            claimsRate: 0,
+            delayedHandlingRate: 0,
+            cancellationsRate: 0,
+        },
+        lastSync: lastSyncRes.rows[0]?.last_sync
+            ? new Date(lastSyncRes.rows[0].last_sync).toISOString()
+            : new Date().toISOString(),
+        sellerId: sellerRes.rows[0]?.seller_id || null,
+        salesTimeSeries,
+        hourlySales: [],
+        alerts: [ML_OFFLINE_ALERT],
+    };
+};
+
+const fetchOrdersFromDb = async (params: {
+    workspaceId: string;
+    dateFromIso?: string | null;
+    dateToIso?: string | null;
+    limit: number;
+    offset: number;
+    includeCancelled: boolean;
+}) => {
+    await ensureOrdersSchema();
+    const pool = getPool();
+    const {
+        workspaceId,
+        dateFromIso,
+        dateToIso,
+        limit,
+        offset,
+        includeCancelled,
+    } = params;
+
+    const conditions: string[] = ["workspace_id = $1"];
+    const values: any[] = [workspaceId];
+    const activeCondition = "coalesce(lower(status), '') not in ('cancelled', 'canceled')";
+    const cancelledCondition = "coalesce(lower(status), '') in ('cancelled', 'canceled')";
+
+    if (dateFromIso || dateToIso) {
+        const fromDate = dateFromIso ? new Date(dateFromIso) : new Date("1970-01-01T00:00:00.000Z");
+        const toDate = dateToIso ? new Date(dateToIso) : new Date();
+        values.push(fromDate, toDate);
+        const fromIdx = values.length - 1;
+        const toIdx = values.length;
+        if (includeCancelled) {
+            conditions.push(
+                `((${activeCondition} and date_created >= $${fromIdx} and date_created <= $${toIdx}) or ` +
+                `(${cancelledCondition} and coalesce(date_closed, date_created) >= $${fromIdx} and coalesce(date_closed, date_created) <= $${toIdx}))`
+            );
+        } else {
+            conditions.push(`${activeCondition} and date_created >= $${fromIdx} and date_created <= $${toIdx}`);
+        }
+    } else if (!includeCancelled) {
+        conditions.push(activeCondition);
+    }
+
+    const where = conditions.join(" and ");
+    const countRes = await pool.query(
+        `select count(*)::int as total from ml_orders where ${where}`,
+        values
+    );
+    const total = Number(countRes.rows[0]?.total || 0);
+
+    const limitIdx = values.length + 1;
+    const offsetIdx = values.length + 2;
+    const dataRes = await pool.query(
+        `
+        select
+            order_id,
+            status,
+            date_created,
+            date_closed,
+            total_amount,
+            paid_amount,
+            currency_id,
+            buyer_id,
+            order_json,
+            updated_at
+        from ml_orders
+        where ${where}
+        order by date_created desc nulls last
+        limit $${limitIdx}
+        offset $${offsetIdx}
+        `,
+        [...values, limit, offset]
+    );
+
+    const orderIds = dataRes.rows.map((row: any) => String(row.order_id));
+    const itemsMap = new Map<string, any[]>();
+    if (orderIds.length > 0) {
+        const itemsRes = await pool.query(
+            `
+            select order_id, item_id, title, quantity, unit_price
+            from ml_order_items
+            where workspace_id = $1 and order_id = any($2::text[])
+            `,
+            [workspaceId, orderIds]
+        );
+        itemsRes.rows.forEach((row: any) => {
+            const orderId = String(row.order_id);
+            const bucket = itemsMap.get(orderId) || [];
+            bucket.push({
+                itemId: String(row.item_id),
+                title: row.title || "",
+                quantity: Number(row.quantity || 0),
+                unitPrice: Number(row.unit_price || 0),
+                fullUnitPrice: Number(row.unit_price || 0),
+                thumbnail: null,
+                permalink: null,
+            });
+            itemsMap.set(orderId, bucket);
+        });
+    }
+
+    const orders = dataRes.rows.map((row: any) => {
+        const rawOrder = row.order_json && typeof row.order_json === "object" ? row.order_json : null;
+        const baseOrder = rawOrder || {
+            id: row.order_id,
+            status: row.status,
+            date_created: row.date_created,
+            date_closed: row.date_closed,
+            total_amount: row.total_amount,
+            paid_amount: row.paid_amount,
+            currency_id: row.currency_id,
+            buyer: row.buyer_id ? { id: row.buyer_id } : undefined,
+            last_updated: row.updated_at,
+        };
+        const summary = buildOrderSummary(baseOrder);
+        const fallbackItems = itemsMap.get(String(row.order_id)) || [];
+        const items = summary?.items?.length ? summary.items : fallbackItems;
+        if (summary) {
+            return { ...summary, items };
+        }
+        return {
+            id: String(row.order_id),
+            status: row.status || "",
+            dateCreated: row.date_created || null,
+            dateClosed: row.date_closed || null,
+            lastUpdated: row.updated_at || null,
+            totalAmount: Number(row.total_amount || 0),
+            paidAmount: Number(row.paid_amount || row.total_amount || 0),
+            currencyId: row.currency_id || "BRL",
+            buyerId: row.buyer_id || "",
+            saleFee: 0,
+            shippingCost: 0,
+            netIncome: Number(row.total_amount || 0),
+            items,
+        };
+    });
+
+    return {
+        orders,
+        paging: {
+            total,
+            offset,
+            limit,
+        },
+    };
+};
+
 async function fetchMetricsInternal(workspaceId: string, days: number = 30, dateFrom?: string, dateTo?: string) {
     let credentials = await getMercadoLivreCredentials(workspaceId);
 
@@ -1650,8 +2161,24 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
     const rangeEndTs = dateToFinal.getTime();
     const daysCount = Math.max(1, Math.round((dateToStart.getTime() - dateFromFinal.getTime()) / (24 * 60 * 60 * 1000)) + 1);
 
-    // Buscar métricas do vendedor (dados corretos)
-    const userResponse = await requestWithAuth<any>(String(workspaceId), `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`);
+    const range = { dateFromKey, dateToKey, dateFromFinal, dateToFinal, daysCount };
+
+    // Probe rápido para evitar travar caso a API do ML esteja fora
+    let userResponse: any;
+    try {
+        userResponse = await requestWithAuth<any>(
+            String(workspaceId),
+            `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}`,
+            { timeout: ML_HTTP_PROBE_TIMEOUT_MS, retries: 0 }
+        );
+    } catch (err: any) {
+        if (isMlOfflineError(err)) {
+            console.warn("[Metrics] ML offline detected. Falling back to DB metrics.");
+            const fallback = await fetchMetricsFromDb(String(workspaceId), range);
+            return fallback;
+        }
+        throw err;
+    }
 
     const sellerMetrics = userResponse.seller_reputation?.metrics || {};
 
@@ -1705,27 +2232,23 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
                 let ordersResponse;
                 try {
-                    ordersResponse = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                            params,
-                        }
-                    );
+                    ordersResponse = await mlRequest({
+                        url: `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                        params,
+                    });
                 } catch (e) {
                     console.warn("[Metrics] Failed with sort, retrying without sort");
                     delete params.sort;
-                    ordersResponse = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                            params,
-                        }
-                    );
+                    ordersResponse = await mlRequest({
+                        url: `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                        params,
+                    });
                 }
 
                 const orders = ordersResponse.data.results || [];
@@ -1767,27 +2290,23 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
                     let response;
                     try {
-                        response = await axios.get(
-                            `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                            {
-                                headers: {
-                                    Authorization: `Bearer ${credentials.accessToken}`,
-                                },
-                                params,
-                            }
-                        );
+                        response = await mlRequest({
+                            url: `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        });
                     } catch (e) {
                         console.warn(`[Metrics] Failed cancelled(${statusFilter}) with sort, retrying without sort`);
                         delete params.sort;
-                        response = await axios.get(
-                            `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                            {
-                                headers: {
-                                    Authorization: `Bearer ${credentials.accessToken}`,
-                                },
-                                params,
-                            }
-                        );
+                        response = await mlRequest({
+                            url: `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                            headers: {
+                                Authorization: `Bearer ${credentials.accessToken}`,
+                            },
+                            params,
+                        });
                     }
 
                     const orders = response.data.results || [];
@@ -1854,7 +2373,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
 
         const fetchShipmentById = async (shipmentId: string) => {
             try {
-                const shipmentResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments/${shipmentId}`, {
+                const shipmentResp = await mlRequest({
+                    url: `${MERCADO_LIVRE_API_BASE}/shipments/${shipmentId}`,
                     headers: { Authorization: `Bearer ${credentials?.accessToken}` },
                 });
                 const shipment = shipmentResp.data;
@@ -1888,7 +2408,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             }
 
             try {
-                const shipmentsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/shipments`, {
+                const shipmentsResp = await mlRequest({
+                    url: `${MERCADO_LIVRE_API_BASE}/shipments`,
                     params: { ids: chunk.join(',') },
                     headers: { Authorization: `Bearer ${credentials?.accessToken}` },
                 });
@@ -2036,13 +2557,11 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 params["order.status"] = "cancelled";
 
                 try {
-                    const response = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/orders/search`,
-                        {
-                            headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                            params,
-                        }
-                    );
+                    const response = await mlRequest({
+                        url: `${MERCADO_LIVRE_API_BASE}/orders/search`,
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                        params,
+                    });
                     const orders = response.data.results || [];
                     canceledByClosed.push(...orders);
                     canceledHasMore = orders.length === canceledLimit;
@@ -2517,7 +3036,8 @@ router.get("/orders", async (req, res) => {
             for (let i = 0; i < idsArray.length; i += chunkSize) {
                 const chunk = idsArray.slice(i, i + chunkSize);
                 try {
-                    const itemsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items`, {
+                    const itemsResp = await mlRequest<any>({
+                        url: `${MERCADO_LIVRE_API_BASE}/items`,
                         params: { ids: chunk.join(',') },
                         headers: { Authorization: `Bearer ${credentials.accessToken}` }
                     });
@@ -3034,6 +3554,59 @@ router.get("/metrics", async (req, res) => {
 });
 
 /**
+ * GET /api/integrations/mercadolivre/growth-report
+ * Gera relatório executivo de queda de vendas + ações priorizadas
+ */
+router.get("/growth-report", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const { format = "json", topN, periods, download } = req.query as any;
+        const periodList = typeof periods === "string"
+            ? periods.split(",").map((p: string) => Number(p.trim())).filter((p: number) => Number.isFinite(p) && p > 0)
+            : undefined;
+
+        const report = await buildMercadoLivreGrowthReport(String(targetWorkspaceId), {
+            periods: periodList,
+            topN: topN ? Number(topN) : undefined,
+        });
+
+        const normalized = String(format || "json").toLowerCase();
+        const shouldDownload = String(download || "") === "1" || String(download || "") === "true";
+        const dateLabel = new Date().toISOString().split("T")[0];
+
+        if (normalized === "md" || normalized === "markdown") {
+            const markdown = renderGrowthReportMarkdown(report);
+            res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+            if (shouldDownload) {
+                res.setHeader("Content-Disposition", `attachment; filename=relatorio-ml-growth-${dateLabel}.md`);
+            }
+            return res.send(markdown);
+        }
+
+        if (normalized === "html") {
+            const html = renderGrowthReportHtml(report);
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            if (shouldDownload) {
+                res.setHeader("Content-Disposition", `attachment; filename=relatorio-ml-growth-${dateLabel}.html`);
+            }
+            return res.send(html);
+        }
+
+        return res.json(report);
+    } catch (error: any) {
+        console.error("Error generating Mercado Livre growth report:", formatAxiosError(error));
+        return res.status(500).json({
+            error: "Failed to generate growth report",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
  * GET /api/integrations/mercadolivre/products
  * Retorna lista de produtos do vendedor
  */
@@ -3075,8 +3648,11 @@ router.get("/products", async (req, res) => {
         const { id: targetWorkspaceId } = resolveWorkspaceId(req);
         const { category } = req.query;
         const page = Math.max(1, Number((req.query as any).page) || 1);
-        const limit = Math.min(50, Math.max(1, Number((req.query as any).limit) || 20));
+        const requestedLimit = Math.max(1, Number((req.query as any).limit) || 20);
+        const HARD_CAP = 1000;
+        const limit = Math.min(requestedLimit, HARD_CAP);
         const offset = (page - 1) * limit;
+        const maxItems = Math.min(limit * page, HARD_CAP);
 
         if (!targetWorkspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
@@ -3090,36 +3666,19 @@ router.get("/products", async (req, res) => {
             });
         }
 
-        // Buscar IDs de itens (paginado)
+        // Buscar IDs de itens (por status + paginação)
         const searchQuery = (req.query as any).search || (req.query as any).q;
-        let pageItemIds: string[] = [];
-        let totalCount = 0;
+        const rawStatus = String((req.query as any).statuses || (req.query as any).status || "").trim();
+        const requestedStatuses = rawStatus
+            ? rawStatus.split(",").map((s) => s.trim()).filter(Boolean)
+            : ["active", "paused"];
+        const statuses =
+            rawStatus.toLowerCase() === "all"
+                ? ["active", "paused", "closed"]
+                : requestedStatuses;
+        const statusTotals = new Map<string, number>();
+        const SEARCH_LIMIT = 50;
 
-        try {
-            const params: any = {
-                limit,
-                offset,
-            };
-            if (searchQuery) {
-                params.q = searchQuery;
-            }
-
-            const resp = await axios.get(
-                `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                {
-                    params,
-                    headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                }
-            );
-
-            pageItemIds = resp.data.results || [];
-            totalCount = resp.data.paging?.total || 0;
-        } catch (err) {
-            console.error("Error fetching ML item IDs:", err);
-        }
-
-        // Contagens globais (ativos/pausados) para KPI
-        let globalActiveCount = 0;
         const fetchTotalByStatus = async (status?: string) => {
             const params: any = { limit: 1, offset: 0 };
             if (status) params.status = status;
@@ -3134,10 +3693,65 @@ router.get("/products", async (req, res) => {
             return Number(resp.data?.paging?.total || 0);
         };
 
-        try {
-            globalActiveCount = await fetchTotalByStatus("active");
-        } catch (err) {
-            console.warn("[Products] Falha ao buscar contagens globais:", (err as any)?.message || err);
+        const fetchItemIdsByStatus = async (status: string, maxNeeded: number) => {
+            const ids: string[] = [];
+            let offsetStatus = 0;
+            let total = 0;
+            while (ids.length < maxNeeded) {
+                const params: any = { limit: SEARCH_LIMIT, offset: offsetStatus, status };
+                if (searchQuery) params.q = searchQuery;
+                const resp = await axios.get(
+                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    {
+                        params,
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }
+                );
+                if (offsetStatus === 0) {
+                    total = Number(resp.data?.paging?.total || 0);
+                }
+                const results = resp.data?.results || [];
+                ids.push(...results);
+                offsetStatus += SEARCH_LIMIT;
+                if (results.length < SEARCH_LIMIT || offsetStatus >= total) break;
+            }
+            return { ids, total };
+        };
+
+        let totalCount = 0;
+        for (const status of statuses) {
+            try {
+                const total = await fetchTotalByStatus(status);
+                statusTotals.set(status, total);
+                totalCount += total;
+            } catch (err) {
+                console.warn(`[Products] Falha ao buscar total do status ${status}:`, (err as any)?.message || err);
+                statusTotals.set(status, 0);
+            }
+        }
+
+        const allItemIds: string[] = [];
+        for (const status of statuses) {
+            if (allItemIds.length >= maxItems) break;
+            try {
+                const { ids } = await fetchItemIdsByStatus(status, maxItems - allItemIds.length);
+                allItemIds.push(...ids);
+            } catch (err) {
+                console.warn(`[Products] Falha ao buscar itens do status ${status}:`, (err as any)?.message || err);
+            }
+        }
+
+        const uniqueAllItemIds = Array.from(new Set(allItemIds));
+        const pageItemIds = uniqueAllItemIds.slice(offset, offset + limit);
+
+        // Contagens globais (ativos/pausados) para KPI
+        let globalActiveCount = statusTotals.get("active") || 0;
+        if (!globalActiveCount) {
+            try {
+                globalActiveCount = await fetchTotalByStatus("active");
+            } catch (err) {
+                console.warn("[Products] Falha ao buscar contagens globais:", (err as any)?.message || err);
+            }
         }
 
         // Agregados de página (status, tipo e estoque)
@@ -3160,13 +3774,11 @@ router.get("/products", async (req, res) => {
             const idsStr = batchIds.join(',');
 
             try {
-                const batchResponse = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/items`,
-                    {
-                        params: { ids: idsStr },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` }
-                    }
-                );
+                const batchResponse = await mlRequest<any>({
+                    url: `${MERCADO_LIVRE_API_BASE}/items`,
+                    params: { ids: idsStr },
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                });
 
                 // A resposta do multiget é um array de objetos { code, body }
                 const itemsData = Array.isArray(batchResponse.data) ? batchResponse.data : [];
@@ -3209,19 +3821,18 @@ router.get("/products", async (req, res) => {
                 const dateFrom = new Date();
                 dateFrom.setDate(dateFrom.getDate() - 30);
                 const [visitsResponse, descResponse] = await Promise.allSettled([
-                    axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
-                        {
-                            params: {
-                                date_from: dateFrom.toISOString().split("T")[0],
-                                date_to: new Date().toISOString().split("T")[0],
-                            },
-                            headers: {
-                                Authorization: `Bearer ${credentials.accessToken}`,
-                            },
-                        }
-                    ),
-                    axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`, {
+                    mlRequest<any>({
+                        url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
+                        params: {
+                            date_from: dateFrom.toISOString().split("T")[0],
+                            date_to: new Date().toISOString().split("T")[0],
+                        },
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                    }),
+                    mlRequest<any>({
+                        url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`,
                         headers: { Authorization: `Bearer ${credentials.accessToken}` },
                     })
                 ]);
@@ -4402,13 +5013,11 @@ router.get("/products/export/pdf", async (req, res) => {
             let offset = 0;
             const limit = 50;
             for (; ;) {
-                const resp = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
-                    {
-                        params: { limit, offset, status },
-                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
-                    }
-                );
+                const resp = await mlRequest<any>({
+                    url: `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                    params: { limit, offset, status },
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                });
                 const ids = resp.data.results || [];
                 collected.push(...ids);
                 if (ids.length < limit) break;
@@ -4646,7 +5255,8 @@ router.get("/products/export/pdf", async (req, res) => {
         let firstPage = true;
         for (const itemId of allItemIds) {
             // Buscar detalhes do item
-            const itemResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
+            const itemResp = await mlRequest<any>({
+                url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}`,
                 headers: { Authorization: `Bearer ${credentials.accessToken}` },
             });
             const item = itemResp.data;
@@ -4656,7 +5266,8 @@ router.get("/products/export/pdf", async (req, res) => {
 
             let description = "";
             try {
-                const descResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`, {
+                const descResp = await mlRequest<any>({
+                    url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`,
                     headers: { Authorization: `Bearer ${credentials.accessToken}` },
                 });
                 description = descResp.data?.plain_text || descResp.data?.text || "";
@@ -4745,7 +5356,8 @@ router.get("/products/export/purchase-list.pdf", async (req, res) => {
         const items: Array<{ title: string; sku: string; stock: number; imageUrl: string | null }> = [];
         const searchNorm = String(search || "").trim().toLowerCase();
         for (const itemId of allItemIds) {
-            const itemResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items/${itemId}`, {
+            const itemResp = await mlRequest<any>({
+                url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}`,
                 headers: { Authorization: `Bearer ${credentials.accessToken}` },
             });
             const item = itemResp.data;
@@ -4774,10 +5386,10 @@ router.get("/products/export/purchase-list.pdf", async (req, res) => {
             const inventoryId = item?.inventory_id || null;
             if (isFull && inventoryId) {
                 try {
-                    const fullResp = await axios.get(
-                        `${MERCADO_LIVRE_API_BASE}/inventories/${inventoryId}/stock/fulfillment`,
-                        { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-                    );
+                    const fullResp = await mlRequest<any>({
+                        url: `${MERCADO_LIVRE_API_BASE}/inventories/${inventoryId}/stock/fulfillment`,
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                    });
                     stock = Number(fullResp.data?.available_quantity || 0);
                 } catch (e: any) {
                     stock = Number(item.available_quantity || 0);
@@ -5517,7 +6129,8 @@ router.get("/questions", async (req, res) => {
         }
 
         // 1. Buscar perguntas recentes (sem filtro de status) para lista e histórico
-        const recentQuestionsResponse = await axios.get(
+        const recentQuestionsResponse = await requestWithAuth<any>(
+            String(targetWorkspaceId),
             `${MERCADO_LIVRE_API_BASE}/questions/search`,
             {
                 params: {
@@ -5525,14 +6138,12 @@ router.get("/questions", async (req, res) => {
                     limit: 50,
                     sort: 'date_created_desc'
                 },
-                headers: {
-                    Authorization: `Bearer ${credentials.accessToken}`,
-                },
             }
         );
 
         // 2. Buscar contagem de perguntas pendentes (backlog real)
-        const unansweredResponse = await axios.get(
+        const unansweredResponse = await requestWithAuth<any>(
+            String(targetWorkspaceId),
             `${MERCADO_LIVRE_API_BASE}/questions/search`,
             {
                 params: {
@@ -5540,14 +6151,11 @@ router.get("/questions", async (req, res) => {
                     status: "UNANSWERED",
                     limit: 1, // Apenas para pegar o paging.total
                 },
-                headers: {
-                    Authorization: `Bearer ${credentials.accessToken}`,
-                },
             }
         );
 
-        const questions = recentQuestionsResponse.data.questions || [];
-        const totalUnanswered = unansweredResponse.data.paging?.total ?? 0;
+        const questions = recentQuestionsResponse.questions || [];
+        const totalUnanswered = unansweredResponse.paging?.total ?? 0;
 
         // Collect unique item IDs
         const itemIds = [...new Set(questions.map((q: any) => q.item_id))].filter(Boolean);
@@ -5564,15 +6172,16 @@ router.get("/questions", async (req, res) => {
 
         await Promise.all(itemChunks.map(async (chunk) => {
             try {
-                const itemsResp = await axios.get(`${MERCADO_LIVRE_API_BASE}/items`, {
-                    params: { ids: chunk.join(',') },
-                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
-                });
+                const itemsResp = await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/items`,
+                    { params: { ids: chunk.join(',') } }
+                );
                 
                 // Response is an array of objects { code, body } or direct objects depending on endpoint version
                 // Usually /items?ids= returns an array of objects with 'body' containing the item
-                if (Array.isArray(itemsResp.data)) {
-                    itemsResp.data.forEach((itemWrapper: any) => {
+                if (Array.isArray(itemsResp)) {
+                    itemsResp.forEach((itemWrapper: any) => {
                         const item = itemWrapper.body || itemWrapper;
                         if (item && item.id && item.title) {
                             itemTitlesMap.set(item.id, item.title);
@@ -7504,17 +8113,18 @@ export async function handleOrderNotification(notification: any) {
             return;
         }
 
-        const orderDetails = await axios.get(resourceUrl, {
+        const orderDetails = await mlRequest<any>({
+            url: resourceUrl,
             headers: { Authorization: `Bearer ${credentials.accessToken}` }
         });
 
         // Se shipping for apenas ID, buscar detalhes do envio
         if (orderDetails.data.shipping?.id && !orderDetails.data.shipping.logistic_type) {
             try {
-                const shipmentRes = await axios.get(
-                    `${MERCADO_LIVRE_API_BASE}/shipments/${orderDetails.data.shipping.id}`,
-                    { headers: { Authorization: `Bearer ${credentials.accessToken}` } }
-                );
+                const shipmentRes = await mlRequest<any>({
+                    url: `${MERCADO_LIVRE_API_BASE}/shipments/${orderDetails.data.shipping.id}`,
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                });
                 // Merge shipment details into order.shipping
                 orderDetails.data.shipping = { ...orderDetails.data.shipping, ...shipmentRes.data };
                 console.log(`[Order Notification] Shipment ${orderDetails.data.shipping.id} details fetched.`);
@@ -7606,7 +8216,8 @@ async function handleQuestionNotification(notification: any) {
             return;
         }
 
-        const questionDetails = await axios.get(resourceUrl, {
+        const questionDetails = await mlRequest<any>({
+            url: resourceUrl,
             headers: { Authorization: `Bearer ${credentials.accessToken}` }
         });
 
@@ -7673,7 +8284,8 @@ async function handleItemNotification(notification: any) {
             return;
         }
 
-        const itemResp = await axios.get(resourceUrl, {
+        const itemResp = await mlRequest<any>({
+            url: resourceUrl,
             headers: { Authorization: `Bearer ${credentials.accessToken}` }
         });
 
@@ -7710,7 +8322,8 @@ async function handleMessageNotification(notification: any) {
         let msgResp: any = { data: { text: "Nova mensagem recebida" } };
         if (resourceUrl) {
             try {
-                msgResp = await axios.get(resourceUrl, {
+                msgResp = await mlRequest<any>({
+                    url: resourceUrl,
                     headers: { Authorization: `Bearer ${credentials.accessToken}` }
                 });
             } catch (error: any) {

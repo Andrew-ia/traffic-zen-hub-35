@@ -62,6 +62,120 @@ interface OptimizationPayload {
     attributes?: Record<string, string>;
 }
 
+type AttributeFunctionGroup = "seo" | "technical" | "other";
+
+const SEO_ATTRIBUTE_IDS = new Set([
+    "MODEL",
+    "STYLE",
+    "COLOR",
+    "MAIN_COLOR",
+    "SIZE",
+    "MATERIAL",
+    "FINISH",
+    "LINE",
+    "COLLECTION",
+    "DESIGN",
+    "PATTERN",
+    "THEME",
+    "FORMAT",
+]);
+
+const TECHNICAL_ATTRIBUTE_IDS = new Set([
+    "BRAND",
+    "GENDER",
+    "WEIGHT",
+    "HEIGHT",
+    "WIDTH",
+    "LENGTH",
+    "DEPTH",
+    "DIAMETER",
+    "THICKNESS",
+    "CONDITION",
+    "GTIN",
+    "EAN",
+    "UPC",
+    "MPN",
+    "SKU",
+    "PACKAGE_HEIGHT",
+    "PACKAGE_WIDTH",
+    "PACKAGE_LENGTH",
+    "PACKAGE_WEIGHT",
+    "IS_KIT",
+    "UNITS_PER_PACK",
+    "UNITS_PER_KIT",
+]);
+
+const SEO_NAME_HINTS = [
+    "modelo",
+    "estilo",
+    "cor principal",
+    "cor",
+    "tamanho",
+    "acabamento",
+    "linha",
+    "colecao",
+    "design",
+    "formato",
+    "padrao",
+    "estampa",
+    "tema",
+];
+
+const TECHNICAL_NAME_HINTS = [
+    "marca",
+    "genero",
+    "condicao",
+    "codigo",
+    "gtin",
+    "ean",
+    "mpn",
+    "sku",
+    "peso",
+    "altura",
+    "largura",
+    "comprimento",
+    "profundidade",
+    "diametro",
+    "espessura",
+    "embalagem",
+    "fecho",
+    "pedra",
+    "colar",
+    "pingente",
+    "kit",
+    "personalizado",
+    "fonte do produto",
+    "unidades",
+    "quantidade",
+    "inclui caixa",
+    "formato de venda",
+    "material do",
+    "material da",
+    "material de",
+];
+
+const normalizeAttributeText = (value: string) => value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const hasHintMatch = (name: string, hints: string[]) => hints.some((hint) => name.includes(hint));
+
+const getAttributeFunctionGroup = (attr: any): AttributeFunctionGroup => {
+    const id = String(attr?.id || "").toUpperCase();
+    const name = normalizeAttributeText(String(attr?.name || ""));
+
+    if (TECHNICAL_ATTRIBUTE_IDS.has(id) || hasHintMatch(name, TECHNICAL_NAME_HINTS)) {
+        return "technical";
+    }
+
+    if (SEO_ATTRIBUTE_IDS.has(id) || hasHintMatch(name, SEO_NAME_HINTS)) {
+        return "seo";
+    }
+
+    return "other";
+};
+
 export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onReanalyze }: MLBAnalysisResultsProps) {
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState("apply");
@@ -137,10 +251,18 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
 
             // Populate allAttributes
             const initialAttributes: Record<string, string> = {};
+            const initialUnits: Record<string, string> = {};
             attrs.forEach((a: any) => {
-                initialAttributes[a.id] = a.value_name || "";
+                const valueName = typeof a.value_name === 'string' ? a.value_name.trim() : '';
+                if (valueName) {
+                    initialAttributes[a.id] = valueName;
+                }
+                if (a?.value_struct?.unit) {
+                    initialUnits[a.id] = String(a.value_struct.unit);
+                }
             });
             setAllAttributes(initialAttributes);
+            setAttrUnits(initialUnits);
 
             setOriginalSnapshot({
                 title: currentAnalysis.product_data.title,
@@ -387,12 +509,13 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                 <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
                                     Ficha técnica
                                 </h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-6 gap-y-8">
+                                <div className="space-y-6">
                                     {(() => {
                                         const existingAttrsMock = currentAnalysis?.product_data?.attributes || [];
                                         const catAttrs = categoryAttrs || [];
                                         const existingMap = new Map(existingAttrsMock.map((a: any) => [a.id, a]));
                                         const combinedAttrs = [...catAttrs];
+                                        const isReadOnlyAttr = (attr: any) => Boolean(attr?.tags?.read_only);
 
                                         existingAttrsMock.forEach((attr: any) => {
                                             if (!combinedAttrs.find(ca => ca.id === attr.id)) {
@@ -400,7 +523,9 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                             }
                                         });
 
-                                        combinedAttrs.sort((a: any, b: any) => {
+                                        const visibleAttrs = combinedAttrs.filter((attr: any) => !isReadOnlyAttr(attr));
+
+                                        visibleAttrs.sort((a: any, b: any) => {
                                             const aReq = a.tags?.required || false;
                                             const bReq = b.tags?.required || false;
                                             if (aReq && !bReq) return -1;
@@ -408,7 +533,7 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                             return (a.name || a.id).localeCompare(b.name || b.id);
                                         });
 
-                                        if (combinedAttrs.length === 0) {
+                                        if (visibleAttrs.length === 0) {
                                             return (
                                                 <div className="col-span-full py-12 text-center text-gray-400">
                                                     Nenhum atributo disponível.
@@ -416,15 +541,59 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                             );
                                         }
 
-                                        return combinedAttrs.map((attr: any) => {
+                                        const groupedAttrs: Record<AttributeFunctionGroup, any[]> = {
+                                            seo: [],
+                                            technical: [],
+                                            other: []
+                                        };
+
+                                        visibleAttrs.forEach((attr: any) => {
+                                            const groupKey = getAttributeFunctionGroup(attr);
+                                            groupedAttrs[groupKey].push(attr);
+                                        });
+
+                                        const attributeGroups = [
+                                            {
+                                                key: "seo",
+                                                title: "Funções de Busca SEO",
+                                                description: "Atributos que ajudam na busca interna e relevância",
+                                                attrs: groupedAttrs.seo
+                                            },
+                                            {
+                                                key: "technical",
+                                                title: "Funções técnicas",
+                                                description: "Especificações técnicas, identificação e medidas",
+                                                attrs: groupedAttrs.technical
+                                            },
+                                            {
+                                                key: "other",
+                                                title: "Outros atributos",
+                                                description: "Demais campos da categoria",
+                                                attrs: groupedAttrs.other
+                                            }
+                                        ];
+
+                                        const renderAttributeField = (attr: any) => {
                                             const attrId = attr.id;
                                             const existingAttr = existingMap.get(attrId);
                                             const optionValues = Array.isArray(attr.values) ? attr.values.filter((v: any) => v?.name) : [];
                                             const optionMap = new Map(optionValues.map((v: any) => [String(v.id), String(v.name)]));
-                                            const originalValue = existingAttr?.value_name
-                                                || (existingAttr?.value_id ? optionMap.get(String(existingAttr.value_id)) || existingAttr.value_id : '')
+                                            const originalValue = (existingAttr?.value_name && String(existingAttr.value_name).trim())
+                                                || (existingAttr?.value_id ? (optionMap.get(String(existingAttr.value_id)) || String(existingAttr.value_id)) : '')
                                                 || '';
-                                            const currentValue = allAttributes[attrId] !== undefined ? allAttributes[attrId] : originalValue;
+                                            const manualValue = allAttributes[attrId];
+                                            const currentValue = manualValue !== undefined ? manualValue : originalValue;
+                                            const normalizeOpt = (val: string) => String(val || '').trim().toLowerCase();
+                                            const matchedOption = currentValue
+                                                ? optionValues.find((opt: any) => normalizeOpt(opt?.name) === normalizeOpt(currentValue))
+                                                : undefined;
+                                            const selectValue = matchedOption?.name || currentValue || '';
+                                            const renderOptions = selectValue && !optionValues.some((opt: any) => opt?.name === selectValue)
+                                                ? [{ id: '__current__', name: selectValue }, ...optionValues]
+                                                : optionValues;
+                                            const listId = renderOptions.length > 0
+                                                ? `attr-${String(attrId).replace(/[^a-zA-Z0-9_-]/g, "_")}`
+                                                : undefined;
                                             const isRequired = attr.tags?.required || false;
                                             const isNumberUnit = attr.value_type === 'number_unit';
 
@@ -446,6 +615,11 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                                     <label className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1 min-h-[1.25rem]" title={attr.name}>
                                                         <span className="line-clamp-2 leading-tight">{attr.name || attrId}</span>
                                                         {isRequired && <span className="text-red-500 font-bold shrink-0">*</span>}
+                                                        {attr.tags?.hidden && !attr.tags?.read_only && (
+                                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                                                oculto
+                                                            </span>
+                                                        )}
                                                     </label>
 
                                                     {isNumberUnit ? (
@@ -482,32 +656,55 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                                                 )}
                                                             </div>
                                                         </div>
-                                                    ) : optionValues.length > 0 ? (
-                                                        <Select
-                                                            value={currentValue}
-                                                            onValueChange={(val) => setAllAttributes(prev => ({ ...prev, [attrId]: val }))}
-                                                        >
-                                                            <SelectTrigger className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md">
-                                                                <SelectValue placeholder="Selecionar" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {optionValues.map((opt: any) => (
-                                                                    <SelectItem key={opt.id || opt.name} value={opt.name}>
-                                                                        {opt.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
                                                     ) : (
-                                                        <Input
-                                                            value={currentValue}
-                                                            onChange={(e) => setAllAttributes(prev => ({ ...prev, [attrId]: e.target.value }))}
-                                                            className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md"
-                                                        />
+                                                        <div className="flex flex-col gap-1">
+                                                            <Input
+                                                                list={listId}
+                                                                value={selectValue}
+                                                                onChange={(e) => setAllAttributes(prev => ({ ...prev, [attrId]: e.target.value }))}
+                                                                className="h-9 w-full bg-white dark:bg-zinc-950 border-gray-300 dark:border-zinc-700 focus:border-blue-500 rounded-md"
+                                                            />
+                                                            {listId ? (
+                                                                <>
+                                                                    <datalist id={listId}>
+                                                                        {renderOptions.map((opt: any) => (
+                                                                            <option key={opt.id || opt.name} value={opt.name} />
+                                                                        ))}
+                                                                    </datalist>
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        Digite livremente ou escolha uma opção sugerida.
+                                                                    </span>
+                                                                </>
+                                                            ) : null}
+                                                        </div>
                                                     )}
                                                 </div>
                                             );
-                                        });
+                                        };
+
+                                        return attributeGroups
+                                            .filter((group) => group.attrs.length > 0)
+                                            .map((group) => (
+                                                <div
+                                                    key={group.key}
+                                                    className="rounded-xl border border-gray-100 dark:border-zinc-800 bg-white/70 dark:bg-zinc-950/40 p-4 sm:p-5 shadow-sm"
+                                                >
+                                                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                                                {group.title}
+                                                            </h4>
+                                                            <p className="text-xs text-muted-foreground">{group.description}</p>
+                                                        </div>
+                                                        <Badge variant="outline" className="text-[10px]">
+                                                            {group.attrs.length} atributos
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-x-6 gap-y-8">
+                                                        {group.attrs.map(renderAttributeField)}
+                                                    </div>
+                                                </div>
+                                            ));
                                     })()}
                                 </div>
                             </div>

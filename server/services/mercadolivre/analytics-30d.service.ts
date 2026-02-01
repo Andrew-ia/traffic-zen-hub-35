@@ -948,3 +948,22 @@ export async function syncMercadoLivreAnalytics30d(workspaceId: string, days = 3
         orderItemsSynced
     };
 }
+
+export async function syncMercadoLivreOrders(workspaceId: string, days = 7) {
+    await ensureAnalyticsSchema();
+
+    const credentials = await getMercadoLivreCredentials(workspaceId);
+    if (!credentials) {
+        throw new Error("ml_not_connected");
+    }
+
+    const orders = await fetchOrders(workspaceId, String(credentials.userId || credentials.user_id), days);
+    const orderItemsSynced = await upsertOrders(workspaceId, orders);
+
+    return {
+        success: true,
+        days,
+        ordersSynced: orders.length,
+        orderItemsSynced
+    };
+}

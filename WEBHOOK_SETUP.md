@@ -27,7 +27,7 @@ Faça login com a conta vinculada ao seu App ID: `5043496307995752`
 Cole a seguinte URL no campo de callback:
 
 ```
-https://traffic-zen-hub-35.vercel.app/api/integrations/mercadolivre/notifications
+https://traffic-zen-hub-35-ten.vercel.app/api/integrations/mercadolivre/notifications
 ```
 
 ✅ **Esta URL já está configurada no painel!**

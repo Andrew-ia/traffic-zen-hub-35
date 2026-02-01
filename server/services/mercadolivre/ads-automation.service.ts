@@ -682,7 +682,11 @@ export class MercadoAdsAutomationService {
     return rows;
   }
 
-  private async fetchAdsMetricsByItem(workspaceId: string, itemIds: string[]): Promise<{
+  private async fetchAdsMetricsByItem(
+    workspaceId: string,
+    itemIds: string[],
+    range?: { dateFrom: string; dateTo: string },
+  ): Promise<{
     metrics: Map<string, { cost: number; clicks: number; prints: number; sales: number; revenue: number; cpc: number; ctr: number }>;
     error?: { message: string; status?: number };
   }> {
@@ -706,7 +710,7 @@ export class MercadoAdsAutomationService {
       throw err;
     }
 
-    const { dateFrom, dateTo } = this.getDateRange(30);
+    const { dateFrom, dateTo } = range ?? this.getDateRange(30);
 
     try {
       let useMarketplace = false;
@@ -1392,6 +1396,14 @@ export class MercadoAdsAutomationService {
     }
 
     return { sent, report };
+  }
+
+  async getAdsMetricsSummary(workspaceId: string, dateFrom: string, dateTo: string) {
+    return this.fetchCampaignMetrics(workspaceId, { dateFrom, dateTo });
+  }
+
+  async getAdsMetricsByItem(workspaceId: string, itemIds: string[], dateFrom: string, dateTo: string) {
+    return this.fetchAdsMetricsByItem(workspaceId, itemIds, { dateFrom, dateTo });
   }
 
   private buildCampaignName(curve: 'A' | 'B' | 'C', override?: string | null) {
@@ -2450,7 +2462,10 @@ export class MercadoAdsAutomationService {
     }
   }
 
-  private async fetchCampaignMetrics(workspaceId: string): Promise<{
+  private async fetchCampaignMetrics(
+    workspaceId: string,
+    range?: { dateFrom: string; dateTo: string },
+  ): Promise<{
     summary: Record<string, number>;
     daily: Array<{ date: string; clicks: number; prints: number; cost: number; acos: number; roas: number; revenue: number; units: number }>;
     date_from: string;
@@ -2468,7 +2483,7 @@ export class MercadoAdsAutomationService {
       throw err;
     }
     const metricsList = 'clicks,prints,cost,cpc,acos,roas,units_quantity,total_amount,organic_units_quantity,organic_units_amount';
-    const { dateFrom: date_from, dateTo: date_to } = this.getDateRange(30);
+    const { dateFrom: date_from, dateTo: date_to } = range ?? this.getDateRange(30);
 
     let useMarketplace = false;
     const fetchCampaignSearch = async (params: Record<string, any>) => {

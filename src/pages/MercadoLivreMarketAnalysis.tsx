@@ -305,7 +305,7 @@ export default function MercadoLivreMarketAnalysis() {
     };
 
     return (
-        <div className="p-8 max-w-[1600px] mx-auto space-y-8">
+        <div className="w-full px-4 md:px-6 py-8 space-y-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white flex items-center gap-3">

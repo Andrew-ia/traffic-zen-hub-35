@@ -7,13 +7,13 @@ import dotenv from 'dotenv';
 import { startFullAnalyticsScheduler } from './workers/fullAnalyticsScheduler.js';
 import { startAdsWeeklyReportScheduler } from './workers/adsWeeklyReportScheduler.js';
 import { startMercadoLivreDailySummaryScheduler } from './workers/mlDailySummaryScheduler.js';
+import { startMercadoLivreGrowthMetricsScheduler } from './workers/mlGrowthMetricsScheduler.js';
 import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
 import { getPool } from './config/database.js';
 import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
 import workspacesRouter from './api/workspaces.js';
 import aiAnalysisHandler from './api/integrations/ai-analysis.js';
 import { virtualTryOn } from './api/ai/virtual-tryon.js';
-import { generateLookCaption, updateCreativeCaption } from './api/ai/generate-look-caption.js';
 import { saveTryOnCreatives } from './api/creatives/save-tryon.js';
 import { getTryOnLooks, deleteTryOnLook } from './api/creatives/get-tryon-looks.js';
 import productsRouter from './api/products.js';
@@ -97,8 +97,6 @@ app.post('/api/auth/page-permissions/:userId', ...adminOnly, setPagePermissions)
 // Mercado Livre + IA
 app.post('/api/integrations/ai-analysis', aiAnalysisHandler);
 app.post('/api/ai/virtual-tryon', virtualTryOn);
-app.post('/api/ai/generate-look-caption', generateLookCaption);
-app.put('/api/ai/caption/:creativeId', updateCreativeCaption);
 
 // Creatives (Virtual Try-On)
 app.post('/api/creatives/save-tryon', saveTryOnCreatives);
@@ -220,6 +218,7 @@ async function start() {
       startFullAnalyticsScheduler();
       startAdsWeeklyReportScheduler();
       startMercadoLivreDailySummaryScheduler();
+      startMercadoLivreGrowthMetricsScheduler();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

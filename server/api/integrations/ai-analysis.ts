@@ -48,6 +48,285 @@ export interface AIAnalysisResponse {
   processing_time_ms: number;
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getAttrValue = (
+  attrs: Array<{ id: string; value_name?: string; value_id?: string }> = [],
+  ids: string[],
+): string | undefined => {
+  const targets = ids.map((id) => id.toLowerCase());
+  const found = attrs.find((attr) => targets.includes(String(attr.id || "").toLowerCase()));
+  return found?.value_name || found?.value_id;
+};
+
+const buildBasicDescription = (analysisData: MLBAnalysisResult): string => {
+  const attrs = analysisData.product_data.attributes || [];
+  const blocks: string[] = [];
+  const title = analysisData.product_data.title || "";
+
+  if (title) {
+    blocks.push(`Produto: ${title}`);
+  }
+
+  const labeledAttrs: Array<{ label: string; value?: string }> = [
+    { label: "Marca", value: getAttrValue(attrs, ["BRAND", "MARCA"]) },
+    { label: "Modelo", value: getAttrValue(attrs, ["MODEL", "MODELO"]) },
+    { label: "Material", value: getAttrValue(attrs, ["MATERIAL"]) },
+    { label: "Cor", value: getAttrValue(attrs, ["COLOR", "MAIN_COLOR", "COR"]) },
+    { label: "Tamanho", value: getAttrValue(attrs, ["SIZE", "TAMANHO"]) },
+    { label: "Gênero", value: getAttrValue(attrs, ["GENDER", "GENERO"]) },
+    { label: "Condição", value: analysisData.product_data.condition },
+  ].filter((item) => item.value);
+
+  if (labeledAttrs.length > 0) {
+    blocks.push("Características:");
+    labeledAttrs.forEach((item) => {
+      blocks.push(`• ${item.label}: ${item.value}`);
+    });
+  }
+
+  return blocks.join("\n");
+};
+
+const buildFallbackInsights = (analysisData: MLBAnalysisResult): string => {
+  const breakdown = analysisData.quality_score?.breakdown || {};
+  const titleScore = Number(breakdown.title_seo || 0);
+  const descScore = Number(breakdown.description_quality || 0);
+  const imagesScore = Number(breakdown.images_quality || 0);
+  const modelScore = Number(breakdown.model_optimization || 0);
+  const missingAttrs = analysisData.technical_analysis?.missing_important || [];
+  const missingKeywords = analysisData.keyword_analysis?.missing_keywords || [];
+  const images = analysisData.image_analysis?.total_images || 0;
+  const hasVideo = analysisData.image_analysis?.has_video || false;
+  const priceAnalysis = analysisData.competitive_analysis?.price_analysis;
+
+  const parts: string[] = [];
+  if (titleScore && titleScore < 75) parts.push(`Título com score ${titleScore}/100 pode ganhar relevância com ajustes de SEO.`);
+  if (descScore && descScore < 70) parts.push(`Descrição fraca (${descScore}/100) — estruturar melhora confiança e conversão.`);
+  if (modelScore && modelScore < 70) parts.push(`Campo modelo abaixo do ideal (${modelScore}/100) — refinar melhora ranking.`);
+  if (imagesScore && imagesScore < 60) {
+    parts.push(`Imagens insuficientes (${images})${!hasVideo ? " e sem vídeo" : ""}.`);
+  }
+  if (missingAttrs.length > 0) parts.push(`Atributos críticos faltando: ${missingAttrs.slice(0, 4).join(", ")}.`);
+  if (missingKeywords.length > 0) parts.push(`Keywords estratégicas faltando: ${missingKeywords.slice(0, 4).join(", ")}.`);
+  if (priceAnalysis?.market_average && priceAnalysis.current_price) {
+    parts.push(`Preço atual R$ ${priceAnalysis.current_price} vs média R$ ${priceAnalysis.market_average.toFixed(2)}.`);
+  }
+
+  if (parts.length === 0) return "Análise concluída. Não há alertas críticos imediatos, mas vale monitorar desempenho e manter dados completos.";
+  return parts.join(" ");
+};
+
+const buildBaselineSuggestions = (analysisData: MLBAnalysisResult): AISuggestion[] => {
+  const breakdown = analysisData.quality_score?.breakdown || {};
+  const titleScore = Number(breakdown.title_seo || 0);
+  const descScore = Number(breakdown.description_quality || 0);
+  const techScore = Number(breakdown.technical_sheet || 0);
+  const imagesScore = Number(breakdown.images_quality || 0);
+  const modelScore = Number(breakdown.model_optimization || 0);
+  const keywordsScore = Number(breakdown.keywords_density || 0);
+
+  const suggestions: AISuggestion[] = [];
+  const attrs = analysisData.product_data.attributes || [];
+
+  const suggestedTitles = analysisData.title_optimization?.suggested_titles || [];
+  const bestTitle = suggestedTitles.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+  const currentTitle = analysisData.title_optimization?.current_title || analysisData.product_data.title || "";
+  if (bestTitle?.title && bestTitle.title !== currentTitle) {
+    const boost = clamp(Math.round((bestTitle.score || 0) - titleScore), 6, 22);
+    suggestions.push({
+      id: "titulo-otimizado",
+      type: "seo",
+      category: "Título",
+      title: "Otimizar título com SEO e compliance",
+      description: `Score atual: ${titleScore}/100. Sugestão baseada em termos com maior relevância.`,
+      impact: titleScore < 55 ? "high" : "medium",
+      difficulty: "easy",
+      estimated_score_boost: boost,
+      action_data: {
+        field: "title",
+        current_value: currentTitle,
+        suggested_value: bestTitle.title,
+      },
+      reasoning: bestTitle.reasoning || "Título otimizado com palavras-chave relevantes sem extrapolar atributos.",
+      roi_score: clamp(70 + Math.floor(boost / 2), 60, 95),
+      quick_apply: true,
+    });
+  }
+
+  if (descScore < 70) {
+    const optimized = analysisData.seo_description?.optimized_description || buildBasicDescription(analysisData);
+    const boost = clamp(Math.round(90 - descScore), 8, 30);
+    suggestions.push({
+      id: "descricao-conversao",
+      type: "sales",
+      category: "Descrição",
+      title: "Descrição estruturada para conversão",
+      description: `Score atual: ${descScore}/100. Estrutura clara reduz dúvidas e aumenta conversão.`,
+      impact: "high",
+      difficulty: "easy",
+      estimated_score_boost: boost,
+      estimated_conversion_boost: clamp(20 + Math.floor(boost / 2), 15, 40),
+      action_data: {
+        field: "description",
+        current_value: analysisData.product_data.description || analysisData.product_data.plain_text || "",
+        suggested_value: optimized,
+      },
+      reasoning: "Descrição baseada nos atributos existentes, sem inventar características.",
+      roi_score: clamp(80 + Math.floor(boost / 2), 70, 98),
+      quick_apply: true,
+    });
+  }
+
+  const optimizedModels = analysisData.model_optimization?.optimized_models || [];
+  const bestModel = optimizedModels.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+  const currentModel = analysisData.model_optimization?.current_model || getAttrValue(attrs, ["MODEL", "MODELO"]);
+  if (bestModel?.model && bestModel.model !== currentModel && modelScore < 75) {
+    const boost = clamp(Math.round((bestModel.score || 0) - modelScore), 5, 15);
+    suggestions.push({
+      id: "modelo-otimizado",
+      type: "technical",
+      category: "Modelo",
+      title: "Refinar campo modelo",
+      description: `Score atual: ${modelScore}/100. Modelo claro melhora busca interna.`,
+      impact: modelScore < 55 ? "high" : "medium",
+      difficulty: "easy",
+      estimated_score_boost: boost,
+      action_data: {
+        field: "model",
+        current_value: currentModel || "",
+        suggested_value: bestModel.model,
+      },
+      reasoning: "Modelo sugerido a partir de padrões competitivos do ML.",
+      roi_score: clamp(65 + Math.floor(boost / 2), 60, 90),
+      quick_apply: true,
+    });
+  }
+
+  const missingImportant = analysisData.technical_analysis?.missing_important || [];
+  if (missingImportant.length > 0) {
+    const boost = clamp(missingImportant.length * 4, 6, 20);
+    suggestions.push({
+      id: "atributos-tecnicos",
+      type: "technical",
+      category: "Atributos",
+      title: "Completar atributos técnicos obrigatórios",
+      description: `${missingImportant.length} atributos críticos faltando podem reduzir ranking.`,
+      impact: "medium",
+      difficulty: "easy",
+      estimated_score_boost: boost,
+      action_data: {
+        field: "attributes",
+        current_value: attrs.map((a) => `${a.id}:${a.value_name || a.value_id}`).join(", "),
+        suggested_value: `Preencher: ${missingImportant.join(", ")}`,
+      },
+      reasoning: "Atributos completos aumentam relevância nos filtros do ML.",
+      roi_score: clamp(60 + missingImportant.length * 2, 60, 90),
+      quick_apply: true,
+    });
+  }
+
+  const missingKeywords = analysisData.keyword_analysis?.missing_keywords || [];
+  if (missingKeywords.length > 0 && keywordsScore < 75) {
+    const boost = clamp(missingKeywords.length * 3, 6, 18);
+    suggestions.push({
+      id: "keywords-estrategicas",
+      type: "seo",
+      category: "Keywords",
+      title: "Adicionar keywords estratégicas",
+      description: `Keywords ausentes: ${missingKeywords.slice(0, 4).join(", ")}.`,
+      impact: "high",
+      difficulty: "medium",
+      estimated_score_boost: boost,
+      action_data: {
+        field: "description",
+        suggested_value: `Incluir termos de busca: ${missingKeywords.slice(0, 6).join(", ")}`,
+      },
+      reasoning: "Palavras-chave presentes em concorrentes top elevam visibilidade.",
+      competitor_insight: `${missingKeywords.length} termos ausentes em relação a concorrentes.`,
+      roi_score: clamp(70 + Math.floor(boost / 2), 65, 92),
+      quick_apply: false,
+    });
+  }
+
+  const imagesCount = analysisData.image_analysis?.total_images || 0;
+  const hasVideo = analysisData.image_analysis?.has_video || false;
+  if (imagesScore < 65 || imagesCount < 6 || !hasVideo) {
+    const boost = clamp((6 - imagesCount) * 3 + (!hasVideo ? 6 : 0), 6, 20);
+    suggestions.push({
+      id: "imagens-melhorar",
+      type: "sales",
+      category: "Imagens",
+      title: "Melhorar quantidade/qualidade de imagens",
+      description: `Atualmente ${imagesCount} imagens${!hasVideo ? " e sem vídeo" : ""}.`,
+      impact: imagesCount < 3 ? "high" : "medium",
+      difficulty: "medium",
+      estimated_score_boost: boost,
+      estimated_conversion_boost: clamp(10 + Math.floor(boost / 2), 10, 30),
+      reasoning: "Mais imagens e vídeo aumentam confiança e conversão.",
+      roi_score: clamp(65 + Math.floor(boost / 2), 60, 90),
+      quick_apply: false,
+    });
+  }
+
+  const priceAnalysis = analysisData.competitive_analysis?.price_analysis;
+  if (priceAnalysis?.market_average && priceAnalysis.current_price) {
+    const position = priceAnalysis.price_position;
+    if (position === "above_average" || position === "highest") {
+      suggestions.push({
+        id: "preco-estrategia",
+        type: "competitive",
+        category: "Preço",
+        title: "Revisar preço vs mercado",
+        description: `Preço atual acima da média (R$ ${priceAnalysis.market_average.toFixed(2)}).`,
+        impact: "medium",
+        difficulty: "medium",
+        estimated_score_boost: 8,
+        estimated_conversion_boost: 12,
+        reasoning: `Faixa recomendada: R$ ${priceAnalysis.optimal_price_range.min.toFixed(2)} – R$ ${priceAnalysis.optimal_price_range.max.toFixed(2)}.`,
+        roi_score: 70,
+        quick_apply: false,
+      });
+    }
+  }
+
+  if (analysisData.product_data.shipping && analysisData.product_data.shipping.free_shipping === false) {
+    suggestions.push({
+      id: "frete-estrategia",
+      type: "sales",
+      category: "Frete",
+      title: "Avaliar frete grátis",
+      description: "Frete grátis costuma elevar conversão e ranking.",
+      impact: "high",
+      difficulty: "medium",
+      estimated_score_boost: 8,
+      estimated_conversion_boost: 15,
+      reasoning: "Ofertas com frete grátis têm maior taxa de clique e conversão.",
+      roi_score: 85,
+      quick_apply: false,
+    });
+  }
+
+  const missingTechnical = analysisData.technical_analysis?.completion_percentage;
+  if (missingTechnical !== undefined && missingTechnical < 70 && techScore < 70) {
+    suggestions.push({
+      id: "ficha-tecnica",
+      type: "technical",
+      category: "Ficha técnica",
+      title: "Completar ficha técnica",
+      description: `Apenas ${Math.round(missingTechnical)}% dos atributos preenchidos.`,
+      impact: "medium",
+      difficulty: "easy",
+      estimated_score_boost: 10,
+      reasoning: "Ficha técnica completa melhora rankeamento e reduz devoluções.",
+      roi_score: 72,
+      quick_apply: true,
+    });
+  }
+
+  return suggestions;
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -64,283 +343,106 @@ export default async function handler(req: any, res: any) {
   try {
     console.log(`[AI Analysis] Iniciando análise IA para ${mlbId}`);
 
-    // Preparar dados para o GPT-4
     const productSummary = {
-      mlb_id: mlbId,
       title: analysisData.product_data.title,
-      current_description: analysisData.product_data.description || analysisData.product_data.plain_text || '(descrição não disponível)',
+      current_description: analysisData.product_data.description || analysisData.product_data.plain_text || "(descrição não disponível)",
       price: analysisData.product_data.price,
-      category: analysisData.product_data.category_id,
       status: analysisData.product_data.status,
       sold_quantity: analysisData.product_data.sold_quantity,
-      available_quantity: analysisData.product_data.available_quantity,
-      condition: analysisData.product_data.condition,
-      listing_type_id: analysisData.product_data.listing_type_id,
-      current_score: analysisData.quality_score.overall_score,
-      score_breakdown: analysisData.quality_score.breakdown,
-      title_optimization: analysisData.title_optimization,
-      keyword_analysis: analysisData.keyword_analysis,
-      technical_analysis: analysisData.technical_analysis,
-      image_analysis: analysisData.image_analysis,
-      model_optimization: analysisData.model_optimization,
-      seo_description: analysisData.seo_description,
-      shipping_info: {
-        free_shipping: analysisData.product_data.shipping?.free_shipping || false,
-        mode: analysisData.product_data.shipping?.mode || 'not_specified'
-      },
-      competitive_analysis: {
-        competitors_count: analysisData.competitive_analysis?.top_competitors?.length || 0,
-        price_position: analysisData.competitive_analysis?.price_analysis?.price_position,
-        market_average: analysisData.competitive_analysis?.price_analysis?.market_average,
-        top_competitors_sample: analysisData.competitive_analysis?.top_competitors?.slice(0, 3)?.map(comp => ({
-          title: comp.title,
-          price: comp.price,
-          sold_quantity: comp.sold_quantity,
-          free_shipping: comp.shipping?.free_shipping
-        })) || []
-      },
-      attributes: analysisData.product_data.attributes?.map(attr => ({
-        id: attr.id,
-        name: attr.name,
-        current_value: attr.value_name || attr.value_id
-      })) || [],
-      pictures_count: analysisData.product_data.pictures?.length || 0,
-      // Enviar todas as URLs de imagens para análise visual completa
-      pictures_urls: analysisData.product_data.pictures?.map(pic => pic.secure_url || pic.url) || []
+      score: analysisData.quality_score.overall_score,
+      breakdown: analysisData.quality_score.breakdown,
+      missing_attributes: analysisData.technical_analysis?.missing_important || [],
+      images: analysisData.image_analysis?.total_images || 0,
+      has_video: analysisData.image_analysis?.has_video || false,
+      price_analysis: analysisData.competitive_analysis?.price_analysis,
+      keywords_missing: analysisData.keyword_analysis?.missing_keywords || [],
+      free_shipping: analysisData.product_data.shipping?.free_shipping || false,
     };
 
-    // Prompt especializado para análise profissional de anúncios ML
-    const aiPrompt = `
-Você é um especialista sênior em Mercado Livre com foco em SEO de marketplace, conversão e compliance.
+    const baselineSuggestions = buildBaselineSuggestions(analysisData);
+    const fallbackInsights = buildFallbackInsights(analysisData);
 
-Sua tarefa:
-Analisar o anúncio COMPLETO abaixo (incluindo TÍTULO, DESCRIÇÃO ATUAL, ATRIBUTOS, PREÇO, IMAGENS) e devolver uma versão PROFISSIONAL, CORRETA e OTIMIZADA, respeitando:
-- Regras do Mercado Livre
-- Boas práticas de SEO interno
-- Veracidade técnica
-- Alta conversão comercial
-- Prevenção contra bloqueios por infração
+    let aiInsights = fallbackInsights;
 
-DADOS COMPLETOS DO ANÚNCIO ATUAL:
-- TÍTULO: ${productSummary.title}
-- DESCRIÇÃO ATUAL: ${productSummary.current_description}
-- PREÇO: R$ ${productSummary.price}
-- VENDIDOS: ${productSummary.sold_quantity}
-- STATUS: ${productSummary.status}
-- FRETE GRÁTIS: ${productSummary.shipping_info.free_shipping ? 'SIM' : 'NÃO'}
-- IMAGENS: ${productSummary.pictures_count} fotos
-- ATRIBUTOS TÉCNICOS REAIS: ${productSummary.attributes.map((attr: any) => `${attr.id}: ${attr.current_value}`).join(', ')}
+    if (process.env.OPENAI_API_KEY) {
+      const aiPrompt = `
+Você é um especialista em Mercado Livre. Gere uma análise curta, objetiva e profissional.
+Use apenas os dados abaixo e NÃO invente nada.
 
-⛔ PROIBIDO - ALERTA CRÍTICO DE COMPLIANCE:
-- NUNCA contradiga os ATRIBUTOS TÉCNICOS REAIS fornecidos
-- SE o atributo COLOR diz "Dourado", NUNCA sugira "Prateado" ou "Prata"
-- SE o atributo MATERIAL diz "Folheado a ouro", NUNCA sugira "Prata" ou "Cobre"
-- NÃO INVENTE características que não estão nos atributos acima
-- NÃO adicione materiais, pedras, composições ou detalhes técnicos que NÃO existem nos ATRIBUTOS TÉCNICOS REAIS
-- NÃO suponha características baseado apenas no título ou nas imagens - USE OS ATRIBUTOS
-- NÃO use "prata", "ouro", "pedras", "brilhantes" SE NÃO estiver nos atributos
-- NÃO invente marca, certificação ou composição inexistente
-- NÃO use "hipoalergênico" sem validação técnica
-- NÃO use "genérico" no TÍTULO
-- NÃO insira palavras-chave enganosas
-- NÃO use frases sem comprovação
-- ⚠️ ATENÇÃO: Se sugerir cor ou material ERRADO, o vendedor será BANIDO do Mercado Livre!
+Dados:
+- Título: ${productSummary.title}
+- Descrição atual: ${productSummary.current_description}
+- Score geral: ${productSummary.score}
+- Score (título/descrição): ${productSummary.breakdown?.title_seo ?? "N/D"} / ${productSummary.breakdown?.description_quality ?? "N/D"}
+- Imagens: ${productSummary.images} (vídeo: ${productSummary.has_video ? "sim" : "não"})
+- Atributos faltantes: ${productSummary.missing_attributes.length ? productSummary.missing_attributes.join(", ") : "nenhum"}
+- Keywords faltando: ${productSummary.keywords_missing.length ? productSummary.keywords_missing.join(", ") : "nenhuma"}
+- Preço: R$ ${productSummary.price} (posição: ${productSummary.price_analysis?.price_position ?? "N/D"})
+- Frete grátis: ${productSummary.free_shipping ? "sim" : "não"}
 
-✅ OBRIGATÓRIO - REGRAS DE OURO:
-1. SEMPRE verificar os ATRIBUTOS TÉCNICOS REAIS antes de qualquer sugestão
-2. Se COLOR="Dourado" → suas sugestões DEVEM usar "dourado", NUNCA "prata/prateado"
-3. Se MATERIAL="Folheado a ouro" → suas sugestões DEVEM usar este material exato
-4. Use APENAS os dados dos ATRIBUTOS TÉCNICOS REAIS fornecidos acima
-5. Se um atributo não existe, NÃO mencione ele nas sugestões
-6. Se a descrição atual está vazia, sugira uma descrição baseada APENAS no título e atributos REAIS
-7. Corrigir título, descrição, modelo baseado nos dados REAIS (não nas imagens)
-8. Manter SEO sem cometer irregularidades
-9. Focar em clareza, busca e conversão
-10. Se não houver informação técnica suficiente, sugira "completar atributos" ao invés de inventar
-
-EXEMPLO DE ANÁLISE CORRETA:
-Produto: "Anel Feminino Dourado"
-Atributos: COLOR=Dourado, MATERIAL=Folheado a ouro
-✅ Sugestão CORRETA de descrição: "Anel feminino folheado a ouro, acabamento dourado..."
-❌ Sugestão ERRADA: "Anel prateado de prata..." (CONTRADIZ os atributos!)
-
-EXEMPLO 2:
-Produto: "Anel Prateado"
-Atributos: COLOR=Prateado, MATERIAL=Prata
-✅ Sugestão CORRETA: "Anel de prata com acabamento prateado..."
-❌ Sugestão ERRADA: "Anel dourado folheado a ouro..." (CONTRADIZ os atributos!)
-
-ANALISE OS DADOS ACIMA e responda APENAS EM JSON no formato:
-{
-  "overall_opportunity_score": number (0-100),
-  "ai_insights": "análise geral profissional em português",
-  "critical_errors": ["lista de erros críticos encontrados"],
-  "suggestions": [
-    {
-      "id": "titulo-otimizado",
-      "type": "seo",
-      "category": "✅ TÍTULO CORRIGIDO",
-      "title": "Título SEO otimizado e compliance",
-      "description": "Título de até 60 caracteres, SEO real, sem infringir regras ML",
-      "impact": "high",
-      "difficulty": "easy",
-      "estimated_score_boost": number,
-      "action_data": {
-        "field": "title",
-        "current_value": "título atual",
-        "suggested_value": "título corrigido profissional"
-      },
-      "reasoning": "explicação técnica da correção",
-      "roi_score": number (0-100),
-      "quick_apply": true
-    },
-    {
-      "id": "modelo-corrigido",
-      "type": "technical",
-      "category": "✅ CAMPO MODELO CORRIGIDO",
-      "title": "Modelo técnico otimizado",
-      "description": "Campo modelo com informações técnicas validadas",
-      "impact": "medium",
-      "difficulty": "easy",
-      "estimated_score_boost": number,
-      "action_data": {
-        "field": "model",
-        "current_value": "modelo atual",
-        "suggested_value": "modelo corrigido técnico"
-      },
-      "reasoning": "justificativa técnica",
-      "roi_score": number,
-      "quick_apply": true
-    },
-    {
-      "id": "descricao-conversao",
-      "type": "sales",
-      "category": "✅ DESCRIÇÃO REESCRITA",
-      "title": "Descrição para conversão",
-      "description": "Descrição profissional focada em conversão e SEO",
-      "impact": "high",
-      "difficulty": "easy",
-      "estimated_score_boost": number,
-      "estimated_conversion_boost": number,
-      "action_data": {
-        "field": "description",
-        "current_value": "descrição atual",
-        "suggested_value": "descrição profissional completa"
-      },
-      "reasoning": "estratégia de conversão aplicada",
-      "roi_score": number,
-      "quick_apply": true
-    },
-    {
-      "id": "atributos-tecnicos",
-      "type": "technical", 
-      "category": "✅ ATRIBUTOS TÉCNICOS",
-      "title": "Atributos técnicos ideais",
-      "description": "Correção e completude dos atributos técnicos",
-      "impact": "medium",
-      "difficulty": "easy",
-      "estimated_score_boost": number,
-      "action_data": {
-        "field": "attributes", 
-        "current_value": "lista dos atributos atuais (como string)",
-        "suggested_value": "lista dos atributos corrigidos (como string)"
-      },
-      "reasoning": "importância técnica dos atributos",
-      "roi_score": number,
-      "quick_apply": true
-    },
-    {
-      "id": "estrategia-preco",
-      "type": "competitive",
-      "category": "✅ PREÇO - OPINIÃO TÉCNICA",
-      "title": "Análise técnica de preço",
-      "description": "Opinião sobre impacto do preço na conversão",
-      "impact": "medium",
-      "difficulty": "medium",
-      "estimated_conversion_boost": number,
-      "reasoning": "análise técnica de precificação",
-      "roi_score": number,
-      "quick_apply": false
-    },
-    {
-      "id": "frete-estrategia",
-      "type": "sales",
-      "category": "✅ FRETE - ESTRATÉGIA IDEAL", 
-      "title": "Estratégia ideal de frete",
-      "description": "Recomendação profissional para frete",
-      "impact": "high",
-      "difficulty": "medium",
-      "estimated_conversion_boost": number,
-      "reasoning": "impacto do frete na decisão de compra",
-      "roi_score": number,
-      "quick_apply": false
-    }
-  ],
-  "final_score": "Nota de 0 a 10 do anúncio após otimizações",
-  "advanced_tips": ["sugestões avançadas opcionais"]
-}
-
-SEJA RIGOROSO, TÉCNICO E PROFISSIONAL. NÃO INVENTE CARACTERÍSTICAS.
+Responda APENAS em JSON:
+{ "ai_insights": "texto em português (3 a 6 frases curtas)" }
 `;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "Você é um especialista em otimização de anúncios do Mercado Livre. Responda SEMPRE em JSON válido."
-        },
-        {
-          role: "user", 
-          content: aiPrompt
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "Você é um especialista em otimização de anúncios do Mercado Livre. Responda SEMPRE em JSON válido."
+            },
+            {
+              role: "user",
+              content: aiPrompt
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 800
+        });
+
+        const aiResponse = completion.choices[0].message.content;
+        if (aiResponse) {
+          let cleanResponse = aiResponse.trim();
+          if (cleanResponse.startsWith("```json")) {
+            cleanResponse = cleanResponse.replace(/```json\s*/, "").replace(/\s*```$/, "");
+          }
+          if (cleanResponse.startsWith("```")) {
+            cleanResponse = cleanResponse.replace(/```\s*/, "").replace(/\s*```$/, "");
+          }
+          const parsed = JSON.parse(cleanResponse);
+          if (typeof parsed?.ai_insights === "string" && parsed.ai_insights.trim()) {
+            aiInsights = parsed.ai_insights.trim();
+          }
         }
-      ],
-      temperature: 0.3,
-      max_tokens: 3000
-    });
-
-    const aiResponse = completion.choices[0].message.content;
-    
-    if (!aiResponse) {
-      throw new Error('Resposta vazia do GPT-4');
+      } catch (aiError: any) {
+        console.warn("[AI Analysis] Falha ao gerar insights via OpenAI. Usando fallback.", aiError?.message || aiError);
+      }
     }
 
-    // Parse da resposta JSON (limpar markdown se necessário)
-    let aiAnalysis;
-    try {
-      // Limpar possível markdown ```json
-      let cleanResponse = aiResponse.trim();
-      if (cleanResponse.startsWith('```json')) {
-        cleanResponse = cleanResponse.replace(/```json\s*/, '').replace(/\s*```$/, '');
-      }
-      if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/```\s*/, '').replace(/\s*```$/, '');
-      }
-      
-      aiAnalysis = JSON.parse(cleanResponse);
-    } catch (parseError) {
-      console.error('Erro ao parsear resposta do GPT-4:', aiResponse);
-      throw new Error('Resposta inválida do GPT-4');
-    }
-
-    // Calcular métricas derivadas
-    const suggestions = aiAnalysis.suggestions || [];
-    const highImpactCount = suggestions.filter((s: AISuggestion) => s.impact === 'high').length;
-    const quickWinsCount = suggestions.filter((s: AISuggestion) => s.quick_apply).length;
-    const totalBoost = suggestions.reduce((sum: number, s: AISuggestion) => sum + (s.estimated_score_boost || 0), 0);
+    const highImpactCount = baselineSuggestions.filter((s) => s.impact === "high").length;
+    const quickWinsCount = baselineSuggestions.filter((s) => s.quick_apply).length;
+    const totalBoost = baselineSuggestions.reduce((sum, s) => sum + (s.estimated_score_boost || 0), 0);
+    const avgROI = baselineSuggestions.reduce((sum, s) => sum + (s.roi_score || 0), 0) / (baselineSuggestions.length || 1);
+    const baseScore = analysisData.quality_score.overall_score || 60;
+    const overallOpportunity = clamp(
+      Math.round((100 - baseScore) * 0.6 + avgROI * 0.4 + baselineSuggestions.length * 2),
+      10,
+      95
+    );
 
     const response: AIAnalysisResponse = {
       success: true,
-      overall_opportunity_score: aiAnalysis.overall_opportunity_score || 50,
-      total_suggestions: suggestions.length,
+      overall_opportunity_score: overallOpportunity,
+      total_suggestions: baselineSuggestions.length,
       high_impact_count: highImpactCount,
       quick_wins_available: quickWinsCount,
-      competitive_gap_score: Math.max(0, 90 - analysisData.quality_score.overall_score),
-      seo_optimization_potential: Math.max(0, 95 - analysisData.quality_score.overall_score),
-      sales_optimization_potential: Math.min(50, suggestions.filter((s: AISuggestion) => s.type === 'sales').length * 10),
+      competitive_gap_score: Math.max(0, 90 - baseScore),
+      seo_optimization_potential: Math.max(0, 95 - baseScore),
+      sales_optimization_potential: Math.min(50, baselineSuggestions.filter((s) => s.type === "sales").length * 10),
       estimated_total_boost: totalBoost,
-      suggestions: suggestions,
-      ai_insights: aiAnalysis.ai_insights || 'Análise concluída com sucesso',
+      suggestions: baselineSuggestions,
+      ai_insights: aiInsights,
       processing_time_ms: Date.now() - startTime
     };
 

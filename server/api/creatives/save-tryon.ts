@@ -8,7 +8,7 @@ import crypto from 'crypto';
  */
 export async function saveTryOnCreatives(req: Request, res: Response) {
   try {
-    const { images, workspaceId, modelName, clothingName, aspectRatio, folderName, captions } = req.body;
+    const { images, workspaceId, modelName, clothingName, aspectRatio, folderName } = req.body;
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({
@@ -43,8 +43,6 @@ export async function saveTryOnCreatives(req: Request, res: Response) {
       const name = `Virtual Try-On - ${modelName || 'Modelo'} × ${clothingName || 'Roupa'} - ${timestamp} (${i + 1})`;
 
       // Create metadata
-      const caption = captions && captions[i] ? captions[i] : null;
-      console.log(`📝 Saving caption for image ${i + 1}:`, caption ? caption.substring(0, 50) + '...' : 'NULL');
       const metadata = {
         source: 'virtual-tryon',
         modelName: modelName || null,
@@ -53,7 +51,6 @@ export async function saveTryOnCreatives(req: Request, res: Response) {
         aspectRatio: aspectRatio || '9:16',
         generatedAt: new Date().toISOString(),
         variationIndex: i + 1,
-        caption: caption,
       };
 
       // Generate hash from image data for deduplication

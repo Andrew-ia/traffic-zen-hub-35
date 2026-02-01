@@ -26,7 +26,6 @@ export interface GenerateOptions {
 
 export interface GenerateResult {
   images: string[];
-  captions: string[];
 }
 
 async function generateBatchViaBackend(
@@ -38,7 +37,7 @@ async function generateBatchViaBackend(
   count: number,
   brandName: string = 'Vermezzo',
   signal?: AbortSignal,
-): Promise<{ images: string[]; captions: string[] }> {
+): Promise<{ images: string[] }> {
   const resp = await fetch(`${API_BASE}/api/ai/virtual-tryon`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -62,8 +61,6 @@ async function generateBatchViaBackend(
 
   const data = await resp.json();
   const images: string[] = [];
-  const captions: string[] = [];
-
   if (typeof data.image === 'string' && data.image.length > 0) {
     images.push(data.image);
   }
@@ -76,25 +73,13 @@ async function generateBatchViaBackend(
     }
   }
 
-  if (typeof data.caption === 'string' && data.caption.length > 0) {
-    captions.push(data.caption);
-  }
-
-  if (Array.isArray(data.captions)) {
-    for (const cap of data.captions) {
-      if (typeof cap === 'string' && cap.length > 0) {
-        captions.push(cap);
-      }
-    }
-  }
-
   const uniqueImages = Array.from(new Set(images));
 
   if (uniqueImages.length === 0) {
     throw new Error('Resposta da API não contém imagens válidas.');
   }
 
-  return { images: uniqueImages, captions };
+  return { images: uniqueImages };
 }
 
 export const generateVariations = async (
@@ -114,8 +99,6 @@ export const generateVariations = async (
   const signal = options?.signal;
   const totalRequested = Math.min(Math.max(count, 1), 3);
   const results: string[] = [];
-  const captions: string[] = [];
-
   try {
     onProgress?.(0, totalRequested);
 
@@ -131,7 +114,6 @@ export const generateVariations = async (
     );
 
     results.push(...batch.images.slice(0, totalRequested));
-    captions.push(...batch.captions.slice(0, totalRequested));
     onProgress?.(results.length, totalRequested);
 
     if (results.length < totalRequested) {
@@ -154,7 +136,6 @@ export const generateVariations = async (
         const image = extraBatch.images[i];
         if (!results.includes(image) && results.length < totalRequested) {
           results.push(image);
-          captions.push(extraBatch.captions[i] || '');
         }
       }
 
@@ -162,16 +143,16 @@ export const generateVariations = async (
     }
   } catch (error: any) {
     if (error?.name === 'AbortError') {
-      return { images: results, captions };
+      return { images: results };
     }
     if (error.message?.includes('quota') || error.message?.includes('429')) {
       if (results.length > 0) {
         console.warn(`Limite de quota atingido após ${results.length} imagens`);
-        return { images: results, captions };
+        return { images: results };
       }
     }
     throw error;
   }
 
-  return { images: results, captions };
+  return { images: results };
 };

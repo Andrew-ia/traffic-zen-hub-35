@@ -10,12 +10,19 @@ try {
  * Database configuration and connection utilities
  */
 
+function shouldPreferPooler(): boolean {
+  if (process.env.USE_SUPABASE_POOLER === 'true') return true;
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) return true;
+  return false;
+}
+
 export function getDatabaseUrl(): string {
-  // Prefer Supabase Pooler when available (works locally and serverless)
-  const url =
-    process.env.SUPABASE_POOLER_URL ||
-    process.env.SUPABASE_DATABASE_URL ||
-    process.env.DATABASE_URL;
+  const pooler = process.env.SUPABASE_POOLER_URL;
+  const direct = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+  const url = shouldPreferPooler()
+    ? (pooler || direct)
+    : (direct || pooler);
 
   if (!url) {
     throw new Error('SUPABASE_DATABASE_URL or DATABASE_URL environment variable is required');
