@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ShoppingBag, Zap, Target, ExternalLink } from "lucide-react";
+import { ExternalLink, Target, Zap } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ImageUpload } from "@/components/analyzer/ImageUpload";
 
@@ -205,6 +205,7 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
     const [lastApplication, setLastApplication] = useState<any>(null);
     const [applyError, setApplyError] = useState<any>(null);
 
+
     // Image upload state
     const [newImagePictureIds, setNewImagePictureIds] = useState<string[]>([]);
 
@@ -234,6 +235,7 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
         WEIGHT: "Peso",
         DIMENSIONS: "Dimensões"
     }), []);
+
 
     useEffect(() => {
         if (currentAnalysis) {
@@ -270,6 +272,37 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                 attrs: {} // Could populate if needed
             });
         }
+    }, [currentAnalysis]);
+
+    const filteredAlerts = useMemo(() => {
+        if (!currentAnalysis?.quality_score?.alerts) return [];
+        let alerts = [...currentAnalysis.quality_score.alerts];
+        const productTags = currentAnalysis.product_data?.tags || [];
+        const shippingTags = currentAnalysis.product_data?.shipping?.tags || [];
+        const videoStatus = currentAnalysis.image_analysis?.video_status;
+        const hasVideo = videoStatus
+            ? videoStatus === "present"
+            : Boolean(
+                currentAnalysis.image_analysis?.has_video ||
+                currentAnalysis.product_data?.video_id ||
+                [...productTags, ...shippingTags].some((tag) => {
+                    const norm = String(tag).toLowerCase();
+                    return norm.includes("video") || norm.includes("clip");
+                })
+            );
+        const logisticType = currentAnalysis.product_data?.shipping?.logistic_type || "";
+        const isFullShipping = String(logisticType).toLowerCase() === "fulfillment" ||
+            shippingTags.map((tag) => String(tag).toLowerCase()).includes("fulfillment") ||
+            productTags.map((tag) => String(tag).toLowerCase()).includes("fulfillment");
+        if (videoStatus && videoStatus !== "absent") {
+            alerts = alerts.filter((alert) => alert.message !== "Sem clips/vídeos");
+        } else if (!videoStatus && hasVideo) {
+            alerts = alerts.filter((alert) => alert.message !== "Sem clips/vídeos");
+        }
+        if (isFullShipping) {
+            alerts = alerts.filter((alert) => alert.message !== "Frete grátis desativado");
+        }
+        return alerts;
     }, [currentAnalysis]);
 
     const loadItemData = useCallback(async () => {
@@ -327,6 +360,9 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
     }, [activeTab, loadItemData, loadCategoryData]);
 
     const buildSeoTemplate = () => {
+        if (currentAnalysis?.seo_description?.optimized_description) {
+            return currentAnalysis.seo_description.optimized_description;
+        }
         const title = editedTitle || currentAnalysis?.product_data?.title || "Produto";
 
         const brand = allAttributes['BRAND'] || editedBrand || "Outras";
@@ -458,13 +494,13 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                             <div className="flex items-center justify-between text-xs">
                                 <span>Críticos:</span>
                                 <span className="text-red-600 font-bold">
-                                    {currentAnalysis.quality_score.alerts.filter(a => a.type === 'error').length}
+                                    {filteredAlerts.filter(a => a.type === 'error').length}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between text-xs">
                                 <span>Avisos:</span>
                                 <span className="text-yellow-600 font-bold">
-                                    {currentAnalysis.quality_score.alerts.filter(a => a.type === 'warning').length}
+                                    {filteredAlerts.filter(a => a.type === 'warning').length}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between text-xs">
@@ -751,7 +787,7 @@ export function MLBAnalysisResults({ result: currentAnalysis, workspaceId, onRea
                                         variant="outline"
                                         onClick={() => setEditedDescription(buildSeoTemplate())}
                                     >
-                                        Usar Template SEO
+                                        Usar Sugestão SEO
                                     </Button>
                                 </div>
                             </CardContent>

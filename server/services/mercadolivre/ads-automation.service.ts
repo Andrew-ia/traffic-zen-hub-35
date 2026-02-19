@@ -806,6 +806,154 @@ export class MercadoAdsAutomationService {
     return { metrics: result, error };
   }
 
+  async fetchAdsMetricsByAd(
+    workspaceId: string,
+    range?: { dateFrom: string; dateTo: string },
+  ): Promise<{
+    rows: Array<{
+      adId: string;
+      itemId: string | null;
+      campaignId?: string | null;
+      status?: string | null;
+      clicks: number;
+      prints: number;
+      cost: number;
+      sales: number;
+      revenue: number;
+      cpc: number;
+      ctr: number;
+    }>;
+    date_from: string;
+    date_to: string;
+    error?: { message: string; status?: number };
+  }> {
+    const { dateFrom: date_from, dateTo: date_to } = range ?? this.getDateRange(30);
+    const rowsMap = new Map<string, {
+      adId: string;
+      itemId: string | null;
+      campaignId?: string | null;
+      status?: string | null;
+      clicks: number;
+      prints: number;
+      cost: number;
+      sales: number;
+      revenue: number;
+      cpc: number;
+      ctr: number;
+    }>();
+    let error: { message: string; status?: number } | undefined;
+
+    let advertiserId: string;
+    let siteId: string;
+    try {
+      ({ advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId, { purpose: 'read' }));
+    } catch (err: any) {
+      const message = err?.message || '';
+      if (message === 'ml_ads_advertiser_unavailable' || message === 'ml_ads_missing_advertiser' || message === 'ml_not_connected') {
+        return { rows: [], date_from, date_to, error: { message } };
+      }
+      throw err;
+    }
+
+    let useMarketplace = false;
+    const fetchAdsPage = async (params: Record<string, any>) => {
+      if (useMarketplace) {
+        return requestWithAuth<any>(
+          workspaceId,
+          `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+          { params, headers: { 'api-version': '2' } },
+        );
+      }
+      try {
+        return await requestWithAuth<any>(
+          workspaceId,
+          `${MKT_ADS_API_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+          { params, headers: { 'api-version': '2' } },
+        );
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403 || status === 404) {
+          useMarketplace = true;
+          return requestWithAuth<any>(
+            workspaceId,
+            `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/ads/search`,
+            { params, headers: { 'api-version': '2' } },
+          );
+        }
+        throw err;
+      }
+    };
+
+    try {
+      let offset = 0;
+      const limit = 50;
+      while (true) {
+        const resp = await fetchAdsPage({
+          limit,
+          offset,
+          date_from,
+          date_to,
+          metrics: 'clicks,prints,cost,units_quantity,total_amount',
+        });
+
+        const results = resp?.results || [];
+        if (!results.length) break;
+
+        results.forEach((ad: any, index: number) => {
+          const rawAdId =
+            ad?.id ||
+            ad?.ad_id ||
+            ad?.adId ||
+            ad?.ad_group_id ||
+            ad?.adGroupId ||
+            ad?.ad?.id ||
+            ad?.ad?.ad_id;
+          const itemId = ad?.item_id || ad?.itemId || ad?.item?.id || ad?.item?.item_id || ad?.product_id || ad?.productId || null;
+          const adId = rawAdId ? String(rawAdId) : (itemId ? `item:${itemId}` : `unknown:${offset}-${index}`);
+          const metrics = ad?.metrics || ad?.metrics_summary || ad;
+
+          const current = rowsMap.get(adId) || {
+            adId,
+            itemId: itemId ? String(itemId) : null,
+            campaignId: ad?.campaign_id || ad?.campaignId || ad?.campaign?.id || null,
+            status: ad?.status || null,
+            clicks: 0,
+            prints: 0,
+            cost: 0,
+            sales: 0,
+            revenue: 0,
+            cpc: 0,
+            ctr: 0,
+          };
+
+          current.clicks += Number(metrics?.clicks || 0);
+          current.prints += Number(metrics?.prints || 0);
+          current.cost += Number(metrics?.cost || metrics?.consumed_budget || 0);
+          current.sales += Number(metrics?.units_quantity || metrics?.sales || 0);
+          current.revenue += Number(metrics?.total_amount || metrics?.revenue || 0);
+
+          rowsMap.set(adId, current);
+        });
+
+        if (results.length < limit) break;
+        offset += limit;
+      }
+
+      for (const row of rowsMap.values()) {
+        row.cpc = row.clicks > 0 ? row.cost / row.clicks : 0;
+        row.ctr = row.prints > 0 ? row.clicks / row.prints : 0;
+      }
+    } catch (err: any) {
+      error = {
+        message: String((err as any)?.response?.data?.message || (err as any)?.response?.data?.error || (err as any)?.message || 'ads_metrics_failed'),
+        status: (err as any)?.response?.status,
+      };
+      console.warn('[MercadoAds] Falha ao buscar métricas por anúncio:', error.message);
+    }
+
+    return { rows: Array.from(rowsMap.values()), date_from, date_to, error };
+  }
+
   private pickCurve(metrics: { 
     revenue: number; 
     sales: number; 
@@ -2666,7 +2814,7 @@ export class MercadoAdsAutomationService {
           );
       } catch (err: any) {
           const statusCode = err?.response?.status;
-          if (statusCode === 401 || statusCode === 403) {
+          if (statusCode === 401 || statusCode === 403 || statusCode === 404 || statusCode === 405) {
               console.warn(`[MercadoAds] Update budget via Standard API failed (${statusCode}). Trying Marketplace API...`);
               try {
                   await requestWithAuth(

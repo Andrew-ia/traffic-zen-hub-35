@@ -2,12 +2,13 @@ import type { LucideIcon } from "lucide-react";
 import {
   Target,
   TrendingUp,
-  Sparkles,
   ShoppingBag,
+  ShoppingCart,
   Package,
-  Trophy,
   Warehouse,
   FileText,
+  Flame,
+  AlertCircle,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -30,19 +31,23 @@ export const mainNavigation: NavigationEntry[] = [
     href: "/",
     icon: ShoppingBag,
     children: [
-      { name: "Analisador MLB", href: "/mercado-livre-analyzer", icon: Target, keywords: ["analisador", "mlb", "seo", "otimizacao", "mercado livre"] },
-      // { name: "Análise de Mercado", href: "/mercado-livre-market-analysis", icon: ChartLine, keywords: ["analise", "mercado", "concorrencia", "tendencias", "mlb"] },
-      { name: "Calc. de Preço ML", href: "/mercado-livre-price-calculator", icon: Trophy, keywords: ["preco", "fee", "margem", "mercado livre", "calculadora"] },
-      { name: "Catálogo (Hub)", href: "/product-hub", icon: Package, keywords: ["produtos", "catalogo", "hub", "estoque", "marketplace"] },
+      { name: "Operações", href: "/mercado-livre/operacoes", icon: AlertCircle, keywords: ["operacoes", "acoes", "pendencias", "dia"] },
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "ml", "listings"] },
-      { name: "Analytics Full", href: "/mercado-livre/full-analytics", icon: TrendingUp, keywords: ["full", "analytics", "classificacao", "abc", "ml"] },
-      { name: "Relatório Executivo", href: "/mercado-livre/relatorio-executivo", icon: FileText, keywords: ["relatorio", "executivo", "queda", "growth", "ml"] },
+      { name: "Oportunidades de Volume", href: "/mercado-livre/oportunidades-volume", icon: Flame, keywords: ["volume", "oportunidades", "growth", "ml"] },
       { name: "Mercado Ads", href: "/mercado-ads/manual", icon: Target, keywords: ["ads", "campanhas", "curvas", "abc", "mercado ads"] },
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
+      { name: "Catálogo (Hub)", href: "/product-hub", icon: Package, keywords: ["produtos", "catalogo", "hub", "estoque", "marketplace"] },
+      { name: "Analytics Full", href: "/mercado-livre/full-analytics", icon: TrendingUp, keywords: ["full", "analytics", "classificacao", "abc", "ml"] },
+      { name: "Relatório Executivo", href: "/mercado-livre/relatorio-executivo", icon: FileText, keywords: ["relatorio", "executivo", "queda", "growth", "ml"] },
       { name: "Integrações", href: "/integrations", icon: ShoppingBag, keywords: ["integracoes", "conexoes", "mercado livre", "shopee"] },
     ],
   },
-  { name: "Gerador de Looks", href: "/gerador-looks", icon: Sparkles, keywords: ["ia", "looks", "virtual"] },
+  {
+    name: "Shopee Agora",
+    href: "/shopee-agora",
+    icon: ShoppingCart,
+    keywords: ["shopee", "marketplace", "agora", "integracao", "catalogo"],
+  },
 ];
 
 export function flattenNavigation(entries: NavigationEntry[]): NavigationItem[] {

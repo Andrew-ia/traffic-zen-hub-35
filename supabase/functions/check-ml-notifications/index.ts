@@ -59,6 +59,15 @@ Deno.serve(async (req) => {
             }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
 
+        const realtimeOnly = String(Deno.env.get('ML_NOTIFICATIONS_REALTIME_ONLY') || 'true').toLowerCase() === 'true';
+        if (realtimeOnly) {
+            return new Response(JSON.stringify({
+                success: true,
+                disabled: true,
+                reason: "ML_NOTIFICATIONS_REALTIME_ONLY is true"
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+
         console.log("Function started");
 
         // 1. Setup Supabase Client

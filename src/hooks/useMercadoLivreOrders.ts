@@ -91,6 +91,7 @@ export function useMercadoLivreOrders(
         limit?: number;
         offset?: number;
         includeCancelled?: boolean;
+        activity?: "created" | "confirmed";
     }
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
@@ -114,6 +115,7 @@ export function useMercadoLivreOrders(
             if (options?.limit) params.append("limit", options.limit.toString());
             if (options?.offset) params.append("offset", options.offset.toString());
             if (options?.includeCancelled) params.append("includeCancelled", "true");
+            if (options?.activity) params.append("activity", options.activity);
 
             const response = await fetch(
                 `/api/integrations/mercadolivre/orders?${params}`

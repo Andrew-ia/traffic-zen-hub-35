@@ -16,6 +16,20 @@ export interface MLReplayOptions {
  * Uses the existing HTTP endpoint to avoid duplicating logic.
  */
 export function startMLNotificationsReplayWorker(opts: MLReplayOptions): StopFn | null {
+  const replayEnabled =
+    String(process.env.ML_NOTIFICATIONS_REPLAY_ENABLED || 'false').toLowerCase() === 'true';
+  if (!replayEnabled) {
+    console.warn('[ML Replay Worker] Desabilitado: ML_NOTIFICATIONS_REPLAY_ENABLED != true.');
+    return null;
+  }
+
+  const realtimeOnly =
+    String(process.env.ML_NOTIFICATIONS_REALTIME_ONLY || 'true').toLowerCase() === 'true';
+  if (realtimeOnly) {
+    console.warn('[ML Replay Worker] Desabilitado: modo real-time ativo.');
+    return null;
+  }
+
   const workspaceId = (opts.workspaceId || '').trim();
   const apiBaseUrl = (opts.apiBaseUrl || '').replace(/\/+$/, '');
 
@@ -28,18 +42,21 @@ export function startMLNotificationsReplayWorker(opts: MLReplayOptions): StopFn 
   const days = Math.max(0.1, Number(opts.days || 1)); // default 1 dia (24h), min 0.1
   const maxOrders = Math.min(500, Math.max(1, Number(opts.maxOrders || 200)));
   const dryRun = Boolean(opts.dryRun);
+  const replaySecret = String(process.env.ML_NOTIFICATIONS_REPLAY_SECRET || '').trim();
 
   const runReplay = async () => {
     try {
+      const payload: any = {
+        workspaceId,
+        days,
+        dryRun,
+        maxOrders,
+      };
+      if (replaySecret) payload.secret = replaySecret;
       const resp = await fetch(`${apiBaseUrl}/api/integrations/mercadolivre/notifications/replay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId,
-          days,
-          dryRun,
-          maxOrders,
-        }),
+        body: JSON.stringify(payload),
       });
       const json: any = await resp.json().catch(() => ({} as any));
       if (!resp.ok || json?.error) {

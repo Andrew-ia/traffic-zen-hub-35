@@ -286,12 +286,123 @@ export interface MercadoLivreAnalyticsTopResponse {
     topProfit: MercadoLivreAnalyticsTopProduct[];
 }
 
+export interface MercadoLivrePriceSuggestion {
+    id: string;
+    workspace_id: string;
+    ml_item_id?: string | null;
+    title?: string | null;
+    current_price?: number | null;
+    suggested_price?: number | null;
+    currency_id?: string | null;
+    status: "new" | "applied" | "dismissed";
+    resource?: string | null;
+    created_at: string;
+    updated_at: string;
+    applied_at?: string | null;
+    dismissed_at?: string | null;
+    applied_price?: number | null;
+}
+
+export interface MercadoLivrePriceSuggestionResponse {
+    items: MercadoLivrePriceSuggestion[];
+    total: number;
+}
+
+export interface MercadoLivreRadarProduct {
+    id: string;
+    title: string;
+    price: number;
+    sold_quantity?: number;
+    permalink?: string;
+    thumbnail?: string;
+    ad_age_days?: number | null;
+    sales_per_day?: number | null;
+    official_store_id?: number | null;
+    logistic_type?: string | null;
+    shipping_free_shipping?: boolean;
+    seller_power_seller_status?: string | null;
+    seller_id?: string | null;
+    seller_nickname?: string | null;
+    seller_reputation_level?: string | null;
+    seller_transactions?: number | null;
+    seller_listings?: number | null;
+}
+
+export interface MercadoLivreRadarStats {
+    total_listings: number;
+    scanned_listings: number;
+    unique_sellers: number;
+    official_stores_count: number;
+    fulfillment_count: number;
+    free_shipping_count: number;
+    mercado_lider_count: number;
+    created_today_count: number;
+    total_revenue: number;
+    average_price: number;
+    total_sold_quantity: number;
+    average_listing_age_days: number | null;
+    sample_truncated: boolean;
+}
+
+export interface MercadoLivreCompetitiveRadarResult {
+    targetProduct: MercadoLivreRadarProduct;
+    statistics: MercadoLivreRadarStats;
+    competitors: MercadoLivreRadarProduct[];
+    meta?: {
+        search_strategy?: string;
+        total_listings?: number;
+        scanned_listings?: number;
+        sample_truncated?: boolean;
+    };
+}
+
+export interface MercadoLivreChecklistResult {
+    mlb_id: string;
+    analyzed_at: string;
+    product_data: {
+        id: string;
+        title: string;
+        price: number;
+        category_id?: string;
+        status?: string;
+        sold_quantity?: number;
+        available_quantity?: number;
+        permalink?: string;
+        thumbnail?: string;
+        shipping?: any;
+        tags?: any[];
+    };
+    quality_score?: {
+        overall_score?: number;
+        breakdown?: Record<string, number>;
+        alerts?: Array<{ message: string }>;
+        suggestions?: Array<{ category: string; title: string; description: string; impact: string; difficulty: string }>;
+    };
+    technical_analysis?: {
+        completion_percentage?: number;
+        missing_important?: string[];
+    };
+    technical_sheet_analysis?: any;
+    image_analysis?: {
+        total_images?: number;
+        has_video?: boolean;
+        video_status?: string;
+        high_quality_images?: number;
+        has_variations_images?: boolean;
+    };
+    competitive_analysis?: any;
+    recommendations?: {
+        priority_actions?: Array<{ title: string; description?: string; impact?: string; difficulty?: string }>;
+        quick_wins?: Array<{ title: string; description?: string; impact?: string; difficulty?: string }>;
+        advanced_optimizations?: Array<{ title: string; description?: string; impact?: string; difficulty?: string }>;
+    };
+    title_optimization?: any;
+    seo_description?: any;
+}
+
 export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
-    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
-    const isConnected = authStatus?.connected ?? false;
-
     return useQuery({
         queryKey: ["mercadolivre-full-analytics", effectiveWorkspaceId],
         queryFn: async () => {
@@ -305,7 +416,7 @@ export const useMercadoLivreFullAnalytics = (workspaceId: string | null) => {
             }
             return response.json() as Promise<MercadoLivreFullProduct[]>;
         },
-        enabled: !!effectiveWorkspaceId && isConnected,
+        enabled: !!effectiveWorkspaceId,
         retry: shouldRetry,
     });
 };
@@ -727,6 +838,45 @@ export function useMercadoLivreQuestions(
 }
 
 /**
+ * Hook para atualizar preço de produto no Mercado Livre
+ */
+export function useUpdateMercadoLivrePrice() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (payload: { workspaceId: string; productId: string; price: number }) => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre/products/${payload.productId}/price`,
+                {
+                    method: "PUT",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        workspaceId: payload.workspaceId,
+                        price: payload.price,
+                    }),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to update price (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, payload) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "products", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "growth-report", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", payload.workspaceId] });
+        },
+    });
+}
+
+/**
  * Hook para sincronizar dados do Mercado Livre
  */
 export function useSyncMercadoLivre() {
@@ -764,6 +914,12 @@ export function useSyncMercadoLivre() {
             });
             queryClient.invalidateQueries({
                 queryKey: ["mercadolivre", "questions", workspaceId],
+            });
+            queryClient.invalidateQueries({
+                queryKey: ["mercadolivre", "growth-report", workspaceId],
+            });
+            queryClient.invalidateQueries({
+                queryKey: ["mercadolivre", "analytics-top", workspaceId],
             });
         },
     });
@@ -1068,5 +1224,156 @@ export function useMercadoLivreAdvancedSearch(
         enabled: !!workspaceId && !!categoryId && isConnected,
         retry: shouldRetry,
         staleTime: 30 * 60 * 1000,
+    });
+}
+
+/**
+ * Hook para listar sugestões de preço recebidas via webhook
+ */
+export function useMercadoLivrePriceSuggestions(
+    workspaceId: string | null,
+    options?: { status?: string; limit?: number; offset?: number }
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: [
+            "mercadolivre",
+            "price-suggestions",
+            effectiveWorkspaceId,
+            options?.status || "new",
+            options?.limit || 50,
+            options?.offset || 0,
+        ],
+        queryFn: async (): Promise<MercadoLivrePriceSuggestionResponse> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+                status: options?.status || "new",
+                limit: String(options?.limit ?? 50),
+                offset: String(options?.offset ?? 0),
+            });
+
+            const response = await fetch(`/api/integrations/mercadolivre/price-suggestions?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch price suggestions (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 2 * 60 * 1000,
+    });
+}
+
+/**
+ * Hook para atualizar status de sugestão de preço
+ */
+export function useUpdateMercadoLivrePriceSuggestionStatus() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (payload: { workspaceId: string; id: string; status: "new" | "applied" | "dismissed"; appliedPrice?: number | null }) => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre/price-suggestions/${payload.id}/status`,
+                {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        workspaceId: payload.workspaceId,
+                        status: payload.status,
+                        appliedPrice: typeof payload.appliedPrice === "number" ? payload.appliedPrice : null,
+                    }),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to update suggestion (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, payload) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "price-suggestions", payload.workspaceId] });
+        },
+    });
+}
+
+/**
+ * Hook para rodar radar de concorrência (on-demand)
+ */
+export function useMercadoLivreCompetitiveRadar() {
+    return useMutation({
+        mutationFn: async (payload: { workspaceId: string; productId: string }): Promise<MercadoLivreCompetitiveRadarResult> => {
+            const response = await fetch(`/api/integrations/mercadolivre/analyze-product`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    workspaceId: payload.workspaceId,
+                    productId: payload.productId,
+                }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to run competitor radar (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            const data = await response.json();
+            return data?.results || data;
+        },
+    });
+}
+
+/**
+ * Hook para checklist diário (análise rápida do anúncio)
+ */
+export function useMercadoLivreDailyChecklist() {
+    return useMutation({
+        mutationFn: async (payload: { workspaceId: string; mlbId: string }): Promise<MercadoLivreChecklistResult> => {
+            const response = await fetch(`/api/integrations/mercadolivre/analyze`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    workspaceId: payload.workspaceId,
+                    mlbId: payload.mlbId,
+                }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to run daily checklist (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
     });
 }

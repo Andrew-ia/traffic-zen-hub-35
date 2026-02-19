@@ -17,6 +17,7 @@ import { TelegramNotificationService } from "../../services/telegramNotification
 import { MarketAnalysisService } from "../../services/mercadolivre/market-analysis.service.js";
 import { syncMercadoLivreAnalytics30d, syncMercadoLivreProducts } from "../../services/mercadolivre/analytics-30d.service.js";
 import { buildMercadoLivreGrowthReport, renderGrowthReportHtml, renderGrowthReportMarkdown } from "../../services/mercadolivre/growth-report.service.js";
+import { listProductAdsMetricsForWorkspace, syncProductAdsMetricsForWorkspace } from "../../services/mercadolivre/product-ads-metrics.service.js";
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
@@ -324,6 +325,11 @@ function resolveFrontendBaseUrl(req: Request): string {
     const envBase = normalizeBaseUrl(process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL);
     if (envBase) return envBase;
 
+    const originHeader = normalizeBaseUrl(String(req.headers.origin || ""));
+    if (originHeader) {
+        return originHeader;
+    }
+
     const hostHeader = normalizeBaseUrl(String((req.headers["x-forwarded-host"] || req.headers.host || "")).split(",")[0]);
     if (hostHeader) {
         const protoHeader = String((req.headers["x-forwarded-proto"] || req.protocol || "https")).split(",")[0].replace(/:$/, "");
@@ -339,6 +345,39 @@ function resolveFrontendBaseUrl(req: Request): string {
 const buildRedirectUri = (req: Request) => {
     const baseUrl = resolveFrontendBaseUrl(req);
     return baseUrl ? `${baseUrl}/integrations/mercadolivre/callback` : "";
+};
+
+const resolveOAuthRedirectUri = (req: Request): { redirectUri: string; includeRedirectUri: boolean; source: string } => {
+    const explicitRedirect = normalizeBaseUrl(
+        process.env.MERCADO_LIVRE_REDIRECT_URI ||
+        process.env.ML_REDIRECT_URI ||
+        process.env.MERCADO_LIVRE_OAUTH_REDIRECT_URI
+    );
+    if (explicitRedirect) {
+        return { redirectUri: explicitRedirect, includeRedirectUri: true, source: "env" };
+    }
+
+    const baseRedirect = buildRedirectUri(req);
+    if (!baseRedirect) {
+        return { redirectUri: "", includeRedirectUri: false, source: "none" };
+    }
+
+    const forceVercel = String(process.env.MERCADO_LIVRE_FORCE_VERCEL_REDIRECT || "").toLowerCase() === "true";
+    if (forceVercel) {
+        return {
+            redirectUri: "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback",
+            includeRedirectUri: true,
+            source: "vercel"
+        };
+    }
+
+    const allowLocal = String(process.env.MERCADO_LIVRE_ALLOW_LOCAL_REDIRECT || "").toLowerCase() === "true";
+    const isLocalhost = baseRedirect.includes("localhost") || baseRedirect.includes("127.0.0.1");
+    if (isLocalhost && !allowLocal) {
+        return { redirectUri: "", includeRedirectUri: false, source: "local-omitted" };
+    }
+
+    return { redirectUri: baseRedirect, includeRedirectUri: true, source: "auto" };
 };
 
 async function ensureShipmentsCacheTable() {
@@ -1123,8 +1162,14 @@ router.get("/search", async (req, res) => {
 router.get("/auth/status", async (req, res) => {
     try {
         const { workspaceId } = req.query;
+        const mode = String(req.query.mode || "").toLowerCase();
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        if (mode === "local" || mode === "cache" || mode === "exists") {
+            const creds = await getMercadoLivreCredentials(String(workspaceId));
+            return res.json({ connected: !!creds, userId: creds?.userId });
         }
 
         const creds = await getMercadoLivreCredentials(String(workspaceId));
@@ -1164,48 +1209,38 @@ router.get("/auth/url", async (req, res) => {
 
         const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
         const clientId = appCredentials?.clientId;
-        const redirectUri = buildRedirectUri(req as Request);
+        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(req as Request);
 
         if (!clientId) {
             return res.status(500).json({
                 error: "Mercado Livre Client ID not configured for this workspace"
             });
         }
-        if (!redirectUri) {
+        if (!redirectUri && includeRedirectUri) {
             return res.status(500).json({
-                error: "Frontend URL not configured. Set FRONTEND_URL or VERCEL_URL"
+                error: "Redirect URI not configured. Set MERCADO_LIVRE_REDIRECT_URI or FRONTEND_URL/VERCEL_URL"
             });
         }
 
         const safeRedirectUri = redirectUri ? redirectUri.trim().replace(/^['"]|['"]$/g, "") : "";
         const safeClientId = clientId ? clientId.trim().replace(/^['"]|['"]$/g, "") : "";
-        
-        // CloudFront blocks requests with localhost/127.0.0.1 in redirect_uri param (WAF rule).
-        // To bypass this in development, we use the production Vercel URL as the redirect_uri.
-        const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
-        
-        // Force production URL if running on Vercel or if localhost (to bypass WAF)
-        const isVercel = process.env.VERCEL === "1";
-        
-        let finalRedirectUri = safeRedirectUri;
-        if (isLocalhost || isVercel) {
-             // ALWAYS use the production URL as the callback URI to ensure consistency
-             // and match the Whitelist in Mercado Livre Developer Panel.
-             finalRedirectUri = "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback";
-             console.log("⚠️ Enforcing production redirect_uri (Localhost/Vercel detected):", finalRedirectUri);
-        }
+        const finalRedirectUri = safeRedirectUri;
 
         // URL de autorização do Mercado Livre (Brasil)
         // Always send redirect_uri (required by ML), but use the "safe" one (Vercel) if localhost
         // Added explicit scopes for Advertising
-        const scopes = "offline_access read write advertising";
-        const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`;
+        const scopes = (process.env.MERCADO_LIVRE_SCOPES || "offline_access read write advertising").trim();
+        const baseAuthUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}`;
+        const authUrl = includeRedirectUri && finalRedirectUri
+            ? `${baseAuthUrl}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`
+            : `${baseAuthUrl}&scope=${encodeURIComponent(scopes)}`;
         
-        console.log("Generated ML Auth URL (Force-Safe):", authUrl);
+        console.log("Generated ML Auth URL:", authUrl, `(redirect: ${includeRedirectUri ? redirectSource : "omitted"})`);
 
         return res.json({
             authUrl,
-            redirectUri: finalRedirectUri,
+            redirectUri: finalRedirectUri || null,
+            redirectUriIncluded: includeRedirectUri,
         });
     } catch (error: any) {
         console.error("Error generating auth URL:", error);
@@ -1566,44 +1601,40 @@ router.post("/auth/callback", async (req, res) => {
         const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
         const clientId = appCredentials?.clientId;
         const clientSecret = appCredentials?.clientSecret;
-        const redirectUri = buildRedirectUri(req as Request);
+        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(req as Request);
 
         if (!clientId || !clientSecret) {
             return res.status(500).json({
                 error: "Mercado Livre credentials not configured for this workspace"
             });
         }
-        if (!redirectUri) {
+        if (!redirectUri && includeRedirectUri) {
             return res.status(500).json({
-                error: "Frontend URL not configured. Set FRONTEND_URL or VERCEL_URL"
+                error: "Redirect URI not configured. Set MERCADO_LIVRE_REDIRECT_URI or FRONTEND_URL/VERCEL_URL"
             });
         }
 
         const safeRedirectUri = redirectUri ? redirectUri.trim().replace(/^['"]|['"]$/g, "") : "";
-        const isLocalhost = safeRedirectUri.includes("localhost") || safeRedirectUri.includes("127.0.0.1");
-
-        // Force production URL if running on Vercel or if localhost (to bypass WAF)
-        const isVercel = process.env.VERCEL === "1";
-
         // This MUST match what was sent in the auth step (GET /auth/url)
-        let finalRedirectUri = safeRedirectUri;
-        if (isLocalhost || isVercel) {
-             finalRedirectUri = "https://traffic-zen-hub-35-ten.vercel.app/integrations/mercadolivre/callback";
-        }
+        const finalRedirectUri = safeRedirectUri;
 
         const payloadParams: Record<string, string> = {
             grant_type: "authorization_code",
             client_id: clientId,
             client_secret: clientSecret,
             code,
-            redirect_uri: finalRedirectUri // Always include redirect_uri
         };
-        
-        // Removed conditional check - always send redirect_uri as now we have a valid one (Vercel) even for localhost
+        if (includeRedirectUri && finalRedirectUri) {
+            payloadParams.redirect_uri = finalRedirectUri;
+        }
 
         const payload = new URLSearchParams(payloadParams);
 
-        console.log("🔄 Exchanging code for token with Redirect URI:", finalRedirectUri);
+        console.log(
+            "🔄 Exchanging code for token with Redirect URI:",
+            includeRedirectUri ? finalRedirectUri : "(omitted)",
+            `(source: ${includeRedirectUri ? redirectSource : "omitted"})`
+        );
 
         // Trocar código por access token
         const tokenResponse = await axios.post(
@@ -2226,9 +2257,9 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                     sort: 'date_desc',
                 };
 
-                // Alterado para date_created para alinhar com a lista de atividades recentes e capturar todas as vendas iniciadas no dia
-                params['order.date_created.from'] = dateFromFinal.toISOString();
-                params['order.date_created.to'] = dateToFinal.toISOString();
+                // Usar date_closed para contabilizar vendas confirmadas no período
+                params['order.date_closed.from'] = dateFromFinal.toISOString();
+                params['order.date_closed.to'] = dateToFinal.toISOString();
 
                 let ordersResponse;
                 try {
@@ -2285,8 +2316,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                         sort: "date_desc",
                         "order.status": statusFilter,
                     };
-                    params["order.date_created.from"] = dateFromFinal.toISOString();
-                    params["order.date_created.to"] = dateToFinal.toISOString();
+                    params["order.date_closed.from"] = dateFromFinal.toISOString();
+                    params["order.date_closed.to"] = dateToFinal.toISOString();
 
                     let response;
                     try {
@@ -2443,17 +2474,16 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         const salesByDay = new Map<string, { sales: number; revenue: number; orders: number }>();
 
         for (const order of allOrders) {
-            const dateCreated = order.date_created ? new Date(order.date_created) : null;
             const status = normalizeStatus(order.status);
             const isCancelled = isCancelledStatus(status);
+            const dateCreated = order.date_created ? new Date(order.date_created) : null;
             const dateClosed = order.date_closed ? new Date(order.date_closed) : null;
             const dateUpdated = order.last_updated ? new Date(order.last_updated) : null;
-            const cancelDate = dateClosed || (isCancelled ? dateUpdated : null);
+            const saleDate = dateClosed || dateCreated;
+            const cancelDate = isCancelled ? (dateClosed || dateUpdated || dateCreated) : null;
 
-            // Prioriza date_created para alinhar o gráfico com a lista de pedidos e a percepção do usuário de "Vendas do Dia"
-            const orderDate = dateCreated
-                ? dateCreated
-                : cancelDate;
+            // Prioriza date_closed para contabilizar vendas confirmadas no dia
+            const orderDate = isCancelled ? (cancelDate || saleDate) : saleDate;
 
             if (!orderDate) continue;
             const orderTs = orderDate.getTime();
@@ -2487,7 +2517,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             }
 
             // Cancelados no mesmo dia não contam como venda realizada
-            if (isCancelled && isSameBrazilDay(dateCreated, cancelDate)) {
+            if (isCancelled && saleDate && cancelDate && isSameBrazilDay(saleDate, cancelDate)) {
                 continue;
             }
 
@@ -2812,6 +2842,8 @@ router.get("/orders", async (req, res) => {
         const status = getQueryParam(req.query.status);
         const includeCancelledParam = getQueryParam(req.query.includeCancelled);
         const includeCancelled = includeCancelledParam === "true" || includeCancelledParam === "1";
+        const activityParam = getQueryParam(req.query.activity);
+        const activityMode = activityParam === "confirmed" ? "confirmed" : "created";
         const normalizeStatus = (value: any) => String(value || "").toLowerCase();
         const isCancelledStatus = (value: any) => {
             const normalized = normalizeStatus(value);
@@ -2824,9 +2856,17 @@ router.get("/orders", async (req, res) => {
         };
         const resolveActivityTimestamp = (order: any, range?: { fromTs: number; toTs: number }) => {
             const createdTs = toTimestamp(order?.date_created);
-            if (!includeCancelled || !isCancelledStatus(order?.status)) return createdTs;
             const closedTs = toTimestamp(order?.date_closed);
             const updatedTs = toTimestamp(order?.last_updated);
+            const normalizedStatus = normalizeStatus(order?.status);
+            const isCancelled = isCancelledStatus(normalizedStatus);
+
+            if (!includeCancelled || !isCancelled) {
+                if (activityMode === "confirmed") {
+                    return closedTs ?? createdTs;
+                }
+                return createdTs;
+            }
 
             if (range) {
                 const { fromTs, toTs } = range;
@@ -2843,6 +2883,8 @@ router.get("/orders", async (req, res) => {
         
         const limit = limitParam ? Number(limitParam) : 50;
         const offset = offsetParam ? Number(offsetParam) : 0;
+        const MAX_LIMIT = 50;
+        const safeLimit = Math.min(limit, MAX_LIMIT);
 
         // Validation
         if (isNaN(limit) || limit < 1) {
@@ -2871,7 +2913,7 @@ router.get("/orders", async (req, res) => {
         // Prepare params for ML API
         const params: any = {
             seller: credentials.userId,
-            limit: limit,
+            limit: safeLimit,
             offset: offset,
             sort: 'date_desc',
         };
@@ -2880,30 +2922,31 @@ router.get("/orders", async (req, res) => {
         let dateToIso: string | undefined;
 
         // Add date filters if provided
+        const dateField = activityMode === "confirmed" ? "date_closed" : "date_created";
         if (dateFrom) {
             // If input is a full ISO string (contains T), use it directly to respect timezone/time
             if (String(dateFrom).includes('T')) {
                 dateFromIso = dateFrom;
-                params['order.date_created.from'] = dateFromIso;
+                params[`order.${dateField}.from`] = dateFromIso;
             } else {
                 // Assume input is YYYY-MM-DD. Convert to ISO start of day
                 const d = new Date(dateFrom);
                 d.setHours(0, 0, 0, 0);
                 dateFromIso = d.toISOString();
-                params['order.date_created.from'] = dateFromIso;
+                params[`order.${dateField}.from`] = dateFromIso;
             }
         }
         if (dateTo) {
             // If input is a full ISO string (contains T), use it directly to respect timezone/time
             if (String(dateTo).includes('T')) {
                 dateToIso = dateTo;
-                params['order.date_created.to'] = dateToIso;
+                params[`order.${dateField}.to`] = dateToIso;
             } else {
                 // Assume input is YYYY-MM-DD. Convert to ISO end of day
                 const d = new Date(dateTo);
                 d.setHours(23, 59, 59, 999);
                 dateToIso = d.toISOString();
-                params['order.date_created.to'] = dateToIso;
+                params[`order.${dateField}.to`] = dateToIso;
             }
         }
 
@@ -2933,7 +2976,7 @@ router.get("/orders", async (req, res) => {
         const fetchCancelledOrders = async (statusFilter: string, dateField: "date_closed" | "date_created") => {
             const canceledParams: any = {
                 seller: credentials.userId,
-                limit,
+                limit: safeLimit,
                 offset,
                 sort: "date_desc",
                 "order.status": statusFilter,
@@ -3549,6 +3592,54 @@ router.get("/metrics", async (req, res) => {
         return res.status(500).json({
             error: "Failed to fetch metrics",
             details: error.response?.data || error.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/product-ads-metrics
+ * Retorna snapshot diário com métricas por produto/anúncio
+ */
+router.get("/product-ads-metrics", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const { refresh, date, page, limit, days } = req.query as {
+            refresh?: string;
+            date?: string;
+            page?: string;
+            limit?: string;
+            days?: string;
+        };
+
+        const shouldRefresh = ["1", "true", "yes"].includes(String(refresh || "").toLowerCase());
+        let syncResult = null;
+        if (shouldRefresh) {
+            syncResult = await syncProductAdsMetricsForWorkspace(String(targetWorkspaceId), {
+                date: date && String(date).trim() ? String(date).trim() : undefined,
+                days: days ? Number(days) : undefined,
+            });
+        }
+
+        const result = await listProductAdsMetricsForWorkspace(String(targetWorkspaceId), {
+            date: date && String(date).trim() ? String(date).trim() : undefined,
+            page: page ? Number(page) : undefined,
+            limit: limit ? Number(limit) : undefined,
+        });
+
+        return res.json({
+            ...result,
+            refresh: shouldRefresh,
+            sync: syncResult,
+        });
+    } catch (error: any) {
+        console.error("Error fetching ML product ads metrics:", formatAxiosError(error));
+        return res.status(500).json({
+            error: "Failed to fetch product ads metrics",
+            details: error?.response?.data || error?.message,
         });
     }
 });
@@ -7402,6 +7493,7 @@ router.get("/notifications/stream", (req, res) => {
  * - questions: Nova pergunta
  * - items: Mudança em produto
  * - messages: Nova mensagem
+ * - price_suggestion: Sugestao de preco
  */
 router.post("/notifications", async (req, res) => {
     try {
@@ -7423,6 +7515,13 @@ router.post("/notifications", async (req, res) => {
         // Função auxiliar para processamento em background (Fire & Forget)
         const processInBackground = async () => {
             try {
+                const ordersOnly =
+                    String(process.env.ML_NOTIFICATIONS_ORDERS_ONLY || "false").toLowerCase() === "true";
+                if (ordersOnly && !["orders", "orders_v2"].includes(notification.topic)) {
+                    console.log(`[Mercado Livre Webhook] Ignorando ${notification.topic} (modo vendas apenas)`);
+                    return;
+                }
+
                 switch (notification.topic) {
                     case "orders_v2":
                     case "orders":
@@ -7443,6 +7542,9 @@ router.post("/notifications", async (req, res) => {
 
                     case "messages":
                         await handleMessageNotification(notification);
+                        break;
+                    case "price_suggestion":
+                        await handlePriceSuggestionNotification(notification);
                         break;
 
                     default:
@@ -7679,6 +7781,30 @@ router.post("/notifications/test-direct/:workspaceId", async (req, res) => {
  */
 router.post("/notifications/replay", async (req, res) => {
     try {
+        const replayEnabled =
+            String(process.env.ML_NOTIFICATIONS_REPLAY_ENABLED || "false").toLowerCase() === "true";
+        if (!replayEnabled) {
+            return res.status(403).json({
+                error: "Replay desabilitado: ML_NOTIFICATIONS_REPLAY_ENABLED != true",
+            });
+        }
+
+        const replaySecret = String(process.env.ML_NOTIFICATIONS_REPLAY_SECRET || "").trim();
+        if (replaySecret) {
+            const provided = String(req.headers["x-replay-secret"] || req.body?.secret || "").trim();
+            if (provided !== replaySecret) {
+                return res.status(401).json({ error: "Replay secret inválido" });
+            }
+        }
+
+        const realtimeOnly =
+            String(process.env.ML_NOTIFICATIONS_REALTIME_ONLY || "true").toLowerCase() === "true";
+        if (realtimeOnly) {
+            return res.status(409).json({
+                error: "Replay desabilitado: notificações configuradas para real-time apenas",
+            });
+        }
+
         const { workspaceId, days = 1, dryRun = false, maxOrders = 50 } = req.body;
         let targetWorkspaces: string[] = [];
 
@@ -7822,6 +7948,131 @@ router.post("/notifications/replay", async (req, res) => {
     }
 });
 
+/**
+ * GET /api/integrations/mercadolivre/price-suggestions
+ * Lista sugestões de preço recebidas via webhook
+ */
+router.get("/price-suggestions", async (req, res) => {
+    try {
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const status = String(req.query.status || "new").trim();
+        const rawLimit = Number(req.query.limit);
+        const rawOffset = Number(req.query.offset);
+        const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 200)) : 50;
+        const offset = Number.isFinite(rawOffset) ? Math.max(0, rawOffset) : 0;
+
+        await ensurePriceSuggestionSchema();
+        const pool = getPool();
+
+        const where: string[] = ["workspace_id = $1"];
+        const params: any[] = [workspaceId];
+        if (status && status !== "all") {
+            where.push(`status = $${params.length + 1}`);
+            params.push(status);
+        }
+
+        const whereSql = where.length ? `where ${where.join(" and ")}` : "";
+
+        const countResult = await pool.query(
+            `select count(*)::int as total from ml_price_suggestions ${whereSql}`,
+            params
+        );
+        const total = Number(countResult.rows?.[0]?.total || 0);
+
+        params.push(limit, offset);
+        const dataResult = await pool.query(
+            `
+            select *
+            from ml_price_suggestions
+            ${whereSql}
+            order by created_at desc
+            limit $${params.length - 1} offset $${params.length}
+            `,
+            params
+        );
+
+        const items = (dataResult.rows || []).map((row: any) => ({
+            ...row,
+            current_price: row.current_price !== null && row.current_price !== undefined ? Number(row.current_price) : null,
+            suggested_price: row.suggested_price !== null && row.suggested_price !== undefined ? Number(row.suggested_price) : null,
+            applied_price: row.applied_price !== null && row.applied_price !== undefined ? Number(row.applied_price) : null,
+        }));
+
+        return res.json({
+            items,
+            total,
+        });
+    } catch (error: any) {
+        console.error("[Price Suggestions] Erro:", error);
+        return res.status(500).json({ error: "Failed to load price suggestions", details: error?.message });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/price-suggestions/:id/status
+ * Atualiza status (applied/dismissed) de uma sugestão
+ */
+router.post("/price-suggestions/:id/status", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, workspaceId, appliedPrice } = req.body || {};
+        const resolved = resolveWorkspaceId(req);
+        const effectiveWorkspaceId = workspaceId || resolved.id;
+
+        if (!effectiveWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+        if (!id) {
+            return res.status(400).json({ error: "Suggestion id is required" });
+        }
+        if (!status || !["new", "applied", "dismissed"].includes(String(status))) {
+            return res.status(400).json({ error: "Invalid status" });
+        }
+
+        await ensurePriceSuggestionSchema();
+        const pool = getPool();
+        const nextStatus = String(status);
+        const updateResult = await pool.query(
+            `
+            update ml_price_suggestions
+            set status = $3,
+                updated_at = now(),
+                applied_at = case when $3 = 'applied' then now() else applied_at end,
+                dismissed_at = case when $3 = 'dismissed' then now() else dismissed_at end,
+                applied_price = case when $3 = 'applied' then $4 else applied_price end
+            where id = $1 and workspace_id = $2
+            returning *
+            `,
+            [
+                id,
+                effectiveWorkspaceId,
+                nextStatus,
+                typeof appliedPrice === "number" ? appliedPrice : null,
+            ]
+        );
+
+        if (!updateResult.rows.length) {
+            return res.status(404).json({ error: "Suggestion not found" });
+        }
+
+        const item = updateResult.rows[0];
+        const normalized = {
+            ...item,
+            current_price: item.current_price !== null && item.current_price !== undefined ? Number(item.current_price) : null,
+            suggested_price: item.suggested_price !== null && item.suggested_price !== undefined ? Number(item.suggested_price) : null,
+            applied_price: item.applied_price !== null && item.applied_price !== undefined ? Number(item.applied_price) : null,
+        };
+        return res.json({ item: normalized });
+    } catch (error: any) {
+        console.error("[Price Suggestions] Erro ao atualizar status:", error);
+        return res.status(500).json({ error: "Failed to update status", details: error?.message });
+    }
+});
+
 let ordersSchemaReady: Promise<void> | null = null;
 
 const ensureOrdersSchema = async () => {
@@ -7880,6 +8131,102 @@ const ensureOrdersSchema = async () => {
         `);
     })();
     return ordersSchemaReady;
+};
+
+let priceSuggestionSchemaReady: Promise<void> | null = null;
+
+const ensurePriceSuggestionSchema = async () => {
+    if (priceSuggestionSchemaReady) return priceSuggestionSchemaReady;
+    priceSuggestionSchemaReady = (async () => {
+        const pool = getPool();
+        await pool.query(`
+            create table if not exists ml_price_suggestions (
+              id uuid primary key default gen_random_uuid(),
+              workspace_id uuid not null references workspaces(id) on delete cascade,
+              ml_item_id text,
+              title text,
+              current_price numeric(14,2),
+              suggested_price numeric(14,2),
+              currency_id text,
+              status text not null default 'new' check (status in ('new','applied','dismissed')),
+              resource text,
+              benchmark jsonb,
+              created_at timestamptz not null default now(),
+              updated_at timestamptz not null default now(),
+              applied_at timestamptz,
+              dismissed_at timestamptz,
+              applied_price numeric(14,2)
+            );
+        `);
+        await pool.query(`
+            create unique index if not exists idx_ml_price_suggestions_resource
+            on ml_price_suggestions (workspace_id, resource);
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_price_suggestions_status
+            on ml_price_suggestions (workspace_id, status, created_at desc);
+        `);
+        await pool.query(`
+            create index if not exists idx_ml_price_suggestions_item
+            on ml_price_suggestions (workspace_id, ml_item_id);
+        `);
+    })();
+    return priceSuggestionSchemaReady;
+};
+
+const storePriceSuggestion = async (workspaceId: string, payload: {
+    itemId?: string | null;
+    title?: string | null;
+    currentPrice?: number | null;
+    suggestedPrice?: number | null;
+    currencyId?: string | null;
+    resource?: string | null;
+    benchmark?: any;
+}) => {
+    await ensurePriceSuggestionSchema();
+    const pool = getPool();
+    const status = "new";
+    const resource = payload.resource || null;
+    const result = await pool.query(
+        `
+        insert into ml_price_suggestions (
+            workspace_id,
+            ml_item_id,
+            title,
+            current_price,
+            suggested_price,
+            currency_id,
+            status,
+            resource,
+            benchmark,
+            created_at,
+            updated_at
+        ) values (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, now(), now()
+        )
+        on conflict (workspace_id, resource) do update set
+            ml_item_id = excluded.ml_item_id,
+            title = excluded.title,
+            current_price = excluded.current_price,
+            suggested_price = excluded.suggested_price,
+            currency_id = excluded.currency_id,
+            benchmark = excluded.benchmark,
+            updated_at = now()
+        returning id
+        `,
+        [
+            workspaceId,
+            payload.itemId || null,
+            payload.title || null,
+            typeof payload.currentPrice === "number" ? payload.currentPrice : null,
+            typeof payload.suggestedPrice === "number" ? payload.suggestedPrice : null,
+            payload.currencyId || null,
+            status,
+            resource,
+            JSON.stringify(payload.benchmark || {})
+        ]
+    );
+    return result.rows[0];
 };
 
 const upsertOrderCache = async (workspaceId: string, order: any) => {
@@ -8046,10 +8393,15 @@ const buildOrderSummary = (order: any) => {
     const shippingCost = Number(order?.shipping?.base_cost || 0);
     const netIncome = totalAmount - saleFee - shippingCost;
 
+    const normalizedStatus = String(order?.status || "").toLowerCase();
+    const isCancelled = normalizedStatus === "cancelled" || normalizedStatus === "canceled";
+    const dateClosed = order?.date_closed || (isCancelled ? order?.last_updated : null);
+
     return {
         id: orderId,
         status: order?.status || "",
         dateCreated: order?.date_created || null,
+        dateClosed,
         lastUpdated: order?.last_updated || null,
         totalAmount,
         paidAmount,
@@ -8059,6 +8411,84 @@ const buildOrderSummary = (order: any) => {
         shippingCost,
         netIncome,
         items: mappedItems
+    };
+};
+
+const extractBenchmarkItemId = (resource: string | null | undefined, benchmark: any): string | null => {
+    const fromPayload = String(benchmark?.item_id || benchmark?.itemId || "").trim();
+    if (fromPayload) return fromPayload;
+
+    const trimmed = String(resource || "").trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/items\/([^/?]+)/i);
+    return match ? String(match[1] || "").trim() : null;
+};
+
+const pickBenchmarkPriceAmount = (value: any): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (!value || typeof value !== "object") return null;
+    const candidate = value.amount ?? value.price ?? value.value;
+    return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+};
+
+const extractBenchmarkGraph = (benchmark: any): any[] | null => {
+    const graph = benchmark?.metadata?.graph || benchmark?.graph || benchmark?.benchmark?.graph;
+    return Array.isArray(graph) ? graph : null;
+};
+
+const extractBenchmarkSuggestion = (benchmark: any) => {
+    const suggestedDirect =
+        pickBenchmarkPriceAmount(benchmark?.suggested_price) ??
+        pickBenchmarkPriceAmount(benchmark?.price_suggestion) ??
+        pickBenchmarkPriceAmount(benchmark?.suggestion?.price) ??
+        pickBenchmarkPriceAmount(benchmark?.suggestion) ??
+        pickBenchmarkPriceAmount(benchmark?.suggestedPrice);
+
+    const currentDirect =
+        pickBenchmarkPriceAmount(benchmark?.current_price) ??
+        pickBenchmarkPriceAmount(benchmark?.currentPrice) ??
+        pickBenchmarkPriceAmount(benchmark?.current_price?.price);
+
+    let suggestedFromGraph: number | null = null;
+    let currentFromGraph: number | null = null;
+    let titleFromGraph: string | null = null;
+    let currencyFromGraph: string | null = null;
+
+    const graph = extractBenchmarkGraph(benchmark);
+    if (graph) {
+        const suggestedNode = graph.find((node) => node?.suggested === true) || graph.find((node) => node?.is_suggested === true);
+        const currentNode = graph.find((node) => node?.current === true) || graph.find((node) => node?.is_current === true);
+
+        suggestedFromGraph = pickBenchmarkPriceAmount(suggestedNode?.price ?? suggestedNode?.suggested_price);
+        currentFromGraph = pickBenchmarkPriceAmount(currentNode?.price ?? currentNode?.current_price);
+
+        titleFromGraph =
+            suggestedNode?.info?.title ||
+            currentNode?.info?.title ||
+            suggestedNode?.info?.name ||
+            currentNode?.info?.name ||
+            null;
+
+        currencyFromGraph =
+            suggestedNode?.price?.currency_id ||
+            currentNode?.price?.currency_id ||
+            suggestedNode?.price?.currencyId ||
+            currentNode?.price?.currencyId ||
+            null;
+    }
+
+    const currencyId =
+        benchmark?.currency_id ||
+        benchmark?.suggested_price?.currency_id ||
+        benchmark?.current_price?.currency_id ||
+        currencyFromGraph ||
+        null;
+
+    return {
+        suggestedPrice: suggestedDirect ?? suggestedFromGraph,
+        currentPrice: currentDirect ?? currentFromGraph,
+        currencyId,
+        title: benchmark?.info?.title || titleFromGraph || null,
     };
 };
 
@@ -8343,6 +8773,109 @@ async function handleMessageNotification(notification: any) {
 }
 
 /**
+ * Processar notificacao de sugestao de preco
+ */
+async function handlePriceSuggestionNotification(notification: any) {
+    const start = Date.now();
+    try {
+        if (notification.resource?.includes("TEST-PRICE") || notification.resource?.includes("test-price")) {
+            console.log(`[Price Suggestion] Ignorando notificação de teste: ${notification.resource}`);
+            return;
+        }
+
+        console.log(`[Price Suggestion] Sugestao: ${notification.resource}`);
+
+        const userId = notification.user_id;
+        if (!notification.resource || !userId) {
+            console.warn("[Price Suggestion] Missing resource or userId");
+            return;
+        }
+
+        const workspaceId = await findWorkspaceIdByMLUserId(String(userId));
+        if (!workspaceId) {
+            console.warn(`[Price Suggestion] Workspace não encontrado para user_id ${userId}`);
+            return;
+        }
+
+        let credentials = await getMercadoLivreCredentials(workspaceId);
+        if (!credentials) {
+            console.error("[Price Suggestion] Credenciais não encontradas");
+            return;
+        }
+
+        if (tokenNeedsRefresh(credentials)) {
+            const refreshed = await refreshAccessToken(workspaceId);
+            if (refreshed) credentials = refreshed;
+        }
+
+        const resourceUrl = resolveMercadoLivreResourceUrl(notification.resource);
+        if (!resourceUrl) {
+            console.warn("[Price Suggestion] Resource inválido, ignorando.");
+            return;
+        }
+
+        const benchmarkResp = await mlRequest<any>({
+            url: resourceUrl,
+            headers: { Authorization: `Bearer ${credentials.accessToken}` }
+        });
+
+        const benchmark = benchmarkResp.data || {};
+        const itemId = extractBenchmarkItemId(notification.resource, benchmark);
+        const benchmarkInfo = extractBenchmarkSuggestion(benchmark);
+
+        let itemData: any = null;
+        if (itemId) {
+            try {
+                const itemResp = await mlRequest<any>({
+                    url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}`,
+                    headers: { Authorization: `Bearer ${credentials.accessToken}` }
+                });
+                itemData = itemResp.data;
+            } catch (itemErr: any) {
+                const formatted = formatAxiosError(itemErr);
+                if (formatted.status !== 404) {
+                    console.warn("[Price Suggestion] Falha ao buscar item:", formatted);
+                }
+            }
+        }
+
+        const payload = {
+            itemId: itemId || itemData?.id || null,
+            title: itemData?.title || benchmarkInfo.title || "Produto",
+            currentPrice: typeof itemData?.price === "number" ? itemData.price : benchmarkInfo.currentPrice,
+            suggestedPrice: benchmarkInfo.suggestedPrice,
+            currencyId: itemData?.currency_id || benchmarkInfo.currencyId || "BRL",
+            resource: notification.resource,
+            benchmark
+        };
+
+        if (typeof payload.suggestedPrice !== "number") {
+            console.warn(`[Price Suggestion] Preco sugerido nao encontrado para ${payload.itemId || "item desconhecido"}`);
+        }
+
+        if (typeof payload.suggestedPrice === "number") {
+            try {
+                await storePriceSuggestion(workspaceId, payload);
+            } catch (storeError: any) {
+                console.warn("[Price Suggestion] Falha ao salvar sugestao:", storeError?.message || storeError);
+            }
+        }
+
+        const { TelegramNotificationService } = await import("../../services/telegramNotification.service.js");
+        await TelegramNotificationService.notifyPriceSuggestion(workspaceId, payload);
+
+        console.log(`[Price Suggestion] Notificacao enviada (${payload.itemId || "sem-id"}) em ${Date.now() - start}ms`);
+    } catch (error: any) {
+        const formatted = formatAxiosError(error);
+        if (formatted.status === 404) {
+            console.warn(`[Price Suggestion] Recurso não encontrado (${notification.resource}).`);
+            return;
+        }
+        console.error("[Price Suggestion] Erro:", formatted);
+    }
+}
+
+/**
  * POST /api/integrations/mercadolivre/analyze
  * Análise completa de produto MLB para otimização SEO
  */
@@ -8521,24 +9054,64 @@ router.post("/analyze", async (req, res) => {
         const seoDescription = seoOptimizerService.generateSEODescription(productData, keywordAnalysis);
 
         // 6. Análise de ficha técnica
+        const isAttrFilled = (attr: any) => {
+            if (!attr) return false;
+            if (attr.value_name || attr.value_id) return true;
+            if (attr.value_struct && (attr.value_struct.number !== undefined && attr.value_struct.number !== null)) return true;
+            if (Array.isArray(attr.values) && attr.values.length > 0) return true;
+            return false;
+        };
+
+        const hasAttr = (ids: string[], nameHints: string[] = []) => {
+            return (productData.attributes || []).some((attr: any) => {
+                const attrId = String(attr.id || "").toUpperCase();
+                const attrName = String(attr.name || "").toLowerCase();
+                const matchesId = ids.includes(attrId);
+                const matchesName = nameHints.some((hint) => attrName.includes(hint));
+                return (matchesId || matchesName) && isAttrFilled(attr);
+            });
+        };
+
+        const missingImportant = [];
+        if (!hasAttr(['BRAND'], ['marca'])) missingImportant.push('BRAND');
+        if (!hasAttr(['MODEL'], ['modelo'])) missingImportant.push('MODEL');
+        if (!hasAttr(['COLOR', 'MAIN_COLOR'], ['cor'])) missingImportant.push('COLOR');
+        if (!hasAttr(['SIZE'], ['tamanho'])) missingImportant.push('SIZE');
+        if (!hasAttr(['MATERIAL', 'METAL'], ['material'])) missingImportant.push('MATERIAL');
+
         const technicalAnalysis = {
             total_attributes: productData.attributes.length,
-            filled_attributes: productData.attributes.filter(attr =>
-                attr.value_name || (attr.values && attr.values.length > 0)
-            ).length,
-            missing_important: ['BRAND', 'MODEL', 'COLOR', 'SIZE'].filter(id =>
-                !productData.attributes.some(attr => attr.id === id && attr.value_name)
-            ),
+            filled_attributes: productData.attributes.filter((attr: any) => isAttrFilled(attr)).length,
+            missing_important: missingImportant,
             completion_percentage: Math.round(
-                (productData.attributes.filter(attr => attr.value_name).length /
+                (productData.attributes.filter((attr: any) => isAttrFilled(attr)).length /
                     Math.max(productData.attributes.length, 1)) * 100
             )
         };
 
         // 7. Análise de imagens
+        const videoTags = [
+            ...(productData.tags || []),
+            ...(productData.shipping?.tags || [])
+        ].map((tag: any) => String(tag).toLowerCase());
+        const videoStatus: "present" | "absent" | "unknown" = productData.video_check?.status
+            ? productData.video_check.status
+            : (
+                productData.video_id ||
+                videoTags.some((tag) => tag.includes("video") || tag.includes("clip")) ||
+                (productData.pictures || []).some((pic: any) => {
+                    const url = `${pic?.url || ""} ${pic?.secure_url || ""}`.toLowerCase();
+                    return url.includes(".mp4") || url.includes("video");
+                })
+            )
+                ? "present"
+                : "unknown";
+        const hasVideo = videoStatus === "present";
         const imageAnalysis = {
             total_images: productData.pictures.length,
-            has_video: !!productData.video_id,
+            has_video: hasVideo,
+            video_status: videoStatus,
+            video_sources: productData.video_check?.sources || [],
             high_quality_images: productData.pictures.filter(pic => {
                 const sizes = pic.max_size?.split('x').map(s => parseInt(s));
                 return sizes && sizes[0] >= 800 && sizes[1] >= 800;
@@ -8597,7 +9170,11 @@ router.post("/analyze", async (req, res) => {
                 thumbnail: productData.thumbnail,
                 description_text: (productData as any).description_text,
                 attributes: productData.attributes || [],
-                pictures: productData.pictures || []
+                pictures: productData.pictures || [],
+                tags: productData.tags || [],
+                shipping: productData.shipping || {},
+                video_id: productData.video_id,
+                variations: productData.variations || []
             },
             quality_score: qualityScore,
             keyword_analysis: keywordAnalysis,
@@ -9772,15 +10349,6 @@ router.get("/orders/daily-sales", async (req, res) => {
                 allOrders.push(...orders);
 
                 hasMore = orders.length === limit;
-                if (dateFromKey && orders.length > 0) {
-                    const lastOrder = orders[orders.length - 1];
-                    if (lastOrder?.date_created) {
-                        const lastKey = formatBrazilDateKey(new Date(lastOrder.date_created));
-                        if (lastKey < dateFromKey) {
-                            hasMore = false;
-                        }
-                    }
-                }
                 offset += limit;
             } catch (apiError: any) {
                 if (apiError.response?.status === 401) {
@@ -9826,15 +10394,6 @@ router.get("/orders/daily-sales", async (req, res) => {
                     results.push(...orders);
 
                     canceledHasMore = orders.length === limit;
-                    if (dateFromKey && orders.length > 0) {
-                        const lastOrder = orders[orders.length - 1];
-                        if (lastOrder?.date_created) {
-                            const lastKey = formatBrazilDateKey(new Date(lastOrder.date_created));
-                            if (lastKey < dateFromKey) {
-                                canceledHasMore = false;
-                            }
-                        }
-                    }
                     canceledOffset += limit;
                 } catch (apiError: any) {
                     if (apiError.response?.status === 401) {
@@ -9895,13 +10454,15 @@ router.get("/orders/daily-sales", async (req, res) => {
             const dateCreated = order.date_created ? new Date(order.date_created) : null;
             const dateClosed = order.date_closed ? new Date(order.date_closed) : null;
             const dateUpdated = order.last_updated ? new Date(order.last_updated) : null;
-            const cancelDate = dateClosed || (isCancelled ? dateUpdated : null);
-            if (!dateCreated) continue;
+            const saleDate = dateClosed || dateCreated;
+            const cancelDate = isCancelled ? (dateClosed || dateUpdated || dateCreated) : null;
+            const orderDate = isCancelled ? (cancelDate || saleDate) : saleDate;
+            if (!orderDate) continue;
 
-            const dateKey = formatBrazilDateKey(dateCreated);
+            const dateKey = formatBrazilDateKey(orderDate);
 
             // Cancelados no mesmo dia não entram no agregado diário
-            if (isCancelled && isSameBrazilDay(dateCreated, cancelDate)) {
+            if (isCancelled && saleDate && cancelDate && isSameBrazilDay(saleDate, cancelDate)) {
                 continue;
             }
 
@@ -9938,7 +10499,8 @@ router.get("/orders/daily-sales", async (req, res) => {
                         qty: i.quantity
                     })),
                     status: order.status,
-                    date_created: order.date_created
+                    date_created: order.date_created,
+                    date_closed: order.date_closed
                 });
             }
         }

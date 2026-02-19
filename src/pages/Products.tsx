@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useMercadoLivreProducts } from "@/hooks/useMercadoLivre";
+import { useMercadoLivreProducts, useToggleMercadoLivreProduct, useUpdateMercadoLivrePrice } from "@/hooks/useMercadoLivre";
 import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,20 @@ import {
     DialogContent,
     DialogDescription,
     DialogHeader,
+    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
     Package,
     Search,
@@ -38,6 +49,7 @@ import {
     TrendingUp,
     Target,
     AlertCircle,
+    DollarSign,
     Truck,
     Box,
     Copy,
@@ -64,6 +76,9 @@ export default function Products() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
     const [pdfFormat, setPdfFormat] = useState<"a4" | "10x15">("a4");
+    const [priceDialog, setPriceDialog] = useState<{ id: string; title: string; price: number } | null>(null);
+    const [priceDraft, setPriceDraft] = useState("");
+    const [toggleDialog, setToggleDialog] = useState<{ id: string; title: string; nextStatus: "active" | "paused" } | null>(null);
 
     const {
         data: productsData,
@@ -72,6 +87,8 @@ export default function Products() {
         refetch,
         isFetching
     } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch);
+    const updatePriceMutation = useUpdateMercadoLivrePrice();
+    const toggleStatusMutation = useToggleMercadoLivreProduct();
 
     const categoryOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -114,6 +131,11 @@ export default function Products() {
 
     const formatNumber = (value: number) => {
         return new Intl.NumberFormat("pt-BR").format(value || 0);
+    };
+
+    const parsePrice = (value: string) => {
+        const normalized = value.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+        return Number(normalized);
     };
 
     const getCategoryDisplay = (product: any) => {
@@ -332,6 +354,70 @@ export default function Products() {
             });
         }
     };
+
+    const handleOpenPriceDialog = (product: any) => {
+        setPriceDialog({
+            id: product.id,
+            title: product.title,
+            price: Number(product.price || 0),
+        });
+        setPriceDraft(String(product.price || ""));
+    };
+
+    const handleApplyPrice = async () => {
+        if (!priceDialog || !workspaceId) return;
+        const priceValue = parsePrice(priceDraft);
+        if (!Number.isFinite(priceValue) || priceValue <= 0) {
+            toast({
+                title: "Preço inválido",
+                description: "Informe um valor maior que zero.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        try {
+            await updatePriceMutation.mutateAsync({
+                workspaceId,
+                productId: priceDialog.id,
+                price: priceValue,
+            });
+            toast({
+                title: "Preço atualizado",
+                description: `${priceDialog.title} → ${formatCurrency(priceValue)}`,
+            });
+            setPriceDialog(null);
+            setPriceDraft("");
+        } catch (err: any) {
+            toast({
+                title: "Falha ao atualizar preço",
+                description: err?.message || "Não foi possível atualizar o preço.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const handleConfirmToggle = async () => {
+        if (!toggleDialog || !workspaceId) return;
+        try {
+            await toggleStatusMutation.mutateAsync({
+                workspaceId,
+                productId: toggleDialog.id,
+                status: toggleDialog.nextStatus,
+            });
+            toast({
+                title: "Status atualizado",
+                description: `${toggleDialog.title} → ${toggleDialog.nextStatus === "active" ? "Ativo" : "Pausado"}`,
+            });
+            setToggleDialog(null);
+        } catch (err: any) {
+            toast({
+                title: "Falha ao atualizar status",
+                description: err?.message || "Não foi possível atualizar o status.",
+                variant: "destructive",
+            });
+        }
+    };
     
     // removido: exportação XLSX A4 por produto
 
@@ -346,7 +432,8 @@ export default function Products() {
             }
 
     return (
-        <div className="space-y-6 h-full flex flex-col">
+        <>
+            <div className="space-y-6 h-full flex flex-col">
             {/* Header Section */}
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between px-1">
                 <div>
@@ -542,7 +629,7 @@ export default function Products() {
                                             <TableHead className="w-[100px] text-right">Receita</TableHead>
                                             <TableHead className="w-[100px] text-right">Visitas</TableHead>
                                             <TableHead className="w-[200px]">Tipo / Logística</TableHead>
-                                            <TableHead className="w-[100px] text-center pr-4">Ações</TableHead>
+                                            <TableHead className="w-[240px] text-center pr-4">Ações</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -656,7 +743,7 @@ export default function Products() {
 
                                                         {/* Ações */}
                                                         <TableCell className="text-center align-middle pr-4">
-                                                            <div className="flex items-center justify-center gap-2">
+                                                            <div className="flex items-center justify-center gap-2 flex-wrap">
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
@@ -669,11 +756,37 @@ export default function Products() {
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
+                                                                    className="h-8 text-xs text-emerald-600 hover:text-emerald-700"
+                                                                    onClick={() => handleOpenPriceDialog(product)}
+                                                                >
+                                                                    <DollarSign className="h-3 w-3 mr-1" />
+                                                                    Preço
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
                                                                     className="h-8 text-xs text-purple-600 hover:text-purple-700"
                                                                     onClick={() => navigate(`/mercado-livre-analyzer?mlb=${product.id}`)}
                                                                 >
                                                                     <Target className="h-3 w-3 mr-1" />
                                                                     Analisar
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 text-xs text-orange-600 hover:text-orange-700"
+                                                                    disabled={!(product.status === "active" || product.status === "paused")}
+                                                                    onClick={() => {
+                                                                        if (!(product.status === "active" || product.status === "paused")) return;
+                                                                        setToggleDialog({
+                                                                            id: product.id,
+                                                                            title: product.title,
+                                                                            nextStatus: product.status === "active" ? "paused" : "active",
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    <AlertCircle className="h-3 w-3 mr-1" />
+                                                                    {product.status === "active" ? "Pausar" : "Ativar"}
                                                                 </Button>
                                                                 <DialogTrigger asChild>
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs">
@@ -928,6 +1041,78 @@ export default function Products() {
                     </div>
                 </div>
             )}
-        </div>
+            </div>
+
+            <Dialog
+            open={Boolean(priceDialog)}
+            onOpenChange={(open) => {
+                if (!open) {
+                    setPriceDialog(null);
+                    setPriceDraft("");
+                }
+            }}
+            >
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Atualizar preço</DialogTitle>
+                    <DialogDescription>
+                        {priceDialog?.title}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                    <div>
+                        <div className="text-xs text-muted-foreground mb-1">Preço atual</div>
+                        <div className="text-lg font-semibold">{priceDialog ? formatCurrency(priceDialog.price) : "—"}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs text-muted-foreground mb-1">Novo preço</div>
+                        <Input
+                            value={priceDraft}
+                            onChange={(event) => setPriceDraft(event.target.value)}
+                            placeholder="Ex: 129,90"
+                            inputMode="decimal"
+                        />
+                    </div>
+                </div>
+                <DialogFooter className="mt-4">
+                    <Button
+                        variant="outline"
+                        onClick={() => setPriceDialog(null)}
+                        disabled={updatePriceMutation.isPending}
+                    >
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={handleApplyPrice}
+                        disabled={updatePriceMutation.isPending}
+                    >
+                        {updatePriceMutation.isPending ? "Salvando..." : "Salvar preço"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+            </Dialog>
+
+            <AlertDialog open={Boolean(toggleDialog)} onOpenChange={(open) => !open && setToggleDialog(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Alterar status do anúncio?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {toggleDialog
+                            ? `Você está prestes a ${toggleDialog.nextStatus === "active" ? "ativar" : "pausar"} “${toggleDialog.title}”.`
+                            : ""}
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={toggleStatusMutation.isPending}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={handleConfirmToggle}
+                        disabled={toggleStatusMutation.isPending}
+                    >
+                        {toggleStatusMutation.isPending ? "Atualizando..." : "Confirmar"}
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+            </AlertDialog>
+        </>
     );
 }

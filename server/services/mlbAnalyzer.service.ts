@@ -65,6 +65,7 @@ export interface MLBAnalysisData {
         free_shipping: boolean;
         local_pick_up: boolean;
         tags: string[];
+        logistic_type?: string;
         dimensions?: string;
         costs?: Array<{
             type: string;
@@ -108,6 +109,15 @@ export interface MLBAnalysisData {
 
     // Clips/Videos
     video_id?: string;
+    video_check?: {
+        status: "present" | "absent" | "unknown";
+        sources?: Array<{
+            endpoint: string;
+            status?: number;
+            found?: boolean;
+            error?: string;
+        }>;
+    };
 
     // Dados temporais
     date_created: string;
@@ -207,9 +217,13 @@ export interface MLBAnalysisResult {
         description?: string;
         plain_text?: string;
         listing_type_id?: string;
+        tags?: string[];
+        video_id?: string;
         shipping?: {
             free_shipping?: boolean;
             mode?: string;
+            logistic_type?: string;
+            tags?: string[];
         };
     };
     quality_score: MLBQualityScore;
@@ -224,6 +238,13 @@ export interface MLBAnalysisResult {
     image_analysis: {
         total_images: number;
         has_video?: boolean;
+        video_status?: "present" | "absent" | "unknown";
+        video_sources?: Array<{
+            endpoint: string;
+            status?: number;
+            found?: boolean;
+            error?: string;
+        }>;
         high_quality_images?: number;
         has_variations_images?: boolean;
     };
@@ -279,6 +300,58 @@ export interface MLBAnalysisResult {
  * Serviço principal para análise completa de produtos do Mercado Livre
  */
 export class MLBAnalyzerService {
+    private isAttributeFilled(attr: any): boolean {
+        if (!attr) return false;
+        if (attr.value_name || attr.value_id) return true;
+        if (attr.value_struct && (attr.value_struct.number !== undefined || attr.value_struct.number !== null)) return true;
+        if (Array.isArray(attr.values) && attr.values.length > 0) return true;
+        return false;
+    }
+
+    private hasAttribute(productData: MLBAnalysisData, ids: string[], nameHints: string[] = []): boolean {
+        const attrs = productData.attributes || [];
+        return attrs.some((attr) => {
+            const attrId = String(attr.id || "").toUpperCase();
+            const attrName = String(attr.name || "").toLowerCase();
+            const matchesId = ids.includes(attrId);
+            const matchesName = nameHints.some((hint) => attrName.includes(hint));
+            return (matchesId || matchesName) && this.isAttributeFilled(attr);
+        });
+    }
+
+    private getVideoStatus(productData: MLBAnalysisData): "present" | "absent" | "unknown" {
+        if (productData.video_check?.status) return productData.video_check.status;
+        if (productData.video_id) return "present";
+        const tags = [
+            ...(productData.tags || []),
+            ...(productData.shipping?.tags || [])
+        ].map((t) => String(t).toLowerCase());
+        if (tags.some((tag) => tag.includes("video") || tag.includes("clip"))) return "present";
+        const pictures = productData.pictures || [];
+        if (pictures.some((pic: any) => {
+            const url = `${pic?.url || ""} ${pic?.secure_url || ""}`.toLowerCase();
+            return url.includes(".mp4") || url.includes("video");
+        })) {
+            return "present";
+        }
+        return "unknown";
+    }
+
+    private hasVideo(productData: MLBAnalysisData): boolean {
+        return this.getVideoStatus(productData) === "present";
+    }
+
+    private isFullShipping(productData: MLBAnalysisData): boolean {
+        const shipping = productData.shipping;
+        if (!shipping) return false;
+        const logistic = String(shipping.logistic_type || "").toLowerCase();
+        if (logistic === "fulfillment") return true;
+        const shippingTags = (shipping.tags || []).map((t) => String(t).toLowerCase());
+        if (shippingTags.includes("fulfillment")) return true;
+        const itemTags = (productData.tags || []).map((t) => String(t).toLowerCase());
+        if (itemTags.includes("fulfillment")) return true;
+        return false;
+    }
 
     /**
      * Busca dados completos de um produto via API do ML
@@ -300,6 +373,104 @@ export class MLBAnalyzerService {
             );
 
             const itemData = itemResponse.data;
+            const extractVideoId = (payload: any): string | undefined => {
+                if (!payload) return undefined;
+                if (typeof payload === "string") return payload;
+                if (Array.isArray(payload)) {
+                    const first = payload[0];
+                    if (typeof first === "string") return first;
+                    if (typeof first?.id === "string") return first.id;
+                    if (typeof first?.video_id === "string") return first.video_id;
+                    if (typeof first?.clip_id === "string") return first.clip_id;
+                }
+                if (typeof payload === "object") {
+                    if (typeof payload.id === "string") return payload.id;
+                    if (typeof payload.video_id === "string") return payload.video_id;
+                    if (typeof payload.clip_id === "string") return payload.clip_id;
+                    const arrayCandidates = [
+                        payload.results,
+                        payload.videos,
+                        payload.items,
+                        payload.clips,
+                        payload.media,
+                    ];
+                    for (const candidate of arrayCandidates) {
+                        const id = extractVideoId(candidate);
+                        if (id) return id;
+                    }
+                }
+                return undefined;
+            };
+
+            const videoSources: Array<{ endpoint: string; status?: number; found?: boolean; error?: string }> = [];
+            let videoEndpointsWithResponse = 0;
+
+            const recordSource = (endpoint: string, payload: any, status = 200, countAsCheck = true) => {
+                const id = extractVideoId(payload);
+                const found = Boolean(id);
+                videoSources.push({ endpoint, status, found });
+                if (!found && countAsCheck) videoEndpointsWithResponse += 1;
+                return id;
+            };
+
+            const recordError = (endpoint: string, error: any) => {
+                videoSources.push({
+                    endpoint,
+                    status: error?.response?.status,
+                    error: error?.response?.data?.message || error?.message || "error",
+                });
+            };
+
+            const itemVideoId = recordSource("items", {
+                video_id: itemData.video_id,
+                videos: itemData.videos,
+                video_ids: itemData.video_ids,
+                media: itemData.media,
+            }, 200, false);
+
+            let videoId: string | undefined = itemVideoId;
+
+            // Tentativa extra de buscar vídeos do item (nem sempre vem no payload principal)
+            if (!videoId) {
+                try {
+                    const videoResp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/videos`,
+                        { headers }
+                    );
+                    const id = recordSource("items/videos", videoResp.data, videoResp.status);
+                    if (id) videoId = id;
+                } catch (error: any) {
+                    recordError("items/videos", error);
+                }
+            }
+
+            // Tentativa extra para "clips" (novo formato do ML)
+            if (!videoId) {
+                try {
+                    const clipsResp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/clips`,
+                        { headers }
+                    );
+                    const id = recordSource("items/clips", clipsResp.data, clipsResp.status);
+                    if (id) videoId = id;
+                } catch (error: any) {
+                    recordError("items/clips", error);
+                }
+            }
+
+            // Tentativa extra para multimedia (algumas contas retornam aqui)
+            if (!videoId) {
+                try {
+                    const mediaResp = await axios.get(
+                        `${MERCADO_LIVRE_API_BASE}/items/${mlbId}/multimedia`,
+                        { headers }
+                    );
+                    const id = recordSource("items/multimedia", mediaResp.data, mediaResp.status);
+                    if (id) videoId = id;
+                } catch (error: any) {
+                    recordError("items/multimedia", error);
+                }
+            }
 
             // Buscar descrições
             let descriptions = [];
@@ -363,6 +534,24 @@ export class MLBAnalyzerService {
                 }
             }
 
+            const tagVideoHint = [
+                ...(itemData.tags || []),
+                ...(itemData.shipping?.tags || [])
+            ].some((tag: any) => {
+                const norm = String(tag).toLowerCase();
+                return norm.includes("video") || norm.includes("clip");
+            });
+            let videoStatus: "present" | "absent" | "unknown" = "unknown";
+            if (videoId || tagVideoHint) {
+                videoStatus = "present";
+            } else if (videoEndpointsWithResponse > 0 && process.env.ML_ASSUME_VIDEO_EMPTY === "true") {
+                videoStatus = "absent";
+            }
+            const videoCheck = {
+                status: videoStatus,
+                sources: videoSources,
+            };
+
             return {
                 id: itemData.id,
                 title: itemData.title,
@@ -386,7 +575,8 @@ export class MLBAnalyzerService {
                 seller,
                 tags: itemData.tags || [],
                 warranty: itemData.warranty,
-                video_id: itemData.video_id,
+                video_id: videoId,
+                video_check: videoCheck,
                 date_created: itemData.date_created,
                 last_updated: itemData.last_updated,
                 start_time: itemData.start_time,
@@ -513,9 +703,7 @@ export class MLBAnalyzerService {
         let score = 0;
 
         // Número de atributos preenchidos
-        const filledAttributes = attributes.filter(attr =>
-            attr.value_name || (attr.values && attr.values.length > 0)
-        );
+        const filledAttributes = attributes.filter((attr) => this.isAttributeFilled(attr));
 
         if (filledAttributes.length >= 10) score += 40;
         else if (filledAttributes.length >= 5) score += 25;
@@ -523,18 +711,23 @@ export class MLBAnalyzerService {
         else score += 5;
 
         // Qualidade dos atributos
-        const importantAttributeIds = ['BRAND', 'MODEL', 'COLOR', 'SIZE', 'MATERIAL', 'WEIGHT', 'DIMENSIONS'];
-        const hasImportantAttributes = importantAttributeIds.filter(id =>
-            attributes.some(attr => attr.id === id && (attr.value_name || attr.values?.length))
-        );
+        const importantFlags = [
+            this.hasAttribute(productData, ['BRAND'], ['marca']),
+            this.hasAttribute(productData, ['MODEL'], ['modelo']),
+            this.hasAttribute(productData, ['COLOR', 'MAIN_COLOR'], ['cor']),
+            this.hasAttribute(productData, ['SIZE'], ['tamanho']),
+            this.hasAttribute(productData, ['MATERIAL', 'METAL'], ['material']),
+            this.hasAttribute(productData, ['WEIGHT'], ['peso']),
+            this.hasAttribute(productData, ['DIMENSIONS', 'LENGTH', 'WIDTH', 'HEIGHT', 'DIAMETER'], ['dimens', 'comprimento', 'largura', 'altura', 'diâmetro', 'diametro']),
+        ];
 
-        score += hasImportantAttributes.length * 8;
+        score += importantFlags.filter(Boolean).length * 8;
 
         // Atributos específicos de qualidade
-        const hasGTIN = attributes.some(attr => attr.id === 'GTIN' && attr.value_name);
+        const hasGTIN = this.hasAttribute(productData, ['GTIN', 'EAN', 'UPC'], ['gtin', 'ean', 'upc']);
         if (hasGTIN) score += 10;
 
-        const hasBrand = attributes.some(attr => attr.id === 'BRAND' && attr.value_name);
+        const hasBrand = this.hasAttribute(productData, ['BRAND'], ['marca']);
         if (hasBrand) score += 15;
 
         return Math.max(0, Math.min(100, score));
@@ -564,7 +757,7 @@ export class MLBAnalyzerService {
         else if (highQualityImages.length >= 1) score += 10;
 
         // Vídeos/Clips
-        if (productData.video_id) score += 20;
+        if (this.getVideoStatus(productData) === "present") score += 20;
 
         // Variações com imagens
         if (productData.variations?.some(v => v.picture_ids?.length > 0)) {
@@ -580,7 +773,7 @@ export class MLBAnalyzerService {
     private scoreKeywordsDensity(productData: MLBAnalysisData): number {
         let score = 0;
         const title = productData.title.toLowerCase();
-        const description = productData.descriptions?.[0]?.plain_text?.toLowerCase() || '';
+        const description = (productData.description_text || productData.descriptions?.[0]?.plain_text || '').toLowerCase();
 
         // Palavras-chave da categoria
         const categoryKeywords = this.extractCategoryKeywordsFromData(productData);
@@ -767,6 +960,7 @@ export class MLBAnalyzerService {
 
         // Tags de envio
         if (shipping.tags?.includes('fulfillment')) score += 15;
+        if (this.isFullShipping(productData)) score += 20;
 
         return Math.max(0, Math.min(100, score));
     }
@@ -806,13 +1000,24 @@ export class MLBAnalyzerService {
      */
     private generateAlerts(breakdown: any, productData: MLBAnalysisData): Array<any> {
         const alerts = [];
+        const titleLength = productData.title?.length || 0;
+        const missingImportant = [];
+        if (!this.hasAttribute(productData, ['BRAND'], ['marca'])) missingImportant.push('Marca');
+        if (!this.hasAttribute(productData, ['MODEL'], ['modelo'])) missingImportant.push('Modelo');
+        if (!this.hasAttribute(productData, ['MATERIAL', 'METAL'], ['material'])) missingImportant.push('Material');
+        if (!this.hasAttribute(productData, ['COLOR', 'MAIN_COLOR'], ['cor'])) missingImportant.push('Cor');
+        if (!this.hasAttribute(productData, ['SIZE'], ['tamanho'])) missingImportant.push('Tamanho');
+        const pictureCount = productData.pictures?.length || 0;
+        const description = productData.description_text || productData.descriptions?.[0]?.plain_text || '';
 
         if (breakdown.title_seo < 60) {
             alerts.push({
                 type: 'warning',
                 message: 'Título com baixa otimização SEO',
                 priority: 'high',
-                action: 'Otimize o título com palavras-chave relevantes'
+                action: titleLength < 25
+                    ? 'Título curto. Inclua tipo + material + cor + diferencial.'
+                    : 'Inclua palavras‑chave e marca no título.'
             });
         }
 
@@ -821,7 +1026,9 @@ export class MLBAnalyzerService {
                 type: 'error',
                 message: 'Ficha técnica incompleta',
                 priority: 'high',
-                action: 'Preencha mais atributos do produto'
+                action: missingImportant.length
+                    ? `Preencha: ${missingImportant.join(', ')}.`
+                    : 'Preencha atributos importantes do produto.'
             });
         }
 
@@ -830,11 +1037,22 @@ export class MLBAnalyzerService {
                 type: 'warning',
                 message: 'Poucas imagens ou baixa qualidade',
                 priority: 'medium',
-                action: 'Adicione mais imagens em alta resolução'
+                action: pictureCount < 8
+                    ? `Adicione ${8 - pictureCount} fotos (fundo branco, detalhe e uso real).`
+                    : 'Adicione fotos em alta resolução e uso real.'
             });
         }
 
-        if (!productData.video_id) {
+        if (!description || description.split(/\s+/).length < 40) {
+            alerts.push({
+                type: 'warning',
+                message: 'Descrição fraca ou curta',
+                priority: 'medium',
+                action: 'Use a descrição SEO sugerida com benefícios, medidas e cuidados.'
+            });
+        }
+
+        if (this.getVideoStatus(productData) === "absent") {
             alerts.push({
                 type: 'info',
                 message: 'Sem clips/vídeos',
@@ -848,7 +1066,16 @@ export class MLBAnalyzerService {
                 type: 'warning',
                 message: 'Baixa densidade de palavras-chave',
                 priority: 'high',
-                action: 'Otimize título e descrição com palavras-chave relevantes'
+                action: 'Inclua palavras‑chave da categoria no título e descrição.'
+            });
+        }
+
+        if (!productData.shipping?.free_shipping && !this.isFullShipping(productData)) {
+            alerts.push({
+                type: 'info',
+                message: 'Frete grátis desativado',
+                priority: 'low',
+                action: 'Avalie frete grátis/Full para aumentar conversão.'
             });
         }
 
@@ -888,6 +1115,46 @@ export class MLBAnalyzerService {
                 description: 'Use o campo modelo para adicionar palavras-chave estratégicas',
                 impact: 'medium',
                 difficulty: 'easy'
+            });
+        }
+
+        if (breakdown.images_quality < 70) {
+            suggestions.push({
+                category: 'Imagens',
+                title: 'Melhorar fotos do anúncio',
+                description: 'Inclua fotos em fundo branco, detalhes e uso real (mínimo 8).',
+                impact: 'high',
+                difficulty: 'medium'
+            });
+        }
+
+        if (breakdown.description_quality < 70) {
+            suggestions.push({
+                category: 'Descrição',
+                title: 'Reescrever descrição com benefícios',
+                description: 'Use descrição SEO com material, medidas, cuidados e garantia.',
+                impact: 'medium',
+                difficulty: 'easy'
+            });
+        }
+
+        if (breakdown.shipping_optimization < 70 && !this.isFullShipping(productData)) {
+            suggestions.push({
+                category: 'Frete',
+                title: 'Ativar frete competitivo',
+                description: 'Considere frete grátis ou Full para ganhar conversão.',
+                impact: 'medium',
+                difficulty: 'medium'
+            });
+        }
+
+        if (breakdown.pricing_strategy < 70) {
+            suggestions.push({
+                category: 'Preço',
+                title: 'Revisar preço',
+                description: 'Ajuste o preço para ficar mais próximo da média da categoria.',
+                impact: 'medium',
+                difficulty: 'medium'
             });
         }
 
@@ -1182,7 +1449,7 @@ export class MLBAnalyzerService {
             advantages.push(`${productData.pictures.length} fotos - acima da média`);
         }
 
-        if (productData.video_id) {
+        if (this.hasVideo(productData)) {
             advantages.push('Possui vídeo do produto');
         }
 
@@ -1197,7 +1464,7 @@ export class MLBAnalyzerService {
     private identifyImprovements(productData: MLBAnalysisData, marketData: any): string[] {
         const improvements = [];
 
-        if (!productData.shipping?.free_shipping) {
+        if (!productData.shipping?.free_shipping && !this.isFullShipping(productData)) {
             improvements.push('Ativar frete grátis');
         }
 
@@ -1205,7 +1472,7 @@ export class MLBAnalyzerService {
             improvements.push('Adicionar mais fotos (mínimo 8 recomendado)');
         }
 
-        if (!productData.video_id) {
+        if (!this.hasVideo(productData)) {
             improvements.push('Adicionar vídeo do produto');
         }
 

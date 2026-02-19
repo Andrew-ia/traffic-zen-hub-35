@@ -31,6 +31,7 @@ import {
     useMercadoLivreAnalyticsTop,
     useSyncMercadoLivreAnalytics
 } from "@/hooks/useMercadoLivre";
+import type { OrdersResponse } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreDailySales, useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreShipments } from "@/hooks/useMercadoLivreShipments";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,6 +46,7 @@ import { PremiumKPICard } from "@/components/mercadolivre/redesign/PremiumKPICar
 import { MainPerformanceChart } from "@/components/mercadolivre/redesign/MainPerformanceChart";
 import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivity";
 import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
+import { QuickReplyQuestions } from "@/components/mercadolivre/QuickReplyQuestions";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import type { DateRange } from "react-day-picker";
 
@@ -75,6 +77,8 @@ export default function MercadoLivreNew() {
     const [replaying, setReplaying] = useState(false);
     const [recentActivityDate, setRecentActivityDate] = useState<Date | undefined>(new Date());
     const [sseConnected, setSseConnected] = useState(false);
+    const autoConnectEnabled =
+        String(import.meta.env.VITE_ML_AUTO_CONNECT || "").toLowerCase() === "true";
 
     // Obter workspace_id
     useEffect(() => {
@@ -144,7 +148,7 @@ export default function MercadoLivreNew() {
     const { data: authStatus, isLoading: authStatusLoading } = useMercadoLivreAuthStatus(workspaceId);
 
     useEffect(() => {
-        if (!workspaceId || authStatusLoading || authStatus?.connected) return;
+        if (!autoConnectEnabled || !workspaceId || authStatusLoading || authStatus?.connected) return;
 
         const autoConnectKey = `ml-autoconnect-${workspaceId}`;
         if (sessionStorage.getItem(autoConnectKey) === "1") return;
@@ -165,7 +169,7 @@ export default function MercadoLivreNew() {
         };
 
         void attemptAutoConnect();
-    }, [authStatus?.connected, authStatusLoading, workspaceId]);
+    }, [authStatus?.connected, authStatusLoading, autoConnectEnabled, workspaceId]);
 
     // Hooks de dados
     const { data: metrics, isLoading: metricsLoading } = useMercadoLivreMetrics(
@@ -178,7 +182,7 @@ export default function MercadoLivreNew() {
         resolvedRange.days,
         { dateFrom: previousPeriod.start_date, dateTo: previousPeriod.end_date }
     );
-    const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
+    const { data: products } = useMercadoLivreProducts(workspaceId);
     const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, resolvedRange.days);
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
@@ -187,7 +191,7 @@ export default function MercadoLivreNew() {
     );
 
     const ordersParams = useMemo(() => {
-        const params: any = { limit: 50, includeCancelled: true };
+        const params: any = { limit: 50, includeCancelled: true, activity: "confirmed" };
         if (recentActivityDate) {
             const start = new Date(recentActivityDate);
             start.setHours(0, 0, 0, 0);
@@ -259,7 +263,11 @@ export default function MercadoLivreNew() {
                 return;
             }
             processedOrdersRef.current.add(orderId);
-            const orderDate = order.dateCreated ? new Date(order.dateCreated) : null;
+            const activityMode = ordersParams?.activity;
+            const baseDate = activityMode === "confirmed"
+                ? (order.dateClosed || order.dateCreated)
+                : order.dateCreated;
+            const orderDate = baseDate ? new Date(baseDate) : null;
             const orderTotal = Number(order.totalAmount || 0);
             const itemsCount = Array.isArray(order.items)
                 ? order.items.reduce((sum: number, item: any) => sum + (Number(item?.quantity || 0)), 0)
@@ -379,36 +387,6 @@ export default function MercadoLivreNew() {
         return () => clearInterval(interval);
     }, [workspaceId, sseConnected, queryClient]);
 
-    const todayMetrics = useMemo(() => {
-        if (!dailySales?.dailySales || !recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
-        
-        const dateKey = format(recentActivityDate, 'yyyy-MM-dd');
-        const dayData = dailySales.dailySales.find(d => d.date === dateKey);
-        
-        // Previous day for trend
-        const prevDate = new Date(recentActivityDate);
-        prevDate.setDate(prevDate.getDate() - 1);
-        const prevKey = format(prevDate, 'yyyy-MM-dd');
-        const prevData = dailySales.dailySales.find(d => d.date === prevKey);
-        
-        const currentRevenue = dayData?.revenue || 0;
-        const prevRevenue = prevData?.revenue || 0;
-        const currentOrders = dayData?.orders || 0;
-        const prevOrders = prevData?.orders || 0;
-        
-        const calcTrend = (curr: number, prev: number) => {
-            if (!prev) return 0; // Infinite growth or first day
-            return ((curr - prev) / prev) * 100;
-        };
-
-        return {
-            revenue: currentRevenue,
-            orders: currentOrders,
-            revenueTrend: calcTrend(currentRevenue, prevRevenue),
-            ordersTrend: calcTrend(currentOrders, prevOrders)
-        };
-    }, [dailySales, recentActivityDate]);
-
     const { data: ordersData, isLoading: ordersLoading } = useMercadoLivreOrders(workspaceId, ordersParams);
     const { data: shipmentsData, isLoading: shipmentsLoading } = useMercadoLivreShipments(workspaceId, {
         // Remover filtro de status para trazer TODOS os envios do dia (Normal, Full, Shipped, etc)
@@ -418,6 +396,48 @@ export default function MercadoLivreNew() {
     const syncMutation = useSyncMercadoLivre();
     const analyticsSyncMutation = useSyncMercadoLivreAnalytics();
     const { data: analyticsTop, isLoading: analyticsTopLoading } = useMercadoLivreAnalyticsTop(workspaceId);
+
+    const todayMetrics = useMemo(() => {
+        if (!recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
+
+        const normalizeStatus = (value?: string | null) => String(value || "").toLowerCase();
+        const isCancelledStatus = (value?: string | null) => {
+            const normalized = normalizeStatus(value);
+            return normalized === "cancelled" || normalized === "canceled";
+        };
+
+        const dateKey = format(recentActivityDate, "yyyy-MM-dd");
+        const dayData = dailySales?.dailySales?.find((d) => d.date === dateKey);
+
+        const prevDate = new Date(recentActivityDate);
+        prevDate.setDate(prevDate.getDate() - 1);
+        const prevKey = format(prevDate, "yyyy-MM-dd");
+        const prevData = dailySales?.dailySales?.find((d) => d.date === prevKey);
+
+        const ordersForDay = Array.isArray(ordersData?.orders) ? ordersData.orders : [];
+        const liquidOrders = ordersForDay.filter((order) => !isCancelledStatus(order?.status));
+
+        const currentRevenue = ordersForDay.length > 0
+            ? liquidOrders.reduce((sum, order) => sum + Number(order?.totalAmount || 0), 0)
+            : (dayData?.revenue || 0);
+
+        const currentOrders = ordersForDay.length > 0 ? liquidOrders.length : (dayData?.orders || 0);
+
+        const prevRevenue = prevData?.revenue || 0;
+        const prevOrders = prevData?.orders || 0;
+
+        const calcTrend = (curr: number, prev: number) => {
+            if (!prev) return 0;
+            return ((curr - prev) / prev) * 100;
+        };
+
+        return {
+            revenue: currentRevenue,
+            orders: currentOrders,
+            revenueTrend: calcTrend(currentRevenue, prevRevenue),
+            ordersTrend: calcTrend(currentOrders, prevOrders),
+        };
+    }, [dailySales, recentActivityDate, ordersData]);
 
     const handleSyncData = async () => {
         if (!workspaceId) return;
@@ -936,6 +956,13 @@ export default function MercadoLivreNew() {
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
                         workspaceId={workspaceId}
+                    />
+
+                    <QuickReplyQuestions
+                        workspaceId={workspaceId}
+                        questions={questions?.items || []}
+                        totalUnanswered={questions?.unanswered || 0}
+                        loading={questionsLoading}
                     />
 
                     <FinancialAnalysis

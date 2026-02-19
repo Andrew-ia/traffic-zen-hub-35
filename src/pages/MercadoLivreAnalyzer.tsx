@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMLBAnalyzer } from '@/hooks/useMLBAnalyzer';
 import { MLBAnalyzerInput } from '@/components/analyzer/MLBAnalyzerInput';
 import { MLBAnalysisResults } from '@/components/analyzer/MLBAnalysisResults';
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useSearchParams } from "react-router-dom";
 
 export default function MercadoLivreAnalyzer() {
     const {
@@ -27,6 +28,22 @@ export default function MercadoLivreAnalyzer() {
     } = useMLBAnalyzer();
 
     const [activeTab, setActiveTab] = useState("direct");
+    const [searchParams] = useSearchParams();
+    const autoAnalyzedRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const raw = searchParams.get("mlb");
+        if (!raw) return;
+
+        const normalized = raw.trim().toUpperCase();
+        const match = normalized.match(/MLB\\d+/);
+        const mlbId = match?.[0] || normalized;
+
+        if (!mlbId || autoAnalyzedRef.current === mlbId) return;
+        autoAnalyzedRef.current = mlbId;
+        setActiveTab("direct");
+        void analyzeProduct(mlbId);
+    }, [analyzeProduct, searchParams]);
 
     return (
         <div className="w-full px-4 md:px-6 py-8 space-y-8 animate-fade-in">

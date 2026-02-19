@@ -8,7 +8,7 @@ import { startFullAnalyticsScheduler } from './workers/fullAnalyticsScheduler.js
 import { startAdsWeeklyReportScheduler } from './workers/adsWeeklyReportScheduler.js';
 import { startMercadoLivreDailySummaryScheduler } from './workers/mlDailySummaryScheduler.js';
 import { startMercadoLivreGrowthMetricsScheduler } from './workers/mlGrowthMetricsScheduler.js';
-import { startMLNotificationsReplayWorker } from './workers/mlNotificationsReplay.js';
+import { startMLProductAdsMetricsScheduler } from './workers/mlProductAdsMetricsScheduler.js';
 import { getPool } from './config/database.js';
 import { login, me, createUser, authMiddleware, adminOnly, getPagePermissions, setPagePermissions } from './api/auth.js';
 import workspacesRouter from './api/workspaces.js';
@@ -21,6 +21,7 @@ import mercadoLivreRouter, { bootstrapMercadoLivreEnvCredentials } from './api/i
 import mercadoAdsRouter from './api/integrations/mercado-ads.js';
 import mercadoLivreFulfillmentRouter from './api/integrations/mercadolivre-fulfillment.js';
 import mercadoLivreFullAnalyticsRouter from './api/integrations/mercadolivre-full-analytics.js';
+import shopeeRouter from './api/integrations/shopee.js';
 import productHubRouter from './api/productHub.js';
 
 // Load environment variables
@@ -112,6 +113,7 @@ app.use('/api/integrations/mercadolivre', mercadoLivreRouter);
 app.use('/api/integrations/mercado-ads', mercadoAdsRouter);
 app.use('/api/integrations/mercadolivre-fulfillment', mercadoLivreFulfillmentRouter);
 app.use('/api/integrations/mercadolivre-full-analytics', mercadoLivreFullAnalyticsRouter);
+app.use('/api/integrations/shopee', shopeeRouter);
 
 // Serve frontend build (SPA) from /dist when deployed online
 const __filename = fileURLToPath(import.meta.url);
@@ -149,8 +151,6 @@ app.use((req, res) => {
     error: 'Not found',
   });
 });
-
-let stopMLReplayWorker: (() => void) | null = null;
 
 async function start() {
   try {
@@ -192,33 +192,11 @@ async function start() {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('');
 
-      if (String(process.env.ML_NOTIFICATIONS_REPLAY_ENABLED || '').toLowerCase() === 'true') {
-        const apiBase =
-          process.env.API_INTERNAL_URL ||
-          process.env.API_URL ||
-          `http://localhost:${PORT}`;
-        const workspaceId =
-          process.env.MERCADO_LIVRE_DEFAULT_WORKSPACE_ID ||
-          process.env.WORKSPACE_ID ||
-          process.env.VITE_WORKSPACE_ID ||
-          '00000000-0000-0000-0000-000000000010';
-
-        stopMLReplayWorker = startMLNotificationsReplayWorker({
-          workspaceId,
-          apiBaseUrl: apiBase,
-          intervalMinutes: Number(process.env.ML_NOTIFICATIONS_REPLAY_INTERVAL_MINUTES || 60),
-          days: Number(process.env.ML_NOTIFICATIONS_REPLAY_DAYS || 2),
-          maxOrders: Number(process.env.ML_NOTIFICATIONS_REPLAY_MAX_ORDERS || 200),
-          dryRun: String(process.env.ML_NOTIFICATIONS_REPLAY_DRY_RUN || '').toLowerCase() === 'true',
-        });
-      } else {
-        console.log('ℹ️  ML replay worker desabilitado (ML_NOTIFICATIONS_REPLAY_ENABLED != true)');
-      }
-
       startFullAnalyticsScheduler();
       startAdsWeeklyReportScheduler();
       startMercadoLivreDailySummaryScheduler();
       startMercadoLivreGrowthMetricsScheduler();
+      startMLProductAdsMetricsScheduler();
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -286,20 +264,10 @@ if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCT
 
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-
-  if (stopMLReplayWorker) {
-    stopMLReplayWorker();
-  }
-
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
-
-  if (stopMLReplayWorker) {
-    stopMLReplayWorker();
-  }
-
   process.exit(0);
 });

@@ -376,9 +376,13 @@ export class TechnicalSheetService {
      * Verifica se um atributo está preenchido
      */
     private isAttributeFilled(attribute: any): boolean {
-        return !!(attribute.value_name || 
-                 (attribute.values && attribute.values.length > 0) ||
-                 attribute.value_id);
+        if (!attribute) return false;
+        if (attribute.value_name || attribute.value_id) return true;
+        if (attribute.value_struct && (attribute.value_struct.number !== undefined && attribute.value_struct.number !== null)) {
+            return true;
+        }
+        if (Array.isArray(attribute.values) && attribute.values.length > 0) return true;
+        return false;
     }
 
     /**

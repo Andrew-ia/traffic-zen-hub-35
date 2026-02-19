@@ -15,8 +15,11 @@ import MercadoLivrePriceCalculator from "./pages/MercadoLivrePriceCalculator";
 import MercadoLivreCallback from "./pages/MercadoLivreCallback";
 import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
 import MercadoLivreGrowthReport from "./pages/MercadoLivreGrowthReport";
+import MercadoLivreVolumeOpportunities from "./pages/MercadoLivreVolumeOpportunities";
+import MercadoLivreOperations from "./pages/MercadoLivreOperations";
 import MercadoAdsManual from "./pages/MercadoAdsManual";
 import Integrations from "./pages/Integrations";
+import ShopeeAgora from "./pages/ShopeeAgora";
 import Products from "./pages/Products";
 import ProductHub from "./pages/ProductHub";
 import ProductHubDetail from "./pages/ProductHubDetail";
@@ -71,10 +74,12 @@ const App = () => (
 
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
                 <Route path="/mercado-livre" element={<RequireAuth><Navigate to="/" replace /></RequireAuth>} />
+                <Route path="/mercado-livre/operacoes" element={<RequireAuth><MercadoLivreOperations /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
             <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
             <Route path="/integrations/mercadolivre/callback" element={<MercadoLivreCallback />} />
+            <Route path="/shopee-agora" element={<RequireAuth><ShopeeAgora /></RequireAuth>} />
             <Route path="/mercado-ads/manual" element={<RequireAuth><MercadoAdsManual /></RequireAuth>} />
 
                 <Route path="/product-hub" element={<RequireAuth><ProductHub /></RequireAuth>} />
@@ -82,6 +87,7 @@ const App = () => (
                 <Route path="/products" element={<RequireAuth><Products /></RequireAuth>} />
                 <Route path="/mercado-livre/full-analytics" element={<RequireAuth><MercadoLivreFullAnalytics /></RequireAuth>} />
                 <Route path="/mercado-livre/relatorio-executivo" element={<RequireAuth><MercadoLivreGrowthReport /></RequireAuth>} />
+                <Route path="/mercado-livre/oportunidades-volume" element={<RequireAuth><MercadoLivreVolumeOpportunities /></RequireAuth>} />
                 <Route path="/fulfillment" element={<RequireAuth><FulfillmentManagement /></RequireAuth>} />
 
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

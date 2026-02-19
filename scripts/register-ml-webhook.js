@@ -22,20 +22,37 @@ let ACCESS_TOKEN = process.env.MERCADO_LIVRE_ACCESS_TOKEN;
 const REFRESH_TOKEN = process.env.MERCADO_LIVRE_REFRESH_TOKEN;
 const USER_ID = process.env.MERCADO_LIVRE_USER_ID;
 const USER_AGENT = 'TrafficZenHub/1.0';
+let authUnavailable = false;
+
+const markAuthUnavailable = (reason, details) => {
+  if (authUnavailable) return;
+  authUnavailable = true;
+  console.warn('⚠️  Não foi possível validar as credenciais do Mercado Livre para auto-registro.');
+  if (reason === 'invalid_grant') {
+    console.warn('   Refresh token inválido/expirado. Refaça o OAuth e atualize o .env.local.');
+  } else if (reason === 'invalid_client') {
+    console.warn('   Client ID/Secret inválidos. Verifique MERCADO_LIVRE_CLIENT_ID/SECRET.');
+  } else if (reason === 'missing_credentials') {
+    console.warn('   Credenciais ausentes no .env.local (refresh token ou client secret).');
+  } else {
+    console.warn('   Detalhes:', details || 'sem detalhes');
+  }
+  console.warn('   Campos esperados: MERCADO_LIVRE_ACCESS_TOKEN e MERCADO_LIVRE_REFRESH_TOKEN.\n');
+};
 
 async function refreshAccessToken() {
   if (!REFRESH_TOKEN || !CLIENT_SECRET) {
-    console.error('❌ Impossível renovar token: REFRESH_TOKEN ou CLIENT_SECRET ausentes.');
+    markAuthUnavailable('missing_credentials');
     return false;
   }
 
   try {
-    const response = await axios.post('https://api.mercadolibre.com/oauth/token', {
+    const response = await axios.post('https://api.mercadolibre.com/oauth/token', new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: APP_ID,
       client_secret: CLIENT_SECRET,
-      refresh_token: REFRESH_TOKEN
-    }, {
+      refresh_token: REFRESH_TOKEN,
+    }), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
@@ -51,7 +68,17 @@ async function refreshAccessToken() {
     console.log('');
     return true;
   } catch (error) {
-    console.error('❌ Falha ao renovar token:', error.response?.data || error.message);
+    const data = error.response?.data || {};
+    const oauthError = data.error || '';
+    if (oauthError === 'invalid_grant') {
+      markAuthUnavailable('invalid_grant', data);
+      return false;
+    }
+    if (oauthError === 'invalid_client') {
+      markAuthUnavailable('invalid_client', data);
+      return false;
+    }
+    console.error('❌ Falha ao renovar token:', data || error.message);
     return false;
   }
 }
@@ -81,6 +108,10 @@ const resolveBaseUrl = () => {
 
 const BASE_URL = resolveBaseUrl();
 const CALLBACK_URL = `${BASE_URL}/api/integrations/mercadolivre/notifications`;
+const CALLBACK_URL_LOWER = CALLBACK_URL.toLowerCase();
+const IS_TUNNEL_URL = CALLBACK_URL_LOWER.includes('.ngrok') || CALLBACK_URL_LOWER.includes('.trycloudflare.com');
+const SKIP_CALLBACK_UPDATE = (process.env.SKIP_ML_CALLBACK_UPDATE || '').toLowerCase() === 'true';
+const FORCE_CALLBACK_UPDATE = (process.env.FORCE_ML_CALLBACK_UPDATE || '').toLowerCase() === 'true';
 
 // Tópicos a serem registrados
 const TOPICS = [
@@ -129,6 +160,7 @@ async function listWebhooks() {
           // Retry with new token
           response = await makeRequest();
         } else {
+          if (authUnavailable) return null;
           throw error;
         }
       } else {
@@ -145,12 +177,20 @@ async function listWebhooks() {
 
     return response.data.notifications_callback_url;
   } catch (error) {
+    if (authUnavailable) {
+      console.warn('⚠️  Consulta de webhooks pulada por credenciais inválidas.\n');
+      return null;
+    }
     console.error('❌ Erro ao listar webhooks:', error.response?.data || error.message);
     return null;
   }
 }
 
 async function registerWebhook(topic) {
+  if (authUnavailable) {
+    console.warn(`⚠️  Registro de ${topic} ignorado por credenciais inválidas.`);
+    return false;
+  }
   try {
     console.log(`📝 Registrando webhook para tópico: ${topic}...`);
 
@@ -225,6 +265,10 @@ async function registerWebhook(topic) {
 }
 
 async function updateCallbackUrl() {
+  if (authUnavailable) {
+    console.warn('⚠️  Atualização de callback ignorada por credenciais inválidas.');
+    return false;
+  }
   try {
     console.log('\n🔄 Atualizando URL de callback no app...\n');
 
@@ -263,6 +307,7 @@ async function updateCallbackUrl() {
         if (refreshed) {
           response = await makeRequest();
         } else {
+          if (authUnavailable) return false;
           throw error;
         }
       } else {
@@ -278,8 +323,8 @@ async function updateCallbackUrl() {
       
       // Check for HTML error (WAF/Block)
       if (typeof data === 'string' && (data.includes('<!DOCTYPE') || data.includes('<html'))) {
-         console.error('❌ Bloqueio de segurança (WAF) detectado ao atualizar URL.');
-         console.error('   O Mercado Livre bloqueou a requisição automática de atualização.');
+         console.warn('⚠️  Bloqueio de segurança (WAF) detectado ao atualizar URL.');
+         console.warn('   O Mercado Livre bloqueou a requisição automática de atualização.');
          return false; // Fail gracefully so main() can show manual steps
       }
 
@@ -377,13 +422,25 @@ async function main() {
     console.log('⚠️  AVISO: O endpoint não está acessível. Continuando mesmo assim...\n');
   }
 
+  if (authUnavailable) {
+    console.log('⚠️  Auto-registro de webhooks desabilitado por credenciais inválidas.');
+    console.log('   Atualize as credenciais no .env.local e rode novamente este script.\n');
+    return;
+  }
+
   // 3. Atualizar/Configurar URL de callback no app
   let updated = true;
   if (currentWebhook === CALLBACK_URL) {
     console.log('✅ URL de callback já está atualizada no Mercado Livre.');
     console.log('   Pulando etapa de configuração para evitar erros de bloqueio (WAF).\n');
   } else {
-    updated = await updateCallbackUrl();
+    if (!FORCE_CALLBACK_UPDATE && (SKIP_CALLBACK_UPDATE || IS_TUNNEL_URL)) {
+      const reason = SKIP_CALLBACK_UPDATE ? 'SKIP_ML_CALLBACK_UPDATE=true' : 'URL de túnel detectada';
+      console.log(`ℹ️  Atualização automática de callback ignorada (${reason}).`);
+      updated = false;
+    } else {
+      updated = await updateCallbackUrl();
+    }
   }
 
   if (!updated) {

@@ -9,19 +9,41 @@ const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
     day: "2-digit",
 });
 
+const REALTIME_ONLY =
+    String(process.env.ML_NOTIFICATIONS_REALTIME_ONLY || "true").toLowerCase() === "true";
+const REALTIME_WINDOW_MINUTES = Math.max(
+    1,
+    Number(process.env.ML_NOTIFICATIONS_REALTIME_WINDOW_MINUTES || 5)
+);
+const REALTIME_WINDOW_MS = REALTIME_WINDOW_MINUTES * 60 * 1000;
+const QUESTION_WINDOW_MINUTES = Math.max(
+    1,
+    Number(process.env.ML_NOTIFICATIONS_QUESTION_WINDOW_MINUTES || REALTIME_WINDOW_MINUTES)
+);
+const QUESTION_WINDOW_MS = QUESTION_WINDOW_MINUTES * 60 * 1000;
+const MESSAGE_WINDOW_MINUTES = Math.max(
+    1,
+    Number(process.env.ML_NOTIFICATIONS_MESSAGE_WINDOW_MINUTES || REALTIME_WINDOW_MINUTES)
+);
+const MESSAGE_WINDOW_MS = MESSAGE_WINDOW_MINUTES * 60 * 1000;
+const ORDERS_ONLY =
+    String(process.env.ML_NOTIFICATIONS_ORDERS_ONLY || "false").toLowerCase() === "true";
+
+const shouldAllowNotificationType = (type: string) => !ORDERS_ONLY || type === "order_created";
+
 const WORKSPACE_LABEL_TTL_MS = 10 * 60 * 1000;
 const workspaceLabelCache = new Map<string, { label: string; ts: number }>();
 
 const getBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
 
-const getBrazilDateKeyFromValue = (value: unknown): string | null => {
+const getTodayBrazilDateKey = () => getBrazilDateKey(new Date());
+
+const parseDateValue = (value: unknown): Date | null => {
     if (!value) return null;
     const parsed = value instanceof Date ? value : new Date(String(value));
     if (Number.isNaN(parsed.getTime())) return null;
-    return getBrazilDateKey(parsed);
+    return parsed;
 };
-
-const getTodayBrazilDateKey = () => getBrazilDateKey(new Date());
 
 const escapeTelegramHtml = (value: string) => {
     const map: Record<string, string> = {
@@ -124,6 +146,11 @@ export class TelegramNotificationService {
         type: string = "custom",
         referenceId?: string | null
     ): Promise<boolean> {
+        if (!shouldAllowNotificationType(type)) {
+            console.log(`[Telegram] Ignorando notificação ${type} (modo vendas apenas)`);
+            return false;
+        }
+
         const config = await this.getTelegramConfig(workspaceId);
         if (!config) {
             console.warn("[Telegram] Configuracao nao encontrada para envio custom");
@@ -203,8 +230,8 @@ export class TelegramNotificationService {
                     type,
                     referenceId,
                     status,
-                    JSON.stringify(payload),
-                    response ? JSON.stringify(response) : null,
+                    payload ?? null,
+                    response ?? null,
                     errorMessage,
                 ]
             );
@@ -321,6 +348,7 @@ export class TelegramNotificationService {
         };
         const normalizedStatus = String(status || "").toLowerCase();
         const statusLabel = statusLabels[normalizedStatus] || status || "N/A";
+        const safeStatusLabel = escapeTelegramHtml(String(statusLabel));
 
         const hasFulfillmentTag = (tags?: any) => Array.isArray(tags) && tags.some((tag: any) => String(tag || "").toLowerCase() === "fulfillment");
         const isFullShipment = (() => {
@@ -359,20 +387,24 @@ export class TelegramNotificationService {
         let message = `🎉 <b>NOVA VENDA NO MERCADO LIVRE!</b>\n\n`;
         message += `📦 <b>Pedido:</b> #${id}\n`;
         message += `💰 <b>Valor:</b> ${formatCurrency(paid_amount || total_amount)}\n`;
-        message += `📊 <b>Status:</b> ${statusLabel}\n`;
+        message += `📊 <b>Status:</b> ${safeStatusLabel}\n`;
         message += `🚚 <b>Envio:</b> ${shippingType}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;
 
         if (buyer) {
+            const safeBuyerId = escapeTelegramHtml(String(buyer.id || "N/A"));
             message += `👤 <b>Comprador:</b>\n`;
-            message += `   • ID: ${buyer.id || "N/A"}\n`;
-            if (buyer.nickname) message += `   • Nome: ${buyer.nickname}\n`;
+            message += `   • ID: ${safeBuyerId}\n`;
+            if (buyer.nickname) {
+                const safeBuyerName = escapeTelegramHtml(String(buyer.nickname));
+                message += `   • Nome: ${safeBuyerName}\n`;
+            }
         }
 
         if (order_items && order_items.length > 0) {
             message += `\n📋 <b>Itens:</b>\n`;
             order_items.forEach((item: any, idx: number) => {
-                const itemTitle = item.item?.title || "Produto";
+                const itemTitle = escapeTelegramHtml(String(item.item?.title || "Produto"));
                 const quantity = item.quantity || 1;
                 const unitPrice = item.unit_price || 0;
                 message += `   ${idx + 1}. ${itemTitle}\n`;
@@ -400,10 +432,14 @@ export class TelegramNotificationService {
             });
         };
 
+        const safeText = escapeTelegramHtml(String(text || ""));
+        const safeFrom = escapeTelegramHtml(String(from?.nickname || "Cliente"));
+        const safeItemId = escapeTelegramHtml(String(item_id || "N/A"));
+
         let message = `❓ <b>NOVA PERGUNTA NO MERCADO LIVRE!</b>\n\n`;
-        message += `💬 <b>Pergunta:</b> ${text}\n\n`;
-        message += `👤 <b>De:</b> ${from?.nickname || "Cliente"}\n`;
-        message += `📦 <b>Produto ID:</b> ${item_id}\n`;
+        message += `💬 <b>Pergunta:</b> ${safeText}\n\n`;
+        message += `👤 <b>De:</b> ${safeFrom}\n`;
+        message += `📦 <b>Produto ID:</b> ${safeItemId}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;
         message += `🔗 <a href="https://questions.mercadolivre.com.br/question/${id}">Responder Pergunta</a>`;
 
@@ -417,11 +453,14 @@ export class TelegramNotificationService {
         const id = itemData?.id || itemData?.item_id || "N/A";
         const title = itemData?.title || itemData?.name || "Produto";
         const status = itemData?.status || itemData?.listing_type_id || "atualizado";
+        const safeId = escapeTelegramHtml(String(id));
+        const safeTitle = escapeTelegramHtml(String(title));
+        const safeStatus = escapeTelegramHtml(String(status));
 
         let message = `📦 <b>ATUALIZAÇÃO DE PRODUTO</b>\n\n`;
-        message += `🆔 <b>ID:</b> ${id}\n`;
-        message += `📝 <b>Título:</b> ${title}\n`;
-        message += `📊 <b>Status:</b> ${status}\n`;
+        message += `🆔 <b>ID:</b> ${safeId}\n`;
+        message += `📝 <b>Título:</b> ${safeTitle}\n`;
+        message += `📊 <b>Status:</b> ${safeStatus}\n`;
 
         if (typeof itemData?.price === "number") {
             const price = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(itemData.price);
@@ -433,6 +472,46 @@ export class TelegramNotificationService {
     }
 
     /**
+     * Formata mensagem para sugestao de preco
+     */
+    private static formatPriceSuggestionMessage(suggestion: any): string {
+        const itemId = suggestion?.itemId || suggestion?.item_id || "N/A";
+        const title = suggestion?.title || suggestion?.item_title || "Produto";
+        const currencyId = suggestion?.currencyId || suggestion?.currency_id || "BRL";
+        const currentPrice = typeof suggestion?.currentPrice === "number" ? suggestion.currentPrice : null;
+        const suggestedPrice = typeof suggestion?.suggestedPrice === "number" ? suggestion.suggestedPrice : null;
+
+        const formatCurrency = (value: number | null) => {
+            if (typeof value !== "number") return "N/D";
+            return new Intl.NumberFormat("pt-BR", {
+                style: "currency",
+                currency: currencyId,
+            }).format(value);
+        };
+
+        const safeItemId = escapeTelegramHtml(String(itemId));
+        const safeTitle = escapeTelegramHtml(String(title));
+
+        let message = `💡 <b>SUGESTÃO DE PREÇO ML</b>\n\n`;
+        message += `🆔 <b>ID:</b> ${safeItemId}\n`;
+        message += `📝 <b>Título:</b> ${safeTitle}\n`;
+        message += `💰 <b>Preço atual:</b> ${formatCurrency(currentPrice)}\n`;
+        message += `🎯 <b>Preço sugerido:</b> ${formatCurrency(suggestedPrice)}\n`;
+
+        if (typeof currentPrice === "number" && typeof suggestedPrice === "number" && currentPrice > 0) {
+            const diff = suggestedPrice - currentPrice;
+            const diffPct = (diff / currentPrice) * 100;
+            message += `📈 <b>Diferença:</b> ${formatCurrency(diff)} (${diffPct.toFixed(1)}%)\n`;
+        }
+
+        if (itemId && String(itemId).startsWith("MLB")) {
+            message += `\n🔗 <a href="https://www.mercadolivre.com.br/itm/${safeItemId}">Ver Produto</a>`;
+        }
+
+        return message;
+    }
+
+    /**
      * Formata mensagem para nova mensagem recebida
      */
     private static formatNewMessage(messageData: any): string {
@@ -440,11 +519,13 @@ export class TelegramNotificationService {
         const from = messageData?.from?.nickname || messageData?.from?.id || "Cliente";
         const dateStr = messageData?.date_created || messageData?.date || new Date().toISOString();
         const dateFmt = new Date(dateStr).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+        const safeText = escapeTelegramHtml(String(text || ""));
+        const safeFrom = escapeTelegramHtml(String(from || "Cliente"));
 
         let message = `💬 <b>NOVA MENSAGEM</b>\n\n`;
-        message += `👤 <b>De:</b> ${from}\n`;
+        message += `👤 <b>De:</b> ${safeFrom}\n`;
         message += `🕒 <b>Data:</b> ${dateFmt}\n\n`;
-        message += `${text}`;
+        message += `${safeText}`;
         return message;
     }
 
@@ -453,6 +534,11 @@ export class TelegramNotificationService {
      */
     public static async notifyItemUpdated(workspaceId: string, itemData: any): Promise<boolean> {
         try {
+            if (!shouldAllowNotificationType("item_updated")) {
+                console.log("[Telegram] Ignorando notificação de item (modo vendas apenas)");
+                return false;
+            }
+
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
                 console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);
@@ -508,27 +594,114 @@ export class TelegramNotificationService {
     }
 
     /**
+     * Envia notificacao de sugestao de preco
+     */
+    public static async notifyPriceSuggestion(workspaceId: string, suggestion: any): Promise<boolean> {
+        try {
+            if (!shouldAllowNotificationType("price_suggestion")) {
+                console.log("[Telegram] Ignorando sugestão de preço (modo vendas apenas)");
+                return false;
+            }
+
+            const config = await this.getTelegramConfig(workspaceId);
+            if (!config) {
+                console.log(`[Telegram] Notificacoes nao configuradas para workspace ${workspaceId}`);
+                return false;
+            }
+
+            const itemId = suggestion?.itemId || suggestion?.item_id || null;
+            const suggestedPrice = typeof suggestion?.suggestedPrice === "number" ? suggestion.suggestedPrice : "na";
+            const referenceId = itemId ? `${itemId}:${suggestedPrice}` : null;
+
+            const isDuplicate = await this.hasRecentNotification(
+                workspaceId,
+                "price_suggestion",
+                referenceId,
+                60
+            );
+
+            if (isDuplicate) {
+                console.log(`[Telegram] Ignorando sugestao de preco duplicada ${referenceId}`);
+                return false;
+            }
+
+            const message = await this.prependWorkspaceLabel(
+                workspaceId,
+                this.formatPriceSuggestionMessage(suggestion)
+            );
+            const result = await this.sendTelegramMessage(
+                config.botToken,
+                config.chatId,
+                message,
+                "HTML"
+            );
+
+            await this.logNotification(
+                workspaceId,
+                "price_suggestion",
+                referenceId,
+                result.ok ? "sent" : "failed",
+                suggestion,
+                result.response || null,
+                result.ok ? null : (result.error || "Falha ao enviar mensagem")
+            );
+
+            return result.ok;
+        } catch (error: any) {
+            console.error("[Telegram] Erro ao notificar sugestao de preco:", error);
+            await this.logNotification(
+                workspaceId,
+                "price_suggestion",
+                suggestion?.itemId || suggestion?.item_id || null,
+                "failed",
+                suggestion,
+                null,
+                error?.message || String(error)
+            );
+            return false;
+        }
+    }
+
+    /**
      * Envia notificação de nova mensagem
      */
     public static async notifyNewMessage(workspaceId: string, messageData: any): Promise<boolean> {
         try {
+            if (!shouldAllowNotificationType("message_received")) {
+                console.log("[Telegram] Ignorando mensagem (modo vendas apenas)");
+                return false;
+            }
+
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
                 console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);
                 return false;
             }
 
-            const messageDateKey = getBrazilDateKeyFromValue(
-                messageData?.date_created || messageData?.date
-            );
-            const todayKey = getTodayBrazilDateKey();
-            if (!messageDateKey) {
+            const messageDate = parseDateValue(messageData?.date_created || messageData?.date);
+            if (!messageDate) {
                 console.log(`[Telegram] Ignorando mensagem sem data valida ${messageData?.id || "sem-id"}`);
                 return false;
             }
-            if (messageDateKey !== todayKey) {
-                console.log(`[Telegram] Ignorando mensagem fora do dia (BRT) ${messageData?.id || "sem-id"} (${messageDateKey})`);
-                return false;
+            if (REALTIME_ONLY) {
+                const diffMs = Date.now() - messageDate.getTime();
+                if (diffMs > MESSAGE_WINDOW_MS) {
+                    const diffMin = Math.round(diffMs / 60000);
+                    console.log(`[Telegram] Ignorando mensagem fora da janela real-time ${messageData?.id || "sem-id"} (${diffMin} min)`);
+                    return false;
+                }
+                if (diffMs < -MESSAGE_WINDOW_MS) {
+                    const diffMin = Math.round(Math.abs(diffMs) / 60000);
+                    console.log(`[Telegram] Ignorando mensagem com data futura ${messageData?.id || "sem-id"} (${diffMin} min)`);
+                    return false;
+                }
+            } else {
+                const messageDateKey = getBrazilDateKey(messageDate);
+                const todayKey = getTodayBrazilDateKey();
+                if (messageDateKey !== todayKey) {
+                    console.log(`[Telegram] Ignorando mensagem fora do dia (BRT) ${messageData?.id || "sem-id"} (${messageDateKey})`);
+                    return false;
+                }
             }
 
             const message = await this.prependWorkspaceLabel(workspaceId, this.formatNewMessage(messageData));
@@ -575,17 +748,35 @@ export class TelegramNotificationService {
             return false;
         }
 
-        const orderDateKey = getBrazilDateKeyFromValue(
-            orderData?.date_created || orderData?.date_closed || orderData?.last_updated
-        );
-        const todayKey = getTodayBrazilDateKey();
-        if (!orderDateKey) {
+        const eventDate = parseDateValue(orderData?.date_created);
+        if (!eventDate) {
             console.log(`[Telegram] Ignorando venda sem data valida ${referenceId}`);
             return false;
         }
-        if (orderDateKey !== todayKey) {
-            console.log(`[Telegram] Ignorando venda fora do dia (BRT) ${referenceId} (${orderDateKey})`);
-            return false;
+
+        if (REALTIME_ONLY) {
+            const diffMs = Date.now() - eventDate.getTime();
+            if (diffMs > REALTIME_WINDOW_MS) {
+                const diffMin = Math.round(diffMs / 60000);
+                console.log(
+                    `[Telegram] Ignorando venda fora da janela real-time ${referenceId} (${diffMin} min)`
+                );
+                return false;
+            }
+            if (diffMs < -REALTIME_WINDOW_MS) {
+                const diffMin = Math.round(Math.abs(diffMs) / 60000);
+                console.log(
+                    `[Telegram] Ignorando venda com data futura ${referenceId} (${diffMin} min)`
+                );
+                return false;
+            }
+        } else {
+            const orderDateKey = getBrazilDateKey(eventDate);
+            const todayKey = getTodayBrazilDateKey();
+            if (orderDateKey !== todayKey) {
+                console.log(`[Telegram] Ignorando venda fora do dia (BRT) ${referenceId} (${orderDateKey})`);
+                return false;
+            }
         }
 
         // Se já temos notificação registrada para este pedido, evitar duplicar (mesmo que seja outro dia)
@@ -675,21 +866,41 @@ export class TelegramNotificationService {
      */
     public static async notifyNewQuestion(workspaceId: string, questionData: any): Promise<boolean> {
         try {
+            if (!shouldAllowNotificationType("question_received")) {
+                console.log("[Telegram] Ignorando pergunta (modo vendas apenas)");
+                return false;
+            }
+
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
                 console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);
                 return false;
             }
 
-            const questionDateKey = getBrazilDateKeyFromValue(questionData?.date_created);
-            const todayKey = getTodayBrazilDateKey();
-            if (!questionDateKey) {
+            const questionDate = parseDateValue(questionData?.date_created);
+            if (!questionDate) {
                 console.log(`[Telegram] Ignorando pergunta sem data valida ${questionData?.id || "sem-id"}`);
                 return false;
             }
-            if (questionDateKey !== todayKey) {
-                console.log(`[Telegram] Ignorando pergunta fora do dia (BRT) ${questionData?.id || "sem-id"} (${questionDateKey})`);
-                return false;
+            if (REALTIME_ONLY) {
+                const diffMs = Date.now() - questionDate.getTime();
+                if (diffMs > QUESTION_WINDOW_MS) {
+                    const diffMin = Math.round(diffMs / 60000);
+                    console.log(`[Telegram] Ignorando pergunta fora da janela real-time ${questionData?.id || "sem-id"} (${diffMin} min)`);
+                    return false;
+                }
+                if (diffMs < -QUESTION_WINDOW_MS) {
+                    const diffMin = Math.round(Math.abs(diffMs) / 60000);
+                    console.log(`[Telegram] Ignorando pergunta com data futura ${questionData?.id || "sem-id"} (${diffMin} min)`);
+                    return false;
+                }
+            } else {
+                const questionDateKey = getBrazilDateKey(questionDate);
+                const todayKey = getTodayBrazilDateKey();
+                if (questionDateKey !== todayKey) {
+                    console.log(`[Telegram] Ignorando pergunta fora do dia (BRT) ${questionData?.id || "sem-id"} (${questionDateKey})`);
+                    return false;
+                }
             }
 
             const referenceId = String(questionData.id || "");
@@ -761,6 +972,11 @@ export class TelegramNotificationService {
      */
     public static async notifyFullAnalyticsAlert(workspaceId: string, messageHtml: string): Promise<boolean> {
         try {
+            if (!shouldAllowNotificationType("full_analytics_alert")) {
+                console.log("[Telegram] Ignorando alerta de analytics (modo vendas apenas)");
+                return false;
+            }
+
             const config = await this.getTelegramConfig(workspaceId);
             if (!config) {
                 console.log(`[Telegram] Notificações não configuradas para workspace ${workspaceId}`);

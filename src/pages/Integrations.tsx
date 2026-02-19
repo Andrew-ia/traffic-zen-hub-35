@@ -136,13 +136,6 @@ export default function Integrations() {
                     </CardContent>
                 </Card>
 
-                {/* Placeholder for future integrations */}
-                <Card className="opacity-60 cursor-not-allowed">
-                    <CardHeader>
-                        <CardTitle className="text-muted-foreground">Shopee (Em breve)</CardTitle>
-                        <CardDescription>Integração em desenvolvimento.</CardDescription>
-                    </CardHeader>
-                </Card>
             </div>
         </div>
     );

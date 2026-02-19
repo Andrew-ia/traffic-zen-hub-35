@@ -29,6 +29,27 @@ export interface MLBAnalysisResult {
             max_size?: string;
             quality?: string;
         }>;
+        tags?: string[];
+        shipping?: {
+            free_shipping?: boolean;
+            mode?: string;
+            logistic_type?: string;
+            tags?: string[];
+        };
+        video_id?: string;
+        variations?: Array<{
+            id: number;
+            price: number;
+            available_quantity: number;
+            sold_quantity: number;
+            picture_ids: string[];
+            attribute_combinations?: Array<{
+                id: string;
+                name: string;
+                value_id: string;
+                value_name: string;
+            }>;
+        }>;
     };
     quality_score: {
         overall_score: number;
@@ -122,6 +143,13 @@ export interface MLBAnalysisResult {
     image_analysis: {
         total_images: number;
         has_video: boolean;
+        video_status?: "present" | "absent" | "unknown";
+        video_sources?: Array<{
+            endpoint: string;
+            status?: number;
+            found?: boolean;
+            error?: string;
+        }>;
         high_quality_images: number;
         has_variations_images: boolean;
     };
@@ -278,7 +306,7 @@ export function useMLBAnalyzer() {
                 },
                 body: JSON.stringify({
                     mlbId: mlbId,
-                    workspaceId: currentWorkspace?.id // Envia se existir, undefined se não
+                    workspaceId: effectiveWorkspaceId || undefined // Envia se existir, undefined se não
                 })
             });
 
