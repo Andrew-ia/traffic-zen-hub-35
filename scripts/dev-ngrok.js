@@ -29,8 +29,41 @@ console.log('🌐 Iniciando ngrok para expor a API:', {
   hostHeader,
 });
 
+let ngrokUnavailable = false;
+let reportedDomainConflict = false;
+
 const proc = spawn('ngrok', args, {
-  stdio: 'inherit',
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
+const forwardStream = (stream, writer, onChunk) => {
+  if (!stream) return;
+  stream.on('data', (chunk) => {
+    const text = String(chunk);
+    const shouldForward = onChunk?.(text) ?? true;
+    if (shouldForward) {
+      writer(text);
+    }
+  });
+};
+
+forwardStream(proc.stdout, text => process.stdout.write(text));
+forwardStream(proc.stderr, text => process.stderr.write(text), (text) => {
+  if (text.includes('ERR_NGROK_334')) {
+    ngrokUnavailable = true;
+    if (!reportedDomainConflict) {
+      reportedDomainConflict = true;
+      console.warn(`⚠️  O domínio do ngrok ${domain ? `https://${domain}` : ''} já está online em outra sessão (ERR_NGROK_334).`);
+      console.warn('ℹ️  A API e o frontend locais continuarão ativos. Finalize o túnel existente ou remova NGROK_DOMAIN para usar um domínio dinâmico.\n');
+    }
+    return false;
+  }
+
+  if (reportedDomainConflict) {
+    return false;
+  }
+
+  return true;
 });
 
 async function resolvePublicUrl() {
@@ -79,6 +112,11 @@ async function shouldSkipAutoRegister() {
 }
 
 async function autoRegisterWebhook() {
+  if (ngrokUnavailable) {
+    console.warn('⚠️  Auto-registro do webhook ignorado porque o túnel do ngrok não foi iniciado nesta sessão.');
+    return;
+  }
+
   if (await shouldSkipAutoRegister()) {
     return;
   }
@@ -118,6 +156,16 @@ proc.on('error', (err) => {
     console.error('Erro ao iniciar ngrok:', err);
   }
   process.exit(1);
+});
+
+proc.on('exit', (code) => {
+  if (ngrokUnavailable) {
+    process.exit(0);
+  }
+
+  if (typeof code === 'number' && code !== 0) {
+    process.exit(code);
+  }
 });
 
 const shutdown = () => {

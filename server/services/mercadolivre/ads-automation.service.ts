@@ -1,4 +1,5 @@
 import { getPool } from '../../config/database.js';
+import { ensureRuntimeSchema } from '../../config/runtimeSchema.js';
 import { getMercadoLivreCredentials, requestWithAuth } from '../../api/integrations/mercadolivre.js';
 
 const ADS_PRODUCT_API_BASE = 'https://api.mercadolibre.com/advertising/product_ads';
@@ -141,123 +142,228 @@ type WeeklyReportSettings = {
 export class MercadoAdsAutomationService {
   private async ensureSchema() {
     if (schemaReady) return schemaReady;
-    schemaReady = (async () => {
-      const pool = getPool();
-      // Tables and indexes used by automation (keeps runtime safe if migration not applied)
-      await pool.query(`
-        create table if not exists ml_ads_curves (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          curve text not null,
-          name text not null,
-          campaign_type text not null,
-          daily_budget numeric(14,2) not null default 0,
-          min_revenue_30d numeric(18,2) default 0,
-          min_orders_30d integer default 0,
-          min_roas numeric(10,2) default 0,
-          min_conversion numeric(10,4) default 0,
-          priority integer not null default 100,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (workspace_id, curve),
-          constraint ml_ads_curves_curve_chk check (curve in ('A','B','C'))
-        );
-        create index if not exists idx_ml_ads_curves_workspace on ml_ads_curves (workspace_id);
-        create index if not exists idx_ml_ads_curves_priority on ml_ads_curves (workspace_id, priority);
+    schemaReady = ensureRuntimeSchema(
+      'Mercado Ads automation',
+      {
+        tables: [
+          'ml_ads_curves',
+          'ml_ads_campaigns',
+          'ml_ads_campaign_products',
+          'ml_ads_curve_history',
+          'ml_ads_action_rules',
+          'ml_ads_weekly_report_settings',
+          'products',
+        ],
+        columns: {
+          ml_ads_curves: [
+            'id',
+            'workspace_id',
+            'curve',
+            'name',
+            'campaign_type',
+            'daily_budget',
+            'min_revenue_30d',
+            'min_orders_30d',
+            'min_roas',
+            'min_conversion',
+            'priority',
+            'created_at',
+            'updated_at',
+          ],
+          ml_ads_campaigns: [
+            'id',
+            'workspace_id',
+            'curve_id',
+            'curve',
+            'campaign_type',
+            'advertiser_id',
+            'ml_campaign_id',
+            'name',
+            'status',
+            'daily_budget',
+            'bidding_strategy',
+            'automation_status',
+            'last_synced_at',
+            'last_automation_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+            'total_products',
+            'active_products',
+          ],
+          ml_ads_campaign_products: [
+            'id',
+            'workspace_id',
+            'campaign_id',
+            'product_id',
+            'ml_item_id',
+            'ml_ad_id',
+            'curve',
+            'source',
+            'status',
+            'added_at',
+            'last_moved_at',
+          ],
+          ml_ads_curve_history: [
+            'id',
+            'workspace_id',
+            'product_id',
+            'ml_item_id',
+            'previous_curve',
+            'new_curve',
+            'revenue_30d',
+            'orders_30d',
+            'roas_30d',
+            'conversion_rate',
+            'campaign_id',
+            'reason',
+            'created_at',
+          ],
+          ml_ads_action_rules: [
+            'id',
+            'workspace_id',
+            'rule_key',
+            'name',
+            'description',
+            'enabled',
+            'config',
+            'created_at',
+            'updated_at',
+          ],
+          ml_ads_weekly_report_settings: [
+            'id',
+            'workspace_id',
+            'enabled',
+            'send_day',
+            'send_hour',
+            'channel',
+            'last_sent_at',
+            'created_at',
+            'updated_at',
+          ],
+          products: ['visits_30d', 'conversion_rate_30d'],
+        },
+      },
+      async () => {
+        const pool = getPool();
+        await pool.query(`
+          create table if not exists ml_ads_curves (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            curve text not null,
+            name text not null,
+            campaign_type text not null,
+            daily_budget numeric(14,2) not null default 0,
+            min_revenue_30d numeric(18,2) default 0,
+            min_orders_30d integer default 0,
+            min_roas numeric(10,2) default 0,
+            min_conversion numeric(10,4) default 0,
+            priority integer not null default 100,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (workspace_id, curve),
+            constraint ml_ads_curves_curve_chk check (curve in ('A','B','C'))
+          );
+          create index if not exists idx_ml_ads_curves_workspace on ml_ads_curves (workspace_id);
+          create index if not exists idx_ml_ads_curves_priority on ml_ads_curves (workspace_id, priority);
 
-        create table if not exists ml_ads_campaigns (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          curve_id uuid references ml_ads_curves(id) on delete set null,
-          curve text,
-          campaign_type text not null,
-          advertiser_id text not null,
-          ml_campaign_id text,
-          name text not null,
-          status text not null default 'draft' check (status in ('draft','active','paused','archived','error')),
-          daily_budget numeric(14,2),
-          bidding_strategy text,
-          automation_status text not null default 'managed' check (automation_status in ('managed','manual','sync_only')),
-          last_synced_at timestamptz,
-          last_automation_at timestamptz,
-          metadata jsonb default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (workspace_id, ml_campaign_id),
-          unique (workspace_id, curve)
-        );
-        create index if not exists idx_ml_ads_campaigns_workspace on ml_ads_campaigns (workspace_id);
-        create index if not exists idx_ml_ads_campaigns_status on ml_ads_campaigns (workspace_id, status);
-        create index if not exists idx_ml_ads_campaigns_curve on ml_ads_campaigns (workspace_id, curve);
+          create table if not exists ml_ads_campaigns (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            curve_id uuid references ml_ads_curves(id) on delete set null,
+            curve text,
+            campaign_type text not null,
+            advertiser_id text not null,
+            ml_campaign_id text,
+            name text not null,
+            status text not null default 'draft' check (status in ('draft','active','paused','archived','error')),
+            daily_budget numeric(14,2),
+            bidding_strategy text,
+            automation_status text not null default 'managed' check (automation_status in ('managed','manual','sync_only')),
+            last_synced_at timestamptz,
+            last_automation_at timestamptz,
+            metadata jsonb default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (workspace_id, ml_campaign_id),
+            unique (workspace_id, curve)
+          );
+          create index if not exists idx_ml_ads_campaigns_workspace on ml_ads_campaigns (workspace_id);
+          create index if not exists idx_ml_ads_campaigns_status on ml_ads_campaigns (workspace_id, status);
+          create index if not exists idx_ml_ads_campaigns_curve on ml_ads_campaigns (workspace_id, curve);
 
-        create table if not exists ml_ads_campaign_products (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          campaign_id uuid not null references ml_ads_campaigns(id) on delete cascade,
-          product_id uuid references products(id) on delete set null,
-          ml_item_id text,
-          ml_ad_id text,
-          curve text not null,
-          source text not null default 'automation' check (source in ('automation','manual','import')),
-          status text not null default 'active' check (status in ('active','paused','removed')),
-          added_at timestamptz not null default now(),
-          last_moved_at timestamptz,
-          unique (campaign_id, product_id),
-          unique (campaign_id, ml_item_id),
-          unique (workspace_id, ml_ad_id)
-        );
-        create index if not exists idx_ml_ads_campaign_products_workspace on ml_ads_campaign_products (workspace_id);
-        create index if not exists idx_ml_ads_campaign_products_ml_item on ml_ads_campaign_products (ml_item_id);
+          create table if not exists ml_ads_campaign_products (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            campaign_id uuid not null references ml_ads_campaigns(id) on delete cascade,
+            product_id uuid references products(id) on delete set null,
+            ml_item_id text,
+            ml_ad_id text,
+            curve text not null,
+            source text not null default 'automation' check (source in ('automation','manual','import')),
+            status text not null default 'active' check (status in ('active','paused','removed')),
+            added_at timestamptz not null default now(),
+            last_moved_at timestamptz,
+            unique (campaign_id, product_id),
+            unique (campaign_id, ml_item_id),
+            unique (workspace_id, ml_ad_id)
+          );
+          create index if not exists idx_ml_ads_campaign_products_workspace on ml_ads_campaign_products (workspace_id);
+          create index if not exists idx_ml_ads_campaign_products_ml_item on ml_ads_campaign_products (ml_item_id);
 
-        create table if not exists ml_ads_curve_history (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          product_id uuid references products(id) on delete set null,
-          ml_item_id text,
-          previous_curve text,
-          new_curve text not null,
-          revenue_30d numeric(18,2),
-          orders_30d integer,
-          roas_30d numeric(10,2),
-          conversion_rate numeric(10,4),
-          campaign_id uuid references ml_ads_campaigns(id) on delete set null,
-          reason text,
-          created_at timestamptz not null default now()
-        );
-        create index if not exists idx_ml_ads_curve_history_workspace on ml_ads_curve_history (workspace_id, created_at desc);
+          create table if not exists ml_ads_curve_history (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            product_id uuid references products(id) on delete set null,
+            ml_item_id text,
+            previous_curve text,
+            new_curve text not null,
+            revenue_30d numeric(18,2),
+            orders_30d integer,
+            roas_30d numeric(10,2),
+            conversion_rate numeric(10,4),
+            campaign_id uuid references ml_ads_campaigns(id) on delete set null,
+            reason text,
+            created_at timestamptz not null default now()
+          );
+          create index if not exists idx_ml_ads_curve_history_workspace on ml_ads_curve_history (workspace_id, created_at desc);
 
-        create table if not exists ml_ads_action_rules (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          rule_key text not null,
-          name text not null,
-          description text not null,
-          enabled boolean not null default true,
-          config jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (workspace_id, rule_key)
-        );
-        create index if not exists idx_ml_ads_action_rules_workspace on ml_ads_action_rules (workspace_id);
+          create table if not exists ml_ads_action_rules (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            rule_key text not null,
+            name text not null,
+            description text not null,
+            enabled boolean not null default true,
+            config jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (workspace_id, rule_key)
+          );
+          create index if not exists idx_ml_ads_action_rules_workspace on ml_ads_action_rules (workspace_id);
 
-        create table if not exists ml_ads_weekly_report_settings (
-          id uuid primary key default gen_random_uuid(),
-          workspace_id uuid not null references workspaces(id) on delete cascade,
-          enabled boolean not null default false,
-          send_day integer not null default 1,
-          send_hour integer not null default 9,
-          channel text not null default 'telegram',
-          last_sent_at timestamptz,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (workspace_id)
-        );
-        create index if not exists idx_ml_ads_weekly_report_workspace on ml_ads_weekly_report_settings (workspace_id);
+          create table if not exists ml_ads_weekly_report_settings (
+            id uuid primary key default gen_random_uuid(),
+            workspace_id uuid not null references workspaces(id) on delete cascade,
+            enabled boolean not null default false,
+            send_day integer not null default 1,
+            send_hour integer not null default 9,
+            channel text not null default 'telegram',
+            last_sent_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (workspace_id)
+          );
+          create index if not exists idx_ml_ads_weekly_report_workspace on ml_ads_weekly_report_settings (workspace_id);
 
-        alter table products add column if not exists visits_30d integer default 0;
-        alter table products add column if not exists conversion_rate_30d numeric(10,4) default 0;
-      `);
-    })();
+          alter table ml_ads_campaigns add column if not exists total_products integer default 0;
+          alter table ml_ads_campaigns add column if not exists active_products integer default 0;
+
+          alter table products add column if not exists visits_30d integer default 0;
+          alter table products add column if not exists conversion_rate_30d numeric(10,4) default 0;
+        `);
+      },
+    );
     return schemaReady;
   }
 

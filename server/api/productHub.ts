@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getPool } from "../config/database.js";
+import { ensureRuntimeSchema } from "../config/runtimeSchema.js";
 
 const router = Router();
 let purchaseListSchemaReady: Promise<void> | null = null;
@@ -7,35 +8,45 @@ let purchaseListSchemaReady: Promise<void> | null = null;
 async function ensurePurchaseListSchema() {
   if (purchaseListSchemaReady) return purchaseListSchemaReady;
 
-  purchaseListSchemaReady = (async () => {
-    const db = getPool();
-    await db.query(`
-      create table if not exists product_hub_purchase_lists (
-        id uuid primary key default gen_random_uuid(),
-        workspace_id uuid not null references workspaces(id) on delete cascade,
-        name text not null,
-        created_at timestamptz not null default now(),
-        updated_at timestamptz not null default now()
-      );
-      create index if not exists idx_product_hub_purchase_lists_workspace
-        on product_hub_purchase_lists (workspace_id, updated_at desc);
+  purchaseListSchemaReady = ensureRuntimeSchema(
+    "Product Hub purchase lists",
+    {
+      tables: ["product_hub_purchase_lists", "product_hub_purchase_items"],
+      columns: {
+        product_hub_purchase_lists: ["id", "workspace_id", "name", "created_at", "updated_at"],
+        product_hub_purchase_items: ["id", "list_id", "product_id", "suggestion", "sizes", "created_at", "updated_at"],
+      },
+    },
+    async () => {
+      const db = getPool();
+      await db.query(`
+        create table if not exists product_hub_purchase_lists (
+          id uuid primary key default gen_random_uuid(),
+          workspace_id uuid not null references workspaces(id) on delete cascade,
+          name text not null,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        );
+        create index if not exists idx_product_hub_purchase_lists_workspace
+          on product_hub_purchase_lists (workspace_id, updated_at desc);
 
-      create table if not exists product_hub_purchase_items (
-        id uuid primary key default gen_random_uuid(),
-        list_id uuid not null references product_hub_purchase_lists(id) on delete cascade,
-        product_id uuid not null references products_hub(id) on delete cascade,
-        suggestion text,
-        sizes text,
-        created_at timestamptz not null default now(),
-        updated_at timestamptz not null default now(),
-        unique (list_id, product_id)
-      );
-      create index if not exists idx_product_hub_purchase_items_list
-        on product_hub_purchase_items (list_id);
-      alter table product_hub_purchase_items
-        add column if not exists sizes text;
-    `);
-  })();
+        create table if not exists product_hub_purchase_items (
+          id uuid primary key default gen_random_uuid(),
+          list_id uuid not null references product_hub_purchase_lists(id) on delete cascade,
+          product_id uuid not null references products_hub(id) on delete cascade,
+          suggestion text,
+          sizes text,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (list_id, product_id)
+        );
+        create index if not exists idx_product_hub_purchase_items_list
+          on product_hub_purchase_items (list_id);
+        alter table product_hub_purchase_items
+          add column if not exists sizes text;
+      `);
+    },
+  );
 
   return purchaseListSchemaReady;
 }

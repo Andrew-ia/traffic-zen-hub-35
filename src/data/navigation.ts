@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Target,
   TrendingUp,
+  Calculator,
   ShoppingBag,
   ShoppingCart,
   Package,
@@ -35,6 +36,7 @@ export const mainNavigation: NavigationEntry[] = [
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "ml", "listings"] },
       { name: "Oportunidades de Volume", href: "/mercado-livre/oportunidades-volume", icon: Flame, keywords: ["volume", "oportunidades", "growth", "ml"] },
       { name: "Mercado Ads", href: "/mercado-ads/manual", icon: Target, keywords: ["ads", "campanhas", "curvas", "abc", "mercado ads"] },
+      { name: "Precificação", href: "/mercado-livre-price-calculator", icon: Calculator, keywords: ["preco", "margem", "lucro", "precificacao"] },
       { name: "Estoque Full", href: "/fulfillment", icon: Warehouse, keywords: ["fulfillment", "estoque", "full", "planejamento", "envios", "armazém"] },
       { name: "Catálogo (Hub)", href: "/product-hub", icon: Package, keywords: ["produtos", "catalogo", "hub", "estoque", "marketplace"] },
       { name: "Analytics Full", href: "/mercado-livre/full-analytics", icon: TrendingUp, keywords: ["full", "analytics", "classificacao", "abc", "ml"] },

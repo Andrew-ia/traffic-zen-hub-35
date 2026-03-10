@@ -133,6 +133,19 @@ export default function Products() {
         return new Intl.NumberFormat("pt-BR").format(value || 0);
     };
 
+    const getPricingRiskMeta = (riskLevel?: string | null) => {
+        switch (riskLevel) {
+            case "high":
+                return { label: "Alto", className: "bg-red-100 text-red-700 border-red-200" };
+            case "medium":
+                return { label: "Médio", className: "bg-amber-100 text-amber-700 border-amber-200" };
+            case "low":
+                return { label: "Baixo", className: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+            default:
+                return { label: "Sem custo", className: "bg-slate-100 text-slate-700 border-slate-200" };
+        }
+    };
+
     const parsePrice = (value: string) => {
         const normalized = value.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
         return Number(normalized);
@@ -616,7 +629,7 @@ export default function Products() {
                         </div>
                     ) : (
                         <ScrollArea className="h-[calc(100vh-350px)] w-full">
-                            <div className="min-w-[1200px]"> {/* Horizontal scroll */}
+                            <div className="min-w-[1400px]"> {/* Horizontal scroll */}
                                 <Table>
                                     <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
                                         <TableRow className="hover:bg-muted/50">
@@ -627,6 +640,8 @@ export default function Products() {
                                             <TableHead className="w-[100px] text-right">Estoque</TableHead>
                                             <TableHead className="w-[100px] text-right">Vendas</TableHead>
                                             <TableHead className="w-[100px] text-right">Receita</TableHead>
+                                            <TableHead className="w-[160px] text-right">Lucro estimado</TableHead>
+                                            <TableHead className="w-[170px]">Risco</TableHead>
                                             <TableHead className="w-[100px] text-right">Visitas</TableHead>
                                             <TableHead className="w-[200px]">Tipo / Logística</TableHead>
                                             <TableHead className="w-[240px] text-center pr-4">Ações</TableHead>
@@ -637,6 +652,8 @@ export default function Products() {
                                             const sortedAttributes = getSortedAttributes(product.attributes);
                                             const mlLink = product.permalink ||
                                                 (product.id ? `https://produto.mercadolivre.com.br/MLB-${product.id.replace(/^MLB/, '')}` : '#');
+                                            const pricingSummary = product.pricing_summary;
+                                            const riskMeta = getPricingRiskMeta(pricingSummary?.riskLevel);
 
                                             return (
                                                 <Dialog key={product.id}>
@@ -718,6 +735,51 @@ export default function Products() {
                                                             {formatCurrency(product.revenue || 0)}
                                                         </TableCell>
 
+                                                        {/* Lucro estimado */}
+                                                        <TableCell className="text-right align-middle">
+                                                            {!pricingSummary ? (
+                                                                <span className="text-xs text-muted-foreground">N/D</span>
+                                                            ) : !pricingSummary.costConfigured ? (
+                                                                <Badge variant="outline" className="text-[10px]">Sem custo</Badge>
+                                                            ) : (
+                                                                <div className="space-y-0.5">
+                                                                    <div className={`text-xs font-semibold ${(pricingSummary.profitPerUnitCurrentPrice ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                                                                        {formatCurrency(pricingSummary.profitPerUnitCurrentPrice ?? 0)} / un
+                                                                    </div>
+                                                                    <div className="text-[11px] text-muted-foreground">
+                                                                        {((pricingSummary.marginCurrentPrice ?? 0) * 100).toFixed(1)}%
+                                                                    </div>
+                                                                    <div className={`text-[11px] ${(pricingSummary.estimatedAdsNetProfit30d ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                                                                        Ads30d: {formatCurrency(pricingSummary.estimatedAdsNetProfit30d ?? 0)}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
+
+                                                        {/* Risco */}
+                                                        <TableCell className="align-middle">
+                                                            {!pricingSummary ? (
+                                                                <span className="text-xs text-muted-foreground">N/D</span>
+                                                            ) : (
+                                                                <div className="space-y-1">
+                                                                    <Badge variant="outline" className={`text-[10px] border ${riskMeta.className}`}>
+                                                                        {riskMeta.label}
+                                                                    </Badge>
+                                                                    <div className="text-[11px] text-muted-foreground">
+                                                                        {!pricingSummary.costConfigured
+                                                                            ? "Configure custo"
+                                                                            : (pricingSummary.lossRisk ? "Prejuízo detectado" : "Sem prejuízo unitário")}
+                                                                        {pricingSummary.maxAdsSpendDaily > 0 && (
+                                                                            <span>
+                                                                                {" • "}
+                                                                                Ads: {pricingSummary.adsLimitExceeded ? "acima" : "dentro"} do limite
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
+
                                                         {/* Visitas */}
                                                         <TableCell className="text-right align-middle">
                                                             <div className="flex items-center justify-end gap-1 text-blue-600">
@@ -761,6 +823,14 @@ export default function Products() {
                                                                 >
                                                                     <DollarSign className="h-3 w-3 mr-1" />
                                                                     Preço
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 text-xs text-amber-600 hover:text-amber-700"
+                                                                    onClick={() => navigate(`/mercado-livre-price-calculator?mlb=${product.id}`)}
+                                                                >
+                                                                    Precificar
                                                                 </Button>
                                                                 <Button
                                                                     variant="ghost"

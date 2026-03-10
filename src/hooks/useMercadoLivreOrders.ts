@@ -25,10 +25,13 @@ export interface MercadoLivreOrder {
     lastUpdated: string | null;
     totalAmount: number;
     paidAmount: number;
+    grossAmount?: number;
+    discountAmount?: number;
     currencyId: string;
     buyerId: string;
     saleFee?: number;
     shippingCost?: number;
+    netReceivedAmount?: number | null;
     netIncome?: number;
     items: OrderItem[];
 }
@@ -58,8 +61,11 @@ export interface OrdersResponse {
 export interface OrderDetailsSummary {
     totalAmount: number;
     paidAmount: number;
+    grossAmount: number;
+    discountAmount: number;
     saleFee: number;
     shippingCost: number;
+    netReceivedAmount: number | null;
     netIncome: number;
     currencyId?: string;
 }

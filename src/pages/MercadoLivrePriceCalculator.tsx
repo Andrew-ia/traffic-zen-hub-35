@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useMercadoLivrePricingControl, useUpdateMercadoLivrePricingControl } from "@/hooks/useMercadoLivre";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Percent, Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, Settings2, Truck } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
 
 type MLItem = {
@@ -39,10 +41,14 @@ function getFeePercent(listingType?: string): number {
 
 export default function MercadoLivrePriceCalculator() {
     const { currentWorkspace } = useWorkspace();
+    const { toast } = useToast();
     const [searchParams] = useSearchParams();
     const mlbFromQuery = searchParams.get("mlb")?.trim();
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const workspaceId = currentWorkspace?.id || fallbackWorkspaceId;
     const autoLoadedRef = useRef<string | null>(null);
-    const hasWorkspace = Boolean(currentWorkspace?.id);
+    const pricingHydratedRef = useRef<string | null>(null);
+    const hasWorkspace = Boolean(workspaceId);
     const [hasManualData, setHasManualData] = useState(false);
     const [mlbId, setMlbId] = useState("");
     const [loading, setLoading] = useState(false);
@@ -59,13 +65,23 @@ export default function MercadoLivrePriceCalculator() {
     const [desiredMargin, setDesiredMargin] = useState(0.2);
     const [manualPrice, setManualPrice] = useState<number | null>(null);
     const [paymentFeePercent, setPaymentFeePercent] = useState(0.04);
-    const [overheadPercent, setOverheadPercent] = useState(0.03);
+    const [overheadCost, setOverheadCost] = useState(0);
     const [cacCost, setCacCost] = useState(2);
+    const [maxPromoDiscount, setMaxPromoDiscount] = useState(0.15);
+    const [maxAdsSpendDaily, setMaxAdsSpendDaily] = useState(0);
+    const [minProfitValue, setMinProfitValue] = useState(0);
     const [competitorPrice, setCompetitorPrice] = useState<number | null>(null);
     const [originalPrice, setOriginalPrice] = useState<number | null>(null);
     const [mlShippingCost, setMlShippingCost] = useState<number | null>(null);
     const [mlFlatFeePerUnit, setMlFlatFeePerUnit] = useState(6.5);
     const [unitsPerOrder, setUnitsPerOrder] = useState(1);
+    const pricingItemId = (item?.id || mlbId || "").trim().toUpperCase();
+
+    const pricingQuery = useMercadoLivrePricingControl(workspaceId, pricingItemId || null, {
+        enabled: !!pricingItemId,
+        refreshTodaySpend: true,
+    });
+    const savePricingMutation = useUpdateMercadoLivrePricingControl();
 
     useEffect(() => {
         if (item?.price) {
@@ -89,37 +105,63 @@ export default function MercadoLivrePriceCalculator() {
         ? (shippingCost || mlShippingCost || 0)
         : 0;
 
+    useEffect(() => {
+        const mlItemId = pricingQuery.data?.item?.mlItemId;
+        if (!mlItemId) return;
+        if (pricingHydratedRef.current === mlItemId) return;
+        pricingHydratedRef.current = mlItemId;
+
+        const controls = pricingQuery.data.controls;
+        setProductCost(Number(controls.costPrice || 0));
+        setShippingCost(Number(controls.shippingCost || 0));
+        setPackagingCost(Number(controls.packagingCost || 0));
+        setOtherCost(Number(controls.otherCost || 0));
+        setOverheadCost(Number(controls.overheadCost || 0));
+        setMlFlatFeePerUnit(Number(controls.fixedFee || 0));
+        setUnitsPerOrder(1);
+        setFeePercent(Number(controls.mlFeeRate || getFeePercent(item?.listing_type_id)));
+        setPaymentFeePercent(Number(controls.paymentFeeRate || 0.04));
+        setCacCost(Number(controls.cac || 0));
+        setDesiredMargin(Number(controls.targetMarginRate || 0.2));
+        setMaxPromoDiscount(Number(controls.maxPromoDiscountRate || 0.15));
+        setMaxAdsSpendDaily(Number(controls.maxAdsSpendDaily || 0));
+        setMinProfitValue(Number(controls.minProfitValue || 0));
+    }, [pricingQuery.data, item?.listing_type_id]);
+
     const totals = useMemo(() => {
         const price = priceToUse;
         const feeMl = price * feePercent;
         const feePayment = price * paymentFeePercent;
-        const feeOverhead = price * overheadPercent;
         const feeFlat = mlFlatFeePerUnit * Math.max(1, unitsPerOrder);
-        const totalFees = feeMl + feePayment + feeOverhead + feeFlat;
-        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + cacCost;
+        const totalFees = feeMl + feePayment + feeFlat;
+        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost;
         const profit = price - totalFees - costs;
         const marginPct = price > 0 ? profit / price : 0;
-        const feeBase = 1 - (feePercent + paymentFeePercent + overheadPercent);
+        const feeBase = 1 - (feePercent + paymentFeePercent);
         const breakeven = feeBase > 0 ? (costs + feeFlat) / feeBase : 0;
-        const targetPrice = feeBase - desiredMargin > 0 ? (costs + feeFlat) / (feeBase - desiredMargin) : 0;
+        const targetPrice = feeBase - desiredMargin > 0 ? (costs + feeFlat + minProfitValue) / (feeBase - desiredMargin) : 0;
+        const promoPolicyFloor = price > 0 ? price * (1 - maxPromoDiscount) : 0;
+        const minimumPromoPrice = Math.max(promoPolicyFloor, breakeven);
+        const maxPromoDiscountAllowedRate = price > 0 ? Math.max(0, 1 - (minimumPromoPrice / price)) : 0;
         return {
             price,
             fee: totalFees,
             feeMl,
             feePayment,
-            feeOverhead,
             feeFlat,
             costs,
             profit,
             marginPct,
             breakeven: Math.max(0, breakeven),
             targetPrice: Math.max(0, targetPrice),
+            minimumPromoPrice: Math.max(0, minimumPromoPrice),
+            maxPromoDiscountAllowedRate,
         };
-    }, [priceToUse, feePercent, paymentFeePercent, overheadPercent, productCost, effectiveShippingCost, packagingCost, otherCost, cacCost, desiredMargin, mlFlatFeePerUnit, unitsPerOrder]);
+    }, [priceToUse, feePercent, paymentFeePercent, productCost, effectiveShippingCost, packagingCost, otherCost, overheadCost, cacCost, desiredMargin, mlFlatFeePerUnit, unitsPerOrder, maxPromoDiscount, minProfitValue]);
 
     const simulatePrice = (price: number) => {
-        const fee = price * (feePercent + paymentFeePercent + overheadPercent);
-        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + cacCost + (mlFlatFeePerUnit * Math.max(1, unitsPerOrder));
+        const fee = price * (feePercent + paymentFeePercent);
+        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost + (mlFlatFeePerUnit * Math.max(1, unitsPerOrder));
         const profit = price - fee - costs;
         const marginPct = price > 0 ? profit / price : 0;
         return { price, fee, profit, marginPct };
@@ -127,41 +169,92 @@ export default function MercadoLivrePriceCalculator() {
 
     const loadItem = useCallback(async (overrideId?: string) => {
         const targetId = (overrideId || mlbId).trim().toUpperCase();
-        if (!targetId || !currentWorkspace?.id) return;
+        if (!targetId || !workspaceId) return;
         if (targetId !== mlbId) {
             setMlbId(targetId);
         }
         setLoading(true);
         setError(null);
         try {
-            const resp = await fetch(`/api/integrations/mercadolivre/items/${targetId}?workspaceId=${currentWorkspace.id}`);
+            const resp = await fetch(`/api/integrations/mercadolivre/items/${targetId}?workspaceId=${workspaceId}`);
             if (!resp.ok) {
                 const data = await resp.json();
                 throw new Error(data?.error || "Falha ao buscar item");
             }
             const data = await resp.json();
             setItem(data);
+            pricingHydratedRef.current = null;
         } catch (e: any) {
             setError(e?.message || "Erro ao buscar item");
             setItem(null);
         } finally {
             setLoading(false);
         }
-    }, [currentWorkspace?.id, mlbId]);
+    }, [workspaceId, mlbId]);
 
     useEffect(() => {
-        if (!mlbFromQuery || !currentWorkspace?.id) return;
+        if (!mlbFromQuery || !workspaceId) return;
         const normalized = mlbFromQuery.toUpperCase();
         if (!normalized) return;
         if (autoLoadedRef.current === normalized) return;
         autoLoadedRef.current = normalized;
         void loadItem(normalized);
-    }, [mlbFromQuery, currentWorkspace?.id, loadItem]);
+    }, [mlbFromQuery, workspaceId, loadItem]);
 
     const handleManualChange = <T extends number | string>(setter: (value: number) => void, value: T) => {
         setHasManualData(true);
         setter(Number(value));
     };
+
+    const handleSavePricing = async () => {
+        if (!workspaceId || !pricingItemId) return;
+        try {
+            await savePricingMutation.mutateAsync({
+                workspaceId,
+                mlItemId: pricingItemId,
+                controls: {
+                    costPrice: productCost,
+                    shippingCost,
+                    packagingCost,
+                    otherCost,
+                    overheadCost,
+                    fixedFee: mlFlatFeePerUnit * Math.max(1, unitsPerOrder),
+                    paymentFeeRate: paymentFeePercent,
+                    mlFeeRate: feePercent,
+                    cac: cacCost,
+                    targetMarginRate: desiredMargin,
+                    maxPromoDiscountRate: maxPromoDiscount,
+                    maxAdsSpendDaily,
+                    minProfitValue,
+                },
+            });
+
+            await pricingQuery.refetch();
+            toast({
+                title: "Regras salvas",
+                description: "Precificação e limites do anúncio atualizados.",
+            });
+        } catch (err: any) {
+            toast({
+                title: "Falha ao salvar",
+                description: err?.message || "Não foi possível salvar as regras de precificação.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const pricingMetrics = pricingQuery.data?.metrics;
+    const pricingCalc = pricingQuery.data?.calculations;
+    const pricingBreakEven = pricingCalc?.breakEvenPrice ?? totals.breakeven;
+    const pricingTarget = pricingCalc?.targetPrice ?? totals.targetPrice;
+    const pricingMinPromoPrice = pricingCalc?.minimumPromotionPrice ?? totals.minimumPromoPrice;
+    const pricingMaxPromoRate = pricingCalc?.maxPromoDiscountAllowedRate ?? totals.maxPromoDiscountAllowedRate;
+    const adsSpendReference = pricingCalc?.adsSpendDailyReference ?? pricingCalc?.avgAdsSpendDaily30d ?? 0;
+    const adsLimitExceeded = pricingCalc?.adsLimitExceeded ?? (maxAdsSpendDaily > 0 && adsSpendReference > maxAdsSpendDaily);
+    const effectiveAdsLimit = pricingQuery.data?.controls?.maxAdsSpendDaily ?? maxAdsSpendDaily;
+    const controlsUpdatedAt = pricingQuery.data?.controls?.updatedAt
+        ? new Date(pricingQuery.data.controls.updatedAt).toLocaleString("pt-BR")
+        : null;
 
     return (
         <div className="w-full px-4 md:px-6 py-6 space-y-6">
@@ -172,6 +265,16 @@ export default function MercadoLivrePriceCalculator() {
                     <p className="text-muted-foreground text-sm">Veja taxas, custos e preço alvo para manter margem saudável.</p>
                 </div>
             </div>
+
+            {pricingItemId && (
+                <Alert>
+                    <AlertDescription className="text-sm">
+                        {pricingQuery.isLoading && `Carregando regras de precificação do anúncio ${pricingItemId}...`}
+                        {!pricingQuery.isLoading && controlsUpdatedAt && `Regras carregadas para ${pricingItemId}. Última atualização: ${controlsUpdatedAt}.`}
+                        {!pricingQuery.isLoading && !controlsUpdatedAt && `Nenhuma regra salva para ${pricingItemId} ainda. Preencha os campos e clique em "Salvar regras deste anúncio".`}
+                    </AlertDescription>
+                </Alert>
+            )}
 
             <Card>
                 <CardHeader>
@@ -379,19 +482,32 @@ export default function MercadoLivrePriceCalculator() {
                                     <Input type="number" step={0.005} value={paymentFeePercent} onChange={(e) => handleManualChange(setPaymentFeePercent, e.target.value)} />
                                 </div>
                                 <div>
-                                    <Label>Overhead (%)</Label>
-                                    <Input type="number" step={0.005} value={overheadPercent} onChange={(e) => handleManualChange(setOverheadPercent, e.target.value)} />
+                                    <Label>Overhead fixo (R$)</Label>
+                                    <Input type="number" step={0.01} value={overheadCost} onChange={(e) => handleManualChange(setOverheadCost, e.target.value)} />
                                 </div>
                                 <div>
                                     <Label>CAC / pedido</Label>
                                     <Input type="number" value={cacCost} onChange={(e) => handleManualChange(setCacCost, e.target.value)} />
                                 </div>
                                 <div>
+                                    <Label>Lucro mínimo / venda</Label>
+                                    <Input type="number" value={minProfitValue} onChange={(e) => handleManualChange(setMinProfitValue, e.target.value)} />
+                                </div>
+                                <div>
+                                    <Label>Desconto máximo promo (%)</Label>
+                                    <Input type="number" step={0.01} value={maxPromoDiscount} onChange={(e) => handleManualChange(setMaxPromoDiscount, e.target.value)} />
+                                    <p className="text-xs text-muted-foreground mt-1">Ex.: 0.15 = 15%</p>
+                                </div>
+                                <div>
+                                    <Label>Limite Ads / dia (R$)</Label>
+                                    <Input type="number" step={0.01} value={maxAdsSpendDaily} onChange={(e) => handleManualChange(setMaxAdsSpendDaily, e.target.value)} />
+                                </div>
+                                <div>
                                     <Label>Preço original</Label>
                                     <Input type="number" value={originalPrice ?? ""} onChange={(e) => handleManualChange(setOriginalPrice, e.target.value || 0)} />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2 content-start">
                                 <div>
                                     <Label>Preço concorrente</Label>
                                     <Input type="number" value={competitorPrice ?? ""} onChange={(e) => handleManualChange(setCompetitorPrice, e.target.value || 0)} />
@@ -405,6 +521,22 @@ export default function MercadoLivrePriceCalculator() {
                                     }}>
                                         Usar preço concorrente
                                     </Button>
+                                </div>
+                                <div className="col-span-2 pt-2">
+                                    <Button
+                                        type="button"
+                                        className="w-full"
+                                        onClick={handleSavePricing}
+                                        disabled={!workspaceId || !pricingItemId || savePricingMutation.isPending}
+                                    >
+                                        {savePricingMutation.isPending ? "Salvando regras..." : "Salvar regras deste anúncio"}
+                                    </Button>
+                                    {pricingQuery.isLoading && (
+                                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            Carregando controles salvos...
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -430,15 +562,15 @@ export default function MercadoLivrePriceCalculator() {
                             <span>R$ {totals.feePayment.toFixed(2)} ({(paymentFeePercent * 100).toFixed(1)}%)</span>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>Overhead</span>
-                            <span>R$ {totals.feeOverhead.toFixed(2)} ({(overheadPercent * 100).toFixed(1)}%)</span>
+                            <span>Overhead fixo</span>
+                            <span>R$ {overheadCost.toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span>Tarifa fixa ML</span>
                             <span>R$ {totals.feeFlat.toFixed(2)} ({unitsPerOrder} un.)</span>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>Custos (produto+frete+outros+CAC)</span>
+                            <span>Custos (produto+frete+outros+overhead+CAC)</span>
                             <span>R$ {totals.costs.toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -452,14 +584,43 @@ export default function MercadoLivrePriceCalculator() {
                                 <Wallet className="w-4 h-4" />
                                 <div>
                                     <div className="font-semibold">Preço de equilíbrio</div>
-                                    <div className="text-muted-foreground text-xs">Para cobrir custos+taxa: R$ {totals.breakeven.toFixed(2)}</div>
+                                    <div className="text-muted-foreground text-xs">Para cobrir custos+taxa: R$ {pricingBreakEven.toFixed(2)}</div>
                                 </div>
                             </div>
                             <div className="text-sm flex items-center gap-2">
                                 <Percent className="w-4 h-4" />
                                 <div>
                                     <div className="font-semibold">Preço alvo ({(desiredMargin * 100).toFixed(0)}% margem)</div>
-                                    <div className="text-muted-foreground text-xs">Sugerido: R$ {totals.targetPrice.toFixed(2)}</div>
+                                    <div className="text-muted-foreground text-xs">Sugerido: R$ {pricingTarget.toFixed(2)}</div>
+                                </div>
+                            </div>
+                            <div className="text-sm">
+                                <div className="font-semibold">Piso de promoção (sem prejuízo)</div>
+                                <div className="text-muted-foreground text-xs">
+                                    Mínimo: R$ {pricingMinPromoPrice.toFixed(2)} • Desconto máximo seguro: {(pricingMaxPromoRate * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                            <div className="text-sm">
+                                <div className="font-semibold">Ads do dia e limite</div>
+                                <div className={`text-xs ${adsLimitExceeded ? "text-red-600" : "text-muted-foreground"}`}>
+                                    Hoje: R$ {(pricingMetrics?.todayAdsSpend ?? adsSpendReference).toFixed(2)}
+                                    {" • "}
+                                    Média 30d: R$ {(pricingCalc?.avgAdsSpendDaily30d ?? 0).toFixed(2)}
+                                    {" • "}
+                                    Limite: R$ {effectiveAdsLimit.toFixed(2)}
+                                </div>
+                                {pricingMetrics?.todayAdsError && (
+                                    <div className="text-xs text-muted-foreground">
+                                        Gasto do dia indisponível ({pricingMetrics.todayAdsError}); usando média 30d.
+                                    </div>
+                                )}
+                            </div>
+                            <div className="text-sm">
+                                <div className="font-semibold">Resultado Ads (estimado)</div>
+                                <div className={`text-xs ${(pricingCalc?.estimatedAdsNetProfit30d ?? 0) >= 0 ? "text-green-700" : "text-red-700"}`}>
+                                    30d: R$ {(pricingCalc?.estimatedAdsNetProfit30d ?? 0).toFixed(2)}
+                                    {" • "}
+                                    diário: R$ {(pricingCalc?.estimatedAdsNetProfitDaily ?? 0).toFixed(2)}
                                 </div>
                             </div>
                             {originalPrice && (
@@ -491,9 +652,9 @@ export default function MercadoLivrePriceCalculator() {
                     </CardHeader>
                     <CardContent className="grid md:grid-cols-3 gap-3">
                         {(() => {
-                            const feeBase = 1 - (feePercent + paymentFeePercent + overheadPercent);
+                            const feeBase = 1 - (feePercent + paymentFeePercent);
                             const getPriceForMargin = (margin: number) => {
-                                return feeBase - margin > 0 ? (totals.costs + totals.feeFlat) / (feeBase - margin) : 0;
+                                return feeBase - margin > 0 ? (totals.costs + totals.feeFlat + minProfitValue) / (feeBase - margin) : 0;
                             };
 
                             return [

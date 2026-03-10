@@ -192,6 +192,9 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 const imageUrl = item?.thumbnail;
                                 const title = item?.title || `Pedido #${order.id}`;
                                 const quantity = item?.quantity || 1;
+                                const currency = order.currencyId || "BRL";
+                                const receivedFromMl = order.netReceivedAmount ?? order.paidAmount ?? order.totalAmount;
+                                const discountAmount = Number(order.discountAmount || 0);
                                 const normalizedOrderStatus = normalizeStatus(order.status);
                                 const statusLabel = getStatusLabel(order.status);
                                 const isCancelled = normalizedOrderStatus === "cancelled" || normalizedOrderStatus === "canceled";
@@ -220,11 +223,17 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                             </div>
                                             <div className="text-right flex flex-col items-end">
                                                 <p className="text-sm font-black text-primary">
-                                                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.totalAmount)}
+                                                    {formatCurrency(order.totalAmount, currency)}
                                                 </p>
-                                                {order.netIncome !== undefined && (
-                                                    <p className="text-[10px] font-bold text-success" title={`Taxas: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.saleFee || 0)} | Envio: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.shippingCost || 0)}`}>
-                                                        Lucro: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.netIncome)}
+                                                <p
+                                                    className="text-[10px] font-bold text-success"
+                                                    title={`Taxas: ${formatCurrency(order.saleFee || 0, currency)} | Envio: ${formatCurrency(order.shippingCost || 0, currency)}${discountAmount > 0 ? ` | Desconto: ${formatCurrency(discountAmount, currency)}` : ""}`}
+                                                >
+                                                    Recebido ML: {formatCurrency(receivedFromMl, currency)}
+                                                </p>
+                                                {discountAmount > 0 && (
+                                                    <p className="text-[10px] font-bold text-warning">
+                                                        Desconto: {formatCurrency(discountAmount, currency)}
                                                     </p>
                                                 )}
                                             </div>
@@ -347,9 +356,21 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
 
                         {!detailsLoading && (
                             <>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                                     <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
-                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total</div>
+                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Bruto</div>
+                                        <div className="text-sm font-bold">
+                                            {formatCurrency(summary?.grossAmount ?? selectedOrder?.grossAmount, currencyId)}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Desconto</div>
+                                        <div className="text-sm font-bold text-warning">
+                                            {formatCurrency(summary?.discountAmount ?? selectedOrder?.discountAmount, currencyId)}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Venda final</div>
                                         <div className="text-sm font-bold">
                                             {formatCurrency(summary?.totalAmount ?? selectedOrder?.totalAmount, currencyId)}
                                         </div>
@@ -358,6 +379,12 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                         <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Pago</div>
                                         <div className="text-sm font-bold">
                                             {formatCurrency(summary?.paidAmount ?? selectedOrder?.paidAmount, currencyId)}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
+                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Recebido ML</div>
+                                        <div className="text-sm font-bold text-success">
+                                            {formatCurrency(summary?.netReceivedAmount ?? selectedOrder?.netReceivedAmount, currencyId)}
                                         </div>
                                     </div>
                                     <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
@@ -373,7 +400,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                         </div>
                                     </div>
                                     <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
-                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Lucro</div>
+                                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Líquido após frete</div>
                                         <div className="text-sm font-bold text-success">
                                             {formatCurrency(summary?.netIncome ?? selectedOrder?.netIncome, currencyId)}
                                         </div>
@@ -479,9 +506,19 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                                         ].filter(Boolean).join(" ")}
                                                     />
                                                     <InfoRow
-                                                        label="Valor"
+                                                        label="Pago"
                                                         value={formatCurrency(payment.transaction_amount || payment.total_paid_amount, currencyId)}
                                                     />
+                                                    <InfoRow
+                                                        label="Recebido ML"
+                                                        value={formatCurrency(payment.transaction_details?.net_received_amount, currencyId)}
+                                                    />
+                                                    {Number(payment.coupon_amount || 0) > 0 && (
+                                                        <InfoRow
+                                                            label="Cupom"
+                                                            value={formatCurrency(payment.coupon_amount, currencyId)}
+                                                        />
+                                                    )}
                                                     <InfoRow
                                                         label="Parcelas"
                                                         value={payment.installments ? `${payment.installments}x ${formatCurrency(payment.installment_amount, currencyId)}` : "-"}

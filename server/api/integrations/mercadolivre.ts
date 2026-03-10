@@ -9,6 +9,7 @@ import * as XLSX from "xlsx";
 import { promises as fs } from "fs";
 import path from "path";
 import { getPool } from "../../config/database.js";
+import { ensureRuntimeSchema } from "../../config/runtimeSchema.js";
 import { decryptCredentials } from "../../services/encryption.js";
 import { resolveWorkspaceId } from "../../utils/workspace.js";
 // import { authMiddleware } from "../auth";
@@ -18,6 +19,7 @@ import { MarketAnalysisService } from "../../services/mercadolivre/market-analys
 import { syncMercadoLivreAnalytics30d, syncMercadoLivreProducts } from "../../services/mercadolivre/analytics-30d.service.js";
 import { buildMercadoLivreGrowthReport, renderGrowthReportHtml, renderGrowthReportMarkdown } from "../../services/mercadolivre/growth-report.service.js";
 import { listProductAdsMetricsForWorkspace, syncProductAdsMetricsForWorkspace } from "../../services/mercadolivre/product-ads-metrics.service.js";
+import { getProductPricingControlForItem, listProductPricingSummariesForItems, upsertProductPricingControl } from "../../services/mercadolivre/product-pricing.service.js";
 import { subDays, startOfDay, format } from "date-fns";
 
 const router = Router();
@@ -77,6 +79,11 @@ const broadcastOrderEvent = (workspaceId: string, payload: unknown) => {
 
 // Base URL da API do Mercado Livre
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
+const MERCADO_PAGO_API_BASE = "https://api.mercadopago.com";
+const MERCADO_LIVRE_AUTH_BASE =
+    (process.env.MERCADO_LIVRE_AUTH_BASE_URL || process.env.ML_AUTH_BASE_URL || "https://auth.mercadolibre.com")
+        .trim()
+        .replace(/\/$/, "");
 const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
 const ML_HTTP_TIMEOUT_MS = Number(process.env.ML_HTTP_TIMEOUT_MS || 12000);
 const ML_HTTP_RETRY_MAX = Number(process.env.ML_HTTP_RETRY_MAX || 2);
@@ -106,6 +113,8 @@ const categoriesCache = new Map<string, { data: any[]; ts: number }>();
 // Cache simples para resultados de busca avançada
 const ADV_SEARCH_TTL_MS = 30 * 60 * 1000; // 30 minutos
 const advancedSearchCache = new Map<string, { data: any; ts: number }>();
+const PAYMENT_DETAILS_TTL_MS = 5 * 60 * 1000; // 5 minutos
+const paymentDetailsCache = new Map<string, { data: any; ts: number }>();
 const ML_ITEM_NOTIFICATIONS_ENABLED = process.env.ML_NOTIFY_ITEM_UPDATES === "true";
 const FALLBACK_WORKSPACE_ENV = (process.env.MERCADO_LIVRE_DEFAULT_WORKSPACE_ID || process.env.VITE_WORKSPACE_ID || process.env.WORKSPACE_ID || "").trim();
 const FALLBACK_ML_USER_ID = (process.env.MERCADO_LIVRE_USER_ID || "").trim();
@@ -117,8 +126,21 @@ const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
     month: "2-digit",
     day: "2-digit"
 });
+const BRAZIL_HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", {
+    timeZone: BRAZIL_TIME_ZONE,
+    hour: "2-digit",
+    hour12: false
+});
 
 const formatBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
+const formatBrazilHour = (date: Date) => {
+    const hour = Number.parseInt(BRAZIL_HOUR_FORMATTER.format(date), 10);
+    return Number.isNaN(hour) ? 0 : hour;
+};
+const toFiniteNumber = (value: any, fallback: number = 0) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+};
 
 const normalizeBrazilDateKey = (value?: string | null) => {
     if (!value) return null;
@@ -142,6 +164,29 @@ const formatAxiosError = (error: any) => ({
     code: error?.response?.data?.error || error?.code,
     message: error?.response?.data?.message || error?.message || "Unknown error",
 });
+
+const escapeHtml = (value: string) =>
+    String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+const clampPercentageInput = (value: any, fallback: number, min = 0, max = 1) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
+};
+
+const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
+const parseBooleanInput = (value: any, fallback: boolean) => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value > 0;
+    const normalized = String(value || "").trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "off"].includes(normalized)) return false;
+    return fallback;
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -374,7 +419,8 @@ const resolveOAuthRedirectUri = (req: Request): { redirectUri: string; includeRe
     const allowLocal = String(process.env.MERCADO_LIVRE_ALLOW_LOCAL_REDIRECT || "").toLowerCase() === "true";
     const isLocalhost = baseRedirect.includes("localhost") || baseRedirect.includes("127.0.0.1");
     if (isLocalhost && !allowLocal) {
-        return { redirectUri: "", includeRedirectUri: false, source: "local-omitted" };
+        // ML OAuth token exchange now requires redirect_uri; keep localhost redirect by default.
+        return { redirectUri: baseRedirect, includeRedirectUri: true, source: "local-auto" };
     }
 
     return { redirectUri: baseRedirect, includeRedirectUri: true, source: "auto" };
@@ -383,7 +429,15 @@ const resolveOAuthRedirectUri = (req: Request): { redirectUri: string; includeRe
 async function ensureShipmentsCacheTable() {
     if (shipmentsCacheTableReady) return shipmentsCacheTableReady;
 
-    shipmentsCacheTableReady = (async () => {
+    shipmentsCacheTableReady = ensureRuntimeSchema(
+        "Mercado Livre shipments cache",
+        {
+            tables: ["ml_shipments_cache"],
+            columns: {
+                ml_shipments_cache: ["workspace_id", "shipment_id", "data", "updated_at"],
+            },
+        },
+        async () => {
         try {
             const pool = getPool();
             await pool.query(`
@@ -402,7 +456,8 @@ async function ensureShipmentsCacheTable() {
         } catch (error) {
             console.warn("[MercadoLivre] Failed to ensure shipments cache table:", error instanceof Error ? error.message : error);
         }
-    })();
+        },
+    );
 
     return shipmentsCacheTableReady;
 }
@@ -446,6 +501,235 @@ async function saveShipmentToCache(workspaceId: string, shipmentId: string, data
     } catch (error) {
         console.warn("[MercadoLivre] Falha ao salvar cache de shipments:", error instanceof Error ? error.message : error);
     }
+}
+
+const getPaymentCacheKey = (workspaceId: string, paymentId: string) => `${workspaceId}:${paymentId}`;
+
+const getPaymentId = (payment: any): string | null => {
+    const rawPaymentId = payment?.id ?? payment?.payment_id;
+    if (rawPaymentId === null || rawPaymentId === undefined) return null;
+    const normalized = String(rawPaymentId).trim();
+    return normalized || null;
+};
+
+const getCachedPaymentDetails = (workspaceId: string, paymentId: string) => {
+    const cacheKey = getPaymentCacheKey(workspaceId, paymentId);
+    const cached = paymentDetailsCache.get(cacheKey);
+    if (!cached) return null;
+    if ((Date.now() - cached.ts) > PAYMENT_DETAILS_TTL_MS) {
+        paymentDetailsCache.delete(cacheKey);
+        return null;
+    }
+    return cached.data;
+};
+
+const savePaymentDetailsToCache = (workspaceId: string, paymentId: string, data: any) => {
+    paymentDetailsCache.set(getPaymentCacheKey(workspaceId, paymentId), {
+        data,
+        ts: Date.now(),
+    });
+};
+
+const mergePaymentDetails = (payment: any, paymentDetails: any) => {
+    if (!paymentDetails) return payment;
+
+    return {
+        ...payment,
+        ...paymentDetails,
+        transaction_amount: payment?.transaction_amount ?? paymentDetails?.transaction_amount ?? null,
+        total_paid_amount:
+            payment?.total_paid_amount ??
+            paymentDetails?.transaction_details?.total_paid_amount ??
+            paymentDetails?.transaction_amount ??
+            null,
+        coupon_amount: payment?.coupon_amount ?? paymentDetails?.coupon_amount ?? 0,
+        fee_details:
+            Array.isArray(payment?.fee_details) && payment.fee_details.length > 0
+                ? payment.fee_details
+                : (Array.isArray(paymentDetails?.fee_details) ? paymentDetails.fee_details : []),
+        transaction_details: {
+            ...(paymentDetails?.transaction_details || {}),
+            ...(payment?.transaction_details || {}),
+            total_paid_amount:
+                payment?.transaction_details?.total_paid_amount ??
+                paymentDetails?.transaction_details?.total_paid_amount ??
+                payment?.total_paid_amount ??
+                paymentDetails?.transaction_amount ??
+                null,
+            net_received_amount:
+                payment?.transaction_details?.net_received_amount ??
+                paymentDetails?.transaction_details?.net_received_amount ??
+                paymentDetails?.net_received_amount ??
+                null,
+        },
+    };
+};
+
+async function fetchPaymentDetails(workspaceId: string, paymentId: string): Promise<any | null> {
+    const cached = getCachedPaymentDetails(workspaceId, paymentId);
+    if (cached) return cached;
+
+    try {
+        const paymentDetails = await requestWithAuth<any>(
+            workspaceId,
+            `${MERCADO_PAGO_API_BASE}/v1/payments/${paymentId}`
+        );
+        if (paymentDetails) {
+            savePaymentDetailsToCache(workspaceId, paymentId, paymentDetails);
+        }
+        return paymentDetails || null;
+    } catch (error) {
+        console.warn("[MercadoLivre] Falha ao buscar detalhe de pagamento:", {
+            workspaceId,
+            paymentId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+    }
+}
+
+async function enrichOrdersWithPaymentDetails(workspaceId: string, orders: any[]): Promise<void> {
+    if (!Array.isArray(orders) || orders.length === 0) return;
+
+    const paymentIds = new Set<string>();
+    const paymentDetailsMap = new Map<string, any>();
+
+    for (const order of orders) {
+        const payments = Array.isArray(order?.payments) ? order.payments : [];
+        for (const payment of payments) {
+            const paymentId = getPaymentId(payment);
+            if (!paymentId) continue;
+
+            const cached = getCachedPaymentDetails(workspaceId, paymentId);
+            if (cached) {
+                paymentDetailsMap.set(paymentId, cached);
+                continue;
+            }
+
+            const hasNetReceivedAmount = payment?.transaction_details?.net_received_amount !== undefined
+                && payment?.transaction_details?.net_received_amount !== null;
+            if (hasNetReceivedAmount) continue;
+
+            paymentIds.add(paymentId);
+        }
+    }
+
+    if (paymentIds.size > 0) {
+        const fetchedDetails = await mapWithConcurrency<string, { paymentId: string; details: any }>(
+            Array.from(paymentIds),
+            5,
+            async (paymentId) => {
+                const details = await fetchPaymentDetails(workspaceId, paymentId);
+                if (!details) return null;
+                return { paymentId, details };
+            }
+        );
+
+        fetchedDetails.forEach((entry) => {
+            paymentDetailsMap.set(entry.paymentId, entry.details);
+        });
+    }
+
+    for (const order of orders) {
+        const payments = Array.isArray(order?.payments) ? order.payments : [];
+        if (payments.length === 0) continue;
+
+        order.payments = payments.map((payment: any) => {
+            const paymentId = getPaymentId(payment);
+            if (!paymentId) return payment;
+            const paymentDetails = paymentDetailsMap.get(paymentId);
+            return paymentDetails ? mergePaymentDetails(payment, paymentDetails) : payment;
+        });
+    }
+}
+
+function buildOrderFinancialSummary(order: any) {
+    const items = Array.isArray(order?.order_items) ? order.order_items : [];
+    const payments = Array.isArray(order?.payments) ? order.payments : [];
+
+    const totalAmount = toFiniteNumber(order?.total_amount ?? order?.paid_amount ?? 0);
+
+    const paidAmountFromPayments = payments.reduce((sum: number, payment: any) => {
+        const amount = toFiniteNumber(
+            payment?.total_paid_amount ??
+            payment?.transaction_details?.total_paid_amount ??
+            payment?.transaction_amount,
+            0
+        );
+        return sum + amount;
+    }, 0);
+
+    const paidAmount = toFiniteNumber(order?.paid_amount, paidAmountFromPayments || totalAmount);
+
+    let grossAmount = 0;
+    items.forEach((item: any) => {
+        const quantity = Math.max(
+            0,
+            toFiniteNumber(item?.quantity ?? item?.requested_quantity?.value ?? 0, 0)
+        );
+        const unitPrice = toFiniteNumber(item?.unit_price ?? item?.full_unit_price ?? 0, 0);
+        const fullUnitPrice = toFiniteNumber(item?.full_unit_price ?? item?.gross_price ?? unitPrice, unitPrice);
+        const normalizedFullUnitPrice = fullUnitPrice > 0 ? fullUnitPrice : unitPrice;
+        grossAmount += normalizedFullUnitPrice * quantity;
+    });
+
+    if (grossAmount <= 0) {
+        grossAmount = totalAmount;
+    }
+
+    const discountAmount = Math.max(0, grossAmount - totalAmount);
+
+    let saleFee = 0;
+    if (items.length > 0) {
+        saleFee = items.reduce((sum: number, item: any) => sum + toFiniteNumber(item?.sale_fee, 0), 0);
+    }
+    if (saleFee === 0 && payments.length > 0) {
+        payments.forEach((payment: any) => {
+            if (Array.isArray(payment?.fee_details) && payment.fee_details.length > 0) {
+                payment.fee_details.forEach((fee: any) => {
+                    if (fee?.fee_payer === "collector") {
+                        saleFee += toFiniteNumber(fee?.amount, 0);
+                    }
+                });
+            } else if (payment?.marketplace_fee) {
+                saleFee += toFiniteNumber(payment.marketplace_fee, 0);
+            }
+        });
+    }
+
+    const shipping = order?.shipping || {};
+    const shippingCost = toFiniteNumber(
+        shipping?.base_cost ?? shipping?.cost ?? shipping?.shipping_option?.cost ?? 0,
+        0
+    );
+
+    let hasNetReceivedAmount = false;
+    const netReceivedFromPayments = payments.reduce((sum: number, payment: any) => {
+        const netReceivedAmount = payment?.transaction_details?.net_received_amount ?? payment?.net_received_amount;
+        const normalized = toFiniteNumber(netReceivedAmount, Number.NaN);
+        if (Number.isFinite(normalized)) {
+            hasNetReceivedAmount = true;
+            return sum + normalized;
+        }
+        return sum;
+    }, 0);
+
+    const netReceivedAmount = hasNetReceivedAmount
+        ? netReceivedFromPayments
+        : (payments.length > 0 ? (paidAmount - saleFee) : null);
+
+    const baseNetIncome = netReceivedAmount ?? (totalAmount - saleFee);
+
+    return {
+        totalAmount,
+        paidAmount,
+        grossAmount,
+        discountAmount,
+        saleFee,
+        shippingCost,
+        netReceivedAmount,
+        netIncome: baseNetIncome - shippingCost,
+    };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -1229,8 +1513,8 @@ router.get("/auth/url", async (req, res) => {
         // URL de autorização do Mercado Livre (Brasil)
         // Always send redirect_uri (required by ML), but use the "safe" one (Vercel) if localhost
         // Added explicit scopes for Advertising
-        const scopes = (process.env.MERCADO_LIVRE_SCOPES || "offline_access read write advertising").trim();
-        const baseAuthUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}`;
+        const scopes = (process.env.MERCADO_LIVRE_SCOPES || "offline_access read write").trim();
+        const baseAuthUrl = `${MERCADO_LIVRE_AUTH_BASE}/authorization?response_type=code&client_id=${safeClientId}&state=${encodeURIComponent(workspaceId as string)}`;
         const authUrl = includeRedirectUri && finalRedirectUri
             ? `${baseAuthUrl}&redirect_uri=${encodeURIComponent(finalRedirectUri)}&scope=${encodeURIComponent(scopes)}`
             : `${baseAuthUrl}&scope=${encodeURIComponent(scopes)}`;
@@ -1984,11 +2268,45 @@ const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
     const averageUnitPrice = totalSales > 0 ? totalRevenue / totalSales : 0;
     const averageOrderPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
+    const hourlyRows = await pool.query(
+        `
+        with orders as (
+          select order_id, coalesce(date_closed, date_created) as order_date, total_amount
+          from ml_orders
+          where workspace_id = $1
+            and coalesce(date_closed, date_created) >= $2
+            and coalesce(date_closed, date_created) <= $3
+            and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        ),
+        items as (
+          select order_id, sum(quantity)::int as qty
+          from ml_order_items
+          where workspace_id = $1
+          group by order_id
+        )
+        select
+          extract(hour from timezone($4, orders.order_date))::int as hour,
+          coalesce(sum(items.qty), 0)::int as sales,
+          coalesce(sum(orders.total_amount), 0)::numeric as revenue
+        from orders
+        left join items on items.order_id = orders.order_id
+        group by 1
+        order by 1
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal, BRAZIL_TIME_ZONE]
+    );
+
     const salesTimeSeries = dailySales.map((d) => ({
         date: d.date,
         sales: d.sales,
         revenue: d.revenue,
         visits: 0,
+    }));
+    const hourlySales = hourlyRows.rows.map((row: any) => ({
+        date: `${range.dateToKey}T${String(Number(row.hour || 0)).padStart(2, "0")}:00:00-03:00`,
+        hour: Number(row.hour || 0),
+        sales: Number(row.sales || 0),
+        revenue: Number(row.revenue || 0),
     }));
 
     const totalNetIncome = totalRevenue;
@@ -2021,7 +2339,7 @@ const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
             : new Date().toISOString(),
         sellerId: sellerRes.rows[0]?.seller_id || null,
         salesTimeSeries,
-        hourlySales: [],
+        hourlySales,
         alerts: [ML_OFFLINE_ALERT],
     };
 };
@@ -2153,10 +2471,13 @@ const fetchOrdersFromDb = async (params: {
             lastUpdated: row.updated_at || null,
             totalAmount: Number(row.total_amount || 0),
             paidAmount: Number(row.paid_amount || row.total_amount || 0),
+            grossAmount: Number(row.total_amount || 0),
+            discountAmount: 0,
             currencyId: row.currency_id || "BRL",
             buyerId: row.buyer_id || "",
             saleFee: 0,
             shippingCost: 0,
+            netReceivedAmount: Number(row.paid_amount || row.total_amount || 0),
             netIncome: Number(row.total_amount || 0),
             items,
         };
@@ -2222,7 +2543,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
     let totalSaleFees = 0;
     let totalShippingCosts = 0;
     const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
-    const hourlySales: Array<{ date: string; sales: number; revenue: number }> = [];
+    const hourlySales: Array<{ date: string; hour: number; sales: number; revenue: number }> = [];
     const uniqueBuyers = new Set<string>();
     const canceledOrderIds = new Set<string>();
     const isDateInRange = (date: Date | null) => {
@@ -2562,6 +2883,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             d.setMinutes(0, 0, 0);
             hourlySales.push({
                 date: orderDate.toISOString(),
+                hour: formatBrazilHour(orderDate),
                 sales: totalQuantity,
                 revenue: totalAmount
             });
@@ -3060,6 +3382,8 @@ router.get("/orders", async (req, res) => {
 
         ordersResults.sort((a: any, b: any) => activityTimestamp(b) - activityTimestamp(a));
 
+        await enrichOrdersWithPaymentDetails(String(targetWorkspaceId), ordersResults);
+
         // Coletar IDs dos itens para buscar imagens
         const itemIds = new Set<string>();
         const shipmentIds = new Set<string>();
@@ -3141,45 +3465,11 @@ router.get("/orders", async (req, res) => {
         }
 
         const orders = ordersResults.map((order: any) => {
-            // Calcular taxas de venda
-            let saleFee = 0;
-
-            // 1. Tentar obter de order_items (mais preciso)
-            if (order.order_items && Array.isArray(order.order_items)) {
-                saleFee = order.order_items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
-            }
-
-            // 2. Fallback para payments se não encontrou em items
-            if (saleFee === 0 && order.payments && Array.isArray(order.payments)) {
-                order.payments.forEach((p: any) => {
-                    if (p.fee_details && Array.isArray(p.fee_details)) {
-                         p.fee_details.forEach((f: any) => {
-                             if (f.fee_payer === 'collector') { // Pago pelo vendedor
-                                 saleFee += f.amount;
-                             }
-                         });
-                    } else if (p.marketplace_fee) {
-                         saleFee += p.marketplace_fee;
-                    }
-                });
-            }
-
-            // Calcular custo de envio
-            let shippingCost = 0;
-            if (order.shipping?.id) {
-                const shipment = shipmentsMap.get(String(order.shipping.id));
-                if (shipment) {
-                    // Tenta pegar o custo base (custo para o vendedor)
-                    // Se o frete for grátis (shipping_option.list_cost = 0 para comprador?), 
-                    // o vendedor paga o base_cost ou uma parte dele.
-                    // O campo 'lead_time' às vezes tem 'cost'.
-                    // Mas 'base_cost' na raiz do shipment é o mais comum para custo do envio.
-                    shippingCost = shipment.base_cost || 0;
-                }
-            }
-
-            const totalAmount = order.total_amount || order.paid_amount || 0;
-            const netIncome = totalAmount - saleFee - shippingCost;
+            const shipment = order.shipping?.id ? shipmentsMap.get(String(order.shipping.id)) : null;
+            const hydratedOrder = shipment
+                ? { ...order, shipping: { ...order.shipping, ...shipment } }
+                : order;
+            const financialSummary = buildOrderFinancialSummary(hydratedOrder);
             const isCancelled = isCancelledStatus(order.status);
             const dateClosed = order.date_closed || (isCancelled ? order.last_updated : null);
 
@@ -3189,13 +3479,16 @@ router.get("/orders", async (req, res) => {
                 dateCreated: order.date_created,
                 dateClosed,
                 lastUpdated: order.last_updated,
-                totalAmount: totalAmount,
-                paidAmount: order.paid_amount,
+                totalAmount: financialSummary.totalAmount,
+                paidAmount: financialSummary.paidAmount,
+                grossAmount: financialSummary.grossAmount,
+                discountAmount: financialSummary.discountAmount,
                 currencyId: order.currency_id,
                 buyerId: order.buyer?.id,
-                saleFee,
-                shippingCost,
-                netIncome,
+                saleFee: financialSummary.saleFee,
+                shippingCost: financialSummary.shippingCost,
+                netReceivedAmount: financialSummary.netReceivedAmount,
+                netIncome: financialSummary.netIncome,
                 items: (order.order_items || []).map((item: any) => {
                     const itemDetails = itemsMap.get(item.item.id);
                     return {
@@ -3269,6 +3562,8 @@ router.get("/orders/detail/:orderId", async (req, res) => {
             }
         }
 
+        await enrichOrdersWithPaymentDetails(String(targetWorkspaceId), [orderDetails]);
+
         const itemIds = new Set<string>();
         (orderDetails.order_items || []).forEach((item: any) => {
             if (item.item?.id) itemIds.add(item.item.id);
@@ -3298,33 +3593,10 @@ router.get("/orders/detail/:orderId", async (req, res) => {
             }
         }
 
-        let saleFee = 0;
-        if (orderDetails.order_items && Array.isArray(orderDetails.order_items)) {
-            saleFee = orderDetails.order_items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
-        }
-
-        if (saleFee === 0 && orderDetails.payments && Array.isArray(orderDetails.payments)) {
-            orderDetails.payments.forEach((payment: any) => {
-                if (payment.fee_details && Array.isArray(payment.fee_details)) {
-                    payment.fee_details.forEach((fee: any) => {
-                        if (fee.fee_payer === 'collector') {
-                            saleFee += fee.amount;
-                        }
-                    });
-                } else if (payment.marketplace_fee) {
-                    saleFee += payment.marketplace_fee;
-                }
-            });
-        }
-
-        let shippingCost = 0;
-        if (shippingDetails) {
-            shippingCost = shippingDetails.base_cost ?? shippingDetails.cost ?? shippingDetails.shipping_option?.cost ?? 0;
-        }
-
-        const totalAmount = orderDetails.total_amount || orderDetails.paid_amount || 0;
-        const paidAmount = orderDetails.paid_amount || 0;
-        const netIncome = totalAmount - saleFee - shippingCost;
+        const financialSummary = buildOrderFinancialSummary({
+            ...orderDetails,
+            shipping: shippingDetails,
+        });
 
         const items = (orderDetails.order_items || []).map((item: any) => {
             const itemId = item.item?.id || item.item_id;
@@ -3344,11 +3616,14 @@ router.get("/orders/detail/:orderId", async (req, res) => {
             order: { ...orderDetails, shipping: shippingDetails },
             items,
             summary: {
-                totalAmount,
-                paidAmount,
-                saleFee,
-                shippingCost,
-                netIncome,
+                totalAmount: financialSummary.totalAmount,
+                paidAmount: financialSummary.paidAmount,
+                grossAmount: financialSummary.grossAmount,
+                discountAmount: financialSummary.discountAmount,
+                saleFee: financialSummary.saleFee,
+                shippingCost: financialSummary.shippingCost,
+                netReceivedAmount: financialSummary.netReceivedAmount,
+                netIncome: financialSummary.netIncome,
                 currencyId: orderDetails.currency_id
             }
         });
@@ -3639,6 +3914,69 @@ router.get("/product-ads-metrics", async (req, res) => {
         console.error("Error fetching ML product ads metrics:", formatAxiosError(error));
         return res.status(500).json({
             error: "Failed to fetch product ads metrics",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/pricing/:mlItemId
+ * Retorna configuracao de precificacao e estimativas de lucro/prejuizo por anuncio.
+ */
+router.get("/pricing/:mlItemId", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const mlItemId = String(req.params.mlItemId || "").trim().toUpperCase();
+        if (!mlItemId) {
+            return res.status(400).json({ error: "mlItemId is required" });
+        }
+
+        const refreshTodaySpend = ["1", "true", "yes"].includes(String(req.query.refreshTodaySpend || "").toLowerCase());
+        const result = await getProductPricingControlForItem(String(targetWorkspaceId), mlItemId, {
+            refreshTodaySpend,
+        });
+
+        return res.json(result);
+    } catch (error: any) {
+        console.error("Error fetching ML pricing control:", formatAxiosError(error));
+        return res.status(500).json({
+            error: "Failed to fetch pricing control",
+            details: error?.response?.data || error?.message,
+        });
+    }
+});
+
+/**
+ * PUT /api/integrations/mercadolivre/pricing/:mlItemId
+ * Salva regras de precificacao por anuncio/item.
+ */
+router.put("/pricing/:mlItemId", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const mlItemId = String(req.params.mlItemId || "").trim().toUpperCase();
+        if (!mlItemId) {
+            return res.status(400).json({ error: "mlItemId is required" });
+        }
+
+        const controls = req.body?.controls || {};
+        const result = await upsertProductPricingControl(String(targetWorkspaceId), mlItemId, controls);
+
+        return res.json({
+            success: true,
+            ...result,
+        });
+    } catch (error: any) {
+        console.error("Error updating ML pricing control:", formatAxiosError(error));
+        return res.status(500).json({
+            error: "Failed to update pricing control",
             details: error?.response?.data || error?.message,
         });
     }
@@ -4067,8 +4405,24 @@ router.get("/products", async (req, res) => {
         // Ordenar por vendas (decrescente)
         filteredItems.sort((a, b) => b.sales - a.sales);
 
+        let pricingSummaries = new Map();
+        try {
+            pricingSummaries = await listProductPricingSummariesForItems(String(targetWorkspaceId), filteredItems.map((item: any) => ({
+                mlItemId: item.id,
+                price: Number(item.price || 0),
+                listingType: item.listing_type_id || null,
+            })));
+        } catch (error: any) {
+            console.warn("[Products] Falha ao enriquecer resumo de precificacao:", error?.message || error);
+        }
+
+        const enrichedItems = filteredItems.map((item: any) => ({
+            ...item,
+            pricing_summary: pricingSummaries.get(String(item.id || "").trim().toUpperCase()) || null,
+        }));
+
         return res.json({
-            items: filteredItems,
+            items: enrichedItems,
             totalCount,
             activeCount: globalActiveCount || countsActive,
             counts: {
@@ -6399,6 +6753,7 @@ router.get("/analytics/top", async (req, res) => {
                 ml_item_id,
                 title,
                 price,
+                available_quantity,
                 sales_30d,
                 revenue_30d,
                 profit_unit,
@@ -6420,6 +6775,14 @@ router.get("/analytics/top", async (req, res) => {
         );
         const profitRes = await pool.query(
             `${baseQuery} ORDER BY (sales_30d * profit_unit) DESC NULLS LAST, revenue_30d DESC NULLS LAST LIMIT $2`,
+            [workspaceId, limit]
+        );
+        const lowSalesRes = await pool.query(
+            `${baseQuery}
+             AND coalesce(available_quantity, 0) > 0
+             AND coalesce(lower(status), '') not in ('closed', 'inactive', 'archived')
+             ORDER BY sales_30d ASC NULLS FIRST, revenue_30d ASC NULLS FIRST, available_quantity DESC
+             LIMIT $2`,
             [workspaceId, limit]
         );
 
@@ -6458,6 +6821,7 @@ router.get("/analytics/top", async (req, res) => {
                 mlItemId: row.ml_item_id,
                 title: row.title,
                 price: Number(row.price || 0),
+                availableQuantity: Number(row.available_quantity || 0),
                 sales30d,
                 revenue30d,
                 profitUnit,
@@ -6476,12 +6840,381 @@ router.get("/analytics/top", async (req, res) => {
             missingCostCount,
             topSales: salesRes.rows.map(normalize),
             topProfit: profitRes.rows.map(normalize),
+            lowSalesWithStock: lowSalesRes.rows.map(normalize),
         });
     } catch (error: any) {
         console.error("Error fetching Mercado Livre analytics top products:", error);
         return res.status(500).json({
             error: "Failed to fetch analytics",
             details: error.message,
+        });
+    }
+});
+
+/**
+ * POST /api/integrations/mercadolivre/automation/price-stock
+ * Automatiza precificação dos top SKUs e gera alerta de ruptura/baixo estoque.
+ * mode=dry-run (default) apenas sugere. mode=apply aplica preço no ML.
+ */
+router.post("/automation/price-stock", async (req, res) => {
+    try {
+        const { id: workspaceId } = resolveWorkspaceId(req);
+        if (!workspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const body = req.body || {};
+        const mode = String(body.mode || "dry-run").toLowerCase() === "apply" ? "apply" : "dry-run";
+        const source = String(body.source || "topSales").toLowerCase() === "topprofit" ? "topProfit" : "topSales";
+
+        const topN = Math.min(50, Math.max(5, Number(body.topN || 20)));
+        const lowStockThreshold = Math.min(20, Math.max(0, Number(body.lowStockThreshold ?? 3)));
+        const highStockThreshold = Math.min(300, Math.max(lowStockThreshold + 1, Number(body.highStockThreshold ?? 20)));
+
+        const increaseRate = clampPercentageInput(body.increaseRate, 0.03, 0, 0.3);
+        const decreaseRate = clampPercentageInput(body.decreaseRate, 0.03, 0, 0.3);
+        const maxChangeRate = clampPercentageInput(body.maxChangeRate, 0.08, 0.01, 0.4);
+        const minChangeRate = clampPercentageInput(body.minChangeRate, 0.005, 0, maxChangeRate);
+
+        const sendTelegramStockAlerts = parseBooleanInput(body.sendTelegramStockAlerts, true);
+        const sendTelegramPriceSuggestions = parseBooleanInput(body.sendTelegramPriceSuggestions, false);
+
+        const pool = getPool();
+        const rankingExpr = source === "topProfit"
+            ? "(COALESCE(sales_30d, 0) * COALESCE(profit_unit, 0))"
+            : "COALESCE(sales_30d, 0)";
+
+        const topRes = await pool.query(
+            `
+                SELECT
+                    id,
+                    ml_item_id,
+                    title,
+                    price,
+                    available_quantity,
+                    sales_30d,
+                    revenue_30d,
+                    status,
+                    ml_listing_type
+                FROM products
+                WHERE workspace_id = $1
+                  AND ml_item_id IS NOT NULL
+                ORDER BY ${rankingExpr} DESC NULLS LAST, COALESCE(revenue_30d, 0) DESC NULLS LAST
+                LIMIT $2
+            `,
+            [workspaceId, topN]
+        );
+
+        type TopProductRow = {
+            id: string;
+            ml_item_id: string;
+            title: string | null;
+            price: number | null;
+            available_quantity: number | null;
+            sales_30d: number | null;
+            revenue_30d: number | null;
+            status: string | null;
+            ml_listing_type: string | null;
+        };
+
+        const topItems = (topRes.rows as TopProductRow[]).map((row) => ({
+            productId: String(row.id || ""),
+            mlItemId: String(row.ml_item_id || "").trim().toUpperCase(),
+            title: row.title || null,
+            price: Number(row.price || 0),
+            stock: Number(row.available_quantity || 0),
+            sales30d: Number(row.sales_30d || 0),
+            revenue30d: Number(row.revenue_30d || 0),
+            status: String(row.status || ""),
+            listingType: row.ml_listing_type || null,
+        })).filter((item) => !!item.mlItemId);
+
+        if (!topItems.length) {
+            return res.json({
+                success: true,
+                workspaceId,
+                mode,
+                source,
+                summary: {
+                    evaluatedCount: 0,
+                    priceSuggestions: 0,
+                    priceUpdatesApplied: 0,
+                    priceUpdatesFailed: 0,
+                    stockAlerts: 0,
+                    telegramStockAlertSent: false,
+                    telegramPriceSuggestionsSent: 0,
+                    generatedAt: new Date().toISOString(),
+                },
+                items: [],
+            });
+        }
+
+        const pricingSummaries = await listProductPricingSummariesForItems(
+            String(workspaceId),
+            topItems.map((item) => ({
+                mlItemId: item.mlItemId,
+                price: item.price,
+                listingType: item.listingType,
+            }))
+        );
+
+        const pricingDetailsByItem = new Map<string, Awaited<ReturnType<typeof getProductPricingControlForItem>> | null>();
+        await Promise.all(
+            topItems.map(async (item) => {
+                try {
+                    const detail = await getProductPricingControlForItem(String(workspaceId), item.mlItemId, {
+                        refreshTodaySpend: false,
+                    });
+                    pricingDetailsByItem.set(item.mlItemId, detail);
+                } catch (error) {
+                    pricingDetailsByItem.set(item.mlItemId, null);
+                }
+            })
+        );
+
+        const resultItems: any[] = [];
+        const stockAlertItems: Array<{ mlItemId: string; title: string | null; stock: number; sales30d: number; level: "critical" | "warning" }> = [];
+
+        let priceSuggestions = 0;
+        let priceUpdatesApplied = 0;
+        let priceUpdatesFailed = 0;
+        let telegramPriceSuggestionsSent = 0;
+
+        for (const item of topItems) {
+            const pricingSummary = pricingSummaries.get(item.mlItemId) || null;
+            const pricingDetail = pricingDetailsByItem.get(item.mlItemId) || null;
+            const calculations = pricingDetail?.calculations || null;
+            const controls = pricingDetail?.controls || null;
+
+            const currentPrice = Number(item.price || 0);
+            const currentStock = Number(item.stock || 0);
+            const sales30d = Number(item.sales30d || 0);
+
+            let stockAlertLevel: "critical" | "warning" | null = null;
+            let stockAlertMessage: string | null = null;
+            if (sales30d > 0 && currentStock <= 0) {
+                stockAlertLevel = "critical";
+                stockAlertMessage = "Ruptura de estoque em SKU com vendas recentes.";
+            } else if (sales30d > 0 && currentStock <= lowStockThreshold) {
+                stockAlertLevel = "warning";
+                stockAlertMessage = "Estoque baixo em SKU com vendas recentes.";
+            }
+
+            if (stockAlertLevel) {
+                stockAlertItems.push({
+                    mlItemId: item.mlItemId,
+                    title: item.title,
+                    stock: currentStock,
+                    sales30d,
+                    level: stockAlertLevel,
+                });
+            }
+
+            let suggestedPrice: number | null = null;
+            let priceReason: string | null = null;
+
+            if (currentPrice > 0 && calculations) {
+                const marginCurrent = calculations.marginCurrentPrice;
+                const targetMargin = controls?.targetMarginRate ?? 0.2;
+                const breakEvenPrice = calculations.breakEvenPrice;
+                const targetPrice = calculations.targetPrice;
+                const minPromoFloor = calculations.minimumPromotionPrice;
+
+                // Protege margem quando há baixo estoque em item de alta saída.
+                if (sales30d > 0 && currentStock > 0 && currentStock <= lowStockThreshold) {
+                    const raiseByStock = currentPrice * (1 + increaseRate);
+                    const raiseByMargin = targetPrice && targetPrice > currentPrice ? targetPrice : raiseByStock;
+                    suggestedPrice = Math.max(raiseByStock, raiseByMargin);
+                    priceReason = "low_stock_protection";
+                } else if (calculations.profitPerUnitCurrentPrice !== null && calculations.profitPerUnitCurrentPrice < 0) {
+                    const recoveryFloor = breakEvenPrice || currentPrice;
+                    suggestedPrice = Math.max(recoveryFloor, currentPrice * (1 + increaseRate));
+                    priceReason = "unit_loss_recovery";
+                } else if (
+                    targetPrice !== null &&
+                    targetPrice > currentPrice &&
+                    marginCurrent !== null &&
+                    marginCurrent < (targetMargin - 0.015)
+                ) {
+                    suggestedPrice = targetPrice;
+                    priceReason = "target_margin_recovery";
+                } else if (
+                    sales30d > 0 &&
+                    currentStock >= highStockThreshold &&
+                    marginCurrent !== null &&
+                    marginCurrent > (targetMargin + 0.08)
+                ) {
+                    const proposed = currentPrice * (1 - decreaseRate);
+                    suggestedPrice = minPromoFloor !== null ? Math.max(proposed, minPromoFloor) : proposed;
+                    priceReason = "high_stock_acceleration";
+                }
+            }
+
+            let priceAction: "increase" | "decrease" | "keep" = "keep";
+            let deltaValue = 0;
+            let deltaPct = 0;
+
+            if (suggestedPrice !== null && currentPrice > 0) {
+                const minAllowed = currentPrice * (1 - maxChangeRate);
+                const maxAllowed = currentPrice * (1 + maxChangeRate);
+                suggestedPrice = Math.min(maxAllowed, Math.max(minAllowed, suggestedPrice));
+                suggestedPrice = roundMoney(suggestedPrice);
+
+                deltaValue = roundMoney(suggestedPrice - currentPrice);
+                deltaPct = currentPrice > 0 ? deltaValue / currentPrice : 0;
+
+                if (Math.abs(deltaPct) < minChangeRate || deltaValue === 0) {
+                    suggestedPrice = null;
+                    priceReason = null;
+                    deltaValue = 0;
+                    deltaPct = 0;
+                } else {
+                    priceAction = deltaValue > 0 ? "increase" : "decrease";
+                }
+            }
+
+            let updateApplied = false;
+            let updateError: string | null = null;
+            if (mode === "apply" && suggestedPrice !== null) {
+                try {
+                    await requestWithAuth<any>(
+                        String(workspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/items/${item.mlItemId}`,
+                        {
+                            method: "PUT",
+                            data: { price: suggestedPrice },
+                            retryOnWrite: true,
+                            retries: 1,
+                        }
+                    );
+
+                    updateApplied = true;
+                    priceUpdatesApplied += 1;
+                    try {
+                        await pool.query(
+                            `UPDATE products
+                             SET price = $1, updated_at = NOW()
+                             WHERE workspace_id = $2 AND ml_item_id = $3`,
+                            [suggestedPrice, workspaceId, item.mlItemId]
+                        );
+                    } catch (dbError: any) {
+                        console.warn("[ML price-stock automation] Falha ao atualizar preço local:", dbError?.message || dbError);
+                    }
+                } catch (error: any) {
+                    updateError = error?.response?.data?.message || error?.message || "failed_to_update_price";
+                    priceUpdatesFailed += 1;
+                }
+            }
+
+            if (suggestedPrice !== null) {
+                priceSuggestions += 1;
+                if (sendTelegramPriceSuggestions) {
+                    const sent = await TelegramNotificationService.notifyPriceSuggestion(String(workspaceId), {
+                        itemId: item.mlItemId,
+                        title: item.title,
+                        currentPrice,
+                        suggestedPrice,
+                        reason: priceReason,
+                    });
+                    if (sent) telegramPriceSuggestionsSent += 1;
+                }
+            }
+
+            resultItems.push({
+                productId: item.productId,
+                mlItemId: item.mlItemId,
+                title: item.title,
+                status: item.status,
+                sales30d,
+                revenue30d: item.revenue30d,
+                stock: currentStock,
+                stockAlert: stockAlertLevel
+                    ? { level: stockAlertLevel, message: stockAlertMessage }
+                    : null,
+                currentPrice,
+                suggestedPrice,
+                priceAction,
+                priceReason,
+                priceDelta: {
+                    value: deltaValue,
+                    pct: roundMoney(deltaPct * 100),
+                },
+                updateApplied,
+                updateError,
+                pricing: calculations
+                    ? {
+                        riskLevel: pricingSummary?.riskLevel || "unknown",
+                        riskReasons: pricingSummary?.riskReasons || [],
+                        marginCurrentPrice: calculations.marginCurrentPrice,
+                        targetPrice: calculations.targetPrice,
+                        breakEvenPrice: calculations.breakEvenPrice,
+                        minPromotionPrice: calculations.minimumPromotionPrice,
+                        targetMarginRate: controls?.targetMarginRate ?? null,
+                    }
+                    : null,
+            });
+        }
+
+        let telegramStockAlertSent = false;
+        if (sendTelegramStockAlerts && stockAlertItems.length > 0) {
+            const sortedStockAlerts = [...stockAlertItems].sort((a, b) => a.stock - b.stock || b.sales30d - a.sales30d);
+            const lines = sortedStockAlerts.slice(0, 12).map((entry) => {
+                const level = entry.level === "critical" ? "🚨" : "⚠️";
+                const safeTitle = escapeHtml(String(entry.title || ""));
+                return `${level} <b>${entry.mlItemId}</b> • estoque ${entry.stock} • vendas30d ${entry.sales30d}${safeTitle ? `\n${safeTitle}` : ""}`;
+            });
+
+            const stockMessage = [
+                `📦 <b>ALERTA ESTOQUE TOP SKUs</b>`,
+                ``,
+                `Total de alertas: <b>${stockAlertItems.length}</b>`,
+                `Limiar estoque baixo: <b>${lowStockThreshold}</b>`,
+                ``,
+                ...lines,
+            ].join("\n");
+
+            const referenceId = `ml_stock_top_sku_${formatBrazilDateKey(new Date())}`;
+            telegramStockAlertSent = await TelegramNotificationService.sendCustomMessage(
+                String(workspaceId),
+                stockMessage,
+                "ml_stock_alert",
+                referenceId
+            );
+        }
+
+        return res.json({
+            success: true,
+            workspaceId,
+            mode,
+            source,
+            params: {
+                topN,
+                lowStockThreshold,
+                highStockThreshold,
+                increaseRate,
+                decreaseRate,
+                maxChangeRate,
+                minChangeRate,
+                sendTelegramStockAlerts,
+                sendTelegramPriceSuggestions,
+            },
+            summary: {
+                evaluatedCount: resultItems.length,
+                priceSuggestions,
+                priceUpdatesApplied,
+                priceUpdatesFailed,
+                stockAlerts: stockAlertItems.length,
+                telegramStockAlertSent,
+                telegramPriceSuggestionsSent,
+                generatedAt: new Date().toISOString(),
+            },
+            items: resultItems,
+        });
+    } catch (error: any) {
+        console.error("Error running Mercado Livre price/stock automation:", formatAxiosError(error));
+        return res.status(500).json({
+            error: "Failed to run price-stock automation",
+            details: error?.response?.data || error?.message,
         });
     }
 });
@@ -8077,59 +8810,95 @@ let ordersSchemaReady: Promise<void> | null = null;
 
 const ensureOrdersSchema = async () => {
     if (ordersSchemaReady) return ordersSchemaReady;
-    ordersSchemaReady = (async () => {
-        const pool = getPool();
-        await pool.query(`
-            create table if not exists ml_orders (
-              workspace_id uuid not null references workspaces(id) on delete cascade,
-              order_id text not null,
-              status text,
-              date_created timestamptz,
-              date_closed timestamptz,
-              total_amount numeric(14,2),
-              paid_amount numeric(14,2),
-              currency_id text,
-              buyer_id text,
-              seller_id text,
-              shipping_id text,
-              shipping_logistic_type text,
-              order_json jsonb,
-              updated_at timestamptz not null default now(),
-              primary key (workspace_id, order_id)
-            );
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_orders_workspace_date on ml_orders (workspace_id, date_created desc);
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_orders_workspace_status on ml_orders (workspace_id, status);
-        `);
-        await pool.query(`
-            create table if not exists ml_order_items (
-              workspace_id uuid not null references workspaces(id) on delete cascade,
-              order_id text not null,
-              item_id text not null,
-              quantity integer not null default 0,
-              unit_price numeric(14,2) not null default 0,
-              total_amount numeric(14,2) not null default 0,
-              title text,
-              listing_type_id text,
-              currency_id text,
-              created_at timestamptz not null default now(),
-              primary key (workspace_id, order_id, item_id),
-              constraint ml_order_items_order_fk
-                foreign key (workspace_id, order_id)
-                references ml_orders(workspace_id, order_id)
-                on delete cascade
-            );
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_order_items_workspace_item on ml_order_items (workspace_id, item_id);
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_order_items_workspace_order on ml_order_items (workspace_id, order_id);
-        `);
-    })();
+    ordersSchemaReady = ensureRuntimeSchema(
+        "Mercado Livre orders schema",
+        {
+            tables: ["ml_orders", "ml_order_items"],
+            columns: {
+                ml_orders: [
+                    "workspace_id",
+                    "order_id",
+                    "status",
+                    "date_created",
+                    "date_closed",
+                    "total_amount",
+                    "paid_amount",
+                    "currency_id",
+                    "buyer_id",
+                    "seller_id",
+                    "shipping_id",
+                    "shipping_logistic_type",
+                    "order_json",
+                    "updated_at",
+                ],
+                ml_order_items: [
+                    "workspace_id",
+                    "order_id",
+                    "item_id",
+                    "quantity",
+                    "unit_price",
+                    "total_amount",
+                    "title",
+                    "listing_type_id",
+                    "currency_id",
+                    "created_at",
+                ],
+            },
+        },
+        async () => {
+            const pool = getPool();
+            await pool.query(`
+                create table if not exists ml_orders (
+                  workspace_id uuid not null references workspaces(id) on delete cascade,
+                  order_id text not null,
+                  status text,
+                  date_created timestamptz,
+                  date_closed timestamptz,
+                  total_amount numeric(14,2),
+                  paid_amount numeric(14,2),
+                  currency_id text,
+                  buyer_id text,
+                  seller_id text,
+                  shipping_id text,
+                  shipping_logistic_type text,
+                  order_json jsonb,
+                  updated_at timestamptz not null default now(),
+                  primary key (workspace_id, order_id)
+                );
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_orders_workspace_date on ml_orders (workspace_id, date_created desc);
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_orders_workspace_status on ml_orders (workspace_id, status);
+            `);
+            await pool.query(`
+                create table if not exists ml_order_items (
+                  workspace_id uuid not null references workspaces(id) on delete cascade,
+                  order_id text not null,
+                  item_id text not null,
+                  quantity integer not null default 0,
+                  unit_price numeric(14,2) not null default 0,
+                  total_amount numeric(14,2) not null default 0,
+                  title text,
+                  listing_type_id text,
+                  currency_id text,
+                  created_at timestamptz not null default now(),
+                  primary key (workspace_id, order_id, item_id),
+                  constraint ml_order_items_order_fk
+                    foreign key (workspace_id, order_id)
+                    references ml_orders(workspace_id, order_id)
+                    on delete cascade
+                );
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_order_items_workspace_item on ml_order_items (workspace_id, item_id);
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_order_items_workspace_order on ml_order_items (workspace_id, order_id);
+            `);
+        },
+    );
     return ordersSchemaReady;
 };
 
@@ -8137,40 +8906,65 @@ let priceSuggestionSchemaReady: Promise<void> | null = null;
 
 const ensurePriceSuggestionSchema = async () => {
     if (priceSuggestionSchemaReady) return priceSuggestionSchemaReady;
-    priceSuggestionSchemaReady = (async () => {
-        const pool = getPool();
-        await pool.query(`
-            create table if not exists ml_price_suggestions (
-              id uuid primary key default gen_random_uuid(),
-              workspace_id uuid not null references workspaces(id) on delete cascade,
-              ml_item_id text,
-              title text,
-              current_price numeric(14,2),
-              suggested_price numeric(14,2),
-              currency_id text,
-              status text not null default 'new' check (status in ('new','applied','dismissed')),
-              resource text,
-              benchmark jsonb,
-              created_at timestamptz not null default now(),
-              updated_at timestamptz not null default now(),
-              applied_at timestamptz,
-              dismissed_at timestamptz,
-              applied_price numeric(14,2)
-            );
-        `);
-        await pool.query(`
-            create unique index if not exists idx_ml_price_suggestions_resource
-            on ml_price_suggestions (workspace_id, resource);
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_price_suggestions_status
-            on ml_price_suggestions (workspace_id, status, created_at desc);
-        `);
-        await pool.query(`
-            create index if not exists idx_ml_price_suggestions_item
-            on ml_price_suggestions (workspace_id, ml_item_id);
-        `);
-    })();
+    priceSuggestionSchemaReady = ensureRuntimeSchema(
+        "Mercado Livre price suggestions",
+        {
+            tables: ["ml_price_suggestions"],
+            columns: {
+                ml_price_suggestions: [
+                    "id",
+                    "workspace_id",
+                    "ml_item_id",
+                    "title",
+                    "current_price",
+                    "suggested_price",
+                    "currency_id",
+                    "status",
+                    "resource",
+                    "benchmark",
+                    "created_at",
+                    "updated_at",
+                    "applied_at",
+                    "dismissed_at",
+                    "applied_price",
+                ],
+            },
+        },
+        async () => {
+            const pool = getPool();
+            await pool.query(`
+                create table if not exists ml_price_suggestions (
+                  id uuid primary key default gen_random_uuid(),
+                  workspace_id uuid not null references workspaces(id) on delete cascade,
+                  ml_item_id text,
+                  title text,
+                  current_price numeric(14,2),
+                  suggested_price numeric(14,2),
+                  currency_id text,
+                  status text not null default 'new' check (status in ('new','applied','dismissed')),
+                  resource text,
+                  benchmark jsonb,
+                  created_at timestamptz not null default now(),
+                  updated_at timestamptz not null default now(),
+                  applied_at timestamptz,
+                  dismissed_at timestamptz,
+                  applied_price numeric(14,2)
+                );
+            `);
+            await pool.query(`
+                create unique index if not exists idx_ml_price_suggestions_resource
+                on ml_price_suggestions (workspace_id, resource);
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_price_suggestions_status
+                on ml_price_suggestions (workspace_id, status, created_at desc);
+            `);
+            await pool.query(`
+                create index if not exists idx_ml_price_suggestions_item
+                on ml_price_suggestions (workspace_id, ml_item_id);
+            `);
+        },
+    );
     return priceSuggestionSchemaReady;
 };
 
@@ -8369,29 +9163,7 @@ const buildOrderSummary = (order: any) => {
             permalink: item?.item?.permalink || null
         };
     });
-
-    let saleFee = 0;
-    if (items.length > 0) {
-        saleFee = items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
-    }
-    if (saleFee === 0 && Array.isArray(order?.payments)) {
-        order.payments.forEach((payment: any) => {
-            if (payment.fee_details && Array.isArray(payment.fee_details)) {
-                payment.fee_details.forEach((fee: any) => {
-                    if (fee.fee_payer === "collector") {
-                        saleFee += fee.amount;
-                    }
-                });
-            } else if (payment.marketplace_fee) {
-                saleFee += payment.marketplace_fee;
-            }
-        });
-    }
-
-    const totalAmount = Number(order?.total_amount ?? order?.paid_amount ?? 0);
-    const paidAmount = Number(order?.paid_amount ?? totalAmount);
-    const shippingCost = Number(order?.shipping?.base_cost || 0);
-    const netIncome = totalAmount - saleFee - shippingCost;
+    const financialSummary = buildOrderFinancialSummary(order);
 
     const normalizedStatus = String(order?.status || "").toLowerCase();
     const isCancelled = normalizedStatus === "cancelled" || normalizedStatus === "canceled";
@@ -8403,13 +9175,16 @@ const buildOrderSummary = (order: any) => {
         dateCreated: order?.date_created || null,
         dateClosed,
         lastUpdated: order?.last_updated || null,
-        totalAmount,
-        paidAmount,
+        totalAmount: financialSummary.totalAmount,
+        paidAmount: financialSummary.paidAmount,
+        grossAmount: financialSummary.grossAmount,
+        discountAmount: financialSummary.discountAmount,
         currencyId: order?.currency_id || "BRL",
         buyerId: order?.buyer?.id ? String(order.buyer.id) : "",
-        saleFee,
-        shippingCost,
-        netIncome,
+        saleFee: financialSummary.saleFee,
+        shippingCost: financialSummary.shippingCost,
+        netReceivedAmount: financialSummary.netReceivedAmount,
+        netIncome: financialSummary.netIncome,
         items: mappedItems
     };
 };
@@ -8570,6 +9345,8 @@ export async function handleOrderNotification(notification: any) {
             console.log(`[Order Notification] Ignorado status ${status} para pedido ${orderId}`);
             return;
         }
+
+        await enrichOrdersWithPaymentDetails(workspaceId, [orderDetails.data]);
 
         try {
             const { isNew } = await upsertOrderCache(workspaceId, orderDetails.data);

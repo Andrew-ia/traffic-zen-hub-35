@@ -14,20 +14,33 @@ interface PerformanceChartProps {
     }>;
     hourlyData?: Array<{
         date: string;
+        hour?: number;
         sales: number;
         revenue: number;
     }>;
     comparisonHourlyData?: Array<{
         date: string;
+        hour?: number;
         sales: number;
         revenue: number;
     }>;
     comparisonLabel?: string;
     loading?: boolean;
+    hourlyLoading?: boolean;
     title?: string;
 }
 
 const YESTERDAY_STROKE = "hsl(330 81% 60%)";
+
+const getEntryHour = (entry: { date: string; hour?: number }) => {
+    if (typeof entry.hour === "number" && entry.hour >= 0 && entry.hour <= 23) {
+        return entry.hour;
+    }
+
+    const date = new Date(entry.date);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.getHours();
+};
 
 export function MainPerformanceChart({
     data,
@@ -35,11 +48,12 @@ export function MainPerformanceChart({
     comparisonHourlyData,
     comparisonLabel = "Ontem",
     loading,
+    hourlyLoading,
     title = "Desempenho de Vendas",
 }: PerformanceChartProps) {
     type ViewMode = "daily" | "hourly";
     const [viewMode, setViewMode] = useState<ViewMode>("daily");
-    const hasHourlyData = hourlyData !== undefined;
+    const hasHourlyData = hourlyLoading || hourlyData !== undefined || comparisonHourlyData !== undefined;
 
     useEffect(() => {
         if (!hasHourlyData && viewMode === "hourly") {
@@ -60,17 +74,15 @@ export function MainPerformanceChart({
         const comparisonByHour = new Map<number, number>();
         if (comparisonHourlyData) {
             comparisonHourlyData.forEach((entry) => {
-                const date = new Date(entry.date);
-                if (Number.isNaN(date.getTime())) return;
-                const hour = date.getHours();
+                const hour = getEntryHour(entry);
+                if (hour === null) return;
                 comparisonByHour.set(hour, (comparisonByHour.get(hour) || 0) + (entry.revenue || 0));
             });
         }
 
         hourlyData.forEach((entry) => {
-            const date = new Date(entry.date);
-            if (Number.isNaN(date.getTime())) return;
-            const hour = date.getHours();
+            const hour = getEntryHour(entry);
+            if (hour === null) return;
             const bucket = buckets[hour];
             if (!bucket) return;
             const entryRevenue = entry.revenue || 0;
@@ -80,11 +92,22 @@ export function MainPerformanceChart({
             bucket.sales += entrySales;
         });
 
-        buckets.forEach((bucket) => {
-            bucket.yesterdayRevenue = comparisonByHour.get(bucket.hour) || 0;
-        });
+        let currentRevenueRunning = 0;
+        let currentSalesRunning = 0;
+        let yesterdayRevenueRunning = 0;
 
-        return buckets;
+        return buckets.map((bucket) => {
+            currentRevenueRunning += bucket.revenue;
+            currentSalesRunning += bucket.sales;
+            yesterdayRevenueRunning += comparisonByHour.get(bucket.hour) || 0;
+
+            return {
+                ...bucket,
+                revenue: currentRevenueRunning,
+                sales: currentSalesRunning,
+                yesterdayRevenue: yesterdayRevenueRunning,
+            };
+        });
     }, [hourlyData, comparisonHourlyData]);
 
     const isHourlyView = viewMode === "hourly" && hasHourlyData;
@@ -102,7 +125,7 @@ export function MainPerformanceChart({
         return `${String(parsed).padStart(2, "0")}h`;
     };
 
-    if (loading) {
+    if (loading || (isHourlyView && hourlyLoading)) {
         return (
             <Card className="border-border/40 bg-card/50 backdrop-blur-sm overflow-hidden">
                 <CardHeader>
@@ -125,7 +148,7 @@ export function MainPerformanceChart({
                     </CardTitle>
                     <p className="text-sm text-muted-foreground">
                         {isHourlyView
-                            ? "Faturamento por hora do dia (somado no período)"
+                            ? "Faturamento acumulado por hora: hoje vs ontem"
                             : "Faturamento diário e volume de pedidos"}
                     </p>
                 </div>
@@ -238,7 +261,7 @@ export function MainPerformanceChart({
                                                     <div className="flex items-center justify-between gap-8">
                                                         <span className="text-sm font-medium flex items-center gap-2">
                                                             <div className="h-2 w-2 rounded-full bg-primary" />
-                                                            Receita
+                                                            {isHourlyView ? "Hoje" : "Receita"}
                                                         </span>
                                                         <span className="text-sm font-bold">
                                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(revenueValue || 0)}

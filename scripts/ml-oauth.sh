@@ -10,8 +10,10 @@ echo ""
 source .env.local 2>/dev/null || true
 
 CLIENT_ID="${MERCADO_LIVRE_CLIENT_ID}"
-REDIRECT_URI="http://localhost:8080/integrations/mercadolivre/callback"
+REDIRECT_URI="${MERCADO_LIVRE_REDIRECT_URI:-http://localhost:8080/integrations/mercadolivre/callback}"
 WORKSPACE_ID="${WORKSPACE_ID:-00000000-0000-0000-0000-000000000010}"
+AUTH_BASE_URL="${MERCADO_LIVRE_AUTH_BASE_URL:-https://auth.mercadolibre.com}"
+SCOPES="${MERCADO_LIVRE_SCOPES:-offline_access read write}"
 
 if [ -z "$CLIENT_ID" ]; then
     echo "❌ MERCADO_LIVRE_CLIENT_ID não encontrado no .env.local"
@@ -19,12 +21,15 @@ if [ -z "$CLIENT_ID" ]; then
 fi
 
 # Construir URL de autorização
-AUTH_URL="https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&state=${WORKSPACE_ID}"
+ENCODED_REDIRECT_URI=$(node -p "encodeURIComponent(process.argv[1])" "$REDIRECT_URI")
+ENCODED_SCOPES=$(node -p "encodeURIComponent(process.argv[1])" "$SCOPES")
+AUTH_URL="${AUTH_BASE_URL}/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${ENCODED_REDIRECT_URI}&state=${WORKSPACE_ID}&scope=${ENCODED_SCOPES}"
 
 echo "📋 Configuração:"
 echo "   Client ID: ${CLIENT_ID}"
 echo "   Redirect URI: ${REDIRECT_URI}"
 echo "   Workspace ID: ${WORKSPACE_ID}"
+echo "   Scopes: ${SCOPES}"
 echo ""
 echo "🔗 URL de autorização:"
 echo "   ${AUTH_URL}"

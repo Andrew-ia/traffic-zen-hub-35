@@ -1,4 +1,4 @@
--- Enable RLS + permissive policies for newer ML/Product Hub tables.
+-- Enable RLS for ML/Product Hub tables without creating broad public policies.
 do $$
 declare
   tables text[] := array[
@@ -32,30 +32,6 @@ begin
     ) then
       execute format('alter table public.%I enable row level security', t);
       execute format('alter table public.%I force row level security', t);
-
-      if not exists (
-        select 1 from pg_policies p
-        where p.schemaname = 'public'
-          and p.tablename = t
-          and p.policyname = 'allow_all_authenticated'
-      ) then
-        execute format(
-          'create policy allow_all_authenticated on public.%I for all to authenticated using (true) with check (true)',
-          t
-        );
-      end if;
-
-      if not exists (
-        select 1 from pg_policies p
-        where p.schemaname = 'public'
-          and p.tablename = t
-          and p.policyname = 'allow_all_anon'
-      ) then
-        execute format(
-          'create policy allow_all_anon on public.%I for all to anon using (true) with check (true)',
-          t
-        );
-      end if;
     else
       raise warning 'Skipping table public.%: table not found', t;
     end if;

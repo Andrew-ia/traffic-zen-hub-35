@@ -81,6 +81,7 @@ export interface MercadoLivreMetrics {
     }>;
     hourlySales?: Array<{
         date: string;
+        hour?: number;
         sales: number;
         revenue: number;
     }>;
@@ -191,6 +192,20 @@ export interface MercadoLivreProduct {
     conversionRate: number;
     revenue: number;
     status: "active" | "paused" | "closed";
+    pricing_summary?: {
+        mlItemId: string;
+        hasControls: boolean;
+        costConfigured: boolean;
+        profitPerUnitCurrentPrice: number | null;
+        marginCurrentPrice: number | null;
+        estimatedAdsNetProfit30d: number | null;
+        avgAdsSpendDaily30d: number;
+        maxAdsSpendDaily: number;
+        adsLimitExceeded: boolean;
+        lossRisk: boolean;
+        riskLevel: "high" | "medium" | "low" | "unknown";
+        riskReasons: string[];
+    } | null;
     category: string;
     stock: number;
     logisticType?: string | null;
@@ -267,6 +282,7 @@ export interface MercadoLivreAnalyticsTopProduct {
     mlItemId: string;
     title: string;
     price: number;
+    availableQuantity: number;
     sales30d: number;
     revenue30d: number;
     profitUnit: number;
@@ -284,6 +300,128 @@ export interface MercadoLivreAnalyticsTopResponse {
     missingCostCount: number;
     topSales: MercadoLivreAnalyticsTopProduct[];
     topProfit: MercadoLivreAnalyticsTopProduct[];
+    lowSalesWithStock: MercadoLivreAnalyticsTopProduct[];
+}
+
+export interface MercadoLivrePricingControlData {
+    item: {
+        productId: string | null;
+        mlItemId: string;
+        title: string | null;
+        status: string | null;
+        listingType: string | null;
+        price: number | null;
+    };
+    controls: {
+        costPrice: number | null;
+        shippingCost: number;
+        packagingCost: number;
+        otherCost: number;
+        overheadCost: number;
+        fixedFee: number;
+        paymentFeeRate: number;
+        mlFeeRate: number;
+        cac: number;
+        targetMarginRate: number;
+        maxPromoDiscountRate: number;
+        maxAdsSpendDaily: number;
+        minProfitValue: number;
+        updatedAt: string | null;
+    };
+    metrics: {
+        snapshotDate: string | null;
+        adsSpend30d: number;
+        adsSales30d: number;
+        adsRevenue30d: number;
+        todayAdsSpend: number | null;
+        todayAdsError: string | null;
+    };
+    calculations: {
+        variableRate: number;
+        totalUnitCost: number;
+        breakEvenPrice: number | null;
+        targetPrice: number | null;
+        minPriceForMinProfit: number | null;
+        minPriceByPromoPolicy: number | null;
+        minimumPromotionPrice: number | null;
+        maxPromoDiscountAllowedRate: number | null;
+        maxPromoDiscountAllowedValue: number | null;
+        profitPerUnitCurrentPrice: number | null;
+        marginCurrentPrice: number | null;
+        avgAdsSpendDaily30d: number;
+        avgAdsSalesDaily30d: number;
+        avgAdsRevenueDaily30d: number;
+        estimatedAdsGrossProfitDaily: number | null;
+        estimatedAdsNetProfitDaily: number | null;
+        estimatedAdsNetProfit30d: number | null;
+        estimatedAdsNetMargin30d: number | null;
+        adsSpendDailyReference: number;
+        adsLimitExceeded: boolean;
+        adsLimitUsageRate: number | null;
+    };
+    serverDate: string;
+}
+
+export interface MercadoLivrePriceStockAutomationItem {
+    productId: string;
+    mlItemId: string;
+    title: string | null;
+    status: string;
+    sales30d: number;
+    revenue30d: number;
+    stock: number;
+    stockAlert: {
+        level: "critical" | "warning";
+        message: string | null;
+    } | null;
+    currentPrice: number;
+    suggestedPrice: number | null;
+    priceAction: "increase" | "decrease" | "keep";
+    priceReason: string | null;
+    priceDelta: {
+        value: number;
+        pct: number;
+    };
+    updateApplied: boolean;
+    updateError: string | null;
+    pricing: {
+        riskLevel: "high" | "medium" | "low" | "unknown";
+        riskReasons: string[];
+        marginCurrentPrice: number | null;
+        targetPrice: number | null;
+        breakEvenPrice: number | null;
+        minPromotionPrice: number | null;
+        targetMarginRate: number | null;
+    } | null;
+}
+
+export interface MercadoLivrePriceStockAutomationResult {
+    success: boolean;
+    workspaceId: string;
+    mode: "dry-run" | "apply";
+    source: "topSales" | "topProfit";
+    params: {
+        topN: number;
+        lowStockThreshold: number;
+        highStockThreshold: number;
+        increaseRate: number;
+        decreaseRate: number;
+        maxChangeRate: number;
+        minChangeRate: number;
+        sendTelegramStockAlerts: boolean;
+        sendTelegramPriceSuggestions: boolean;
+    };
+    summary: {
+        evaluatedCount: number;
+        priceSuggestions: number;
+        priceUpdatesApplied: number;
+        priceUpdatesFailed: number;
+        stockAlerts: number;
+        telegramStockAlertSent: boolean;
+        telegramPriceSuggestionsSent: number;
+        generatedAt: string;
+    };
+    items: MercadoLivrePriceStockAutomationItem[];
 }
 
 export interface MercadoLivrePriceSuggestion {
@@ -877,6 +1015,132 @@ export function useUpdateMercadoLivrePrice() {
 }
 
 /**
+ * Hook para carregar regras de precificacao por anuncio (item MLB)
+ */
+export function useMercadoLivrePricingControl(
+    workspaceId: string | null,
+    mlItemId: string | null,
+    options: {
+        refreshTodaySpend?: boolean;
+        enabled?: boolean;
+    } = {}
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const normalizedItemId = mlItemId ? String(mlItemId).trim().toUpperCase() : "";
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+    const shouldRefreshTodaySpend = options.refreshTodaySpend ?? true;
+    const isEnabled = options.enabled ?? true;
+
+    return useQuery({
+        queryKey: [
+            "mercadolivre",
+            "pricing-control",
+            effectiveWorkspaceId,
+            normalizedItemId,
+            shouldRefreshTodaySpend,
+        ],
+        queryFn: async (): Promise<MercadoLivrePricingControlData> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+            if (!normalizedItemId) {
+                throw new Error("mlItemId is required");
+            }
+
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+            });
+            if (shouldRefreshTodaySpend) {
+                params.set("refreshTodaySpend", "1");
+            }
+
+            const response = await fetch(
+                `/api/integrations/mercadolivre/pricing/${normalizedItemId}?${params.toString()}`,
+                { headers: getAuthHeaders() }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch pricing control (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && !!normalizedItemId && isConnected && isEnabled,
+        retry: shouldRetry,
+        staleTime: 60 * 1000,
+    });
+}
+
+/**
+ * Hook para salvar regras de precificacao por anuncio (item MLB)
+ */
+export function useUpdateMercadoLivrePricingControl() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (payload: {
+            workspaceId: string;
+            mlItemId: string;
+            controls: {
+                costPrice?: number | null;
+                shippingCost?: number | null;
+                packagingCost?: number | null;
+                otherCost?: number | null;
+                overheadCost?: number | null;
+                fixedFee?: number | null;
+                paymentFeeRate?: number | null;
+                mlFeeRate?: number | null;
+                cac?: number | null;
+                targetMarginRate?: number | null;
+                maxPromoDiscountRate?: number | null;
+                maxAdsSpendDaily?: number | null;
+                minProfitValue?: number | null;
+            };
+        }) => {
+            const normalizedItemId = String(payload.mlItemId || "").trim().toUpperCase();
+            const response = await fetch(
+                `/api/integrations/mercadolivre/pricing/${normalizedItemId}`,
+                {
+                    method: "PUT",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        workspaceId: payload.workspaceId,
+                        controls: payload.controls,
+                    }),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to update pricing control (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, payload) => {
+            const normalizedItemId = String(payload.mlItemId || "").trim().toUpperCase();
+            queryClient.invalidateQueries({
+                queryKey: ["mercadolivre", "pricing-control", payload.workspaceId, normalizedItemId],
+            });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "growth-report", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "products", payload.workspaceId] });
+        },
+    });
+}
+
+/**
  * Hook para sincronizar dados do Mercado Livre
  */
 export function useSyncMercadoLivre() {
@@ -962,22 +1226,72 @@ export function useSyncMercadoLivreAnalytics() {
 }
 
 /**
+ * Hook para rodar automação de preço + alerta de estoque nos top SKUs
+ */
+export function useRunMercadoLivrePriceStockAutomation() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (payload: {
+            workspaceId: string;
+            mode?: "dry-run" | "apply";
+            source?: "topSales" | "topProfit";
+            topN?: number;
+            lowStockThreshold?: number;
+            highStockThreshold?: number;
+            increaseRate?: number;
+            decreaseRate?: number;
+            maxChangeRate?: number;
+            minChangeRate?: number;
+            sendTelegramStockAlerts?: boolean;
+            sendTelegramPriceSuggestions?: boolean;
+        }): Promise<MercadoLivrePriceStockAutomationResult> => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre/automation/price-stock`,
+                {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(payload),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to run price-stock automation (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, payload) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "products", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "metrics", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "growth-report", payload.workspaceId] });
+        },
+    });
+}
+
+/**
  * Hook para buscar top vendidos e top lucro (30d) no banco
  */
-export function useMercadoLivreAnalyticsTop(workspaceId: string | null) {
+export function useMercadoLivreAnalyticsTop(workspaceId: string | null, limit: number = 20) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
     const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
-        queryKey: ["mercadolivre", "analytics-top", effectiveWorkspaceId],
+        queryKey: ["mercadolivre", "analytics-top", effectiveWorkspaceId, limit],
         queryFn: async (): Promise<MercadoLivreAnalyticsTopResponse> => {
             if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
             const response = await fetch(
-                `/api/integrations/mercadolivre/analytics/top?workspaceId=${effectiveWorkspaceId}`,
+                `/api/integrations/mercadolivre/analytics/top?workspaceId=${effectiveWorkspaceId}&limit=${limit}`,
                 { headers: getAuthHeaders() }
             );
 

@@ -1,4 +1,5 @@
 import { getPool } from '../../config/database.js';
+import { ensureRuntimeSchema } from '../../config/runtimeSchema.js';
 import { requestWithAuth } from '../../api/integrations/mercadolivre.js';
 import { MercadoAdsAutomationService } from './ads-automation.service.js';
 
@@ -35,52 +36,87 @@ let schemaReady: Promise<void> | null = null;
 
 export async function ensureProductAdsMetricsSchema() {
   if (schemaReady) return schemaReady;
-  schemaReady = (async () => {
-    const pool = getPool();
-    await pool.query(`create extension if not exists "pgcrypto";`);
-    await pool.query(`
-      create table if not exists ml_product_ads_metrics (
-        id uuid primary key default gen_random_uuid(),
-        workspace_id uuid not null references workspaces(id) on delete cascade,
-        ml_item_id text not null,
-        ml_ad_id text,
-        sku text,
-        ml_category_id text,
-        is_full boolean,
-        price_current numeric(14,2),
-        price_category_avg numeric(14,2),
-        impressions bigint default 0,
-        clicks bigint default 0,
-        ctr numeric(10,4),
-        conversion_rate numeric(10,4),
-        sales integer default 0,
-        revenue numeric(14,2) default 0,
-        ads_spend numeric(14,2) default 0,
-        acos numeric(10,4),
-        roas numeric(10,4),
-        net_margin numeric(10,4),
-        sales_7d integer default 0,
-        sales_30d integer default 0,
-        days_without_sale integer,
-        metric_date date not null default current_date,
-        created_at timestamptz not null default now(),
-        updated_at timestamptz not null default now(),
-        unique (workspace_id, ml_item_id, ml_ad_id, metric_date)
-      );
-    `);
-    await pool.query(`
-      create index if not exists idx_ml_product_ads_metrics_workspace_date
-        on ml_product_ads_metrics (workspace_id, metric_date desc);
-    `);
-    await pool.query(`
-      create index if not exists idx_ml_product_ads_metrics_item
-        on ml_product_ads_metrics (workspace_id, ml_item_id);
-    `);
-    await pool.query(`
-      create index if not exists idx_ml_product_ads_metrics_ad
-        on ml_product_ads_metrics (workspace_id, ml_ad_id);
-    `);
-  })();
+  schemaReady = ensureRuntimeSchema(
+    'Mercado Livre product ads metrics',
+    {
+      tables: ['ml_product_ads_metrics'],
+      columns: {
+        ml_product_ads_metrics: [
+          'id',
+          'workspace_id',
+          'ml_item_id',
+          'ml_ad_id',
+          'sku',
+          'ml_category_id',
+          'is_full',
+          'price_current',
+          'price_category_avg',
+          'impressions',
+          'clicks',
+          'ctr',
+          'conversion_rate',
+          'sales',
+          'revenue',
+          'ads_spend',
+          'acos',
+          'roas',
+          'net_margin',
+          'sales_7d',
+          'sales_30d',
+          'days_without_sale',
+          'metric_date',
+          'created_at',
+          'updated_at',
+        ],
+      },
+    },
+    async () => {
+      const pool = getPool();
+      await pool.query(`create extension if not exists "pgcrypto";`);
+      await pool.query(`
+        create table if not exists ml_product_ads_metrics (
+          id uuid primary key default gen_random_uuid(),
+          workspace_id uuid not null references workspaces(id) on delete cascade,
+          ml_item_id text not null,
+          ml_ad_id text,
+          sku text,
+          ml_category_id text,
+          is_full boolean,
+          price_current numeric(14,2),
+          price_category_avg numeric(14,2),
+          impressions bigint default 0,
+          clicks bigint default 0,
+          ctr numeric(10,4),
+          conversion_rate numeric(10,4),
+          sales integer default 0,
+          revenue numeric(14,2) default 0,
+          ads_spend numeric(14,2) default 0,
+          acos numeric(10,4),
+          roas numeric(10,4),
+          net_margin numeric(10,4),
+          sales_7d integer default 0,
+          sales_30d integer default 0,
+          days_without_sale integer,
+          metric_date date not null default current_date,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (workspace_id, ml_item_id, ml_ad_id, metric_date)
+        );
+      `);
+      await pool.query(`
+        create index if not exists idx_ml_product_ads_metrics_workspace_date
+          on ml_product_ads_metrics (workspace_id, metric_date desc);
+      `);
+      await pool.query(`
+        create index if not exists idx_ml_product_ads_metrics_item
+          on ml_product_ads_metrics (workspace_id, ml_item_id);
+      `);
+      await pool.query(`
+        create index if not exists idx_ml_product_ads_metrics_ad
+          on ml_product_ads_metrics (workspace_id, ml_ad_id);
+      `);
+    },
+  );
   return schemaReady;
 }
 
