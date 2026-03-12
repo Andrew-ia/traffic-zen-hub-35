@@ -384,9 +384,10 @@ export class TelegramNotificationService {
 
         const shippingType = isFullShipment ? "🚀 Full" : "📮 Padrão";
 
-        let message = `🎉 <b>NOVA VENDA NO MERCADO LIVRE!</b>\n\n`;
+        const saleAmount = formatCurrency(paid_amount || total_amount);
+
+        let message = `🎉<b>VENDA</b> 💰 <b>Valor:</b> ${saleAmount}\n\n`;
         message += `📦 <b>Pedido:</b> #${id}\n`;
-        message += `💰 <b>Valor:</b> ${formatCurrency(paid_amount || total_amount)}\n`;
         message += `📊 <b>Status:</b> ${safeStatusLabel}\n`;
         message += `🚚 <b>Envio:</b> ${shippingType}\n`;
         message += `📅 <b>Data:</b> ${formatDate(date_created)}\n\n`;

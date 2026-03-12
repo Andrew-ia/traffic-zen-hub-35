@@ -2228,7 +2228,7 @@ export class MercadoAdsAutomationService {
     };
   }
 
-  async listCampaigns(workspaceId: string) {
+  async listCampaigns(workspaceId: string, range?: { dateFrom: string; dateTo: string }) {
     const pool = getPool();
     // Sincroniza campanhas existentes a partir da API oficial (não cria nem altera remoto)
     await this.syncExistingCampaigns(workspaceId).catch((err) => {
@@ -2238,7 +2238,7 @@ export class MercadoAdsAutomationService {
     await this.syncCampaignProducts(workspaceId).catch((err) => {
       console.warn('[MercadoAds] Não foi possível sincronizar anúncios das campanhas:', err?.message || err);
     });
-    const metrics = await this.fetchCampaignMetrics(workspaceId).catch((err) => {
+    const metrics = await this.fetchCampaignMetrics(workspaceId, range).catch((err) => {
       console.warn('[MercadoAds] Não foi possível trazer métricas de campanhas:', err?.message || err);
       return null;
     });

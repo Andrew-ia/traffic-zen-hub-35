@@ -9,21 +9,18 @@ interface FinancialAnalysisProps {
     totalRevenue: number;
     totalSales: number;
     loading?: boolean;
-    realTotalFees?: number;
-    realTotalShippingCosts?: number;
+    realTotalNetReceivedAmount?: number;
+    realTotalAdsSpend?: number;
 }
 
 export function FinancialAnalysis({ 
     totalRevenue, 
-    totalSales, 
+    totalSales,
     loading,
-    realTotalFees,
-    realTotalShippingCosts
+    realTotalNetReceivedAmount,
+    realTotalAdsSpend
 }: FinancialAnalysisProps) {
-    // Taxas padrão do Mercado Livre (podem ser ajustadas pelo usuário)
-    const [mlFeePercent, setMlFeePercent] = useState(19); // Taxa ML clássico
-    const [fixedCostPerSale, setFixedCostPerSale] = useState(6.5); // Taxa fixa por unidade
-    const [productCostPercent, setProductCostPercent] = useState(20); // Custo dos produtos
+    const [productCostPercent, setProductCostPercent] = useState(30); // Custo dos produtos
     const [showCalculator, setShowCalculator] = useState(false);
 
     if (loading) {
@@ -43,35 +40,38 @@ export function FinancialAnalysis({
     }
 
     // Cálculos
-    const hasRealFees = typeof realTotalFees === "number";
-    const hasRealShippingCosts = typeof realTotalShippingCosts === "number";
-    const hasRealData = hasRealFees || hasRealShippingCosts;
+    const hasRealNetReceivedAmount = typeof realTotalNetReceivedAmount === "number";
+    const hasRealAdsSpend = typeof realTotalAdsSpend === "number";
+    const hasRealData = hasRealNetReceivedAmount || hasRealAdsSpend;
     const salesCount = totalSales || 0;
-    const mlFeePercentValue = totalRevenue * (mlFeePercent / 100);
-    const mlFeeFixedValue = fixedCostPerSale * salesCount;
-    const mlFeeTotal = mlFeePercentValue + mlFeeFixedValue;
-    const productCost = totalRevenue * (productCostPercent / 100);
-    const feeTotal = hasRealFees ? (realTotalFees ?? 0) : mlFeeTotal;
-    const shippingCost = hasRealShippingCosts ? (realTotalShippingCosts ?? 0) : 0;
-    
-    // Total costs including product and packaging
-    const totalCosts = feeTotal + shippingCost + productCost;
-    
-    // Net Revenue (Profit)
-    const netRevenue = totalRevenue - totalCosts;
-    const netMargin = totalRevenue > 0 ? (netRevenue / totalRevenue) * 100 : 0;
-    
-    // Receita Líquida ML (Payout) - O que sobra na mão do vendedor antes de pagar produto/embalagem
-    const payoutML = totalRevenue - feeTotal - shippingCost;
+    const packagingCostPerUnit = 1;
+    const companyTaxRate = 10;
+
+    const totalReceivedAmount = hasRealNetReceivedAmount
+        ? (realTotalNetReceivedAmount ?? 0)
+        : totalRevenue;
+    const adsSpend = hasRealAdsSpend ? (realTotalAdsSpend ?? 0) : 0;
+    const productCost = totalReceivedAmount * (productCostPercent / 100);
+    const packagingCost = salesCount * packagingCostPerUnit;
+    const companyTaxes = totalReceivedAmount * (companyTaxRate / 100);
+
+    // Lucro estimado baseado no recebido líquido do ML
+    const netRevenue = totalReceivedAmount - productCost - adsSpend - packagingCost - companyTaxes;
+    const netMargin = totalReceivedAmount > 0 ? (netRevenue / totalReceivedAmount) * 100 : 0;
 
     // Projeção mensal (baseado em 30 dias)
     const dailyRevenue = totalRevenue / 30;
+    const dailyReceivedAmount = totalReceivedAmount / 30;
     const monthlyProjection = dailyRevenue * 30;
-    const averageTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
-    const monthlySalesProjection = averageTicket > 0 ? monthlyProjection / averageTicket : 0;
-    // Projeção de lucro precisa considerar a margem atual
-    const currentMarginPercent = totalRevenue > 0 ? netRevenue / totalRevenue : 0;
-    const monthlyNetProjection = monthlyProjection * currentMarginPercent;
+    const monthlyReceivedProjection = dailyReceivedAmount * 30;
+    const adsSpendRate = totalReceivedAmount > 0 ? adsSpend / totalReceivedAmount : 0;
+    const averageUnitsPerDay = salesCount / 30;
+    const monthlyPackagingProjection = averageUnitsPerDay * 30 * packagingCostPerUnit;
+    const monthlyNetProjection = monthlyReceivedProjection
+        - (monthlyReceivedProjection * (productCostPercent / 100))
+        - (monthlyReceivedProjection * adsSpendRate)
+        - (monthlyReceivedProjection * (companyTaxRate / 100))
+        - monthlyPackagingProjection;
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
@@ -109,39 +109,9 @@ export function FinancialAnalysis({
                     <div className="p-3 rounded-2xl bg-muted/20 border border-border/20 space-y-4 animate-in slide-in-from-top-2 duration-300">
                         <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">Parâmetros de Custo</h4>
                         <div className="grid grid-cols-1 gap-4">
-                            {!hasRealFees && (
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="mlFee" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                        Taxa Mercado Livre (%)
-                                    </Label>
-                                    <Input
-                                        id="mlFee"
-                                        type="number"
-                                        step="0.1"
-                                        value={mlFeePercent}
-                                        onChange={(e) => setMlFeePercent(Number(e.target.value))}
-                                        className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
-                                    />
-                                </div>
-                            )}
-                            {!hasRealFees && (
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="fixedCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                        Taxa fixa por unidade (R$)
-                                    </Label>
-                                    <Input
-                                        id="fixedCost"
-                                        type="number"
-                                        step="0.01"
-                                        value={fixedCostPerSale}
-                                        onChange={(e) => setFixedCostPerSale(Number(e.target.value))}
-                                        className="h-9 bg-background/50 border-border/40 rounded-xl text-sm font-bold"
-                                    />
-                                </div>
-                            )}
                             <div className="space-y-1.5">
                                 <Label htmlFor="productCost" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    Custo Produto (% da receita)
+                                    Custo Produto (% dos recebidos)
                                 </Label>
                                 <Input
                                     id="productCost"
@@ -153,11 +123,9 @@ export function FinancialAnalysis({
                                 />
                             </div>
                         </div>
-                        {hasRealFees && (
-                            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                Taxas ML calculadas pela API.
-                            </div>
-                        )}
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            O lucro usa recebidos liquidos do ML como base.
+                        </div>
                     </div>
                 )}
 
@@ -179,45 +147,51 @@ export function FinancialAnalysis({
                     {/* Deduções */}
                     <div className="space-y-3">
                         <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                            {hasRealData ? "Deduções Reais & Custos" : "Deduções Estimadas"}
+                            {hasRealData ? "Base do Lucro" : "Base Estimada"}
                         </h4>
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
-                                <span className="font-medium">
-                                    {hasRealFees ? "Taxas ML (API)" : `Taxas ML (${mlFeePercent.toFixed(1)}%)`}
-                                </span>
-                                <span className="font-bold text-destructive">
-                                    -{formatCurrency(hasRealFees ? feeTotal : mlFeePercentValue)}
-                                </span>
+                            {/* Somatória dos recebidos do ML */}
+                            <div className="space-y-2 p-3 rounded-xl bg-success/10 border border-success/20">
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="font-bold text-success uppercase tracking-wider text-[10px]">
+                                    {hasRealNetReceivedAmount ? "Somatória dos Recebidos" : "Somatória dos Recebidos (Est.)"}
+                                    </span>
+                                    <span className="font-black text-success">
+                                        {formatCurrency(totalReceivedAmount)}
+                                    </span>
+                                </div>
+                                <p className="text-[10px] font-medium leading-relaxed text-success/80">
+                                    Valor liquido real recebido do Mercado Livre no periodo. Taxas e frete ja ficam refletidos nessa base.
+                                </p>
                             </div>
-                            {!hasRealFees && mlFeeFixedValue > 0 && (
+
+                            {hasRealAdsSpend && (
                                 <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
-                                    <span className="font-medium">Taxa fixa ML (R$ {fixedCostPerSale.toFixed(2)} x {salesCount})</span>
+                                    <span className="font-medium">Gasto com Ads (API)</span>
                                     <span className="font-bold text-destructive">
-                                        -{formatCurrency(mlFeeFixedValue)}
+                                        -{formatCurrency(adsSpend)}
                                     </span>
                                 </div>
                             )}
-                            {hasRealShippingCosts && (
-                                <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
-                                    <span className="font-medium">Frete pago pelo vendedor (API)</span>
-                                    <span className="font-bold text-destructive">
-                                        -{formatCurrency(shippingCost)}
-                                    </span>
-                                </div>
-                            )}
-                            {/* Repasse ML (Payout) */}
-                            <div className="flex items-center justify-between text-xs p-3 rounded-xl bg-success/10 border border-success/20">
-                                <span className="font-bold text-success uppercase tracking-wider text-[10px]">Repasse Mercado Livre</span>
-                                <span className="font-black text-success">
-                                    {formatCurrency(payoutML)}
+
+                            <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
+                                <span className="font-medium">Custo de Mercadoria (Est. sobre recebidos)</span>
+                                <span className="font-bold text-destructive">
+                                    -{formatCurrency(productCost)}
                                 </span>
                             </div>
 
                             <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
-                                <span className="font-medium">Custo de Mercadoria (Est.)</span>
+                                <span className="font-medium">Embalagem (R$ 1,00 por unidade)</span>
                                 <span className="font-bold text-destructive">
-                                    -{formatCurrency(productCost)}
+                                    -{formatCurrency(packagingCost)}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/10">
+                                <span className="font-medium">Impostos da Empresa (10% dos recebidos)</span>
+                                <span className="font-bold text-destructive">
+                                    -{formatCurrency(companyTaxes)}
                                 </span>
                             </div>
                         </div>
@@ -226,7 +200,7 @@ export function FinancialAnalysis({
                     {/* Receita Líquida */}
                     <div className="relative p-5 rounded-3xl bg-success/10 border border-success/20 overflow-hidden shadow-sm">
                         <div className="relative z-10">
-                            <div className="text-[10px] font-bold text-success uppercase tracking-widest mb-2">Lucro Líquido Final</div>
+                            <div className="text-[10px] font-bold text-success uppercase tracking-widest mb-2">Lucro Estimado Final</div>
                             <div className="text-3xl font-black text-success">
                                 {formatCurrency(netRevenue)}
                             </div>
@@ -244,8 +218,8 @@ export function FinancialAnalysis({
                         <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Projeção Próximos 30 Dias</div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="text-center">
-                                <div className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Faturamento</div>
-                                <div className="text-sm font-black">{formatCurrency(monthlyProjection)}</div>
+                                <div className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Recebido</div>
+                                <div className="text-sm font-black">{formatCurrency(monthlyReceivedProjection)}</div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[9px] font-bold text-success/80 uppercase mb-1">Lucro Projetado</div>

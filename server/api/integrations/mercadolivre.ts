@@ -2170,6 +2170,17 @@ const fetchDailySalesFromDb = async (workspaceId: string, dateFromKey: string, d
     const totalSales = dailySales.reduce((sum, d) => sum + Number(d.sales || 0), 0);
     const totalRevenue = dailySales.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
     const totalOrders = dailySales.reduce((sum, d) => sum + Number(d.orders || 0), 0);
+    const financialRows = await pool.query(
+        `
+        select order_json, total_amount, paid_amount
+        from ml_orders
+        where workspace_id = $1
+          and date_created >= $2
+          and date_created <= $3
+          and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal]
+    );
 
     return {
         dailySales,
@@ -2226,6 +2237,29 @@ const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
     const totalSales = dailySales.reduce((sum, d) => sum + Number(d.sales || 0), 0);
     const totalRevenue = dailySales.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
     const totalOrders = dailySales.reduce((sum, d) => sum + Number(d.orders || 0), 0);
+    const financialRows = await pool.query(
+        `
+        select order_json, total_amount, paid_amount
+        from ml_orders
+        where workspace_id = $1
+          and date_created >= $2
+          and date_created <= $3
+          and coalesce(lower(status), '') not in ('cancelled', 'canceled')
+        `,
+        [workspaceId, range.dateFromFinal, range.dateToFinal]
+    );
+
+    const totalNetReceivedAmount = financialRows.rows.reduce((sum: number, row: any) => {
+        const baseOrder = row.order_json && typeof row.order_json === "object"
+            ? row.order_json
+            : {
+                total_amount: row.total_amount,
+                paid_amount: row.paid_amount,
+            };
+        const financialSummary = buildOrderFinancialSummary(baseOrder);
+        const fallbackNetReceivedAmount = Math.max(0, financialSummary.paidAmount - financialSummary.saleFee);
+        return sum + (financialSummary.netReceivedAmount ?? fallbackNetReceivedAmount);
+    }, 0);
 
     const buyersRes = await pool.query(
         `
@@ -2309,7 +2343,7 @@ const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
         revenue: Number(row.revenue || 0),
     }));
 
-    const totalNetIncome = totalRevenue;
+    const totalNetIncome = totalNetReceivedAmount;
 
     return {
         totalSales,
@@ -2321,6 +2355,7 @@ const fetchMetricsFromDb = async (workspaceId: string, range: MetricsRange) => {
         canceledRevenue: Number(canceledRes.rows[0]?.canceled_revenue || 0),
         totalSaleFees: 0,
         totalShippingCosts: 0,
+        totalNetReceivedAmount,
         totalNetIncome,
         averageUnitPrice,
         averageOrderPrice,
@@ -2542,6 +2577,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
     let canceledRevenue = 0;
     let totalSaleFees = 0;
     let totalShippingCosts = 0;
+    let totalNetReceivedAmount = 0;
     const salesTimeSeries: Array<{ date: string; sales: number; revenue: number; visits: number }> = [];
     const hourlySales: Array<{ date: string; hour: number; sales: number; revenue: number }> = [];
     const uniqueBuyers = new Set<string>();
@@ -2697,6 +2733,12 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         allOrders.length = 0;
         allOrders.push(...uniqueOrders);
 
+        try {
+            await enrichOrdersWithPaymentDetails(String(workspaceId), allOrders);
+        } catch (err) {
+            console.warn("[Metrics] Failed to enrich order payments:", formatAxiosError(err));
+        }
+
         // Fetch shipment details for all orders to get real shipping costs
         const shipmentIds = allOrders
             .map(o => o.shipping?.id)
@@ -2813,8 +2855,8 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
             // Usar data local para agrupar vendas (alinha com a percepção do usuário "Hoje")
             const dateKey = formatBrazilDateKey(orderDate);
             const totalQuantity = order.order_items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
-            // Priorizar total_amount para alinhar com a lista de pedidos e evitar discrepâncias com paid_amount (que pode incluir juros/taxas extras)
-            const totalAmount = order.total_amount || order.paid_amount || 0;
+            const financialSummary = buildOrderFinancialSummary(order);
+            const totalAmount = financialSummary.totalAmount;
 
             if (!salesByDay.has(dateKey)) {
                 salesByDay.set(dateKey, { sales: 0, revenue: 0, orders: 0 });
@@ -2851,24 +2893,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 uniqueBuyers.add(buyerId);
             }
 
-            // Calcular taxas de venda
-            let saleFee = 0;
-            if (order.order_items && Array.isArray(order.order_items)) {
-                saleFee = order.order_items.reduce((sum: number, item: any) => sum + (item.sale_fee || 0), 0);
-            }
-            if (saleFee === 0 && order.payments && Array.isArray(order.payments)) {
-                order.payments.forEach((p: any) => {
-                    if (p.fee_details && Array.isArray(p.fee_details)) {
-                         p.fee_details.forEach((f: any) => {
-                             if (f.fee_payer === 'collector') { // Pago pelo vendedor
-                                 saleFee += f.amount;
-                             }
-                         });
-                    } else if (p.marketplace_fee) {
-                         saleFee += p.marketplace_fee;
-                    }
-                });
-            }
+            const saleFee = financialSummary.saleFee;
             totalSaleFees += saleFee;
 
             // Calcular custo de envio
@@ -2877,6 +2902,9 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
                 shippingCost = shipmentCostMap.get(String(order.shipping.id)) || 0;
             }
             totalShippingCosts += shippingCost;
+
+            const fallbackNetReceivedAmount = Math.max(0, financialSummary.paidAmount - saleFee);
+            totalNetReceivedAmount += financialSummary.netReceivedAmount ?? fallbackNetReceivedAmount;
 
             // Hourly aggregation (somente pedidos válidos)
             const d = new Date(orderDate);
@@ -3127,6 +3155,7 @@ async function fetchMetricsInternal(workspaceId: string, days: number = 30, date
         canceledRevenue,
         totalSaleFees,
         totalShippingCosts,
+        totalNetReceivedAmount,
         totalNetIncome,
         averageUnitPrice,
         averageOrderPrice,

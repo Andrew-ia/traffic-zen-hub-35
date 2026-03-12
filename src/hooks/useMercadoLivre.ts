@@ -55,6 +55,7 @@ export interface MercadoLivreMetrics {
     totalVisits: number;
     totalSaleFees?: number;
     totalShippingCosts?: number;
+    totalNetReceivedAmount?: number;
     totalNetIncome?: number;
     averageUnitPrice?: number;
     averageOrderPrice?: number;

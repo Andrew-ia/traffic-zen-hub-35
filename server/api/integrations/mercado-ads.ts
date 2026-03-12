@@ -13,9 +13,12 @@ router.get('/campaigns', async (req, res) => {
   try {
     const { id: workspaceId } = resolveWorkspaceId(req);
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+    const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined;
+    const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined;
+    const range = dateFrom && dateTo ? { dateFrom, dateTo } : undefined;
 
     const [{ campaigns, metrics }, curves] = await Promise.all([
-      automation.listCampaigns(workspaceId),
+      automation.listCampaigns(workspaceId, range),
       automation.listCurves(workspaceId),
     ]);
 

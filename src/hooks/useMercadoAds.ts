@@ -113,10 +113,13 @@ const getAuthHeaders = (token?: string | null): HeadersInit => {
   };
 };
 
-export function useMercadoAdsCampaigns(workspaceId: string | null) {
+export function useMercadoAdsCampaigns(
+  workspaceId: string | null,
+  range?: { dateFrom?: string; dateTo?: string },
+) {
   const { token } = useAuth();
   return useQuery<CampaignsResponse>({
-    queryKey: ["mercado-ads", "campaigns", workspaceId, token],
+    queryKey: ["mercado-ads", "campaigns", workspaceId, token, range?.dateFrom, range?.dateTo],
     enabled: !!workspaceId && !!token,
     queryFn: async () => {
       if (!workspaceId) throw new Error("workspaceId is required");
@@ -127,7 +130,13 @@ export function useMercadoAdsCampaigns(workspaceId: string | null) {
          console.warn("⚠️ [useMercadoAds] Token missing in headers!");
       }
 
-      const resp = await fetch(`/api/integrations/mercado-ads/campaigns?workspaceId=${workspaceId}`, {
+      const params = new URLSearchParams({
+        workspaceId,
+        ...(range?.dateFrom ? { dateFrom: range.dateFrom } : {}),
+        ...(range?.dateTo ? { dateTo: range.dateTo } : {}),
+      });
+
+      const resp = await fetch(`/api/integrations/mercado-ads/campaigns?${params.toString()}`, {
         headers,
       });
       if (!resp.ok) {

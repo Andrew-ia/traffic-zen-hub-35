@@ -52,6 +52,7 @@ import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivit
 import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
 import { QuickReplyQuestions } from "@/components/mercadolivre/QuickReplyQuestions";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { useMercadoAdsCampaigns } from "@/hooks/useMercadoAds";
 import type { DateRange } from "react-day-picker";
 
 const formatCurrency = (value: number, fractionDigits: number = 0) =>
@@ -233,6 +234,10 @@ export default function MercadoLivreNew() {
     );
     const { data: products } = useMercadoLivreProducts(workspaceId);
     const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, resolvedRange.days);
+    const { data: adsCampaignsData } = useMercadoAdsCampaigns(
+        workspaceId,
+        { dateFrom: period.start_date, dateTo: period.end_date }
+    );
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
         period.start_date,
@@ -1399,8 +1404,8 @@ export default function MercadoLivreNew() {
                         totalRevenue={totalRevenue}
                         totalSales={totalSales}
                         loading={metricsLoading}
-                        realTotalFees={metrics?.totalSaleFees}
-                        realTotalShippingCosts={metrics?.totalShippingCosts}
+                        realTotalNetReceivedAmount={metrics?.totalNetReceivedAmount}
+                        realTotalAdsSpend={adsCampaignsData?.metrics?.summary?.cost}
                     />
                 </div>
             </div>
