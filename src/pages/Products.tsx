@@ -1,6 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useMercadoLivreProducts, useToggleMercadoLivreProduct, useUpdateMercadoLivrePrice } from "@/hooks/useMercadoLivre";
+import {
+    useMercadoLivrePricingControl,
+    useMercadoLivreProducts,
+    useToggleMercadoLivreProduct,
+    useUpdateMercadoLivrePrice,
+    useUpdateMercadoLivrePricingControl
+} from "@/hooks/useMercadoLivre";
 import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -78,7 +84,9 @@ export default function Products() {
     const [pdfFormat, setPdfFormat] = useState<"a4" | "10x15">("a4");
     const [priceDialog, setPriceDialog] = useState<{ id: string; title: string; price: number } | null>(null);
     const [priceDraft, setPriceDraft] = useState("");
+    const [costDraft, setCostDraft] = useState("");
     const [toggleDialog, setToggleDialog] = useState<{ id: string; title: string; nextStatus: "active" | "paused" } | null>(null);
+    const hydratedCostDialogRef = useRef<string | null>(null);
 
     const {
         data: productsData,
@@ -88,7 +96,12 @@ export default function Products() {
         isFetching
     } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch);
     const updatePriceMutation = useUpdateMercadoLivrePrice();
+    const updatePricingControlMutation = useUpdateMercadoLivrePricingControl();
     const toggleStatusMutation = useToggleMercadoLivreProduct();
+    const pricingControlQuery = useMercadoLivrePricingControl(workspaceId, priceDialog?.id || null, {
+        enabled: Boolean(priceDialog?.id),
+        refreshTodaySpend: false,
+    });
 
     const categoryOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -149,6 +162,12 @@ export default function Products() {
     const parsePrice = (value: string) => {
         const normalized = value.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
         return Number(normalized);
+    };
+
+    const parseOptionalMoney = (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        return parsePrice(trimmed);
     };
 
     const getCategoryDisplay = (product: any) => {
@@ -369,12 +388,14 @@ export default function Products() {
     };
 
     const handleOpenPriceDialog = (product: any) => {
+        hydratedCostDialogRef.current = null;
         setPriceDialog({
             id: product.id,
             title: product.title,
             price: Number(product.price || 0),
         });
         setPriceDraft(String(product.price || ""));
+        setCostDraft("");
     };
 
     const handleApplyPrice = async () => {
@@ -389,26 +410,121 @@ export default function Products() {
             return;
         }
 
-        try {
-            await updatePriceMutation.mutateAsync({
-                workspaceId,
-                productId: priceDialog.id,
-                price: priceValue,
-            });
+        const costValue = parseOptionalMoney(costDraft);
+        if (costValue !== null && (!Number.isFinite(costValue) || costValue < 0)) {
             toast({
-                title: "Preço atualizado",
-                description: `${priceDialog.title} → ${formatCurrency(priceValue)}`,
+                title: "Custo inválido",
+                description: "Informe um custo maior ou igual a zero.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        const currentCostPrice = pricingControlQuery.data?.controls.costPrice ?? null;
+        const priceChanged = Math.abs(priceValue - priceDialog.price) > 0.0001;
+        const costChanged = currentCostPrice === null
+            ? costValue !== null
+            : costValue === null || Math.abs(costValue - currentCostPrice) > 0.0001;
+
+        if (!priceChanged && !costChanged) {
+            toast({
+                title: "Sem alterações",
+                description: "Preço e custo já estão com esses valores.",
             });
             setPriceDialog(null);
             setPriceDraft("");
+            setCostDraft("");
+            return;
+        }
+
+        let priceUpdated = false;
+        let costUpdated = false;
+        let priceError: string | null = null;
+        let costError: string | null = null;
+
+        try {
+            if (priceChanged) {
+                try {
+                    await updatePriceMutation.mutateAsync({
+                        workspaceId,
+                        productId: priceDialog.id,
+                        price: priceValue,
+                    });
+                    priceUpdated = true;
+                } catch (err: any) {
+                    priceError = err?.message || "Não foi possível atualizar o preço.";
+                }
+            }
+
+            if (costChanged) {
+                try {
+                    await updatePricingControlMutation.mutateAsync({
+                        workspaceId,
+                        mlItemId: priceDialog.id,
+                        controls: {
+                            costPrice: costValue,
+                        },
+                    });
+                    costUpdated = true;
+                } catch (err: any) {
+                    costError = err?.message || "Não foi possível atualizar o custo.";
+                }
+            }
+
+            if (priceError || costError) {
+                const partialSuccess = priceUpdated || costUpdated;
+                toast({
+                    title: partialSuccess ? "Atualização parcial" : "Falha ao atualizar",
+                    description: [
+                        priceUpdated ? `Preço salvo em ${formatCurrency(priceValue)}` : null,
+                        costUpdated ? `Custo salvo em ${costValue === null ? "Sem custo" : formatCurrency(costValue)}` : null,
+                        priceError,
+                        costError,
+                    ].filter(Boolean).join(" • "),
+                    variant: partialSuccess ? "default" : "destructive",
+                });
+                return;
+            }
+
+            toast({
+                title: priceChanged && costChanged
+                    ? "Preço e custo atualizados"
+                    : priceChanged
+                        ? "Preço atualizado"
+                        : "Custo atualizado",
+                description: [
+                    priceChanged ? `${priceDialog.title} → ${formatCurrency(priceValue)}` : null,
+                    costChanged ? `Custo → ${costValue === null ? "Sem custo" : formatCurrency(costValue)}` : null,
+                ].filter(Boolean).join(" • "),
+            });
+            setPriceDialog(null);
+            setPriceDraft("");
+            setCostDraft("");
         } catch (err: any) {
             toast({
-                title: "Falha ao atualizar preço",
-                description: err?.message || "Não foi possível atualizar o preço.",
+                title: "Falha ao atualizar",
+                description: err?.message || "Não foi possível salvar as alterações.",
                 variant: "destructive",
             });
         }
     };
+
+    useEffect(() => {
+        if (!priceDialog) {
+            hydratedCostDialogRef.current = null;
+            setCostDraft("");
+            return;
+        }
+
+        const queryItemId = String(pricingControlQuery.data?.item?.mlItemId || "").trim().toUpperCase();
+        const dialogItemId = String(priceDialog.id || "").trim().toUpperCase();
+        if (!queryItemId || queryItemId !== dialogItemId) return;
+        if (hydratedCostDialogRef.current === dialogItemId) return;
+
+        const currentCost = pricingControlQuery.data?.controls.costPrice;
+        setCostDraft(currentCost === null || currentCost === undefined ? "" : String(currentCost));
+        hydratedCostDialogRef.current = dialogItemId;
+    }, [priceDialog, pricingControlQuery.data]);
 
     const handleConfirmToggle = async () => {
         if (!toggleDialog || !workspaceId) return;
@@ -629,7 +745,7 @@ export default function Products() {
                         </div>
                     ) : (
                         <ScrollArea className="h-[calc(100vh-350px)] w-full">
-                            <div className="min-w-[1400px]"> {/* Horizontal scroll */}
+                            <div className="min-w-[1520px]"> {/* Horizontal scroll */}
                                 <Table>
                                     <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
                                         <TableRow className="hover:bg-muted/50">
@@ -637,6 +753,7 @@ export default function Products() {
                                             <TableHead className="w-[300px]">Produto / Categoria</TableHead>
                                             <TableHead className="w-[100px]">Status</TableHead>
                                             <TableHead className="w-[120px] text-right">Preço</TableHead>
+                                            <TableHead className="w-[120px] text-right">Custo</TableHead>
                                             <TableHead className="w-[100px] text-right">Estoque</TableHead>
                                             <TableHead className="w-[100px] text-right">Vendas</TableHead>
                                             <TableHead className="w-[100px] text-right">Receita</TableHead>
@@ -713,6 +830,19 @@ export default function Products() {
                                                         {/* Preço */}
                                                         <TableCell className="text-right align-middle font-semibold">
                                                             {formatCurrency(product.price)}
+                                                        </TableCell>
+
+                                                        {/* Custo */}
+                                                        <TableCell className="text-right align-middle">
+                                                            {pricingSummary?.costConfigured && pricingSummary.costPrice != null ? (
+                                                                <div className="font-semibold text-slate-700">
+                                                                    {formatCurrency(pricingSummary.costPrice)}
+                                                                </div>
+                                                            ) : (
+                                                                <Badge variant="outline" className="text-[10px]">
+                                                                    Sem custo
+                                                                </Badge>
+                                                            )}
                                                         </TableCell>
 
                                                         {/* Estoque */}
@@ -1119,12 +1249,13 @@ export default function Products() {
                 if (!open) {
                     setPriceDialog(null);
                     setPriceDraft("");
+                    setCostDraft("");
                 }
             }}
             >
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Atualizar preço</DialogTitle>
+                    <DialogTitle>Atualizar preço e custo</DialogTitle>
                     <DialogDescription>
                         {priceDialog?.title}
                     </DialogDescription>
@@ -1143,20 +1274,37 @@ export default function Products() {
                             inputMode="decimal"
                         />
                     </div>
+                    <div>
+                        <div className="text-xs text-muted-foreground mb-1">Custo do produto</div>
+                        <Input
+                            value={costDraft}
+                            onChange={(event) => setCostDraft(event.target.value)}
+                            placeholder="Ex: 12,90"
+                            inputMode="decimal"
+                            disabled={pricingControlQuery.isLoading}
+                        />
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                            {pricingControlQuery.isLoading
+                                ? "Carregando custo atual..."
+                                : pricingControlQuery.data?.controls.costPrice != null
+                                    ? `Custo atual: ${formatCurrency(pricingControlQuery.data.controls.costPrice)}`
+                                    : "Sem custo configurado. Esse valor afeta apenas a análise interna."}
+                        </div>
+                    </div>
                 </div>
                 <DialogFooter className="mt-4">
                     <Button
                         variant="outline"
                         onClick={() => setPriceDialog(null)}
-                        disabled={updatePriceMutation.isPending}
+                        disabled={updatePriceMutation.isPending || updatePricingControlMutation.isPending}
                     >
                         Cancelar
                     </Button>
                     <Button
                         onClick={handleApplyPrice}
-                        disabled={updatePriceMutation.isPending}
+                        disabled={updatePriceMutation.isPending || updatePricingControlMutation.isPending}
                     >
-                        {updatePriceMutation.isPending ? "Salvando..." : "Salvar preço"}
+                        {updatePriceMutation.isPending || updatePricingControlMutation.isPending ? "Salvando..." : "Salvar alterações"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

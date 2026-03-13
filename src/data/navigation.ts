@@ -6,6 +6,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Package,
+  Star,
   Warehouse,
   FileText,
   Flame,
@@ -33,6 +34,7 @@ export const mainNavigation: NavigationEntry[] = [
     icon: ShoppingBag,
     children: [
       { name: "Operações", href: "/mercado-livre/operacoes", icon: AlertCircle, keywords: ["operacoes", "acoes", "pendencias", "dia"] },
+      { name: "Avaliações", href: "/mercado-livre/comentarios", icon: Star, keywords: ["avaliacoes", "comentarios", "reviews", "estrelas", "clientes", "anuncios"] },
       { name: "Anúncios", href: "/products", icon: Package, keywords: ["anuncios", "ml", "listings"] },
       { name: "Oportunidades de Volume", href: "/mercado-livre/oportunidades-volume", icon: Flame, keywords: ["volume", "oportunidades", "growth", "ml"] },
       { name: "Mercado Ads", href: "/mercado-ads/manual", icon: Target, keywords: ["ads", "campanhas", "curvas", "abc", "mercado ads"] },

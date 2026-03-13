@@ -90,6 +90,7 @@ export type ProductPricingListItemSummary = {
   mlItemId: string;
   hasControls: boolean;
   costConfigured: boolean;
+  costPrice: number | null;
   profitPerUnitCurrentPrice: number | null;
   marginCurrentPrice: number | null;
   estimatedAdsNetProfit30d: number | null;
@@ -521,6 +522,7 @@ export async function listProductPricingSummariesForItems(
       mlItemId,
       hasControls: Boolean(control),
       costConfigured,
+      costPrice: costConfigured ? round(controls.costPrice, 2) : null,
       profitPerUnitCurrentPrice: unitProfit,
       marginCurrentPrice: calculations.marginCurrentPrice,
       estimatedAdsNetProfit30d: adsNetProfit30d,

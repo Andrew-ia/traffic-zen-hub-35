@@ -6582,13 +6582,19 @@ router.get("/search/advanced", async (req, res) => {
 });
 
 /**
- * GET /api/integrations/mercadolivre/questions
- * Retorna perguntas recebidas
+ * GET /api/integrations/mercadolivre/reviews
+ * Retorna reviews/comentarios dos anuncios com estrelas
  */
-router.get("/questions", async (req, res) => {
+router.get("/reviews", async (req, res) => {
     try {
         const { id: targetWorkspaceId } = resolveWorkspaceId(req);
-        const { days = 30 } = req.query as any;
+        const { days = 365 } = req.query as any;
+        const normalizedDays = String(days || "365").trim().toLowerCase();
+        const daysNumber = normalizedDays === "all"
+            ? null
+            : Math.min(3650, Math.max(1, Number(days || 365)));
+        const reviewCutoffDate = daysNumber ? startOfDay(subDays(new Date(), daysNumber - 1)) : null;
+        const candidateLimit = Math.min(120, Math.max(20, Number((req.query as any).candidateLimit) || 80));
 
         if (!targetWorkspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
@@ -6602,18 +6608,329 @@ router.get("/questions", async (req, res) => {
             });
         }
 
-        // 1. Buscar perguntas recentes (sem filtro de status) para lista e histórico
-        const recentQuestionsResponse = await requestWithAuth<any>(
-            String(targetWorkspaceId),
-            `${MERCADO_LIVRE_API_BASE}/questions/search`,
-            {
-                params: {
-                    seller_id: credentials.userId,
-                    limit: 50,
-                    sort: 'date_created_desc'
-                },
-            }
+        const pool = getPool();
+        const candidateResponse = await pool.query(
+            `
+            select
+                oi.item_id,
+                max(oi.title) as title,
+                coalesce(sum(oi.quantity), 0)::int as units_sold,
+                max(o.date_created) as last_sale_at
+            from ml_order_items oi
+            left join ml_orders o
+              on o.workspace_id = oi.workspace_id
+             and o.order_id = oi.order_id
+            where oi.workspace_id = $1
+              and (
+                o.date_created is null
+                or o.date_created >= now() - ($2::text || ' days')::interval
+              )
+            group by oi.item_id
+            order by max(o.date_created) desc nulls last, sum(oi.quantity) desc
+            limit $3
+            `,
+            [String(targetWorkspaceId), "365", candidateLimit]
         );
+
+        let candidateItems = candidateResponse.rows.map((row: any) => ({
+            itemId: String(row.item_id || "").trim(),
+            title: row.title ? String(row.title) : null,
+            unitsSold: Number(row.units_sold || 0),
+            lastSaleAt: row.last_sale_at ? new Date(row.last_sale_at).toISOString() : null,
+        })).filter((row: any) => row.itemId);
+
+        if (!candidateItems.length) {
+            const fallbackResponse = await requestWithAuth<any>(
+                String(targetWorkspaceId),
+                `${MERCADO_LIVRE_API_BASE}/users/${credentials.userId}/items/search`,
+                {
+                    params: {
+                        status: "active",
+                        limit: Math.min(candidateLimit, 50),
+                        offset: 0,
+                    },
+                }
+            );
+
+            candidateItems = (Array.isArray(fallbackResponse?.results) ? fallbackResponse.results : [])
+                .map((itemId: any) => ({
+                    itemId: String(itemId || "").trim(),
+                    title: null,
+                    unitsSold: 0,
+                    lastSaleAt: null,
+                }))
+                .filter((row: any) => row.itemId);
+        }
+
+        const pickReviewMediaUrl = (media: any) => {
+            const variations = Array.isArray(media?.variations) ? media.variations : [];
+            const preferredSizes = ["400x400", "375x501", "320x320", "280x280"];
+            for (const size of preferredSizes) {
+                const match = variations.find((variation: any) => variation?.size === size && variation?.url);
+                if (match?.url) return String(match.url);
+            }
+            const firstWithUrl = variations.find((variation: any) => variation?.url);
+            return firstWithUrl?.url ? String(firstWithUrl.url) : null;
+        };
+
+        const chunkArray = <T>(items: T[], size: number) => (
+            Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+                items.slice(index * size, index * size + size)
+            )
+        );
+
+        const reviewItems: any[] = [];
+        const reviewChunks = chunkArray(candidateItems, 4);
+
+        for (const chunk of reviewChunks) {
+            const results = await Promise.all(chunk.map(async (candidate) => {
+                try {
+                    const reviewResponse = await requestWithAuth<any>(
+                        String(targetWorkspaceId),
+                        `${MERCADO_LIVRE_API_BASE}/reviews/item/${candidate.itemId}`,
+                        {
+                            params: {
+                                limit: 10,
+                            },
+                        }
+                    );
+
+                    const rawReviews = Array.isArray(reviewResponse?.reviews) ? reviewResponse.reviews : [];
+                    const normalizedReviews = rawReviews
+                        .map((review: any) => {
+                            const mediaUrls = (Array.isArray(review?.media) ? review.media : [])
+                                .map(pickReviewMediaUrl)
+                                .filter(Boolean);
+
+                            return {
+                                id: String(review?.id || "").trim(),
+                                title: review?.title ? String(review.title) : null,
+                                content: review?.content ? String(review.content) : null,
+                                rate: toFiniteNumber(review?.rate, 0),
+                                dateCreated: review?.date_created ? String(review.date_created) : null,
+                                buyingDate: review?.buying_date ? String(review.buying_date) : null,
+                                orderId: review?.order_id ? String(review.order_id) : null,
+                                mediaUrls,
+                            };
+                        })
+                        .filter((review: any) => {
+                            if (!review.id || !review.dateCreated) return false;
+                            if (!review.title && !review.content) return false;
+                            if (!reviewCutoffDate) return true;
+                            const parsedDate = new Date(review.dateCreated);
+                            if (Number.isNaN(parsedDate.getTime())) return false;
+                            return parsedDate >= reviewCutoffDate;
+                        })
+                        .sort((a: any, b: any) => {
+                            const aTime = new Date(String(a.dateCreated || "")).getTime();
+                            const bTime = new Date(String(b.dateCreated || "")).getTime();
+                            return bTime - aTime;
+                        });
+
+                    if (!normalizedReviews.length) {
+                        return null;
+                    }
+
+                    const latestReviewDate = normalizedReviews[0]?.dateCreated || null;
+
+                    return {
+                        productId: candidate.itemId,
+                        productTitle: candidate.title || candidate.itemId,
+                        productPermalink: null,
+                        productThumbnail: null,
+                        totalReviews: Number(reviewResponse?.paging?.total || 0),
+                        reviewsWithComment: Number(reviewResponse?.paging?.reviews_with_comment || normalizedReviews.length || 0),
+                        ratingAverage: Number.isFinite(Number(reviewResponse?.rating_average))
+                            ? Number(reviewResponse.rating_average)
+                            : null,
+                        stars: Number.isFinite(Number(reviewResponse?.stars))
+                            ? Number(reviewResponse.stars)
+                            : null,
+                        latestReviewDate,
+                        ratingLevels: {
+                            oneStar: Number(reviewResponse?.rating_levels?.one_star || 0),
+                            twoStar: Number(reviewResponse?.rating_levels?.two_star || 0),
+                            threeStar: Number(reviewResponse?.rating_levels?.three_star || 0),
+                            fourStar: Number(reviewResponse?.rating_levels?.four_star || 0),
+                            fiveStar: Number(reviewResponse?.rating_levels?.five_star || 0),
+                        },
+                        reviews: normalizedReviews,
+                    };
+                } catch (error: any) {
+                    console.warn(
+                        `[ML Reviews] Falha ao buscar reviews do item ${candidate.itemId}:`,
+                        error?.response?.data || error?.message || error
+                    );
+                    return null;
+                }
+            }));
+
+            reviewItems.push(...results.filter(Boolean));
+        }
+
+        if (!reviewItems.length) {
+            return res.json({
+                items: [],
+                totalReviewedItems: 0,
+                totalComments: 0,
+                scannedItems: candidateItems.length,
+                averageRating: null,
+                days: daysNumber ?? "all",
+            });
+        }
+
+        const reviewedItemIds = reviewItems.map((item) => item.productId).filter(Boolean);
+        const itemDetailsMap = new Map<string, { title: string | null; permalink: string | null; thumbnail: string | null }>();
+
+        for (const chunk of chunkArray(reviewedItemIds, 20)) {
+            try {
+                const itemsResponse = await requestWithAuth<any>(
+                    String(targetWorkspaceId),
+                    `${MERCADO_LIVRE_API_BASE}/items`,
+                    {
+                        params: {
+                            ids: chunk.join(","),
+                        },
+                    }
+                );
+
+                const itemList = Array.isArray(itemsResponse) ? itemsResponse : [];
+                itemList.forEach((entry: any) => {
+                    const item = entry?.body || entry;
+                    const itemId = String(item?.id || "").trim();
+                    if (!itemId) return;
+                    itemDetailsMap.set(itemId, {
+                        title: item?.title ? String(item.title) : null,
+                        permalink: item?.permalink ? String(item.permalink) : null,
+                        thumbnail: item?.secure_thumbnail || item?.thumbnail || null,
+                    });
+                });
+            } catch (error: any) {
+                console.warn("[ML Reviews] Falha ao enriquecer detalhes dos itens:", error?.message || error);
+            }
+        }
+
+        const enrichedItems = reviewItems
+            .map((item) => {
+                const details = itemDetailsMap.get(item.productId);
+                return {
+                    ...item,
+                    productTitle: details?.title || item.productTitle,
+                    productPermalink: details?.permalink || item.productPermalink || null,
+                    productThumbnail: details?.thumbnail || item.productThumbnail || null,
+                };
+            })
+            .sort((a, b) => {
+                const aTime = new Date(String(a.latestReviewDate || "")).getTime();
+                const bTime = new Date(String(b.latestReviewDate || "")).getTime();
+                if (bTime !== aTime) return bTime - aTime;
+                if (b.reviewsWithComment !== a.reviewsWithComment) {
+                    return b.reviewsWithComment - a.reviewsWithComment;
+                }
+                return b.totalReviews - a.totalReviews;
+            });
+
+        const weightedRating = enrichedItems.reduce((sum, item) => {
+            if (!Number.isFinite(item.ratingAverage) || item.totalReviews <= 0) return sum;
+            return sum + (Number(item.ratingAverage) * Number(item.totalReviews));
+        }, 0);
+        const totalReviewCount = enrichedItems.reduce((sum, item) => sum + Number(item.totalReviews || 0), 0);
+        const totalComments = enrichedItems.reduce((sum, item) => sum + Number(item.reviews?.length || 0), 0);
+
+        return res.json({
+            items: enrichedItems,
+            totalReviewedItems: enrichedItems.length,
+            totalComments,
+            scannedItems: candidateItems.length,
+            averageRating: totalReviewCount > 0 ? roundMoney(weightedRating / totalReviewCount) : null,
+            days: daysNumber ?? "all",
+        });
+    } catch (error: any) {
+        return res.status(500).json({
+            error: "Failed to fetch Mercado Livre reviews",
+            details: error.response?.data || error.message,
+        });
+    }
+});
+
+/**
+ * GET /api/integrations/mercadolivre/questions
+ * Retorna perguntas recebidas
+ */
+router.get("/questions", async (req, res) => {
+    try {
+        const { id: targetWorkspaceId } = resolveWorkspaceId(req);
+        const { days = 30 } = req.query as any;
+        const daysNumber = Math.min(365, Math.max(1, Number(days || 30)));
+        const cutoffDate = new Date();
+        cutoffDate.setHours(0, 0, 0, 0);
+        cutoffDate.setDate(cutoffDate.getDate() - (daysNumber - 1));
+
+        if (!targetWorkspaceId) {
+            return res.status(400).json({ error: "Workspace ID is required" });
+        }
+
+        const credentials = await getMercadoLivreCredentials(String(targetWorkspaceId));
+
+        if (!credentials) {
+            return res.status(401).json({
+                error: "Mercado Livre not connected for this workspace",
+            });
+        }
+
+        // 1. Buscar perguntas recentes paginadas e aplicar recorte real por periodo
+        const uniqueQuestions = new Map<string, any>();
+        const pageLimit = 50;
+        const maxPages = 5;
+        let offset = 0;
+        let pagingTotal = 0;
+
+        for (let page = 0; page < maxPages; page += 1) {
+            const recentQuestionsResponse = await requestWithAuth<any>(
+                String(targetWorkspaceId),
+                `${MERCADO_LIVRE_API_BASE}/questions/search`,
+                {
+                    params: {
+                        seller_id: credentials.userId,
+                        limit: pageLimit,
+                        offset,
+                        sort: 'date_created_desc',
+                        api_version: 4,
+                    },
+                }
+            );
+
+            const batch = Array.isArray(recentQuestionsResponse?.questions)
+                ? recentQuestionsResponse.questions
+                : [];
+            pagingTotal = Number(recentQuestionsResponse?.paging?.total || pagingTotal || 0);
+
+            if (!batch.length) {
+                break;
+            }
+
+            let reachedQuestionsOutsideRange = false;
+
+            batch.forEach((question: any) => {
+                const questionId = String(question?.id || "").trim();
+                if (!questionId || uniqueQuestions.has(questionId)) return;
+
+                const questionDate = new Date(String(question?.date_created || ""));
+                if (Number.isNaN(questionDate.getTime())) return;
+
+                if (questionDate >= cutoffDate) {
+                    uniqueQuestions.set(questionId, question);
+                } else {
+                    reachedQuestionsOutsideRange = true;
+                }
+            });
+
+            if (batch.length < pageLimit || reachedQuestionsOutsideRange || offset + pageLimit >= pagingTotal) {
+                break;
+            }
+
+            offset += pageLimit;
+        }
 
         // 2. Buscar contagem de perguntas pendentes (backlog real)
         const unansweredResponse = await requestWithAuth<any>(
@@ -6628,12 +6945,16 @@ router.get("/questions", async (req, res) => {
             }
         );
 
-        const questions = recentQuestionsResponse.questions || [];
+        const questions = Array.from(uniqueQuestions.values()).sort((a: any, b: any) => {
+            const aTime = new Date(String(a?.date_created || "")).getTime();
+            const bTime = new Date(String(b?.date_created || "")).getTime();
+            return bTime - aTime;
+        });
         const totalUnanswered = unansweredResponse.paging?.total ?? 0;
 
         // Collect unique item IDs
         const itemIds = [...new Set(questions.map((q: any) => q.item_id))].filter(Boolean);
-        const itemTitlesMap = new Map<string, string>();
+        const itemDetailsMap = new Map<string, { title: string; permalink: string | null; thumbnail: string | null }>();
 
         // Fetch items in chunks to avoid URL length limits
         const chunkArray = (arr: any[], size: number) => {
@@ -6658,7 +6979,11 @@ router.get("/questions", async (req, res) => {
                     itemsResp.forEach((itemWrapper: any) => {
                         const item = itemWrapper.body || itemWrapper;
                         if (item && item.id && item.title) {
-                            itemTitlesMap.set(item.id, item.title);
+                            itemDetailsMap.set(item.id, {
+                                title: item.title,
+                                permalink: item.permalink || null,
+                                thumbnail: item.secure_thumbnail || item.thumbnail || null,
+                            });
                         }
                     });
                 }
@@ -6669,14 +6994,24 @@ router.get("/questions", async (req, res) => {
 
         // Formatar perguntas
         const formattedQuestions = questions.map((q: any) => {
+            const itemDetails = itemDetailsMap.get(q.item_id);
+            const dateCreated = String(q.date_created || "");
+            const questionDate = new Date(dateCreated);
             return {
                 id: q.id,
                 text: q.text,
                 productId: q.item_id,
-                productTitle: itemTitlesMap.get(q.item_id) || "Produto desconhecido",
-                date: new Date(q.date_created).toLocaleDateString("pt-BR"),
+                productTitle: itemDetails?.title || "Produto desconhecido",
+                productPermalink: itemDetails?.permalink || null,
+                productThumbnail: itemDetails?.thumbnail || null,
+                date: Number.isNaN(questionDate.getTime())
+                    ? "Data indisponível"
+                    : questionDate.toLocaleDateString("pt-BR"),
+                dateCreated,
                 answered: q.status === "ANSWERED",
                 answer: q.answer?.text || undefined,
+                fromName: q.from?.nickname || q.from?.id || null,
+                status: q.status || null,
             };
         });
 
@@ -6684,6 +7019,7 @@ router.get("/questions", async (req, res) => {
             items: formattedQuestions,
             total: formattedQuestions.length,
             unanswered: totalUnanswered,
+            days: daysNumber,
         });
     } catch (error: any) {
         console.error("Error fetching Mercado Livre questions:", error);

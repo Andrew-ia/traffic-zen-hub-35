@@ -17,6 +17,7 @@ import MercadoLivreFullAnalytics from "./pages/MercadoLivreFullAnalytics";
 import MercadoLivreGrowthReport from "./pages/MercadoLivreGrowthReport";
 import MercadoLivreVolumeOpportunities from "./pages/MercadoLivreVolumeOpportunities";
 import MercadoLivreOperations from "./pages/MercadoLivreOperations";
+import MercadoLivreComments from "./pages/MercadoLivreComments";
 import MercadoAdsManual from "./pages/MercadoAdsManual";
 import Integrations from "./pages/Integrations";
 import ShopeeAgora from "./pages/ShopeeAgora";
@@ -75,6 +76,7 @@ const App = () => (
                 <Route path="/gerador-looks" element={<RequireAuth><VirtualTryOn /></RequireAuth>} />
                 <Route path="/mercado-livre" element={<RequireAuth><Navigate to="/" replace /></RequireAuth>} />
                 <Route path="/mercado-livre/operacoes" element={<RequireAuth><MercadoLivreOperations /></RequireAuth>} />
+                <Route path="/mercado-livre/comentarios" element={<RequireAuth><MercadoLivreComments /></RequireAuth>} />
                 <Route path="/mercado-livre-analyzer" element={<RequireAuth><MercadoLivreAnalyzer /></RequireAuth>} />
                 <Route path="/mercado-livre-price-calculator" element={<RequireAuth><MercadoLivrePriceCalculator /></RequireAuth>} />
             <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />

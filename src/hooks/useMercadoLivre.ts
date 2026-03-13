@@ -197,6 +197,7 @@ export interface MercadoLivreProduct {
         mlItemId: string;
         hasControls: boolean;
         costConfigured: boolean;
+        costPrice: number | null;
         profitPerUnitCurrentPrice: number | null;
         marginCurrentPrice: number | null;
         estimatedAdsNetProfit30d: number | null;
@@ -586,9 +587,54 @@ export interface MercadoLivreQuestion {
     text: string;
     productId: string;
     productTitle: string;
+    productPermalink?: string | null;
+    productThumbnail?: string | null;
     date: string;
+    dateCreated?: string;
     answered: boolean;
     answer?: string;
+    fromName?: string | null;
+    status?: string | null;
+}
+
+export interface MercadoLivreProductReview {
+    id: string;
+    title?: string | null;
+    content?: string | null;
+    rate: number;
+    dateCreated: string;
+    buyingDate?: string | null;
+    orderId?: string | null;
+    mediaUrls: string[];
+}
+
+export interface MercadoLivreReviewItem {
+    productId: string;
+    productTitle: string;
+    productPermalink?: string | null;
+    productThumbnail?: string | null;
+    totalReviews: number;
+    reviewsWithComment: number;
+    ratingAverage?: number | null;
+    stars?: number | null;
+    latestReviewDate?: string | null;
+    ratingLevels: {
+        oneStar: number;
+        twoStar: number;
+        threeStar: number;
+        fourStar: number;
+        fiveStar: number;
+    };
+    reviews: MercadoLivreProductReview[];
+}
+
+export interface MercadoLivreReviewsResponse {
+    items: MercadoLivreReviewItem[];
+    totalReviewedItems: number;
+    totalComments: number;
+    scannedItems: number;
+    averageRating?: number | null;
+    days: number | "all";
 }
 
 export interface MercadoLivreTrend {
@@ -973,6 +1019,44 @@ export function useMercadoLivreQuestions(
         enabled: !!effectiveWorkspaceId && isConnected,
         retry: shouldRetry,
         staleTime: 2 * 60 * 1000, // 2 minutos (perguntas precisam de atualização mais frequente)
+    });
+}
+
+export function useMercadoLivreReviews(
+    workspaceId: string | null,
+    days: number | "all" = 365
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "reviews", effectiveWorkspaceId, days],
+        queryFn: async (): Promise<MercadoLivreReviewsResponse> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+
+            const response = await fetch(
+                `/api/integrations/mercadolivre/reviews?workspaceId=${effectiveWorkspaceId}&days=${days}`,
+                { headers: getAuthHeaders() }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch Mercado Livre reviews (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 5 * 60 * 1000,
     });
 }
 
