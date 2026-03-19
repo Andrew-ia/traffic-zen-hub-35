@@ -12,15 +12,35 @@ try {
 
 function shouldPreferPooler(): boolean {
   if (process.env.USE_SUPABASE_POOLER === 'true') return true;
+  if (process.env.USE_SUPABASE_POOLER === 'false') return false;
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) return true;
   return false;
+}
+
+function getHostname(connectionString?: string): string {
+  if (!connectionString) return '';
+  try {
+    return new URL(connectionString).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function shouldAutoPreferSupabasePooler(pooler?: string, direct?: string): boolean {
+  if (!pooler || !direct) return false;
+  const directHost = getHostname(direct);
+  if (!directHost) return false;
+
+  // Supabase direct hosts are frequently blocked or unresolved on local networks.
+  return /^db\..+\.supabase\.co$/.test(directHost);
 }
 
 export function getDatabaseUrl(): string {
   const pooler = process.env.SUPABASE_POOLER_URL;
   const direct = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  const preferPooler = shouldPreferPooler() || shouldAutoPreferSupabasePooler(pooler, direct);
 
-  const url = shouldPreferPooler()
+  const url = preferPooler
     ? (pooler || direct)
     : (direct || pooler);
 
