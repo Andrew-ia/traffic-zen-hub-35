@@ -13,6 +13,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useMercadoLivreOrderDetails } from "@/hooks/useMercadoLivreOrders";
+import type { MercadoLivreProduct } from "@/hooks/useMercadoLivre";
 
 const formatCurrency = (value: number | null | undefined, currencyId?: string) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -68,9 +69,10 @@ interface RecentActivityProps {
     date?: Date;
     onDateChange?: (date: Date | undefined) => void;
     workspaceId?: string | null;
+    products?: MercadoLivreProduct[];
 }
 
-export function RecentActivity({ orders, loading, date, onDateChange, workspaceId }: RecentActivityProps) {
+export function RecentActivity({ orders, loading, date, onDateChange, workspaceId, products = [] }: RecentActivityProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -189,6 +191,10 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                         {currentOrders.length > 0 ? (
                             currentOrders.map((order) => {
                                 const item = order.items?.[0];
+                                const currentProduct = products.find(
+                                    (product) => String(product.id || "").trim().toUpperCase() === String(item?.itemId || "").trim().toUpperCase()
+                                );
+                                const remainingStock = typeof currentProduct?.stock === "number" ? currentProduct.stock : null;
                                 const imageUrl = item?.thumbnail;
                                 const title = item?.title || `Pedido #${order.id}`;
                                 const quantity = item?.quantity || 1;
@@ -245,6 +251,14 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                                         {quantity} {quantity === 1 ? "un" : "uns"}
                                                     </p>
                                                 </div>
+                                                {remainingStock !== null && (
+                                                    <div className="flex items-center gap-1.5 bg-warning/10 px-2 py-0.5 rounded-md shrink-0">
+                                                        <Package className="h-3 w-3 text-warning" />
+                                                        <p className="text-[10px] font-bold text-warning uppercase tracking-wider">
+                                                            {remainingStock === 0 ? "Sem estoque" : `${remainingStock} un. restantes`}
+                                                        </p>
+                                                    </div>
+                                                )}
                                                 <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground font-medium shrink-0">
                                                     <Clock className="h-3 w-3 text-muted-foreground/70 mt-0.5" />
                                                     <div className="flex flex-col leading-tight">

@@ -1391,6 +1391,7 @@ export default function MercadoLivreNew() {
                         date={recentActivityDate}
                         onDateChange={setRecentActivityDate}
                         workspaceId={workspaceId}
+                        products={products?.items || []}
                     />
 
                     <QuickReplyQuestions
