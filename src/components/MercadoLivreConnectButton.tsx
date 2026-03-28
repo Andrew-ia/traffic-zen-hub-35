@@ -31,8 +31,12 @@ export default function MercadoLivreConnectButton({
 
         try {
             setIsLoading(true);
-
-            const response = await fetch(`/api/integrations/mercadolivre/auth/url?workspaceId=${currentWorkspace.id}`);
+            const redirectUri = `${window.location.origin}/integrations/mercadolivre/callback`;
+            const params = new URLSearchParams({
+                workspaceId: currentWorkspace.id,
+                redirectUri,
+            });
+            const response = await fetch(`/api/integrations/mercadolivre/auth/url?${params.toString()}`);
             const data = await response.json();
 
             if (!response.ok || !data?.authUrl) {

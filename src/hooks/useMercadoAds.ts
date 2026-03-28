@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 type MercadoAdsCampaign = {
   id: string;
   name: string;
-  curve: "A" | "B" | "C";
+  curve: "A" | "B" | "C" | null;
   campaign_type: string;
   advertiser_id: string;
   ml_campaign_id?: string | null;
@@ -157,6 +157,7 @@ export function useMercadoAdsPreview(workspaceId: string | null) {
       curve: "A" | "B" | "C";
       title?: string | null;
       sku?: string | null;
+      price?: number | null;
       reason?: string;
       action?: "active" | "paused";
       adsClicks30d?: number;
@@ -336,6 +337,54 @@ export function useApplyMercadoAdsActions() {
       queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["mercado-ads", "actions", variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", variables.workspaceId] });
+    },
+  });
+}
+
+export function useCreateMercadoAdsSuggestedCampaign() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { workspaceId: string; name?: string; budget?: number; productIds: string[] }) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/suggested-campaigns`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify(input),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to create suggested campaign");
+      }
+      return resp.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "actions", variables.workspaceId] });
+    },
+  });
+}
+
+export function useAssignMercadoAdsSuggestedCampaignToExisting() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { workspaceId: string; campaignId: string; productIds: string[] }) => {
+      const resp = await fetch(`/api/integrations/mercado-ads/suggested-campaigns/assign-existing`, {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify(input),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.details || err.error || "Failed to assign products to existing campaign");
+      }
+      return resp.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["mercado-ads", "actions", variables.workspaceId] });
     },
   });
 }

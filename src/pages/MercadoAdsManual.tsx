@@ -2,7 +2,9 @@ import { useCallback, useMemo, useState, useEffect } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   useApplyMercadoAdsActions,
+  useAssignMercadoAdsSuggestedCampaignToExisting,
   useMercadoAdsActionPlan,
+  useCreateMercadoAdsSuggestedCampaign,
   useMercadoAdsAutomationRules,
   useMercadoAdsCampaigns,
   useMercadoAdsPreview,
@@ -87,6 +89,19 @@ type PlannedAction = {
   ruleKey: string;
 };
 
+type SuggestedCampaignDraft = {
+  name: string;
+  budget: number;
+  productIds: string[];
+  totalProducts: number;
+};
+
+type SuggestedExistingCampaignDraft = {
+  campaignId: string;
+  productIds: string[];
+  totalProducts: number;
+};
+
 export default function MercadoAdsManual() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id || null;
@@ -99,6 +114,8 @@ export default function MercadoAdsManual() {
   const { data: rulesData } = useMercadoAdsAutomationRules(workspaceId);
   const updateRulesMutation = useUpdateMercadoAdsAutomationRules();
   const applyActionsMutation = useApplyMercadoAdsActions();
+  const createSuggestedCampaignMutation = useCreateMercadoAdsSuggestedCampaign();
+  const assignSuggestedCampaignToExistingMutation = useAssignMercadoAdsSuggestedCampaignToExisting();
   const { data: weeklySettingsData } = useMercadoAdsWeeklyReportSettings(workspaceId);
   const updateWeeklySettingsMutation = useUpdateMercadoAdsWeeklyReportSettings();
   const sendWeeklyReportMutation = useSendMercadoAdsWeeklyReport();
@@ -108,6 +125,10 @@ export default function MercadoAdsManual() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLabel, setConfirmLabel] = useState("");
   const [pendingActions, setPendingActions] = useState<PlannedAction[]>([]);
+  const [suggestedCampaignConfirmOpen, setSuggestedCampaignConfirmOpen] = useState(false);
+  const [pendingSuggestedCampaign, setPendingSuggestedCampaign] = useState<SuggestedCampaignDraft | null>(null);
+  const [existingCampaignConfirmOpen, setExistingCampaignConfirmOpen] = useState(false);
+  const [pendingExistingCampaign, setPendingExistingCampaign] = useState<SuggestedExistingCampaignDraft | null>(null);
   const [weeklySettingsDraft, setWeeklySettingsDraft] = useState({
     enabled: false,
     send_day: 1,
@@ -119,11 +140,16 @@ export default function MercadoAdsManual() {
   const summary = previewData?.summary || { A: 0, B: 0, C: 0 };
   const diagnostics = previewData?.diagnostics;
   const metrics = campaignsData?.metrics || null;
+  const curves = useMemo(() => campaignsData?.curves || [], [campaignsData?.curves]);
   const adsError = diagnostics?.adsMetricsError;
   const actionPlan = useMemo(() => actionPlanData?.actions || [], [actionPlanData?.actions]);
   const actionSummary = useMemo(
     () => actionPlanData?.summary || { pause: 0, promote: 0, demote: 0 },
     [actionPlanData?.summary],
+  );
+  const availableExistingCampaigns = useMemo(
+    () => (campaignsData?.campaigns || []).filter((campaign) => Boolean(campaign.ml_campaign_id)),
+    [campaignsData?.campaigns],
   );
 
   useEffect(() => {
@@ -158,12 +184,26 @@ export default function MercadoAdsManual() {
     }
     return null;
   }, [getTotalSales]);
+  const getSalesVelocity30d = useCallback((item: (typeof items)[number]) => getTotalSales(item) / 30, [getTotalSales]);
+  const getStockCoverageDays = useCallback((item: (typeof items)[number]) => {
+    const stock = item.stock;
+    if (stock === null || stock === undefined) return null;
+    if (stock <= 0) return 0;
+    const velocity = getSalesVelocity30d(item);
+    if (velocity <= 0) return null;
+    return stock / velocity;
+  }, [getSalesVelocity30d]);
+  const sortBySalesDescending = useCallback((a: (typeof items)[number], b: (typeof items)[number]) => {
+    const salesDiff = getTotalSales(b) - getTotalSales(a);
+    if (salesDiff !== 0) return salesDiff;
+    return Number(b.stock ?? -1) - Number(a.stock ?? -1);
+  }, [getTotalSales]);
 
   const groupedItems = useMemo(() => ({
-    A: items.filter((i) => i.curve === "A"),
-    B: items.filter((i) => i.curve === "B"),
-    C: items.filter((i) => i.curve === "C"),
-  }), [items]);
+    A: items.filter((i) => i.curve === "A").sort(sortBySalesDescending),
+    B: items.filter((i) => i.curve === "B").sort(sortBySalesDescending),
+    C: items.filter((i) => i.curve === "C").sort(sortBySalesDescending),
+  }), [items, sortBySalesDescending]);
 
   const hasCampaignMetrics = !!metrics;
   const hasItemMetrics = diagnostics?.adsMetricsAvailable ?? false;
@@ -214,6 +254,9 @@ export default function MercadoAdsManual() {
     return items
       .filter((item) => {
         if (item.curve !== "B") return false;
+        if (Number(item.stock ?? 0) <= 0) return false;
+        const coverageDays = getStockCoverageDays(item);
+        if (coverageDays !== null && coverageDays < 7) return false;
         if (item.hasAdsMetrics) {
           return getAdsSales(item) >= 2 && (item.adsAcos || 0) <= 0.3;
         }
@@ -226,7 +269,7 @@ export default function MercadoAdsManual() {
         return bScore - aScore;
       })
       .slice(0, 10);
-  }, [items, getAdsSales, getTotalSales]);
+  }, [items, getAdsSales, getStockCoverageDays, getTotalSales]);
 
   const lowConversionItems = useMemo(() => {
     if (!demandMetricsAvailable) return [];
@@ -246,6 +289,7 @@ export default function MercadoAdsManual() {
     return items
       .filter((item) => {
         if (item.visits30d === null || item.visits30d === undefined) return false;
+        if (Number(item.stock ?? 0) <= 0) return false;
         if (getVisits30d(item) > 50) return false;
         const conversion = getConversionRate30d(item);
         return conversion !== null && conversion >= 0.03 && getTotalSales(item) >= 1;
@@ -309,6 +353,10 @@ export default function MercadoAdsManual() {
     };
     return map[curve] || "bg-gray-100 text-gray-800";
   };
+  const getCurveBudget = useCallback((curve: "A" | "B" | "C") => {
+    const matchedCurve = curves.find((item) => item.curve === curve);
+    return Number(matchedCurve?.daily_budget || 0);
+  }, [curves]);
 
   const formatNumber = (value: number | null | undefined, digits = 0) => {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -324,6 +372,156 @@ export default function MercadoAdsManual() {
     if (Number.isNaN(date.getTime())) return "—";
     return date.toLocaleDateString("pt-BR");
   };
+  const formatCoverageDays = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) return "—";
+    if (value <= 0) return "0 dias";
+    if (value < 45) return `~${formatNumber(value, 0)} dias`;
+    if (value < 365) return `~${formatNumber(value / 30, 1)} meses`;
+    return "12+ meses";
+  };
+  const getStockStatusMeta = (item: (typeof items)[number]) => {
+    const stock = item.stock;
+    const coverageDays = getStockCoverageDays(item);
+
+    if (stock === null || stock === undefined) {
+      return {
+        label: "Estoque não sincronizado",
+        detail: "Atualize os dados do catálogo",
+        className: "border-slate-200 bg-slate-100 text-slate-700",
+      };
+    }
+
+    if (stock <= 0) {
+      return {
+        label: "Sem estoque",
+        detail: getTotalSales(item) > 0 ? "Recomprar com fornecedor" : "Sem saldo disponível",
+        className: "border-red-200 bg-red-100 text-red-700",
+      };
+    }
+
+    if (coverageDays !== null && coverageDays < 7) {
+      return {
+        label: "Reposição urgente",
+        detail: `${formatCoverageDays(coverageDays)} de cobertura`,
+        className: "border-red-200 bg-red-100 text-red-700",
+      };
+    }
+
+    if (coverageDays !== null && coverageDays < 14) {
+      return {
+        label: "Estoque curto",
+        detail: `${formatCoverageDays(coverageDays)} de cobertura`,
+        className: "border-amber-200 bg-amber-100 text-amber-700",
+      };
+    }
+
+    return {
+      label: "Estoque ok",
+      detail: coverageDays !== null ? `${formatCoverageDays(coverageDays)} de cobertura` : `${formatNumber(stock)} un.`,
+      className: "border-emerald-200 bg-emerald-100 text-emerald-700",
+    };
+  };
+
+  const bestSellerItems = useMemo(() => (
+    items
+      .filter((item) => getTotalSales(item) > 0)
+      .sort(sortBySalesDescending)
+  ), [getTotalSales, items, sortBySalesDescending]);
+
+  const readyForAdsItems = useMemo(() => (
+    bestSellerItems
+      .filter((item) => Number(item.stock ?? 0) > 0)
+      .slice(0, 8)
+  ), [bestSellerItems]);
+
+  const deepStockItems = useMemo(() => (
+    bestSellerItems
+      .filter((item) => {
+        if (Number(item.stock ?? 0) <= 0) return false;
+        const coverageDays = getStockCoverageDays(item);
+        return coverageDays === null || coverageDays >= 14;
+      })
+  ), [bestSellerItems, getStockCoverageDays]);
+
+  const restockPriorityItems = useMemo(() => (
+    bestSellerItems
+      .filter((item) => {
+        const stock = item.stock;
+        const coverageDays = getStockCoverageDays(item);
+        return stock === 0 || (Number(stock ?? 0) > 0 && coverageDays !== null && coverageDays < 14);
+      })
+      .sort((a, b) => {
+        const aOut = Number(a.stock ?? 0) <= 0 ? 1 : 0;
+        const bOut = Number(b.stock ?? 0) <= 0 ? 1 : 0;
+        if (aOut !== bOut) return bOut - aOut;
+        const aCoverage = getStockCoverageDays(a) ?? Number.POSITIVE_INFINITY;
+        const bCoverage = getStockCoverageDays(b) ?? Number.POSITIVE_INFINITY;
+        if (aCoverage !== bCoverage) return aCoverage - bCoverage;
+        return getTotalSales(b) - getTotalSales(a);
+      })
+      .slice(0, 8)
+  ), [bestSellerItems, getStockCoverageDays, getTotalSales]);
+
+  const outOfStockBestSellers = useMemo(() => (
+    bestSellerItems.filter((item) => Number(item.stock ?? 0) <= 0)
+  ), [bestSellerItems]);
+
+  const lowDepthBestSellers = useMemo(() => (
+    bestSellerItems.filter((item) => {
+      if (Number(item.stock ?? 0) <= 0) return false;
+      const coverageDays = getStockCoverageDays(item);
+      return coverageDays !== null && coverageDays < 14;
+    })
+  ), [bestSellerItems, getStockCoverageDays]);
+
+  const campaignGroups = useMemo(() => {
+    const candidates = deepStockItems.filter((item) => Number(item.price ?? 0) > 0);
+    const used = new Set<string>();
+    const groups: Array<{
+      items: Array<(typeof candidates)[number]>;
+      priceMin: number;
+      priceMax: number;
+      totalSales: number;
+      minCoverageDays: number | null;
+    }> = [];
+
+    for (const anchor of candidates) {
+      if (used.has(anchor.productId)) continue;
+
+      const anchorPrice = Number(anchor.price || 0);
+      const peers = candidates
+        .filter((candidate) => !used.has(candidate.productId) && candidate.productId !== anchor.productId)
+        .map((candidate) => {
+          const candidatePrice = Number(candidate.price || 0);
+          const diff = Math.abs(candidatePrice - anchorPrice);
+          const tolerance = Math.max(anchorPrice * 0.18, candidatePrice * 0.18, 20);
+          return { candidate, diff, tolerance };
+        })
+        .filter(({ diff, tolerance }) => diff <= tolerance)
+        .sort((a, b) => a.diff - b.diff || getTotalSales(b.candidate) - getTotalSales(a.candidate));
+
+      const grouped = [anchor, ...peers.slice(0, 2).map(({ candidate }) => candidate)];
+      if (grouped.length < 2) continue;
+
+      grouped.forEach((item) => used.add(item.productId));
+      const prices = grouped.map((item) => Number(item.price || 0));
+      const coverages = grouped
+        .map((item) => getStockCoverageDays(item))
+        .filter((value): value is number => value !== null && Number.isFinite(value));
+
+      groups.push({
+        items: grouped,
+        priceMin: Math.min(...prices),
+        priceMax: Math.max(...prices),
+        totalSales: grouped.reduce((sum, item) => sum + getTotalSales(item), 0),
+        minCoverageDays: coverages.length ? Math.min(...coverages) : null,
+      });
+
+      if (groups.length >= 4) break;
+    }
+
+    return groups;
+  }, [deepStockItems, getStockCoverageDays, getTotalSales]);
 
   const trend = useMemo(() => {
     if (!metrics?.daily?.length) {
@@ -440,6 +638,22 @@ export default function MercadoAdsManual() {
       });
     }
 
+    if (outOfStockBestSellers.length > 0) {
+      list.push({
+        level: "critical",
+        title: `Ruptura em ${outOfStockBestSellers.length} produtos vendidos`,
+        description: "Há campeões de venda sem estoque. Antes de escalar Ads, recomponha com o fornecedor para não desperdiçar demanda.",
+      });
+    }
+
+    if (lowDepthBestSellers.length > 0) {
+      list.push({
+        level: "warning",
+        title: `Estoque curto em ${lowDepthBestSellers.length} produtos vendidos`,
+        description: "Parte dos itens com boa saída tem menos de 14 dias de cobertura estimada. Reposição deve entrar no planejamento da campanha.",
+      });
+    }
+
     if (demandMetricsAvailable && lowConversionItems.length > 0) {
       list.push({
         level: "warning",
@@ -497,7 +711,7 @@ export default function MercadoAdsManual() {
     }
 
     return list.slice(0, 6);
-  }, [demandMetricsAvailable, fallbackClassificationCount, hasCampaignMetrics, hasItemMetrics, highAcosItems.length, highConversionItems.length, items.length, lowConversionItems.length, metrics, pauseCandidates.length, staleItems.length, trend]);
+  }, [demandMetricsAvailable, fallbackClassificationCount, hasCampaignMetrics, hasItemMetrics, highAcosItems.length, highConversionItems.length, items.length, lowConversionItems.length, lowDepthBestSellers.length, metrics, outOfStockBestSellers.length, pauseCandidates.length, staleItems.length, trend]);
 
   const summaryMetrics = metrics?.summary || null;
   const summaryAcos = summaryMetrics ? (summaryMetrics.revenue > 0 ? summaryMetrics.cost / summaryMetrics.revenue : 0) : 0;
@@ -535,6 +749,47 @@ export default function MercadoAdsManual() {
     setConfirmLabel(label);
     setPendingActions(actions);
     setConfirmOpen(true);
+  };
+
+  const buildSuggestedCampaignName = (
+    titles: string[],
+    index: number,
+    priceMin?: number,
+    priceMax?: number,
+  ) => {
+    const first = (titles[0] || `Campanha ${index + 1}`).trim();
+    const compactTitle = first.length > 28 ? `${first.slice(0, 28).trim()}...` : first;
+    const priceLabel = priceMin && priceMax
+      ? `Faixa ${formatCurrency(priceMin)} a ${formatCurrency(priceMax)}`
+      : `Campanha ${index + 1}`;
+    return `[Sugestao Ads] ${priceLabel} | ${compactTitle}${titles.length > 1 ? ` +${titles.length - 1}` : ""}`;
+  };
+
+  const openSuggestedCampaignConfirmation = (group: { items: Array<(typeof items)[number]> }, index: number) => {
+    const dominantCurve = group.items
+      .slice()
+      .sort((a, b) => getTotalSales(b) - getTotalSales(a))[0]?.curve || "B";
+    setPendingSuggestedCampaign({
+      name: buildSuggestedCampaignName(
+        group.items.map((item) => item.title || ""),
+        index,
+        group.priceMin,
+        group.priceMax,
+      ),
+      budget: getCurveBudget(dominantCurve) || getCurveBudget("B") || 50,
+      productIds: group.items.map((item) => item.productId),
+      totalProducts: group.items.length,
+    });
+    setSuggestedCampaignConfirmOpen(true);
+  };
+
+  const openExistingCampaignConfirmation = (group: { items: Array<(typeof items)[number]> }) => {
+    setPendingExistingCampaign({
+      campaignId: availableExistingCampaigns[0]?.id || "",
+      productIds: group.items.map((item) => item.productId),
+      totalProducts: group.items.length,
+    });
+    setExistingCampaignConfirmOpen(true);
   };
 
   const handleApplyActions = async () => {
@@ -603,6 +858,53 @@ export default function MercadoAdsManual() {
       toast({
         title: "Falha ao enviar relatorio",
         description: (error as Error)?.message || "Nao foi possivel enviar agora.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCreateSuggestedCampaign = async () => {
+    if (!workspaceId || !pendingSuggestedCampaign) return;
+    try {
+      const result = await createSuggestedCampaignMutation.mutateAsync({
+        workspaceId,
+        name: pendingSuggestedCampaign.name.trim(),
+        budget: pendingSuggestedCampaign.budget,
+        productIds: pendingSuggestedCampaign.productIds,
+      });
+      toast({
+        title: "Campanha criada",
+        description: `${result?.campaign?.name || pendingSuggestedCampaign.name} criada com ${result?.processedCount || 0} produto(s).`,
+      });
+      setSuggestedCampaignConfirmOpen(false);
+      setPendingSuggestedCampaign(null);
+    } catch (error) {
+      toast({
+        title: "Falha ao criar campanha",
+        description: (error as Error)?.message || "Nao foi possivel criar a campanha sugerida agora.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAssignSuggestedCampaignToExisting = async () => {
+    if (!workspaceId || !pendingExistingCampaign?.campaignId) return;
+    try {
+      const result = await assignSuggestedCampaignToExistingMutation.mutateAsync({
+        workspaceId,
+        campaignId: pendingExistingCampaign.campaignId,
+        productIds: pendingExistingCampaign.productIds,
+      });
+      toast({
+        title: "Produtos movidos",
+        description: `${result?.processedCount || 0} produto(s) enviados para ${result?.campaign?.name || "a campanha selecionada"}.`,
+      });
+      setExistingCampaignConfirmOpen(false);
+      setPendingExistingCampaign(null);
+    } catch (error) {
+      toast({
+        title: "Falha ao usar campanha existente",
+        description: (error as Error)?.message || "Nao foi possivel mover os produtos agora.",
         variant: "destructive",
       });
     }
@@ -800,6 +1102,227 @@ export default function MercadoAdsManual() {
               </CardHeader>
             </Card>
           </div>
+
+          <Card className="border-emerald-200/70 bg-emerald-50/30">
+            <CardHeader>
+              <CardTitle className="text-base">Seleção de produtos para Ads</CardTitle>
+              <CardDescription>
+                Priorize itens já vendidos, com preço parecido e estoque suficiente para sustentar a campanha. Se o item vende bem e zerou, a ação correta é recomprar, não escalar anúncio.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="rounded-md border border-emerald-200 bg-white/80 p-3">
+                  <div className="text-xs text-muted-foreground">Mais vendidos com estoque</div>
+                  <div className="text-lg font-semibold">{formatNumber(readyForAdsItems.length)}</div>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-white/80 p-3">
+                  <div className="text-xs text-muted-foreground">Estoque profundo</div>
+                  <div className="text-lg font-semibold">{formatNumber(deepStockItems.length)}</div>
+                  <div className="text-xs text-muted-foreground">14+ dias estimados</div>
+                </div>
+                <div className="rounded-md border border-amber-200 bg-white/80 p-3">
+                  <div className="text-xs text-muted-foreground">Reposição necessária</div>
+                  <div className="text-lg font-semibold">{formatNumber(restockPriorityItems.length)}</div>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-white/80 p-3">
+                  <div className="text-xs text-muted-foreground">Combos sugeridos</div>
+                  <div className="text-lg font-semibold">{formatNumber(campaignGroups.length)}</div>
+                  <div className="text-xs text-muted-foreground">2 a 3 produtos</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <div className="xl:col-span-2 rounded-md border border-emerald-200 bg-white/80 p-4">
+                  <div className="mb-3">
+                    <div className="font-medium">Produtos mais vendidos com estoque</div>
+                    <div className="text-xs text-muted-foreground">
+                      Use esta lista como base para campanhas ativas. Quanto maior a cobertura, menor o risco de acelerar um item que vai romper.
+                    </div>
+                  </div>
+
+                  {readyForAdsItems.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">Nenhum produto vendido com estoque disponível agora.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Produto</TableHead>
+                          <TableHead>Preço</TableHead>
+                          <TableHead>Vendas 30d</TableHead>
+                          <TableHead>Estoque</TableHead>
+                          <TableHead>Cobertura</TableHead>
+                          <TableHead>Curva</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {readyForAdsItems.map((item) => {
+                          const stockMeta = getStockStatusMeta(item);
+                          const coverageDays = getStockCoverageDays(item);
+
+                          return (
+                            <TableRow key={`ready-${item.productId}`}>
+                              <TableCell className="font-medium max-w-[280px]">
+                                <div className="truncate" title={item.title || ""}>{item.title}</div>
+                                <div className="text-xs text-muted-foreground">{item.sku}</div>
+                              </TableCell>
+                              <TableCell>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</TableCell>
+                              <TableCell>
+                                <div className="font-medium">{formatNumber(getTotalSales(item))}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatNumber(getSalesVelocity30d(item), 1)} / dia
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{formatNumber(item.stock || 0)}</div>
+                                <Badge variant="outline" className={`mt-1 ${stockMeta.className}`}>
+                                  {stockMeta.label}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{formatCoverageDays(coverageDays)}</div>
+                                <div className="text-xs text-muted-foreground">{stockMeta.detail}</div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={curveColor(item.curve)}>Curva {item.curve}</Badge>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+
+                <div className="rounded-md border border-emerald-200 bg-white/80 p-4">
+                  <div className="mb-3">
+                    <div className="font-medium">Combos sugeridos para campanha</div>
+                    <div className="text-xs text-muted-foreground">
+                      Grupos montados com até 3 produtos, preço próximo e cobertura suficiente.
+                    </div>
+                  </div>
+
+                  {campaignGroups.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      Ainda não há pares ou trios fortes com preço parecido e estoque profundo.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {campaignGroups.map((group, index) => (
+                        <div key={`campaign-group-${index}`} className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium">Campanha sugerida {index + 1}</div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">até 3 produtos</Badge>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openExistingCampaignConfirmation(group)}
+                                disabled={!workspaceId || availableExistingCampaigns.length === 0 || assignSuggestedCampaignToExistingMutation.isPending}
+                              >
+                                Usar existente
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openSuggestedCampaignConfirmation(group, index)}
+                                disabled={!workspaceId || createSuggestedCampaignMutation.isPending}
+                              >
+                                Criar campanha
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Faixa de preço: {formatCurrency(group.priceMin)} a {formatCurrency(group.priceMax)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Vendas somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {group.items.map((item) => (
+                              <div key={`campaign-item-${item.productId}`} className="rounded-md border border-white/70 bg-white/80 p-2">
+                                <div className="truncate text-sm font-medium" title={item.title || ""}>{item.title}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <span>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</span>
+                                  <span>{formatNumber(getTotalSales(item))} vendas</span>
+                                  <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Reposição prioritária</CardTitle>
+              <CardDescription>
+                Itens bem vendidos sem estoque ou com cobertura curta. Esta é a fila para falar com fornecedor antes de aumentar investimento em Ads.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {restockPriorityItems.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Nenhum campeão de venda pedindo reposição agora.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Preço</TableHead>
+                      <TableHead>Vendas 30d</TableHead>
+                      <TableHead>Estoque</TableHead>
+                      <TableHead>Cobertura</TableHead>
+                      <TableHead>Ação</TableHead>
+                      <TableHead>ID ML</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {restockPriorityItems.map((item) => {
+                      const coverageDays = getStockCoverageDays(item);
+                      const stockMeta = getStockStatusMeta(item);
+                      const restockAction = Number(item.stock ?? 0) <= 0
+                        ? "Comprar agora"
+                        : (coverageDays !== null && coverageDays < 7 ? "Repor hoje" : "Planejar compra");
+
+                      return (
+                        <TableRow key={`restock-${item.productId}`}>
+                          <TableCell className="font-medium max-w-[280px]">
+                            <div className="truncate" title={item.title || ""}>{item.title}</div>
+                            <div className="text-xs text-muted-foreground">{item.sku}</div>
+                          </TableCell>
+                          <TableCell>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{formatNumber(getTotalSales(item))}</div>
+                            <div className="text-xs text-muted-foreground">{formatNumber(getSalesVelocity30d(item), 1)} / dia</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}</div>
+                            <Badge variant="outline" className={`mt-1 ${stockMeta.className}`}>
+                              {stockMeta.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatCoverageDays(coverageDays)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{restockAction}</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" className="h-8" onClick={() => copyToClipboard(item.mlItemId)}>
+                              <Copy className="h-3 w-3 mr-1" />
+                              {item.mlItemId}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
 
           <Card className="border-dashed">
             <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1288,7 +1811,7 @@ export default function MercadoAdsManual() {
             <Info className="h-4 w-4 text-blue-600" />
             <AlertTitle className="text-blue-800">Como usar esta lista</AlertTitle>
             <AlertDescription className="text-blue-700">
-              Utilize esta lista para mover produtos manualmente no painel do Mercado Livre Ads. Copie o ID do anúncio (MLB...) e busque no painel.
+              Utilize esta lista para mover produtos manualmente no painel do Mercado Livre Ads. Na aba Diagnóstico, use primeiro os combos sugeridos e a fila de reposição para evitar anunciar item sem estoque. Copie o ID do anúncio (MLB...) e busque no painel.
             </AlertDescription>
           </Alert>
 
@@ -1332,23 +1855,35 @@ export default function MercadoAdsManual() {
                       {products.map((item) => (
                         <TableRow key={item.productId}>
                           <TableCell className="font-medium max-w-[300px]">
-                            <div className="truncate" title={item.title || ""}>{item.title}</div>
-                            <div className="text-xs text-muted-foreground">{item.sku}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Publicado {formatDate(item.publishedAt)}
-                              {" • "}
-                              {item.ageDays !== null && item.ageDays !== undefined ? `${formatNumber(item.ageDays)} dias` : "idade —"}
-                              {" • "}
-                              Estoque {item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}
-                              {" • "}
-                              {item.status || "status —"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Total vendido: {formatNumber(item.lifetimeSales || 0)}
-                            </div>
-                            {item.action === "paused" && (
-                              <Badge variant="destructive" className="mt-2">Pausar</Badge>
-                            )}
+                            {(() => {
+                              const stockMeta = getStockStatusMeta(item);
+                              return (
+                                <>
+                                  <div className="truncate" title={item.title || ""}>{item.title}</div>
+                                  <div className="text-xs text-muted-foreground">{item.sku}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Publicado {formatDate(item.publishedAt)}
+                                    {" • "}
+                                    {item.ageDays !== null && item.ageDays !== undefined ? `${formatNumber(item.ageDays)} dias` : "idade —"}
+                                    {" • "}
+                                    Estoque {item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}
+                                    {" • "}
+                                    {item.status || "status —"}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Preço {item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}
+                                    {" • "}
+                                    Total vendido: {formatNumber(item.lifetimeSales || 0)}
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Badge variant="outline" className={stockMeta.className}>{stockMeta.label}</Badge>
+                                    {item.action === "paused" && (
+                                      <Badge variant="destructive">Pausar</Badge>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
@@ -1378,6 +1913,9 @@ export default function MercadoAdsManual() {
                             <Badge variant={item.adsAcos && item.adsAcos > 0.3 ? "destructive" : "secondary"}>
                               {item.hasAdsMetrics && item.adsAcos !== undefined ? formatPercent(item.adsAcos, 1) : "—"}
                             </Badge>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Cobertura {formatCoverageDays(getStockCoverageDays(item))}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground max-w-[200px]">
                             {item.reason}
@@ -1415,6 +1953,117 @@ export default function MercadoAdsManual() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleApplyActions}>Confirmar e aplicar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={suggestedCampaignConfirmOpen} onOpenChange={setSuggestedCampaignConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingSuggestedCampaign?.name || "Criar campanha sugerida"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação cria uma campanha nova no Mercado Ads e move {pendingSuggestedCampaign?.totalProducts || 0} produto(s) para ela. Como a API vincula o anúncio do item a uma campanha por vez, esses produtos deixam de ficar na campanha anterior.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Nome da campanha</div>
+              <Input
+                value={pendingSuggestedCampaign?.name || ""}
+                onChange={(event) =>
+                  setPendingSuggestedCampaign((prev) =>
+                    prev ? { ...prev, name: event.target.value } : prev
+                  )
+                }
+                placeholder="Nome da campanha"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Orçamento inicial diário</div>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={pendingSuggestedCampaign?.budget ?? 0}
+                onChange={(event) =>
+                  setPendingSuggestedCampaign((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          budget: Math.max(1, Number(event.target.value || 0)),
+                        }
+                      : prev
+                  )
+                }
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setSuggestedCampaignConfirmOpen(false);
+                setPendingSuggestedCampaign(null);
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCreateSuggestedCampaign}
+              disabled={!pendingSuggestedCampaign?.name.trim() || Number(pendingSuggestedCampaign?.budget || 0) <= 0}
+            >
+              {createSuggestedCampaignMutation.isPending ? "Criando..." : "Criar campanha"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={existingCampaignConfirmOpen} onOpenChange={setExistingCampaignConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Usar campanha existente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Selecione uma campanha já sincronizada para receber {pendingExistingCampaign?.totalProducts || 0} produto(s) deste combo. Os anúncios desses itens passam a apontar para a campanha escolhida.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Campanha</div>
+            <Select
+              value={pendingExistingCampaign?.campaignId || ""}
+              onValueChange={(value) =>
+                setPendingExistingCampaign((prev) =>
+                  prev ? { ...prev, campaignId: value } : prev
+                )
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione uma campanha" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableExistingCampaigns.map((campaign) => (
+                  <SelectItem key={campaign.id} value={campaign.id}>
+                    {campaign.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setExistingCampaignConfirmOpen(false);
+                setPendingExistingCampaign(null);
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleAssignSuggestedCampaignToExisting}
+              disabled={!pendingExistingCampaign?.campaignId}
+            >
+              {assignSuggestedCampaignToExistingMutation.isPending ? "Movendo..." : "Usar campanha"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -44,6 +44,11 @@ type ProductSyncSummary = {
     missingCost: number;
 };
 
+type ItemIdSnapshot = {
+    itemIds: string[];
+    complete: boolean;
+};
+
 type AnalyticsSyncResult = {
     success: boolean;
     days: number;
@@ -230,8 +235,9 @@ const computeProfitUnit = (
     return price - (price * taxRate) - fixedFee - cost - overhead - acquisition;
 };
 
-async function fetchAllItemIds(workspaceId: string, userId: string): Promise<string[]> {
+async function fetchAllItemIds(workspaceId: string, userId: string): Promise<ItemIdSnapshot> {
     const ids = new Set<string>();
+    let complete = true;
 
     for (const status of ITEM_STATUSES) {
         let offset = 0;
@@ -252,12 +258,16 @@ async function fetchAllItemIds(workspaceId: string, userId: string): Promise<str
                 }
             } catch (error) {
                 console.warn(`[ML Analytics] Falha ao buscar itens (${status}):`, (error as any)?.message || error);
+                complete = false;
                 hasMore = false;
             }
         }
     }
 
-    return Array.from(ids);
+    return {
+        itemIds: Array.from(ids),
+        complete,
+    };
 }
 
 async function fetchItemsDetails(workspaceId: string, itemIds: string[]): Promise<any[]> {
@@ -555,7 +565,7 @@ export async function syncMercadoLivreProducts(
     options: {
         items?: any[];
         metricsByItem?: Map<string, ItemMetricSummary>;
-        fallbackItems?: Map<string, ItemMetricSummary>;
+        fallbackItems?: Map<string, ItemFallback>;
         includeMetrics?: boolean;
         visitsByItem?: Map<string, number>;
         days?: number;
@@ -578,15 +588,25 @@ export async function syncMercadoLivreProducts(
         days = 30
     } = options;
 
-    const itemIds = providedItems
+    let catalogSnapshotComplete = true;
+    let resolvedItemIds = providedItems
         ? providedItems.map((item) => String(item.id))
-        : await fetchAllItemIds(workspaceId, String(credentials.userId || credentials.user_id));
+        : [];
 
-    const items = providedItems || (await fetchItemsDetails(workspaceId, itemIds));
+    if (!providedItems) {
+        const snapshot = await fetchAllItemIds(workspaceId, String(credentials.userId));
+        resolvedItemIds = snapshot.itemIds;
+        catalogSnapshotComplete = snapshot.complete;
+    }
+
+    const items = providedItems || (await fetchItemsDetails(workspaceId, resolvedItemIds));
+    if (!providedItems && items.length !== resolvedItemIds.length) {
+        catalogSnapshotComplete = false;
+    }
 
     const extraItemIds = metricsByItem ? Array.from(metricsByItem.keys()) : [];
     const fallbackItemIds = fallbackItems ? Array.from(fallbackItems.keys()) : [];
-    const allItemIds = Array.from(new Set([...itemIds, ...extraItemIds, ...fallbackItemIds]));
+    const allItemIds = Array.from(new Set([...resolvedItemIds, ...extraItemIds, ...fallbackItemIds]));
     const allItemIdsUnique = Array.from(new Set(allItemIds));
 
     const skus = items.map(extractSku).filter((sku): sku is string => Boolean(sku));
@@ -966,6 +986,25 @@ export async function syncMercadoLivreProducts(
         }
     }
 
+    if (includeMetrics && !providedItems && catalogSnapshotComplete && allItemIdsUnique.length > 0) {
+        await pool.query(
+            `
+            update products
+               set sales_30d = 0,
+                   revenue_30d = 0,
+                   visits_30d = 0,
+                   conversion_rate_30d = 0,
+                   published_on_ml = false,
+                   updated_at = now()
+             where workspace_id = $1
+               and ml_item_id is not null
+               and status != 'deleted'
+               and not (ml_item_id = any($2))
+            `,
+            [workspaceId, allItemIdsUnique]
+        );
+    }
+
     return summary;
 }
 
@@ -977,7 +1016,7 @@ export async function syncMercadoLivreAnalytics30d(workspaceId: string, days = 3
         throw new Error("ml_not_connected");
     }
 
-    const orders = await fetchOrders(workspaceId, String(credentials.userId || credentials.user_id), days);
+    const orders = await fetchOrders(workspaceId, String(credentials.userId), days);
     const { metricsByItem, fallbackByItem } = buildOrderMetrics(orders);
     const orderItemsSynced = await upsertOrders(workspaceId, orders);
 
@@ -1005,7 +1044,7 @@ export async function syncMercadoLivreOrders(workspaceId: string, days = 7) {
         throw new Error("ml_not_connected");
     }
 
-    const orders = await fetchOrders(workspaceId, String(credentials.userId || credentials.user_id), days);
+    const orders = await fetchOrders(workspaceId, String(credentials.userId), days);
     const orderItemsSynced = await upsertOrders(workspaceId, orders);
 
     return {

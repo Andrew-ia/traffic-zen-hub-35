@@ -220,7 +220,8 @@ async function getCredentialsFromDb(workspaceId: string): Promise<(MercadoLivreC
   }
 }
 
-function tokenNeedsRefresh(creds: { expiresAt?: number }) {
+function tokenNeedsRefresh(creds: { accessToken?: string; expiresAt?: number } | null | undefined) {
+  if (!creds) return false;
   if (!creds.expiresAt) return false;
   return Date.now() >= (creds.expiresAt - 15 * 60 * 1000);
 }

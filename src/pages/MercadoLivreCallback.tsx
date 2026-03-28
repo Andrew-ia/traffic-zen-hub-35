@@ -69,12 +69,13 @@ export default function MercadoLivreCallback() {
 
     const exchangeCodeForTokens = async (code: string, workspaceId: string) => {
         try {
+            const redirectUri = `${window.location.origin}${window.location.pathname}`;
             const response = await fetch("/api/integrations/mercadolivre/auth/callback", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ code, workspaceId }),
+                body: JSON.stringify({ code, workspaceId, redirectUri }),
             });
 
             const data = await response.json();

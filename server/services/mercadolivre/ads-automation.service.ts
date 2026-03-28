@@ -49,6 +49,7 @@ type ClassifiedProduct = {
   curve: 'A' | 'B' | 'C';
   title?: string | null;
   sku?: string | null;
+  price?: number | null;
   reason?: string;
   action?: 'active' | 'paused';
   lifetimeSales?: number;
@@ -76,6 +77,17 @@ type ClassifiedProduct = {
 type PlanInput = {
   budgets?: Partial<Record<'A' | 'B' | 'C', number>>;
   names?: Partial<Record<'A' | 'B' | 'C', string>>;
+};
+
+type SuggestedCampaignInput = {
+  name?: string;
+  budget?: number;
+  productIds: string[];
+};
+
+type SuggestedCampaignAssignInput = {
+  campaignId: string;
+  productIds: string[];
 };
 
 type CampaignPlan = {
@@ -1123,11 +1135,12 @@ export class MercadoAdsAutomationService {
   }> {
     const pool = getPool();
     const { rows } = await pool.query(
-      `select id, ml_item_id, classification, revenue_30d, sales_30d, visits_30d, conversion_rate_30d, profit_unit, ads_active, title, sku,
+      `select id, ml_item_id, classification, revenue_30d, sales_30d, visits_30d, conversion_rate_30d, profit_unit, ads_active, title, sku, price,
               available_quantity, status, published_at, created_at, sold_quantity
        from products
        where workspace_id = $1
          and status != 'deleted'
+         and coalesce(published_on_ml, false) = true
          and ml_item_id is not null`,
       [workspaceId],
     );
@@ -1151,6 +1164,8 @@ export class MercadoAdsAutomationService {
       const prints = Number(adsMetrics.prints || 0);
       const profitUnitRaw = row.profit_unit !== null && row.profit_unit !== undefined ? Number(row.profit_unit) : null;
       const profitUnit = Number.isFinite(profitUnitRaw as number) ? (profitUnitRaw as number) : null;
+      const priceRaw = row.price !== null && row.price !== undefined ? Number(row.price) : null;
+      const price = Number.isFinite(priceRaw as number) ? (priceRaw as number) : null;
       const classification = String(row.classification || '').toUpperCase();
       const totalSales30d = Number(row.sales_30d || 0);
       const totalRevenue30d = Number(row.revenue_30d || 0);
@@ -1202,6 +1217,7 @@ export class MercadoAdsAutomationService {
         curve: productCurve,
         title: row.title,
         sku: row.sku,
+        price,
         reason: decision.reason,
         action: decision.action,
         adsClicks30d: clicks,
@@ -1667,6 +1683,66 @@ export class MercadoAdsAutomationService {
     return '[Curva C] Teste Controlado';
   }
 
+  private async createRemoteCampaign(
+    workspaceId: string,
+    advertiserId: string,
+    siteId: string,
+    createPayload: Record<string, any>,
+  ): Promise<string> {
+    try {
+      const created = await requestWithAuth<any>(
+        workspaceId,
+        `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns`,
+        {
+          method: 'POST',
+          data: createPayload,
+          headers: { 'api-version': '2' },
+        },
+      );
+      const mlCampaignId = created?.id || created?.campaign_id || null;
+      if (!mlCampaignId) {
+        throw new Error('ml_ads_campaign_create_not_supported');
+      }
+      return mlCampaignId;
+    } catch (err: any) {
+      const status = err?.response?.status;
+
+      if (status === 401 || status === 403) {
+        try {
+          const created = await requestWithAuth<any>(
+            workspaceId,
+            `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns`,
+            {
+              method: 'POST',
+              data: createPayload,
+              headers: { 'api-version': '2' },
+            },
+          );
+          const mlCampaignId = created?.id || created?.campaign_id || null;
+          if (!mlCampaignId) {
+            throw new Error('ml_ads_campaign_create_not_supported');
+          }
+          return mlCampaignId;
+        } catch (err2: any) {
+          const status2 = err2?.response?.status;
+          if (status2 === 401 || status2 === 403) {
+            throw new Error('ml_ads_permission_denied_write');
+          }
+          if (status2 === 404 || status2 === 405) {
+            throw new Error('ml_ads_campaign_create_not_supported');
+          }
+          throw err2;
+        }
+      }
+
+      if (status === 404 || status === 405) {
+        throw new Error('ml_ads_campaign_create_not_supported');
+      }
+
+      throw err;
+    }
+  }
+
   async testCreateCampaign(workspaceId: string) {
     const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
     const pool = getPool();
@@ -1780,58 +1856,7 @@ export class MercadoAdsAutomationService {
         createPayload.roas_target = roasTarget;
       }
 
-      try {
-        const created = await requestWithAuth<any>(
-          workspaceId,
-          `${ADS_ADVERTISER_API_BASE}/${advertiserId}/campaigns`,
-          {
-            method: 'POST',
-            data: createPayload,
-            headers: { 'api-version': '2' },
-          },
-        );
-        mlCampaignId = created?.id || created?.campaign_id || null;
-      } catch (err: any) {
-        const status = err?.response?.status;
-        const data = err?.response?.data;
-        console.warn(`[MercadoAds] Create campaign via Standard API failed (${status}). Trying Marketplace API...`);
-
-        // Fallback: Tentar via Marketplace API se a API padrão falhar (401/403)
-        if (status === 401 || status === 403) {
-            try {
-                const created = await requestWithAuth<any>(
-                    workspaceId,
-                    `${MKT_ADS_MARKETPLACE_BASE}/${siteId}/advertisers/${advertiserId}/product_ads/campaigns`,
-                    {
-                        method: 'POST',
-                        data: createPayload,
-                        headers: { 'api-version': '2' },
-                    },
-                );
-                mlCampaignId = created?.id || created?.campaign_id || null;
-            } catch (err2: any) {
-                const status2 = err2?.response?.status;
-                const data2 = err2?.response?.data;
-                console.error('[MercadoAds] Create campaign via Marketplace API failed:', status2, JSON.stringify(data2, null, 2));
-                
-                // Se ambas falharem com erro de permissão, lançar erro específico
-                if (status2 === 401 || status2 === 403) {
-                    throw new Error('ml_ads_permission_denied_write');
-                }
-                // Se retornar 404, assume que não suporta criação
-                if (status2 === 404 || status2 === 405) {
-                    throw new Error('ml_ads_campaign_create_not_supported');
-                }
-                throw err2;
-            }
-        } else {
-             // Se API retorna 404/405 na API padrão, provavelmente a conta está em modo automático ou sem permissão de Product Ads.
-            if (status === 404 || status === 405) {
-                throw new Error('ml_ads_campaign_create_not_supported');
-            }
-            throw err;
-        }
-      }
+      mlCampaignId = await this.createRemoteCampaign(workspaceId, advertiserId, siteId, createPayload);
     }
 
     const { rows } = await pool.query<CampaignRow>(
@@ -1864,6 +1889,185 @@ export class MercadoAdsAutomationService {
     );
 
     return rows[0];
+  }
+
+  async createSuggestedCampaign(workspaceId: string, input: SuggestedCampaignInput) {
+    await this.ensureSchema();
+
+    const productIds = Array.from(new Set((input.productIds || []).filter(Boolean)));
+    if (productIds.length === 0 || productIds.length > 3) {
+      throw new Error('ml_ads_invalid_suggested_campaign_products');
+    }
+
+    const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
+    const curves = await this.ensureCurveDefaults(workspaceId);
+    const classification = await this.classifyProducts(workspaceId);
+    const products = classification.items.filter((item) => productIds.includes(item.productId));
+
+    if (products.length !== productIds.length) {
+      throw new Error('ml_ads_suggested_campaign_products_not_found');
+    }
+
+    const unavailable = products.find((item) => Number(item.stock ?? 0) <= 0);
+    if (unavailable) {
+      throw new Error('ml_ads_suggested_campaign_out_of_stock');
+    }
+
+    const orderedProducts = [...products].sort(
+      (a, b) => Number(b.totalSales30d || 0) - Number(a.totalSales30d || 0),
+    );
+    const dominantCurve = orderedProducts[0]?.curve || 'B';
+    const defaultBudget = curves.find((curve) => curve.curve === 'B')?.daily_budget || this.resolveBudget('B');
+    const campaignName = (input.name || '').trim() || `[Sugestao Ads] ${orderedProducts[0]?.title || 'Campanha'}${orderedProducts.length > 1 ? ` +${orderedProducts.length - 1}` : ''}`;
+    const dailyBudget = typeof input.budget === 'number' && Number.isFinite(input.budget) && input.budget > 0
+      ? input.budget
+      : defaultBudget;
+
+    const strategy = dominantCurve === 'A' ? 'profitability' : dominantCurve === 'C' ? 'visibility' : 'growth';
+    const roasTarget = dominantCurve === 'A'
+      ? Math.max(1, curves.find((curve) => curve.curve === 'A')?.min_roas || 3)
+      : dominantCurve === 'B'
+        ? Math.max(1, curves.find((curve) => curve.curve === 'B')?.min_roas || 1.5)
+        : undefined;
+
+    const createPayload: Record<string, any> = {
+      name: campaignName,
+      status: 'active',
+      budget: dailyBudget,
+      strategy,
+      channel: 'marketplace',
+    };
+    if (roasTarget) {
+      createPayload.roas_target = roasTarget;
+    }
+
+    const mlCampaignId = await this.createRemoteCampaign(workspaceId, advertiserId, siteId, createPayload);
+    const pool = getPool();
+
+    const { rows } = await pool.query<CampaignRow>(
+      `insert into ml_ads_campaigns (
+         workspace_id, curve_id, curve, campaign_type, advertiser_id,
+         ml_campaign_id, name, status, daily_budget, automation_status,
+         metadata, last_synced_at, last_automation_at
+       ) values ($1, null, null, $2, $3, $4, $5, 'active', $6, 'managed', $7::jsonb, now(), now())
+       on conflict (workspace_id, ml_campaign_id) do update set
+         name = excluded.name,
+         status = excluded.status,
+         daily_budget = excluded.daily_budget,
+         metadata = excluded.metadata,
+         last_synced_at = now(),
+         last_automation_at = now()
+       returning *`,
+      [
+        workspaceId,
+        'SUGGESTED_GROUP',
+        advertiserId,
+        mlCampaignId,
+        campaignName,
+        dailyBudget,
+        JSON.stringify({
+          source: 'suggested_group',
+          dominant_curve: dominantCurve,
+          product_ids: orderedProducts.map((item) => item.productId),
+          ml_item_ids: orderedProducts.map((item) => item.mlItemId),
+        }),
+      ],
+    );
+
+    const campaign = rows[0];
+    const errors: Array<{ productId: string; error: string }> = [];
+    let processedCount = 0;
+
+    for (const product of orderedProducts) {
+      try {
+        await this.upsertProductAd(workspaceId, advertiserId, siteId, campaign, product.curve, {
+          ...product,
+          action: 'active',
+        });
+        processedCount += 1;
+      } catch (err: any) {
+        errors.push({ productId: product.productId, error: err?.message || 'ml_ads_product_ad_create_failed' });
+      }
+    }
+
+    return {
+      campaign,
+      processedCount,
+      products: orderedProducts.map((product) => ({
+        productId: product.productId,
+        mlItemId: product.mlItemId,
+        title: product.title,
+        curve: product.curve,
+      })),
+      errors,
+    };
+  }
+
+  async assignSuggestedCampaignToExisting(workspaceId: string, input: SuggestedCampaignAssignInput) {
+    await this.ensureSchema();
+
+    const productIds = Array.from(new Set((input.productIds || []).filter(Boolean)));
+    if (!input.campaignId || productIds.length === 0 || productIds.length > 3) {
+      throw new Error('ml_ads_invalid_suggested_campaign_products');
+    }
+
+    const pool = getPool();
+    const { rows } = await pool.query<CampaignRow>(
+      `select * from ml_ads_campaigns
+       where workspace_id = $1
+         and id = $2
+         and ml_campaign_id is not null
+       limit 1`,
+      [workspaceId, input.campaignId],
+    );
+    const campaign = rows[0];
+    if (!campaign) {
+      throw new Error('ml_ads_suggested_campaign_missing_target');
+    }
+
+    const { advertiserId, siteId } = await this.resolveAdvertiserContext(workspaceId);
+    const classification = await this.classifyProducts(workspaceId);
+    const products = classification.items.filter((item) => productIds.includes(item.productId));
+
+    if (products.length !== productIds.length) {
+      throw new Error('ml_ads_suggested_campaign_products_not_found');
+    }
+
+    const unavailable = products.find((item) => Number(item.stock ?? 0) <= 0);
+    if (unavailable) {
+      throw new Error('ml_ads_suggested_campaign_out_of_stock');
+    }
+
+    const orderedProducts = [...products].sort(
+      (a, b) => Number(b.totalSales30d || 0) - Number(a.totalSales30d || 0),
+    );
+    const campaignAdvertiserId = String(campaign.advertiser_id || advertiserId);
+    const errors: Array<{ productId: string; error: string }> = [];
+    let processedCount = 0;
+
+    for (const product of orderedProducts) {
+      try {
+        await this.upsertProductAd(workspaceId, campaignAdvertiserId, siteId, campaign, product.curve, {
+          ...product,
+          action: 'active',
+        });
+        processedCount += 1;
+      } catch (err: any) {
+        errors.push({ productId: product.productId, error: err?.message || 'ml_ads_product_ad_create_failed' });
+      }
+    }
+
+    return {
+      campaign,
+      processedCount,
+      products: orderedProducts.map((product) => ({
+        productId: product.productId,
+        mlItemId: product.mlItemId,
+        title: product.title,
+        curve: product.curve,
+      })),
+      errors,
+    };
   }
 
   private async ensureCampaigns(
@@ -2048,10 +2252,10 @@ export class MercadoAdsAutomationService {
       title: p.title,
       sku: p.sku,
       reason: p.reason,
-      sales30d: p.sales30d,
-      revenue30d: p.revenue30d,
-      cost30d: p.cost30d,
-      acos: p.acos,
+      sales30d: p.totalSales30d,
+      revenue30d: p.totalRevenue30d,
+      cost30d: p.adsCost30d,
+      acos: p.adsAcos,
     }));
 
     return {

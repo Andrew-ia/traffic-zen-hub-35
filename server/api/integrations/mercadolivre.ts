@@ -86,10 +86,26 @@ const broadcastOrderEvent = (workspaceId: string, payload: unknown) => {
 // Base URL da API do Mercado Livre
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
 const MERCADO_PAGO_API_BASE = "https://api.mercadopago.com";
-const MERCADO_LIVRE_AUTH_BASE =
-    (process.env.MERCADO_LIVRE_AUTH_BASE_URL || process.env.ML_AUTH_BASE_URL || "https://auth.mercadolibre.com")
+const normalizeMercadoLivreAuthBase = (value?: string | null) => {
+    const normalized = String(value || "")
         .trim()
         .replace(/\/$/, "");
+
+    if (!normalized) {
+        return "https://auth.mercadolivre.com.br";
+    }
+
+    // O host global vem retornando 403. Para o site MLB, usamos o domínio oficial do Brasil.
+    if (normalized === "https://auth.mercadolibre.com") {
+        return "https://auth.mercadolivre.com.br";
+    }
+
+    return normalized;
+};
+
+const MERCADO_LIVRE_AUTH_BASE = normalizeMercadoLivreAuthBase(
+    process.env.MERCADO_LIVRE_AUTH_BASE_URL || process.env.ML_AUTH_BASE_URL
+);
 const MERCADO_LIVRE_PLATFORM_KEY = "mercadolivre";
 const ML_HTTP_TIMEOUT_MS = Number(process.env.ML_HTTP_TIMEOUT_MS || 12000);
 const ML_HTTP_RETRY_MAX = Number(process.env.ML_HTTP_RETRY_MAX || 2);
@@ -795,7 +811,23 @@ const buildRedirectUri = (req: Request) => {
     return baseUrl ? `${baseUrl}/integrations/mercadolivre/callback` : "";
 };
 
-const resolveOAuthRedirectUri = (req: Request): { redirectUri: string; includeRedirectUri: boolean; source: string } => {
+const normalizeOAuthRedirectUri = (value?: string | null) => {
+    const normalized = normalizeBaseUrl(value);
+    if (!normalized) return "";
+    return normalized.endsWith("/integrations/mercadolivre/callback")
+        ? normalized
+        : `${normalized}/integrations/mercadolivre/callback`;
+};
+
+const resolveOAuthRedirectUri = (
+    req: Request,
+    explicitRedirectOverride?: string | null
+): { redirectUri: string; includeRedirectUri: boolean; source: string } => {
+    const explicitOverride = normalizeOAuthRedirectUri(explicitRedirectOverride);
+    if (explicitOverride) {
+        return { redirectUri: explicitOverride, includeRedirectUri: true, source: "request" };
+    }
+
     const explicitRedirect = normalizeBaseUrl(
         process.env.MERCADO_LIVRE_REDIRECT_URI ||
         process.env.ML_REDIRECT_URI ||
@@ -1888,7 +1920,7 @@ router.get("/auth/status", async (req, res) => {
  */
 router.get("/auth/url", async (req, res) => {
     try {
-        const { workspaceId } = req.query;
+        const { workspaceId, redirectUri: redirectUriParam } = req.query;
 
         if (!workspaceId) {
             return res.status(400).json({ error: "Workspace ID is required" });
@@ -1896,7 +1928,10 @@ router.get("/auth/url", async (req, res) => {
 
         const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
         const clientId = appCredentials?.clientId;
-        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(req as Request);
+        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(
+            req as Request,
+            typeof redirectUriParam === "string" ? redirectUriParam : null
+        );
 
         if (!clientId) {
             return res.status(500).json({
@@ -1949,15 +1984,51 @@ router.delete("/auth", async (req, res) => {
             return res.status(400).json({ error: "Workspace ID is required" });
         }
 
-        const pool = getPool();
-        await pool.query(
-            "DELETE FROM integration_credentials WHERE workspace_id = $1 AND platform_key = $2",
-            [workspaceId, MERCADO_LIVRE_PLATFORM_KEY]
-        );
-        tokenStore.delete(String(workspaceId));
-        invalidRefreshTokens.delete(String(workspaceId));
+        const targetWorkspaceId = String(workspaceId);
+        const credentials = await getMercadoLivreCredentials(targetWorkspaceId);
+        const appCredentials = await getMercadoLivreAppCredentials(targetWorkspaceId);
+        const appId = appCredentials?.clientId?.trim();
+        let remoteRevocationAttempted = false;
+        let remoteRevocationSucceeded = false;
+        let remoteRevocationWarning: string | null = null;
 
-        return res.json({ success: true, message: "Disconnected successfully" });
+        if (credentials?.accessToken && credentials?.userId && appId) {
+            remoteRevocationAttempted = true;
+            try {
+                await axios.delete(
+                    `${MERCADO_LIVRE_API_BASE}/users/${encodeURIComponent(String(credentials.userId))}/applications/${encodeURIComponent(appId)}`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${credentials.accessToken}`,
+                        },
+                    }
+                );
+                remoteRevocationSucceeded = true;
+            } catch (revokeError: any) {
+                remoteRevocationWarning =
+                    revokeError?.response?.data?.message ||
+                    revokeError?.response?.data?.error ||
+                    revokeError?.message ||
+                    "Não foi possível revogar a autorização remota";
+                console.warn(
+                    "[MercadoLivre] Falha ao revogar autorização remota antes do disconnect:",
+                    formatAxiosError(revokeError)
+                );
+            }
+        }
+
+        await clearMercadoLivreCredentials(targetWorkspaceId, "manual_disconnect");
+        invalidRefreshTokens.delete(targetWorkspaceId);
+
+        return res.json({
+            success: true,
+            message: remoteRevocationSucceeded
+                ? "Disconnected successfully and remote authorization revoked"
+                : "Disconnected successfully",
+            remoteRevocationAttempted,
+            remoteRevocationSucceeded,
+            remoteRevocationWarning,
+        });
     } catch (error: any) {
         console.error("Error disconnecting Mercado Livre:", error);
         return res.status(500).json({
@@ -2277,7 +2348,7 @@ router.get("/callback", (req, res) => {
  */
 router.post("/auth/callback", async (req, res) => {
     try {
-        const { code, workspaceId } = req.body;
+        const { code, workspaceId, redirectUri: redirectUriParam } = req.body;
 
         if (!code || !workspaceId) {
             return res.status(400).json({
@@ -2288,7 +2359,10 @@ router.post("/auth/callback", async (req, res) => {
         const appCredentials = await getMercadoLivreAppCredentials(String(workspaceId));
         const clientId = appCredentials?.clientId;
         const clientSecret = appCredentials?.clientSecret;
-        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(req as Request);
+        const { redirectUri, includeRedirectUri, source: redirectSource } = resolveOAuthRedirectUri(
+            req as Request,
+            typeof redirectUriParam === "string" ? redirectUriParam : null
+        );
 
         if (!clientId || !clientSecret) {
             return res.status(500).json({
