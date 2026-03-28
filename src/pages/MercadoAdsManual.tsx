@@ -102,11 +102,13 @@ type SuggestedExistingCampaignDraft = {
   totalProducts: number;
 };
 
+type ManualComboStatus = "pending" | "partial" | "done";
+
 export default function MercadoAdsManual() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id || null;
-  const { data: previewData, isLoading: isPreviewLoading, error: previewError } = useMercadoAdsPreview(workspaceId);
-  const { data: campaignsData, isLoading: isCampaignsLoading, error: campaignsError } = useMercadoAdsCampaigns(workspaceId);
+  const { data: previewData, isLoading: isPreviewLoading, error: previewError, refetch: refetchPreview } = useMercadoAdsPreview(workspaceId);
+  const { data: campaignsData, isLoading: isCampaignsLoading, error: campaignsError, refetch: refetchCampaigns } = useMercadoAdsCampaigns(workspaceId);
   const { toast } = useToast();
   const navigate = useNavigate();
   const analyticsSyncMutation = useSyncMercadoLivreAnalytics();
@@ -344,6 +346,40 @@ export default function MercadoAdsManual() {
     navigator.clipboard.writeText(text);
     toast({ title: "Copiado", description: "Código copiado para a área de transferência." });
   };
+  const copyGroupProductIds = (groupItems: Array<(typeof items)[number]>) => {
+    const payload = groupItems
+      .map((item) => `${item.mlItemId} | ${item.title || "Produto"}`)
+      .join("\n");
+    navigator.clipboard.writeText(payload);
+    toast({
+      title: "IDs copiados",
+      description: "Cole os IDs no painel do Mercado Ads para montar a campanha manualmente.",
+    });
+  };
+  const copySuggestedCampaignBrief = (
+    groupItems: Array<(typeof items)[number]>,
+    index: number,
+    priceMin?: number,
+    priceMax?: number,
+  ) => {
+    const name = buildSuggestedCampaignName(
+      groupItems.map((item) => item.title || ""),
+      index,
+      priceMin,
+      priceMax,
+    );
+    const payload = [
+      `Campanha sugerida: ${name}`,
+      `Faixa de preço: ${priceMin && priceMax ? `${formatCurrency(priceMin)} a ${formatCurrency(priceMax)}` : "—"}`,
+      "Produtos:",
+      ...groupItems.map((item) => `- ${item.mlItemId} | ${item.title || "Produto"}`),
+    ].join("\n");
+    navigator.clipboard.writeText(payload);
+    toast({
+      title: "Resumo copiado",
+      description: "Nome e IDs do combo copiados para usar no painel do Mercado Ads.",
+    });
+  };
 
   const curveColor = (curve: string) => {
     const map: Record<string, string> = {
@@ -522,6 +558,46 @@ export default function MercadoAdsManual() {
 
     return groups;
   }, [deepStockItems, getStockCoverageDays, getTotalSales]);
+  const manualCampaignGroups = useMemo(() => (
+    campaignGroups.map((group, index) => {
+      const campaignIds = Array.from(
+        new Set(
+          group.items
+            .map((item) => item.currentCampaignId)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      );
+      const completeCampaignId = campaignIds.length === 1
+        && group.items.every((item) => item.currentCampaignId === campaignIds[0] && Boolean(item.currentAdId))
+        ? campaignIds[0]
+        : null;
+      const linkedItems = group.items.filter((item) => Boolean(item.currentCampaignId));
+      const status: ManualComboStatus = completeCampaignId
+        ? "done"
+        : linkedItems.length > 0
+          ? "partial"
+          : "pending";
+      const referenceCampaign = completeCampaignId
+        ? group.items.find((item) => item.currentCampaignId === completeCampaignId)
+        : linkedItems[0] || null;
+
+      return {
+        ...group,
+        index,
+        verification: {
+          status,
+          label: status === "done" ? "Verificado" : status === "partial" ? "Parcial" : "Pendente",
+          description:
+            status === "done"
+              ? `Todos os ${group.items.length} produtos estao juntos em ${referenceCampaign?.currentCampaignName || "uma campanha sincronizada"}.`
+              : status === "partial"
+                ? `${linkedItems.length} de ${group.items.length} produtos ja aparecem vinculados. Falta consolidar o combo em uma unica campanha.`
+                : "Nenhum produto do combo foi confirmado na mesma campanha ainda.",
+          campaignName: referenceCampaign?.currentCampaignName || null,
+        },
+      };
+    })
+  ), [campaignGroups]);
 
   const trend = useMemo(() => {
     if (!metrics?.daily?.length) {
@@ -727,6 +803,11 @@ export default function MercadoAdsManual() {
     if (delta === null) return "text-muted-foreground";
     return delta >= 0 ? "text-emerald-600" : "text-red-600";
   };
+  const manualStatusClass = (status: ManualComboStatus) => {
+    if (status === "done") return "border-emerald-200 bg-emerald-100 text-emerald-700";
+    if (status === "partial") return "border-amber-200 bg-amber-100 text-amber-700";
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  };
 
   const handleSyncAnalytics = async () => {
     if (!workspaceId) return;
@@ -740,6 +821,22 @@ export default function MercadoAdsManual() {
       toast({
         title: "Falha ao sincronizar",
         description: (error as Error)?.message || "Não foi possível atualizar os dados agora.",
+        variant: "destructive",
+      });
+    }
+  };
+  const handleVerifyManualSetup = async () => {
+    if (!workspaceId) return;
+    try {
+      await Promise.all([refetchCampaigns(), refetchPreview()]);
+      toast({
+        title: "Verificacao concluida",
+        description: "Atualizamos campanhas e vinculos para conferir se o ajuste manual ja entrou.",
+      });
+    } catch (error) {
+      toast({
+        title: "Falha ao verificar",
+        description: (error as Error)?.message || "Nao foi possivel atualizar o status dos combos agora.",
         variant: "destructive",
       });
     }
@@ -1138,6 +1235,14 @@ export default function MercadoAdsManual() {
                 </div>
               </div>
 
+              <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Fluxo manual recomendado nesta conta</AlertTitle>
+                <AlertDescription>
+                  A API desta conta nao esta conseguindo criar campanha nem mover anuncios com seguranca. Use os combos sugeridos como roteiro operacional: monte a campanha no painel do Mercado Ads, adicione os IDs MLB indicados e depois clique em verificar para confirmar se os produtos ficaram juntos na mesma campanha.
+                </AlertDescription>
+              </Alert>
+
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <div className="xl:col-span-2 rounded-md border border-emerald-200 bg-white/80 p-4">
                   <div className="mb-3">
@@ -1208,34 +1313,21 @@ export default function MercadoAdsManual() {
                     </div>
                   </div>
 
-                  {campaignGroups.length === 0 ? (
+                  {manualCampaignGroups.length === 0 ? (
                     <div className="text-sm text-muted-foreground">
                       Ainda não há pares ou trios fortes com preço parecido e estoque profundo.
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {campaignGroups.map((group, index) => (
-                        <div key={`campaign-group-${index}`} className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
+                      {manualCampaignGroups.map((group) => (
+                        <div key={`campaign-group-${group.index}`} className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium">Campanha sugerida {index + 1}</div>
+                            <div className="font-medium">Campanha sugerida {group.index + 1}</div>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline">até 3 produtos</Badge>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openExistingCampaignConfirmation(group)}
-                                disabled={!workspaceId || availableExistingCampaigns.length === 0 || assignSuggestedCampaignToExistingMutation.isPending}
-                              >
-                                Usar existente
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openSuggestedCampaignConfirmation(group, index)}
-                                disabled={!workspaceId || createSuggestedCampaignMutation.isPending}
-                              >
-                                Criar campanha
-                              </Button>
+                              <Badge variant="outline" className={manualStatusClass(group.verification.status)}>
+                                {group.verification.label}
+                              </Badge>
                             </div>
                           </div>
                           <div className="mt-2 text-xs text-muted-foreground">
@@ -1243,6 +1335,55 @@ export default function MercadoAdsManual() {
                           </div>
                           <div className="text-xs text-muted-foreground">
                             Vendas somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
+                          </div>
+                          <div className="mt-2 rounded-md border border-white/70 bg-white/70 p-2 text-xs text-slate-600">
+                            {group.verification.description}
+                            {group.verification.campaignName ? ` Campanha detectada: ${group.verification.campaignName}.` : ""}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => copySuggestedCampaignBrief(group.items, group.index, group.priceMin, group.priceMax)}
+                            >
+                              <Copy className="mr-1 h-3 w-3" />
+                              Copiar resumo
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => copyGroupProductIds(group.items)}
+                            >
+                              <Copy className="mr-1 h-3 w-3" />
+                              Copiar IDs
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleVerifyManualSetup}
+                              disabled={!workspaceId || isCampaignsLoading || isPreviewLoading}
+                            >
+                              Verificar agora
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openExistingCampaignConfirmation(group)}
+                              disabled={!workspaceId || availableExistingCampaigns.length === 0 || assignSuggestedCampaignToExistingMutation.isPending}
+                            >
+                              Tentar via API
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openSuggestedCampaignConfirmation(group, group.index)}
+                              disabled={!workspaceId || createSuggestedCampaignMutation.isPending}
+                            >
+                              Tentar criar via API
+                            </Button>
+                          </div>
+                          <div className="mt-3 rounded-md border border-dashed border-emerald-200 bg-white/70 p-2 text-xs text-slate-600">
+                            No painel do Mercado Ads: crie ou abra uma campanha, adicione exatamente estes produtos e depois volte aqui para verificar se todos ficaram na mesma campanha.
                           </div>
                           <div className="mt-3 space-y-2">
                             {group.items.map((item) => (
@@ -1252,6 +1393,15 @@ export default function MercadoAdsManual() {
                                   <span>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</span>
                                   <span>{formatNumber(getTotalSales(item))} vendas</span>
                                   <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
+                                  <span>{item.mlItemId}</span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <span>
+                                    Atual: {item.currentCampaignName || "sem campanha sincronizada"}
+                                  </span>
+                                  <span>
+                                    Anuncio: {item.currentAdId ? "ok" : "nao detectado"}
+                                  </span>
                                 </div>
                               </div>
                             ))}

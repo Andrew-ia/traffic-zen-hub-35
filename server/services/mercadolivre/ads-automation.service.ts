@@ -72,6 +72,12 @@ type ClassifiedProduct = {
   ageDays?: number | null;
   hasAdsMetrics?: boolean;
   mlAdId?: string | null;
+  currentCampaignId?: string | null;
+  currentCampaignName?: string | null;
+  currentCampaignMlId?: string | null;
+  currentCampaignStatus?: string | null;
+  currentAdId?: string | null;
+  currentAdStatus?: string | null;
 };
 
 type PlanInput = {
@@ -1135,13 +1141,53 @@ export class MercadoAdsAutomationService {
   }> {
     const pool = getPool();
     const { rows } = await pool.query(
-      `select id, ml_item_id, classification, revenue_30d, sales_30d, visits_30d, conversion_rate_30d, profit_unit, ads_active, title, sku, price,
-              available_quantity, status, published_at, created_at, sold_quantity
-       from products
-       where workspace_id = $1
-         and status != 'deleted'
-         and coalesce(published_on_ml, false) = true
-         and ml_item_id is not null`,
+      `select
+          p.id,
+          p.ml_item_id,
+          p.classification,
+          p.revenue_30d,
+          p.sales_30d,
+          p.visits_30d,
+          p.conversion_rate_30d,
+          p.profit_unit,
+          p.ads_active,
+          p.title,
+          p.sku,
+          p.price,
+          p.available_quantity,
+          p.status,
+          p.published_at,
+          p.created_at,
+          p.sold_quantity,
+          current_link.campaign_id as current_campaign_id,
+          current_link.ml_ad_id as current_ad_id,
+          current_link.status as current_ad_status,
+          current_link.campaign_name as current_campaign_name,
+          current_link.campaign_ml_id as current_campaign_ml_id,
+          current_link.campaign_status as current_campaign_status
+       from products p
+       left join lateral (
+         select
+           cp.campaign_id,
+           cp.ml_ad_id,
+           cp.status,
+           c.name as campaign_name,
+           c.ml_campaign_id as campaign_ml_id,
+           c.status as campaign_status
+         from ml_ads_campaign_products cp
+         left join ml_ads_campaigns c on c.id = cp.campaign_id
+         where cp.workspace_id = $1
+           and cp.product_id = p.id
+         order by
+           case when cp.ml_ad_id is not null then 0 else 1 end,
+           cp.last_moved_at desc nulls last,
+           cp.added_at desc nulls last
+         limit 1
+       ) current_link on true
+       where p.workspace_id = $1
+         and p.status != 'deleted'
+         and coalesce(p.published_on_ml, false) = true
+         and p.ml_item_id is not null`,
       [workspaceId],
     );
 
@@ -1239,6 +1285,12 @@ export class MercadoAdsAutomationService {
         publishedAt,
         ageDays,
         hasAdsMetrics: hasMetrics,
+        currentCampaignId: row.current_campaign_id ? String(row.current_campaign_id) : null,
+        currentCampaignName: row.current_campaign_name ? String(row.current_campaign_name) : null,
+        currentCampaignMlId: row.current_campaign_ml_id ? String(row.current_campaign_ml_id) : null,
+        currentCampaignStatus: row.current_campaign_status ? String(row.current_campaign_status) : null,
+        currentAdId: row.current_ad_id ? String(row.current_ad_id) : null,
+        currentAdStatus: row.current_ad_status ? String(row.current_ad_status) : null,
       });
       summary[productCurve] = (summary[productCurve] || 0) + 1;
     }

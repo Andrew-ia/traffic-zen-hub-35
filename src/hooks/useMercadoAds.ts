@@ -179,6 +179,12 @@ export function useMercadoAdsPreview(workspaceId: string | null) {
       publishedAt?: string | null;
       ageDays?: number | null;
       hasAdsMetrics?: boolean;
+      currentCampaignId?: string | null;
+      currentCampaignName?: string | null;
+      currentCampaignMlId?: string | null;
+      currentCampaignStatus?: string | null;
+      currentAdId?: string | null;
+      currentAdStatus?: string | null;
     }>;
     summary: Record<string, number>;
     diagnostics?: {
