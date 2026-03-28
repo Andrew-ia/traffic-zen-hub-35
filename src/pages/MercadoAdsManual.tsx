@@ -187,6 +187,13 @@ export default function MercadoAdsManual() {
     return null;
   }, [getTotalSales]);
   const getSalesVelocity30d = useCallback((item: (typeof items)[number]) => getTotalSales(item) / 30, [getTotalSales]);
+  const getSalesSourceLabel = useCallback((item: (typeof items)[number]) => {
+    const totalSales = formatNumber(getTotalSales(item));
+    if (item.hasAdsMetrics) {
+      return `Total 30d: ${totalSales} • Ads 30d: ${formatNumber(getAdsSales(item))}`;
+    }
+    return `Total 30d: ${totalSales}`;
+  }, [formatNumber, getAdsSales, getTotalSales]);
   const getStockCoverageDays = useCallback((item: (typeof items)[number]) => {
     const stock = item.stock;
     if (stock === null || stock === undefined) return null;
@@ -394,14 +401,14 @@ export default function MercadoAdsManual() {
     return Number(matchedCurve?.daily_budget || 0);
   }, [curves]);
 
-  const formatNumber = (value: number | null | undefined, digits = 0) => {
+  const formatNumber = useCallback((value: number | null | undefined, digits = 0) => {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
     return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: digits }).format(value);
-  };
-  const formatPercent = (value: number | null | undefined, digits = 1) => {
+  }, []);
+  const formatPercent = useCallback((value: number | null | undefined, digits = 1) => {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
     return `${formatNumber(value * 100, digits)}%`;
-  };
+  }, [formatNumber]);
   const formatDate = (value?: string | null) => {
     if (!value) return "—";
     const date = new Date(value);
@@ -1260,7 +1267,7 @@ export default function MercadoAdsManual() {
                         <TableRow>
                           <TableHead>Produto</TableHead>
                           <TableHead>Preço</TableHead>
-                          <TableHead>Vendas 30d</TableHead>
+                          <TableHead>Vendas totais 30d</TableHead>
                           <TableHead>Estoque</TableHead>
                           <TableHead>Cobertura</TableHead>
                           <TableHead>Curva</TableHead>
@@ -1281,7 +1288,7 @@ export default function MercadoAdsManual() {
                               <TableCell>
                                 <div className="font-medium">{formatNumber(getTotalSales(item))}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  {formatNumber(getSalesVelocity30d(item), 1)} / dia
+                                  {formatNumber(getSalesVelocity30d(item), 1)} / dia total
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -1309,7 +1316,7 @@ export default function MercadoAdsManual() {
                   <div className="mb-3">
                     <div className="font-medium">Combos sugeridos para campanha</div>
                     <div className="text-xs text-muted-foreground">
-                      Grupos montados com até 3 produtos, preço próximo e cobertura suficiente.
+                      Grupos montados com até 3 produtos, preço próximo e cobertura suficiente. As vendas exibidas aqui são vendas totais do produto em 30 dias; quando houver métrica de Ads, mostramos separado.
                     </div>
                   </div>
 
@@ -1334,7 +1341,7 @@ export default function MercadoAdsManual() {
                             Faixa de preço: {formatCurrency(group.priceMin)} a {formatCurrency(group.priceMax)}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            Vendas somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
+                            Vendas totais somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
                           </div>
                           <div className="mt-2 rounded-md border border-white/70 bg-white/70 p-2 text-xs text-slate-600">
                             {group.verification.description}
@@ -1391,7 +1398,7 @@ export default function MercadoAdsManual() {
                                 <div className="truncate text-sm font-medium" title={item.title || ""}>{item.title}</div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <span>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</span>
-                                  <span>{formatNumber(getTotalSales(item))} vendas</span>
+                                  <span>{getSalesSourceLabel(item)}</span>
                                   <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
                                   <span>{item.mlItemId}</span>
                                 </div>
@@ -1431,7 +1438,7 @@ export default function MercadoAdsManual() {
                     <TableRow>
                       <TableHead>Produto</TableHead>
                       <TableHead>Preço</TableHead>
-                      <TableHead>Vendas 30d</TableHead>
+                      <TableHead>Vendas totais 30d</TableHead>
                       <TableHead>Estoque</TableHead>
                       <TableHead>Cobertura</TableHead>
                       <TableHead>Ação</TableHead>
@@ -1455,7 +1462,7 @@ export default function MercadoAdsManual() {
                           <TableCell>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</TableCell>
                           <TableCell>
                             <div className="font-medium">{formatNumber(getTotalSales(item))}</div>
-                            <div className="text-xs text-muted-foreground">{formatNumber(getSalesVelocity30d(item), 1)} / dia</div>
+                            <div className="text-xs text-muted-foreground">{formatNumber(getSalesVelocity30d(item), 1)} / dia total</div>
                           </TableCell>
                           <TableCell>
                             <div className="font-medium">{item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}</div>
