@@ -94,11 +94,10 @@ type SuggestedCampaignDraft = {
   budget: number;
   productIds: string[];
   totalProducts: number;
-  safeBudgetTotal: number;
-  safeBudgetBy3d: number;
-  safeBudgetBy5d: number;
-  safeBudgetBy7d: number;
-  usesEstimatedSafeCac: boolean;
+  currentDailySales: number;
+  averageProfitPerSale: number;
+  currentDailyProfit: number;
+  breakEvenSalesPerDay: number;
 };
 
 type SuggestedExistingCampaignDraft = {
@@ -226,6 +225,42 @@ export default function MercadoAdsManual() {
       usesEstimatedSafeCac,
     };
   }, [getMaxSafeSpend, isSafeCacEstimated]);
+  const getGroupEconomics = useCallback((groupItems: Array<(typeof items)[number]>, curveBudget?: number) => {
+    const totalSales = groupItems.reduce((sum, item) => sum + getTotalSales(item), 0);
+    const weightedProfit = groupItems.reduce((sum, item) => {
+      const sales = getTotalSales(item);
+      const profit = Number(item.profitUnit || 0);
+      return sum + (sales > 0 ? sales * profit : 0);
+    }, 0);
+    const fallbackProfitValues = groupItems
+      .map((item) => Number(item.profitUnit || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const averageProfitPerSale = totalSales > 0
+      ? weightedProfit / totalSales
+      : (fallbackProfitValues.length
+          ? fallbackProfitValues.reduce((sum, value) => sum + value, 0) / fallbackProfitValues.length
+          : 0);
+    const currentDailySales = totalSales / 30;
+    const currentDailyProfit = currentDailySales * averageProfitPerSale;
+    const budgetGuidance = getGroupBudgetGuidance(groupItems);
+    const practicalCap = currentDailyProfit > 0 ? currentDailyProfit * 0.8 : 0;
+    const recommendedDailyBudgetBase = Math.min(
+      curveBudget && curveBudget > 0 ? curveBudget : Number.POSITIVE_INFINITY,
+      budgetGuidance.safeBudgetBy5d > 0 ? budgetGuidance.safeBudgetBy5d : Number.POSITIVE_INFINITY,
+      practicalCap > 0 ? practicalCap : Number.POSITIVE_INFINITY,
+    );
+    const recommendedDailyBudget = Number.isFinite(recommendedDailyBudgetBase)
+      ? Math.max(1, Math.floor(recommendedDailyBudgetBase))
+      : Math.max(1, Math.floor(curveBudget || 50));
+    const breakEvenSalesPerDay = averageProfitPerSale > 0 ? recommendedDailyBudget / averageProfitPerSale : 0;
+    return {
+      currentDailySales,
+      averageProfitPerSale,
+      currentDailyProfit,
+      recommendedDailyBudget,
+      breakEvenSalesPerDay,
+    };
+  }, [getGroupBudgetGuidance, getTotalSales]);
   const getStockCoverageDays = useCallback((item: (typeof items)[number]) => {
     const stock = item.stock;
     if (stock === null || stock === undefined) return null;
@@ -915,11 +950,8 @@ export default function MercadoAdsManual() {
     const dominantCurve = group.items
       .slice()
       .sort((a, b) => getTotalSales(b) - getTotalSales(a))[0]?.curve || "B";
-    const budgetGuidance = getGroupBudgetGuidance(group.items);
     const curveBudget = getCurveBudget(dominantCurve) || getCurveBudget("B") || 50;
-    const safeSuggestedBudget = budgetGuidance.safeBudgetBy5d > 0
-      ? Math.max(1, Math.floor(Math.min(curveBudget, budgetGuidance.safeBudgetBy5d)))
-      : Math.max(1, Math.floor(curveBudget));
+    const economics = getGroupEconomics(group.items, curveBudget);
     setPendingSuggestedCampaign({
       name: buildSuggestedCampaignName(
         group.items.map((item) => item.title || ""),
@@ -927,14 +959,13 @@ export default function MercadoAdsManual() {
         group.priceMin,
         group.priceMax,
       ),
-      budget: safeSuggestedBudget,
+      budget: economics.recommendedDailyBudget,
       productIds: group.items.map((item) => item.productId),
       totalProducts: group.items.length,
-      safeBudgetTotal: budgetGuidance.safeBudgetTotal,
-      safeBudgetBy3d: budgetGuidance.safeBudgetBy3d,
-      safeBudgetBy5d: budgetGuidance.safeBudgetBy5d,
-      safeBudgetBy7d: budgetGuidance.safeBudgetBy7d,
-      usesEstimatedSafeCac: budgetGuidance.usesEstimatedSafeCac,
+      currentDailySales: economics.currentDailySales,
+      averageProfitPerSale: economics.averageProfitPerSale,
+      currentDailyProfit: economics.currentDailyProfit,
+      breakEvenSalesPerDay: economics.breakEvenSalesPerDay,
     });
     setSuggestedCampaignConfirmOpen(true);
   };
@@ -1379,7 +1410,10 @@ export default function MercadoAdsManual() {
                   ) : (
                     <div className="space-y-3">
                       {manualCampaignGroups.map((group) => {
-                        const budgetGuidance = getGroupBudgetGuidance(group.items);
+                        const curveBudget = getCurveBudget(
+                          group.items.slice().sort((a, b) => getTotalSales(b) - getTotalSales(a))[0]?.curve || "B",
+                        ) || getCurveBudget("B") || 50;
+                        const economics = getGroupEconomics(group.items, curveBudget);
                         return (
                         <div key={`campaign-group-${group.index}`} className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
                           <div className="flex items-center justify-between gap-2">
@@ -1398,13 +1432,11 @@ export default function MercadoAdsManual() {
                             Vendas totais somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            Teto seguro pelo estoque atual: {formatCurrency(budgetGuidance.safeBudgetTotal)} total • 3d: {formatCurrency(budgetGuidance.safeBudgetBy3d)}/dia • 5d: {formatCurrency(budgetGuidance.safeBudgetBy5d)}/dia • 7d: {formatCurrency(budgetGuidance.safeBudgetBy7d)}/dia
+                            Ritmo atual do combo: {formatNumber(economics.currentDailySales, 1)} vendas/dia • lucro médio: {formatCurrency(economics.averageProfitPerSale)} por venda
                           </div>
-                          {budgetGuidance.usesEstimatedSafeCac ? (
-                            <div className="text-xs text-amber-700">
-                              CAC seguro estimado em 60% do lucro unitário para itens sem CAC preenchido.
-                            </div>
-                          ) : null}
+                          <div className="text-xs text-muted-foreground">
+                            Sugestão inicial: até {formatCurrency(economics.recommendedDailyBudget)}/dia • nesse valor, precisa de {formatNumber(economics.breakEvenSalesPerDay, 1)} vendas/dia para empatar
+                          </div>
                           <div className="mt-2 rounded-md border border-white/70 bg-white/70 p-2 text-xs text-slate-600">
                             {group.verification.description}
                             {group.verification.campaignName ? ` Campanha detectada: ${group.verification.campaignName}.` : ""}
@@ -1463,9 +1495,6 @@ export default function MercadoAdsManual() {
                                   <span>{getSalesSourceLabel(item)}</span>
                                   <span>
                                     Estoque: {item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}
-                                  </span>
-                                  <span>
-                                    CAC seguro: {formatCurrency(getSafeCac(item))}
                                   </span>
                                   <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
                                   <span>{item.mlItemId}</span>
@@ -2233,16 +2262,19 @@ export default function MercadoAdsManual() {
               {pendingSuggestedCampaign ? (
                 <div className="space-y-1 text-xs text-muted-foreground">
                   <div>
-                    Teto seguro pelo estoque atual: {formatCurrency(pendingSuggestedCampaign.safeBudgetTotal)} total
+                    O combo vende hoje {formatNumber(pendingSuggestedCampaign.currentDailySales, 1)} unidades/dia e gera cerca de {formatCurrency(pendingSuggestedCampaign.currentDailyProfit)}/dia de lucro bruto.
                   </div>
                   <div>
-                    3 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy3d)}/dia • 5 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy5d)}/dia • 7 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy7d)}/dia
+                    Com {formatCurrency(pendingSuggestedCampaign.budget)}/dia, voce precisa de {formatNumber(
+                      pendingSuggestedCampaign.averageProfitPerSale > 0
+                        ? pendingSuggestedCampaign.budget / pendingSuggestedCampaign.averageProfitPerSale
+                        : 0,
+                      1,
+                    )} vendas/dia para empatar o Ads.
                   </div>
-                  {pendingSuggestedCampaign.usesEstimatedSafeCac ? (
-                    <div className="text-amber-700">
-                      CAC seguro estimado em 60% do lucro unitário para itens sem CAC preenchido.
-                    </div>
-                  ) : null}
+                  <div>
+                    Lucro medio por venda no combo: {formatCurrency(pendingSuggestedCampaign.averageProfitPerSale)}.
+                  </div>
                 </div>
               ) : null}
             </div>
