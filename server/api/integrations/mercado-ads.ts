@@ -6,6 +6,74 @@ import { resolveWorkspaceId } from '../../utils/workspace.js';
 const router = Router();
 const automation = new MercadoAdsAutomationService();
 
+const getSuggestedCampaignErrorPayload = (message: string) => {
+  if (message === 'ml_ads_campaign_create_not_supported') {
+    return {
+      status: 400,
+      body: {
+        error: 'Mercado Ads não permite criar campanhas via API nesta conta. Crie a campanha manualmente no painel e depois mova os produtos.',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_permission_denied_write') {
+    return {
+      status: 403,
+      body: {
+        error: 'Permissão negada pelo Mercado Livre para gravar no Product Ads. A conta consegue ler dados, mas a API de escrita ainda não está liberada para esta operação.',
+        code: 'ml_reauth_required',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_invalid_suggested_campaign_products') {
+    return {
+      status: 400,
+      body: {
+        error: 'Selecione entre 1 e 3 produtos para continuar.',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_suggested_campaign_products_not_found') {
+    return {
+      status: 404,
+      body: {
+        error: 'Um ou mais produtos sugeridos não foram encontrados na base publicada do Mercado Livre.',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_suggested_campaign_out_of_stock') {
+    return {
+      status: 400,
+      body: {
+        error: 'Não é possível continuar porque um dos produtos está sem estoque.',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_suggested_campaign_missing_target') {
+    return {
+      status: 404,
+      body: {
+        error: 'A campanha selecionada não foi encontrada ou ainda não está vinculada ao Mercado Ads.',
+      },
+    };
+  }
+
+  if (message === 'ml_ads_product_ad_create_failed') {
+    return {
+      status: 400,
+      body: {
+        error: 'A API não conseguiu criar ou atualizar os anúncios dos produtos na campanha escolhida.',
+      },
+    };
+  }
+
+  return null;
+};
+
 // Temporarily disable authMiddleware to resolve 401 errors until token sync is fixed
 // router.use(authMiddleware);
 
@@ -234,41 +302,23 @@ router.post('/suggested-campaigns', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
 
     const result = await automation.createSuggestedCampaign(workspaceId, req.body || {});
+    if (!result.processedCount && result.errors?.length) {
+      const firstError = result.errors[0]?.error || 'ml_ads_product_ad_create_failed';
+      const mapped = getSuggestedCampaignErrorPayload(firstError);
+      if (mapped) {
+        return res.status(mapped.status).json({
+          ...mapped.body,
+          processedCount: result.processedCount,
+          errors: result.errors,
+        });
+      }
+    }
     return res.json({ success: true, ...result });
   } catch (err: any) {
     const message = err?.message || 'Failed to create suggested campaign';
     console.error('[MercadoAds] Suggested campaign error:', err);
-
-    if (message === 'ml_ads_campaign_create_not_supported') {
-      return res.status(400).json({
-        error: 'Mercado Ads não permite criar campanhas via API nesta conta. Crie a campanha manualmente no painel e depois mova os produtos.',
-      });
-    }
-
-    if (message === 'ml_ads_permission_denied_write') {
-      return res.status(403).json({
-        error: 'Permissão negada pelo Mercado Livre. Desconecte e conecte novamente sua conta para atualizar as permissões de publicidade.',
-        code: 'ml_reauth_required'
-      });
-    }
-
-    if (message === 'ml_ads_invalid_suggested_campaign_products') {
-      return res.status(400).json({
-        error: 'Selecione entre 1 e 3 produtos para criar a campanha sugerida.',
-      });
-    }
-
-    if (message === 'ml_ads_suggested_campaign_products_not_found') {
-      return res.status(404).json({
-        error: 'Um ou mais produtos sugeridos não foram encontrados na base publicada do Mercado Livre.',
-      });
-    }
-
-    if (message === 'ml_ads_suggested_campaign_out_of_stock') {
-      return res.status(400).json({
-        error: 'Não é possível criar a campanha porque um dos produtos está sem estoque.',
-      });
-    }
+    const mapped = getSuggestedCampaignErrorPayload(message);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
 
     return res.status(500).json({ error: 'Failed to create suggested campaign', details: message });
   }
@@ -280,41 +330,23 @@ router.post('/suggested-campaigns/assign-existing', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
 
     const result = await automation.assignSuggestedCampaignToExisting(workspaceId, req.body || {});
+    if (!result.processedCount && result.errors?.length) {
+      const firstError = result.errors[0]?.error || 'ml_ads_product_ad_create_failed';
+      const mapped = getSuggestedCampaignErrorPayload(firstError);
+      if (mapped) {
+        return res.status(mapped.status).json({
+          ...mapped.body,
+          processedCount: result.processedCount,
+          errors: result.errors,
+        });
+      }
+    }
     return res.json({ success: true, ...result });
   } catch (err: any) {
     const message = err?.message || 'Failed to assign suggested campaign to existing target';
     console.error('[MercadoAds] Assign existing suggested campaign error:', err);
-
-    if (message === 'ml_ads_permission_denied_write') {
-      return res.status(403).json({
-        error: 'Permissão negada pelo Mercado Livre. Desconecte e conecte novamente sua conta para atualizar as permissões de publicidade.',
-        code: 'ml_reauth_required'
-      });
-    }
-
-    if (message === 'ml_ads_invalid_suggested_campaign_products') {
-      return res.status(400).json({
-        error: 'Selecione entre 1 e 3 produtos para usar em uma campanha existente.',
-      });
-    }
-
-    if (message === 'ml_ads_suggested_campaign_products_not_found') {
-      return res.status(404).json({
-        error: 'Um ou mais produtos sugeridos não foram encontrados na base publicada do Mercado Livre.',
-      });
-    }
-
-    if (message === 'ml_ads_suggested_campaign_out_of_stock') {
-      return res.status(400).json({
-        error: 'Não é possível mover os produtos porque um deles está sem estoque.',
-      });
-    }
-
-    if (message === 'ml_ads_suggested_campaign_missing_target') {
-      return res.status(404).json({
-        error: 'A campanha selecionada não foi encontrada ou ainda não está vinculada ao Mercado Ads.',
-      });
-    }
+    const mapped = getSuggestedCampaignErrorPayload(message);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
 
     return res.status(500).json({ error: 'Failed to assign suggested campaign to existing target', details: message });
   }

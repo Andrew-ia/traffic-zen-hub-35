@@ -874,7 +874,10 @@ export default function MercadoAdsManual() {
       });
       toast({
         title: "Campanha criada",
-        description: `${result?.campaign?.name || pendingSuggestedCampaign.name} criada com ${result?.processedCount || 0} produto(s).`,
+        description:
+          result?.errors?.length
+            ? `${result?.campaign?.name || pendingSuggestedCampaign.name} criada com ${result?.processedCount || 0} produto(s) e ${result.errors.length} falha(s).`
+            : `${result?.campaign?.name || pendingSuggestedCampaign.name} criada com ${result?.processedCount || 0} produto(s).`,
       });
       setSuggestedCampaignConfirmOpen(false);
       setPendingSuggestedCampaign(null);
@@ -897,7 +900,10 @@ export default function MercadoAdsManual() {
       });
       toast({
         title: "Produtos movidos",
-        description: `${result?.processedCount || 0} produto(s) enviados para ${result?.campaign?.name || "a campanha selecionada"}.`,
+        description:
+          result?.errors?.length
+            ? `${result?.processedCount || 0} produto(s) enviados para ${result?.campaign?.name || "a campanha selecionada"} e ${result.errors.length} falha(s).`
+            : `${result?.processedCount || 0} produto(s) enviados para ${result?.campaign?.name || "a campanha selecionada"}.`,
       });
       setExistingCampaignConfirmOpen(false);
       setPendingExistingCampaign(null);

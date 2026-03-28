@@ -2116,7 +2116,10 @@ export class MercadoAdsAutomationService {
     const existing = await pool.query(
       `select id, ml_ad_id from ml_ads_campaign_products
        where workspace_id = $1 and ml_item_id = $2
-       order by added_at desc
+       order by
+         case when ml_ad_id is not null then 0 else 1 end,
+         last_moved_at desc nulls last,
+         added_at desc nulls last
        limit 1`,
       [workspaceId, product.mlItemId],
     );
