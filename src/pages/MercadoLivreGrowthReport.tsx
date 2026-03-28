@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useMercadoLivreGrowthReport } from "@/hooks/useMercadoLivre";
+import { useBackfillMercadoLivreGrowthReport, useMercadoLivreGrowthReport } from "@/hooks/useMercadoLivre";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,14 +24,29 @@ const formatPct = (value: number | null, digits = 1) => {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 
+const formatDateLabel = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const parsed = new Date(`${value}T12:00:00-03:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+};
+
+const freshnessVariant = (staleDays: number | null) => {
+  if (staleDays === null) return "outline" as const;
+  if (staleDays <= 2) return "secondary" as const;
+  return "destructive" as const;
+};
+
 export default function MercadoLivreGrowthReport() {
   const { currentWorkspace } = useWorkspace();
+  const { toast } = useToast();
   const workspaceId = currentWorkspace?.id || null;
 
   const { data, isLoading, error, refetch, isFetching } = useMercadoLivreGrowthReport(workspaceId, {
     periods: [7, 30, 90],
     topN: 10,
   });
+  const backfillMutation = useBackfillMercadoLivreGrowthReport();
 
   const summary = data?.executiveSummary?.metrics;
   const skuPlans = data?.skuPlans || [];
@@ -60,6 +76,28 @@ export default function MercadoLivreGrowthReport() {
     ));
   }, [data?.actions]);
 
+  const handleBackfill = async () => {
+    if (!workspaceId) return;
+    try {
+      const result = await backfillMutation.mutateAsync({
+        workspaceId,
+        days: 30,
+        includeAds: true,
+      });
+      toast({
+        title: "Base sincronizada",
+        description: `Tráfego e snapshots de ads reprocessados para ${result.days} dias.`,
+      });
+      refetch();
+    } catch (err: any) {
+      toast({
+        title: "Falha ao sincronizar base",
+        description: err?.message || "Nao foi possivel atualizar trafego e ads.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!workspaceId) {
     return (
       <div className="p-6">
@@ -88,6 +126,14 @@ export default function MercadoLivreGrowthReport() {
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw className="mr-2 h-4 w-4" />
             {isFetching ? "Atualizando..." : "Atualizar"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleBackfill}
+            disabled={backfillMutation.isPending}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {backfillMutation.isPending ? "Sincronizando base..." : "Sincronizar trafego e ads"}
           </Button>
           <Button asChild variant="outline">
             <a href={downloadUrl("md")}>
@@ -211,6 +257,152 @@ export default function MercadoLivreGrowthReport() {
               </ul>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Saude da base</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Quando visitas ou ads estao atrasados, o diagnostico de causa perde precisao.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border p-4">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Pedidos</div>
+                <div className="mt-2 text-xl font-semibold">{formatDateLabel(data.dataFreshness.ordersLastDate)}</div>
+                <div className="mt-2 text-xs text-muted-foreground">Ultima data com pedidos sincronizados</div>
+              </div>
+              <div className="rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Visitas</div>
+                  <Badge variant={freshnessVariant(data.dataFreshness.visitsStaleDays)}>
+                    {data.dataFreshness.visitsStaleDays === null ? "Sem base" : `${data.dataFreshness.visitsStaleDays}d atraso`}
+                  </Badge>
+                </div>
+                <div className="mt-2 text-xl font-semibold">{formatDateLabel(data.dataFreshness.visitsLastDate)}</div>
+                <div className="mt-2 text-xs text-muted-foreground">Ultimo dia com trafego por item salvo</div>
+              </div>
+              <div className="rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Ads</div>
+                  <Badge variant={freshnessVariant(data.dataFreshness.adsStaleDays)}>
+                    {data.dataFreshness.adsStaleDays === null ? "Sem base" : `${data.dataFreshness.adsStaleDays}d atraso`}
+                  </Badge>
+                </div>
+                <div className="mt-2 text-xl font-semibold">{formatDateLabel(data.dataFreshness.adsLastDate)}</div>
+                <div className="mt-2 text-xs text-muted-foreground">Ultimo snapshot salvo de ads</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {data.salesRhythm ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Picos vs dias fracos</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Ultimos {data.salesRhythm.days} dias completos: {data.salesRhythm.range.from} a {data.salesRhythm.range.to}.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded-xl border p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Media diaria</div>
+                    <div className="mt-2 text-xl font-semibold">{formatCurrency(data.salesRhythm.baseline.averageRevenue)}</div>
+                  </div>
+                  <div className="rounded-xl border p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Mediana diaria</div>
+                    <div className="mt-2 text-xl font-semibold">{formatCurrency(data.salesRhythm.baseline.medianRevenue)}</div>
+                  </div>
+                  <div className="rounded-xl border p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Pedidos / dia</div>
+                    <div className="mt-2 text-xl font-semibold">{data.salesRhythm.baseline.averageOrders.toFixed(1)}</div>
+                  </div>
+                  <div className="rounded-xl border p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Ticket medio</div>
+                    <div className="mt-2 text-xl font-semibold">{formatCurrency(data.salesRhythm.baseline.averageTicket)}</div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div>
+                    <div className="mb-3 text-sm font-medium">Dias de pico</div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Receita</TableHead>
+                          <TableHead>Pedidos</TableHead>
+                          <TableHead>Maior pedido</TableHead>
+                          <TableHead>SKU lider</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.salesRhythm.peakDays.map((day) => (
+                          <TableRow key={`peak-${day.date}`}>
+                            <TableCell>{formatDateLabel(day.date)} • {day.weekday}</TableCell>
+                            <TableCell>{formatCurrency(day.grossRevenue)}</TableCell>
+                            <TableCell>{day.orders}</TableCell>
+                            <TableCell>
+                              {formatCurrency(day.biggestOrderTotal)}
+                              {day.biggestOrderShare !== null ? (
+                                <div className="text-xs text-muted-foreground">{day.biggestOrderShare.toFixed(1)}% do dia</div>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="max-w-[220px] truncate">
+                              {day.topProductTitle || day.topProductId || "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 text-sm font-medium">Dias fracos</div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Receita</TableHead>
+                          <TableHead>Pedidos</TableHead>
+                          <TableHead>Maior pedido</TableHead>
+                          <TableHead>SKU lider</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.salesRhythm.weakDays.map((day) => (
+                          <TableRow key={`weak-${day.date}`}>
+                            <TableCell>{formatDateLabel(day.date)} • {day.weekday}</TableCell>
+                            <TableCell>{formatCurrency(day.grossRevenue)}</TableCell>
+                            <TableCell>{day.orders}</TableCell>
+                            <TableCell>
+                              {formatCurrency(day.biggestOrderTotal)}
+                              {day.biggestOrderShare !== null ? (
+                                <div className="text-xs text-muted-foreground">{day.biggestOrderShare.toFixed(1)}% do dia</div>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="max-w-[220px] truncate">
+                              {day.topProductTitle || day.topProductId || "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {data.salesRhythm.insights.length > 0 ? (
+                  <div>
+                    <div className="mb-3 text-sm font-medium">Leituras automaticas</div>
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {data.salesRhythm.insights.map((item, index) => (
+                        <li key={`${item}-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {data.periods.map((period) => (
             <div key={period.days} className="space-y-4">

@@ -1,18 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Mercado Livre Scraper",
-  "description": "Extensão para coletar dados de páginas e resultados de busca do Mercado Livre.",
+  "name": "Traffic Pro ML Assistant",
+  "description": "Assistente de pesquisa para páginas abertas do Mercado Livre, integrado ao Traffic Pro.",
   "version": "0.1.0",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://*.mercadolivre.com.br/*",
     "https://mercadolivre.com.br/*",
     "https://*.mercadolivre.com/*",
-    "https://mercadolivre.com/*",
-    "https://api.mercadolibre.com/*"
+    "https://mercadolivre.com/*"
   ],
   "action": {
-    "default_title": "Scrapear página do Mercado Livre",
+    "default_title": "Analisar página aberta do Mercado Livre",
     "default_popup": "popup.html"
   },
   "content_scripts": [

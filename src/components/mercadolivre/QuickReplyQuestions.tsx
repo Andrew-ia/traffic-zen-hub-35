@@ -123,14 +123,15 @@ export function QuickReplyQuestions({
     };
 
     return (
-        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
-            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+        <Card className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-md">
+            <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(37,99,235,0.90),rgba(125,211,252,0.65),rgba(255,255,255,0))]" />
+            <CardHeader className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.92))] pb-4">
                 <div className="flex items-center justify-between gap-3">
                     <CardTitle className="text-lg font-bold flex items-center gap-2">
-                        <MessageCircle className="h-5 w-5 text-primary" />
+                        <MessageCircle className="h-5 w-5 text-blue-600" />
                         Respostas Rápidas
                     </CardTitle>
-                    <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2.5 py-0.5">
+                    <Badge variant="secondary" className="border-none bg-blue-50 px-2.5 py-0.5 text-blue-700">
                         {totalUnanswered} pendentes
                     </Badge>
                 </div>
@@ -155,7 +156,7 @@ export function QuickReplyQuestions({
                         {visibleQuestions.map((question) => (
                             <div
                                 key={question.id}
-                                className="rounded-2xl border border-border/20 bg-background/40 p-4 space-y-2"
+                                className="space-y-2 rounded-2xl border border-slate-200/80 bg-slate-50/75 p-4"
                             >
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
@@ -167,7 +168,7 @@ export function QuickReplyQuestions({
                                     <Button
                                         size="sm"
                                         variant="secondary"
-                                        className="rounded-full"
+                                        className="rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
                                         onClick={() => setActiveQuestion(question)}
                                     >
                                         <Sparkles className="h-3.5 w-3.5 mr-1" />

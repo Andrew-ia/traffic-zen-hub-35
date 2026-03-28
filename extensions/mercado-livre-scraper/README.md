@@ -1,37 +1,67 @@
-# Mercado Livre Scraper (Chrome)
+# Traffic Pro ML Assistant
 
-Extensão Chrome simples para coletar dados de páginas e resultados de busca do Mercado Livre diretamente do navegador, exportando em JSON.
+Extensao Chrome assistida para apoiar a pesquisa manual no Mercado Livre sem fazer scraping agressivo nem consultas em massa.
 
-## O que faz
-- Detecta automaticamente se a aba aberta é página de produto ou de resultados de busca.
-- Coleta campos principais (título, preço, moeda, vendedor, imagens, disponibilidade, rating, breadcrumbs).
-- Na busca, coleta cada card (título, URL, preço, seller/loja oficial, frete, localização, badges e rating quando disponível) e tenta extrair `soldCount` dos cards.
-- Novo: formulário “Top da categoria (API pública)” no popup para buscar top 10/20/30/50 por categoria/subcategoria, com filtro de vendas mínimas. Se a API pública falhar, faz fallback usando o scraping da página ativa.
-- Exibe o JSON no popup e permite copiar para a área de transferência ou baixar em arquivo.
+## Como funciona
+- Voce abre normalmente uma pagina do Mercado Livre.
+- A extensao le apenas o que esta visivel na aba atual:
+  - pagina de produto
+  - listagem de busca/categoria
+- O popup mostra um resumo do contexto atual.
+- A extensao tambem injeta um painel lateral discreto na propria pagina do Mercado Livre.
+- A partir dele, voce pode:
+  - abrir a analise do anuncio no Traffic Pro
+  - abrir a pagina `Pesquisa de Mercado`
+  - salvar candidatos para revisar depois
+
+## O que a extensao NAO faz
+- nao varre paginas em massa
+- nao abre navegacao automatica no Mercado Livre
+- nao usa endpoints publicos do Mercado Livre pela extensao
+- nao tenta burlar bloqueio, captcha ou limitacao de conta
 
 ## Estrutura
-- `manifest.json` — definição da extensão (Manifest V3).
-- `content.js` — content script que faz o scraping e responde às mensagens.
-- `popup.html`, `popup.css`, `popup.js` — UI do popup para disparar o scraping, coletar top de categoria e exportar dados.
+- `manifest.json` - definicao da extensao
+- `content.js` - le o DOM da pagina ja aberta pelo usuario
+- `popup.html`, `popup.css`, `popup.js` - painel da extensao
+
+## Dados lidos da aba atual
+
+### Pagina de produto
+- `MLB`
+- titulo
+- preco
+- vendedor
+- frete
+- vendidos
+- flags como `full`, `frete gratis` e `loja oficial` quando aparecerem na pagina
+
+### Busca/listagem
+- itens visiveis
+- `MLB`
+- titulo
+- preco
+- vendedor
+- frete
+- vendidos no card, quando visivel
+- badges do anuncio
 
 ## Como usar localmente
-1) No Chrome, abra `chrome://extensions` e ative o **Modo do desenvolvedor**.  
-2) Clique em **Carregar sem compactação** e selecione `extensions/mercado-livre-scraper` dentro do repositório.  
-3) Abra uma página do Mercado Livre (produto ou resultados).  
-4) Clique no ícone da extensão e em **Scrapear página**.  
-5) Use **Copiar JSON** ou **Baixar JSON** para reutilizar os dados.
+1. Abra `chrome://extensions`.
+2. Ative o `Modo do desenvolvedor`.
+3. Clique em `Carregar sem compactacao`.
+4. Selecione a pasta `extensions/mercado-livre-scraper`.
+5. Abra uma pagina do Mercado Livre.
+6. Clique no icone da extensao.
+7. Se quiser, use `Abrir painel lateral` no popup ou o botao flutuante `TP` na pagina.
 
-### Top da categoria (API pública)
-- Use o formulário no popup: informe **Categoria** (ID ML, ex.: `MLB1051`), opcionalmente **Subcategoria**, escolha a quantidade (10/20/30/50) e **Mín. vendas/mês**.  
-- A extensão tenta a API pública `sites/MLB/search?sort=best_seller`. Se falhar (403/erro), faz fallback via scraping da página ativa (ordenada por mais vendidos). Certifique-se de que a aba ativa é uma página do Mercado Livre para o fallback funcionar.
+## Fluxo recomendado
+1. Pesquise manualmente no Mercado Livre.
+2. Abra a extensao na listagem.
+3. Salve os itens visiveis que chamarem atencao.
+4. Abra a analise do Traffic Pro para os `MLBs` mais promissores.
+5. Use a `Pesquisa de Mercado` da plataforma para aprofundar.
 
-## Campos retornados
-- Produto: `title`, `price`, `currency`, `availability`, `seller`, `brand`, `rating`, `shipping`, `sold`, `soldCount`, `sku`, `mpn`, `gtin`, `breadcrumbs`, `images`, `pageUrl`.
-- Busca: `query`, `total`, `items[]` com `title`, `url`, `price`, `currency`, `seller`, `shipping`, `badge`, `location`, `condition`, `rating`, `soldCount`, `soldText`.
-- Top categoria (API): `mode: category_api`, `categoryId`, `minSold`, `limit`, `items[]` com `id`, `title`, `price`, `currency`, `sellerId`, `permalink`, `thumbnail`, `condition`, `domainId`, `soldQuantity`.
-- Sempre inclui `ok`, `scrapedAt` e `data.mode` (`product`, `search` ou `category_api`).
-
-## Observações
-- A coleta privilegia dados estruturados (`application/ld+json`) quando disponíveis e faz fallback para o DOM.
-- O layout do Mercado Livre muda com frequência; se alguma captura falhar, ajuste os seletores em `content.js`.
-- Nenhum dado é enviado para servidores externos; tudo roda localmente no navegador.
+## Observacoes
+- O layout do Mercado Livre muda com frequencia. Se algum campo deixar de aparecer, ajuste os seletores em `content.js`.
+- A extensao foi desenhada para ser assistiva e segura para a conta, nao para automacao pesada.

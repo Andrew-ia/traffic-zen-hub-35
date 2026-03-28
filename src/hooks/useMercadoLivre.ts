@@ -93,6 +93,46 @@ export interface MercadoLivreMetrics {
     }>;
 }
 
+export interface MercadoLivreAdsFinanceChannelSummary {
+    key: "PRODUCT_ADS" | "BRAND_ADS" | "DISPLAY_ADS";
+    label: string;
+    operationalAmount: number;
+    billedAmount: number;
+    operationalAvailable: boolean;
+    billedAvailable: boolean;
+    billedExact: boolean;
+}
+
+export interface MercadoLivreAdsFinancePeriodSummary {
+    key: string;
+    dateFrom: string;
+    dateTo: string;
+    coveredDateTo: string;
+    periodStatus: string | null;
+    overlapDays: number;
+    totalDays: number;
+    exact: boolean;
+}
+
+export interface MercadoLivreAdsFinanceSummary {
+    dateFrom: string;
+    dateTo: string;
+    operationalTotal: number;
+    billedTotal: number;
+    billedMode: "exact" | "estimated" | "unavailable";
+    usedInEstimate: {
+        amount: number;
+        source: "billed" | "operational";
+        label: string;
+        exact: boolean;
+    };
+    channels: MercadoLivreAdsFinanceChannelSummary[];
+    periods: MercadoLivreAdsFinancePeriodSummary[];
+    notes: string[];
+    lastOperationalSyncAt: string | null;
+    lastBillingSyncAt: string | null;
+}
+
 export interface MercadoLivreGrowthMetricComparison {
     current: number;
     previous: number;
@@ -149,6 +189,46 @@ export interface MercadoLivreGrowthPeriod {
     lowTrafficHighConversion: MercadoLivreGrowthItem[];
 }
 
+export interface MercadoLivreGrowthDataFreshness {
+    ordersLastDate: string | null;
+    visitsLastDate: string | null;
+    adsLastDate: string | null;
+    visitsStaleDays: number | null;
+    adsStaleDays: number | null;
+}
+
+export interface MercadoLivreSalesRhythmDay {
+    date: string;
+    weekday: string;
+    grossRevenue: number;
+    orders: number;
+    buyers: number;
+    units: number;
+    avgTicket: number;
+    topProductId: string | null;
+    topProductTitle: string | null;
+    topProductRevenue: number;
+    topProductShare: number | null;
+    biggestOrderId: string | null;
+    biggestOrderTotal: number;
+    biggestOrderUnits: number;
+    biggestOrderShare: number | null;
+}
+
+export interface MercadoLivreSalesRhythm {
+    days: number;
+    range: { from: string; to: string };
+    baseline: {
+        averageRevenue: number;
+        medianRevenue: number;
+        averageOrders: number;
+        averageTicket: number;
+    };
+    peakDays: MercadoLivreSalesRhythmDay[];
+    weakDays: MercadoLivreSalesRhythmDay[];
+    insights: string[];
+}
+
 export interface MercadoLivreGrowthReport {
     generatedAt: string;
     workspaceId: string;
@@ -175,6 +255,8 @@ export interface MercadoLivreGrowthReport {
     checklist: string[];
     productOpportunityRanking: MercadoLivreGrowthItem[];
     skuPlans: MercadoLivreSkuPlan[];
+    dataFreshness: MercadoLivreGrowthDataFreshness;
+    salesRhythm: MercadoLivreSalesRhythm | null;
     notes: string[];
 }
 
@@ -298,6 +380,8 @@ export interface MercadoLivreAnalyticsTopProduct {
 
 export interface MercadoLivreAnalyticsTopResponse {
     days: number;
+    dateFrom?: string | null;
+    dateTo?: string | null;
     lastSyncedAt: string | null;
     missingCostCount: number;
     topSales: MercadoLivreAnalyticsTopProduct[];
@@ -404,6 +488,9 @@ export interface MercadoLivrePriceStockAutomationResult {
     source: "topSales" | "topProfit";
     params: {
         topN: number;
+        days: number;
+        dateFrom?: string | null;
+        dateTo?: string | null;
         lowStockThreshold: number;
         highStockThreshold: number;
         increaseRate: number;
@@ -656,6 +743,194 @@ export interface MercadoLivreCategory {
     }>;
 }
 
+export interface MercadoLivreMarketResearchTrend {
+    keyword: string;
+    url: string;
+    position: number;
+}
+
+export interface MercadoLivreMarketResearchListing {
+    id: string;
+    title: string;
+    price: number;
+    sold_quantity: number;
+    reviews_count: number;
+    reviews_average: number | null;
+    demand_source: "sold_quantity" | "reviews_proxy" | "limited";
+    available_quantity: number;
+    permalink: string;
+    thumbnail: string;
+    category_id: string | null;
+    category_name: string | null;
+    date_created: string | null;
+    ad_age_days: number | null;
+    sales_per_day: number | null;
+    official_store_id: number | null;
+    logistic_type: string | null;
+    shipping_free_shipping: boolean;
+    seller_id: string | null;
+    seller_nickname: string | null;
+    seller_reputation_level: string | null;
+    seller_reputation_score: number | null;
+    seller_transactions: number | null;
+    seller_power_seller_status: string | null;
+    seller_type: "official" | "mercado_lider" | "common";
+    total_visits?: number | null;
+    competing_sellers_count?: number | null;
+    source_category_id?: string | null;
+    source_category_name?: string | null;
+}
+
+export interface MercadoLivreMarketResearchSubcategory {
+    id: string;
+    name: string;
+    total_items_in_this_category: number | null;
+    listings_count: number;
+    sold_quantity: number;
+    estimated_revenue: number;
+    average_price: number;
+    median_price: number;
+    average_sales_per_day: number;
+    official_pct: number;
+    full_pct: number;
+}
+
+export interface MercadoLivreMarketResearchSummary {
+    totalListings: number;
+    scannedListings: number;
+    uniqueSellers: number;
+    officialStoresPct: number;
+    fullPct: number;
+    freeShippingPct: number;
+    totalSoldQuantity: number;
+    estimatedRevenue: number;
+    averagePrice: number;
+    minPrice: number;
+    maxPrice: number;
+    averageListingAgeDays: number | null;
+    averageSalesPerDay: number;
+    averageSellerReputationScore: number | null;
+    top10SellerSharePct: number;
+    recentAcceleratorsCount: number;
+    officialSoldSharePct: number;
+    dominantSellerType: string;
+}
+
+export interface MercadoLivreMarketResearchResponse {
+    snapshotId: string;
+    generatedAt: string;
+    generatedAtBrazil: string;
+    query: {
+        categoryId: string;
+        categoryName: string;
+        subcategoryId: string | null;
+        subcategoryName: string | null;
+        searchTerm: string | null;
+        scanLimit: number;
+        sortApplied: string;
+        totalListings: number;
+        scannedListings: number;
+        sampleTruncated: boolean;
+    };
+    category: {
+        id: string;
+        name: string;
+        path_from_root: Array<{ id: string; name: string }>;
+        children_categories: Array<{ id: string; name: string; total_items_in_this_category?: number | null }>;
+    };
+    selectedCategory: {
+        id: string;
+        name: string;
+        total_items_in_this_category?: number | null;
+    };
+    trends: MercadoLivreMarketResearchTrend[];
+    summary: MercadoLivreMarketResearchSummary;
+    subcategories: MercadoLivreMarketResearchSubcategory[];
+    listings: MercadoLivreMarketResearchListing[];
+    notes: string[];
+}
+
+export interface MercadoLivreCatalogSourcingImportSummary {
+    id: string;
+    workspace_id: string | null;
+    supplier_name: string;
+    source_file_name: string | null;
+    source_type: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    item_count: number;
+    items_count: number;
+    analyzed_count: number;
+    approved_count: number;
+    matched_count: number;
+}
+
+export interface MercadoLivreCatalogSourcingMatch {
+    id: string;
+    mlItemId: string;
+    title: string;
+    price: number;
+    soldQuantity: number;
+    availableQuantity: number;
+    salesPerDay: number;
+    permalink: string | null;
+    thumbnail: string | null;
+    dateCreated: string | null;
+    adAgeDays: number | null;
+    officialStoreId: number | null;
+    logisticType: string | null;
+    shippingFreeShipping: boolean;
+    sellerId: string | null;
+    sellerNickname: string | null;
+    sellerReputationLevel: string | null;
+    sellerReputationScore: number | null;
+    sellerTransactions: number | null;
+    sellerType: "official" | "mercado_lider" | "common";
+    matchScore: number;
+}
+
+export interface MercadoLivreCatalogSourcingItem {
+    id: string;
+    lineNumber: number;
+    supplierSku: string | null;
+    productName: string;
+    normalizedName: string | null;
+    searchTerm: string | null;
+    categoryHint: string | null;
+    supplierCost: number;
+    rawPayload: Record<string, unknown>;
+    status: string;
+    approvedForPurchase: boolean;
+    selectedMatchMlItemId: string | null;
+    analyzedAt: string | null;
+    matches: MercadoLivreCatalogSourcingMatch[];
+    selectedMatch: MercadoLivreCatalogSourcingMatch | null;
+}
+
+export interface MercadoLivreCatalogSourcingDetail {
+    import: {
+        id: string;
+        workspaceId: string | null;
+        supplierName: string;
+        sourceFileName: string | null;
+        sourceType: string;
+        itemCount: number;
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+    };
+    summary: {
+        totalItems: number;
+        analyzedItems: number;
+        matchedItems: number;
+        approvedItems: number;
+        noMatchItems: number;
+        averageCost: number;
+    };
+    items: MercadoLivreCatalogSourcingItem[];
+}
+
 /**
  * Hook para buscar detalhes de uma categoria (incluindo subcategorias)
  */
@@ -770,6 +1045,225 @@ export function useMercadoLivreCategoryTopProducts(workspaceId: string | null, c
     });
 }
 
+export function useMercadoLivreMarketResearch() {
+    return useMutation({
+        mutationFn: async (payload: {
+            workspaceId?: string | null;
+            categoryId: string;
+            subcategoryId?: string | null;
+            searchTerm?: string | null;
+            scanLimit?: number | null;
+        }): Promise<MercadoLivreMarketResearchResponse> => {
+            const response = await fetch(`/api/integrations/mercadolivre/market-research`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    workspaceId: payload.workspaceId || null,
+                    categoryId: payload.categoryId,
+                    subcategoryId: payload.subcategoryId || null,
+                    searchTerm: payload.searchTerm || null,
+                    scanLimit: payload.scanLimit || null,
+                }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to fetch market research (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+    });
+}
+
+export function useMercadoLivreCatalogSourcingImports(workspaceId: string | null) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+
+    return useQuery({
+        queryKey: ["mercadolivre", "catalog-sourcing-imports", effectiveWorkspaceId],
+        queryFn: async (): Promise<MercadoLivreCatalogSourcingImportSummary[]> => {
+            const params = new URLSearchParams();
+            if (effectiveWorkspaceId) {
+                params.append("workspaceId", effectiveWorkspaceId);
+            }
+
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/imports?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to fetch catalog sourcing imports (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            const data = await response.json();
+            return Array.isArray(data?.imports) ? data.imports : [];
+        },
+        enabled: !!effectiveWorkspaceId,
+        staleTime: 2 * 60 * 1000,
+    });
+}
+
+export function useMercadoLivreCatalogSourcingImport(importId: string | null) {
+    return useQuery({
+        queryKey: ["mercadolivre", "catalog-sourcing-import", importId],
+        queryFn: async (): Promise<MercadoLivreCatalogSourcingDetail> => {
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/imports/${importId}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to fetch catalog sourcing import (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!importId,
+        staleTime: 10 * 1000,
+    });
+}
+
+export function useMercadoLivreCatalogSourcingCreateImport() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: {
+            workspaceId?: string | null;
+            supplierName: string;
+            sourceFileName?: string | null;
+            sourceType?: string | null;
+            rows: Array<{
+                supplierSku?: string | null;
+                productName: string;
+                costPrice: number;
+                categoryHint?: string | null;
+                rawPayload?: Record<string, unknown> | null;
+            }>;
+        }): Promise<MercadoLivreCatalogSourcingDetail> => {
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/imports`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to create catalog import (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-imports"] });
+        },
+    });
+}
+
+export function useMercadoLivreCatalogSourcingAnalyzeImport() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: { importId: string; limit?: number; matchesPerItem?: number }): Promise<MercadoLivreCatalogSourcingDetail> => {
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/imports/${payload.importId}/analyze`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    limit: payload.limit || 12,
+                    matchesPerItem: payload.matchesPerItem || 3,
+                }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to analyze catalog import (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-imports"] });
+            queryClient.setQueryData(["mercadolivre", "catalog-sourcing-import", data.import.id], data);
+        },
+    });
+}
+
+export function useMercadoLivreCatalogSourcingSelectMatch() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: { itemId: string; mlItemId: string | null; importId: string }) => {
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/items/${payload.itemId}/select-match`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ mlItemId: payload.mlItemId }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to select catalog match (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+            return response.json();
+        },
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-import", variables.importId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-imports"] });
+        },
+    });
+}
+
+export function useMercadoLivreCatalogSourcingUpdateItem() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: { itemId: string; importId: string; approvedForPurchase?: boolean; status?: string | null }) => {
+            const response = await fetch(`/api/integrations/mercadolivre/catalog-sourcing/items/${payload.itemId}`, {
+                method: "PATCH",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    approvedForPurchase: payload.approvedForPurchase,
+                    status: payload.status ?? null,
+                }),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.details || `Failed to update catalog item (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+            return response.json();
+        },
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-import", variables.importId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "catalog-sourcing-imports"] });
+        },
+    });
+}
+
 
 /**
  * Hook para buscar métricas do Mercado Livre
@@ -810,6 +1304,57 @@ export function useMercadoLivreMetrics(workspaceId: string | null, days: number 
         enabled: !!effectiveWorkspaceId && isConnected,
         retry: shouldRetry,
         staleTime: 5 * 60 * 1000, // 5 minutos
+    });
+}
+
+export function useMercadoLivreAdsFinance(
+    workspaceId: string | null,
+    range?: { dateFrom?: string; dateTo?: string; days?: number },
+) {
+    const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
+    const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
+    const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
+    const isConnected = authStatus?.connected ?? false;
+
+    return useQuery({
+        queryKey: [
+            "mercadolivre",
+            "ads-finance",
+            effectiveWorkspaceId,
+            range?.days,
+            range?.dateFrom,
+            range?.dateTo,
+        ],
+        queryFn: async (): Promise<MercadoLivreAdsFinanceSummary> => {
+            if (!effectiveWorkspaceId) {
+                throw new Error("Workspace ID is required");
+            }
+
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+                ...(range?.days ? { days: String(range.days) } : {}),
+                ...(range?.dateFrom ? { dateFrom: range.dateFrom } : {}),
+                ...(range?.dateTo ? { dateTo: range.dateTo } : {}),
+            });
+
+            const response = await fetch(`/api/integrations/mercadolivre/ads-finance?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to fetch ads finance summary (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        enabled: !!effectiveWorkspaceId && isConnected,
+        retry: shouldRetry,
+        staleTime: 5 * 60 * 1000,
     });
 }
 
@@ -982,7 +1527,11 @@ export function useMercadoLivreListings(
  */
 export function useMercadoLivreQuestions(
     workspaceId: string | null,
-    days: number = 30
+    days: number = 30,
+    options: {
+        dateFrom?: string;
+        dateTo?: string;
+    } = {}
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
@@ -990,18 +1539,32 @@ export function useMercadoLivreQuestions(
     const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
-        queryKey: ["mercadolivre", "questions", effectiveWorkspaceId, days],
+        queryKey: ["mercadolivre", "questions", effectiveWorkspaceId, days, options.dateFrom, options.dateTo],
         queryFn: async (): Promise<{
             items: MercadoLivreQuestion[];
             total: number;
             unanswered: number;
+            days?: number;
+            dateFrom?: string | null;
+            dateTo?: string | null;
         }> => {
             if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
 
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+                days: String(days),
+            });
+            if (options.dateFrom) {
+                params.set("dateFrom", options.dateFrom);
+            }
+            if (options.dateTo) {
+                params.set("dateTo", options.dateTo);
+            }
+
             const response = await fetch(
-                `/api/integrations/mercadolivre/questions?workspaceId=${effectiveWorkspaceId}&days=${days}`,
+                `/api/integrations/mercadolivre/questions?${params.toString()}`,
                 { headers: getAuthHeaders() }
             );
 
@@ -1275,19 +1838,21 @@ export function useSyncMercadoLivre() {
 }
 
 /**
- * Hook para sincronizar analytics 30d (pedidos + lucro)
+ * Hook para sincronizar analytics do período recente sem sobrescrever a semântica 30d dos produtos
  */
 export function useSyncMercadoLivreAnalytics() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async (workspaceId: string) => {
+        mutationFn: async (payload: string | { workspaceId: string; days?: number }) => {
+            const workspaceId = typeof payload === "string" ? payload : payload.workspaceId;
+            const days = typeof payload === "string" ? 30 : Number(payload.days || 30);
             const response = await fetch(
                 `/api/integrations/mercadolivre/analytics/sync`,
                 {
                     method: "POST",
                     headers: getAuthHeaders(),
-                    body: JSON.stringify({ workspaceId, days: 30 }),
+                    body: JSON.stringify({ workspaceId, days }),
                 }
             );
 
@@ -1302,10 +1867,46 @@ export function useSyncMercadoLivreAnalytics() {
 
             return response.json();
         },
-        onSuccess: (_, workspaceId) => {
+        onSuccess: (_, payload) => {
+            const workspaceId = typeof payload === "string" ? payload : payload.workspaceId;
             queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", workspaceId] });
             queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", workspaceId] });
             queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", workspaceId] });
+        },
+    });
+}
+
+export function useBackfillMercadoLivreGrowthReport() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (payload: { workspaceId: string; days?: number; includeAds?: boolean }) => {
+            const response = await fetch(
+                `/api/integrations/mercadolivre/growth-report/backfill`,
+                {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(payload),
+                }
+            );
+
+            if (!response.ok) {
+                let details: any = null;
+                try {
+                    details = await response.json();
+                } catch { /* ignore */ }
+                const message = details?.error || details?.message || `Failed to backfill growth report data (HTTP ${response.status})`;
+                throw new Error(message);
+            }
+
+            return response.json();
+        },
+        onSuccess: (_, payload) => {
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "growth-report", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "metrics", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercadolivre", "analytics-top", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercado-ads", "campaigns", payload.workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ["mercado-ads", "preview", payload.workspaceId] });
         },
     });
 }
@@ -1321,6 +1922,9 @@ export function useRunMercadoLivrePriceStockAutomation() {
             workspaceId: string;
             mode?: "dry-run" | "apply";
             source?: "topSales" | "topProfit";
+            days?: number;
+            dateFrom?: string;
+            dateTo?: string;
             topN?: number;
             lowStockThreshold?: number;
             highStockThreshold?: number;
@@ -1361,22 +1965,43 @@ export function useRunMercadoLivrePriceStockAutomation() {
 }
 
 /**
- * Hook para buscar top vendidos e top lucro (30d) no banco
+ * Hook para buscar rankings de vendas/lucro do período no banco
  */
-export function useMercadoLivreAnalyticsTop(workspaceId: string | null, limit: number = 20) {
+export function useMercadoLivreAnalyticsTop(
+    workspaceId: string | null,
+    limit: number = 20,
+    options: {
+        days?: number;
+        dateFrom?: string;
+        dateTo?: string;
+    } = {}
+) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
     const { data: authStatus } = useMercadoLivreAuthStatus(effectiveWorkspaceId);
     const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
-        queryKey: ["mercadolivre", "analytics-top", effectiveWorkspaceId, limit],
+        queryKey: ["mercadolivre", "analytics-top", effectiveWorkspaceId, limit, options.days, options.dateFrom, options.dateTo],
         queryFn: async (): Promise<MercadoLivreAnalyticsTopResponse> => {
             if (!effectiveWorkspaceId) {
                 throw new Error("Workspace ID is required");
             }
+            const params = new URLSearchParams({
+                workspaceId: effectiveWorkspaceId,
+                limit: String(limit),
+            });
+            if (options.days != null) {
+                params.set("days", String(options.days));
+            }
+            if (options.dateFrom) {
+                params.set("dateFrom", options.dateFrom);
+            }
+            if (options.dateTo) {
+                params.set("dateTo", options.dateTo);
+            }
             const response = await fetch(
-                `/api/integrations/mercadolivre/analytics/top?workspaceId=${effectiveWorkspaceId}&limit=${limit}`,
+                `/api/integrations/mercadolivre/analytics/top?${params.toString()}`,
                 { headers: getAuthHeaders() }
             );
 

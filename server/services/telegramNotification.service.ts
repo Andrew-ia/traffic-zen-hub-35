@@ -28,8 +28,16 @@ const MESSAGE_WINDOW_MINUTES = Math.max(
 const MESSAGE_WINDOW_MS = MESSAGE_WINDOW_MINUTES * 60 * 1000;
 const ORDERS_ONLY =
     String(process.env.ML_NOTIFICATIONS_ORDERS_ONLY || "false").toLowerCase() === "true";
+const TELEGRAM_ALLOWED_NOTIFICATION_TYPES = new Set([
+    "order_created",
+    "question_received",
+    "ml_daily_summary",
+]);
 
-const shouldAllowNotificationType = (type: string) => !ORDERS_ONLY || type === "order_created";
+const shouldAllowNotificationType = (type: string) => {
+    if (ORDERS_ONLY) return type === "order_created";
+    return TELEGRAM_ALLOWED_NOTIFICATION_TYPES.has(type);
+};
 
 const WORKSPACE_LABEL_TTL_MS = 10 * 60 * 1000;
 const workspaceLabelCache = new Map<string, { label: string; ts: number }>();
@@ -1016,7 +1024,7 @@ export class TelegramNotificationService {
      */
     public static async testConfiguration(botToken: string, chatId: string): Promise<{ success: boolean; error?: string }> {
         try {
-            const testMessage = `✅ <b>Teste de Notificação</b>\n\nSeu bot do Telegram está configurado corretamente!\n\nVocê receberá notificações em tempo real sobre:\n• 🎉 Novas vendas\n• ❓ Novas perguntas\n• 📦 Atualizações de produtos`;
+            const testMessage = `✅ <b>Teste de Notificação</b>\n\nSeu bot do Telegram está configurado corretamente!\n\nVocê receberá notificações em tempo real sobre:\n• 🎉 Novas vendas\n• ❓ Novas perguntas\n• 🧾 Resumo do dia`;
 
             const result = await this.sendTelegramMessage(botToken, chatId, testMessage, "HTML");
             if (result.ok) {

@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { format, subDays } from "date-fns";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
     useMercadoLivreProducts,
@@ -9,10 +10,9 @@ import { useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { QuickReplyQuestions } from "@/components/mercadolivre/QuickReplyQuestions";
-import { LowStockAlerts } from "@/components/mercadolivre/LowStockAlerts";
 import { SalesBoostBoard } from "@/components/mercadolivre/SalesBoostBoard";
-import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivity";
+import { AutoPriceStockPlanCard } from "@/components/mercadolivre/AutoPriceStockPlanCard";
+import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import { AlertCircle } from "lucide-react";
 
 const formatNumber = (value: number) => new Intl.NumberFormat("pt-BR").format(value || 0);
@@ -21,28 +21,37 @@ export default function MercadoLivreOperations() {
     const navigate = useNavigate();
     const { currentWorkspace } = useWorkspace();
     const workspaceId = currentWorkspace?.id || null;
-    const quickReplyRef = useRef<HTMLDivElement | null>(null);
-    const lowStockRef = useRef<HTMLDivElement | null>(null);
-    const activityRef = useRef<HTMLDivElement | null>(null);
-    const salesBoostRef = useRef<HTMLDivElement | null>(null);
-    const [recentActivityDate, setRecentActivityDate] = useState<Date | undefined>(new Date());
 
     const ordersParams = useMemo(() => {
-        const params: any = { limit: 50, includeCancelled: true, activity: "confirmed" };
-        if (recentActivityDate) {
-            const start = new Date(recentActivityDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(recentActivityDate);
-            end.setHours(23, 59, 59, 999);
-            params.dateFrom = start.toISOString();
-            params.dateTo = end.toISOString();
-        }
-        return params;
-    }, [recentActivityDate]);
+        const today = new Date();
+        const start = new Date(today);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(today);
+        end.setHours(23, 59, 59, 999);
+
+        return {
+            limit: 50,
+            includeCancelled: true,
+            activity: "confirmed" as const,
+            dateFrom: start.toISOString(),
+            dateTo: end.toISOString(),
+        };
+    }, []);
 
     const { data: ordersData, isLoading: ordersLoading } = useMercadoLivreOrders(workspaceId, ordersParams);
     const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, 7);
     const { data: products, isLoading: productsLoading } = useMercadoLivreProducts(workspaceId);
+    const exportRange = useMemo(() => {
+        const to = new Date();
+        to.setHours(0, 0, 0, 0);
+        const from = subDays(new Date(to), 29);
+
+        return {
+            days: "30",
+            dateFrom: format(from, "yyyy-MM-dd"),
+            dateTo: format(to, "yyyy-MM-dd"),
+        };
+    }, []);
 
     const unansweredCount = Number(questions?.unanswered || 0);
     const ordersTodayCount = ordersData?.orders?.length || 0;
@@ -67,22 +76,6 @@ export default function MercadoLivreOperations() {
             total: lowStock + outOfStock,
         };
     }, [products?.items]);
-
-    const lowStockProducts = useMemo(() => {
-        const items = (products?.items || []) as any[];
-        return items.map((item) => ({
-            id: String(item?.id || ""),
-            title: String(item?.title || ""),
-            thumbnail: item?.thumbnail,
-            stock: Number.isFinite(Number(item?.stock)) ? Number(item?.stock) : undefined,
-            sales: Number(item?.sales || 0),
-            permalink: item?.permalink,
-        }));
-    }, [products?.items]);
-
-    const scrollToRef = (ref: { current: HTMLElement | null }) => {
-        ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    };
 
     if (!workspaceId) {
         return (
@@ -132,9 +125,6 @@ export default function MercadoLivreOperations() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">Responda para ganhar conversão</p>
                             </div>
-                            <Button size="sm" variant="secondary" onClick={() => scrollToRef(quickReplyRef)}>
-                                Responder
-                            </Button>
                         </div>
 
                         <div className="rounded-2xl border border-border/30 bg-background/60 p-4 flex items-center justify-between gap-3">
@@ -145,9 +135,6 @@ export default function MercadoLivreOperations() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">Acompanhe o que entrou hoje</p>
                             </div>
-                            <Button size="sm" variant="secondary" onClick={() => scrollToRef(activityRef)}>
-                                Ver pedidos
-                            </Button>
                         </div>
 
                         <div className="rounded-2xl border border-border/30 bg-background/60 p-4 flex items-center justify-between gap-3">
@@ -160,25 +147,7 @@ export default function MercadoLivreOperations() {
                                     {productsLoading ? "Carregando estoque" : `${lowStockSummary.outOfStock} zerados`}
                                 </p>
                             </div>
-                            <Button size="sm" variant="secondary" onClick={() => scrollToRef(lowStockRef)}>
-                                Ver estoque
-                            </Button>
                         </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => navigate("/products")}>
-                            Abrir anúncios
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => scrollToRef(salesBoostRef)}>
-                            Oportunidades de volume
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => navigate("/mercado-ads/manual")}>
-                            Mercado Ads
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => navigate("/fulfillment")}>
-                            Estoque Full
-                        </Button>
                     </div>
 
                     <div className="rounded-2xl border border-border/30 bg-background/60 p-4">
@@ -192,42 +161,23 @@ export default function MercadoLivreOperations() {
                             <Button size="sm" variant="secondary" onClick={() => navigate("/mercado-livre-price-calculator")}>
                                 Calc. de Preço ML
                             </Button>
+                            <ExportReportButton
+                                workspaceId={workspaceId}
+                                dateRangeDays={exportRange.days}
+                                dateFrom={exportRange.dateFrom}
+                                dateTo={exportRange.dateTo}
+                            />
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                    <div ref={salesBoostRef}>
-                        <SalesBoostBoard workspaceId={workspaceId} limit={12} showFilters />
-                    </div>
-                    <div ref={lowStockRef}>
-                        <LowStockAlerts
-                            products={lowStockProducts}
-                            loading={productsLoading}
-                        />
-                    </div>
+            <div className="space-y-6">
+                <div>
+                    <SalesBoostBoard workspaceId={workspaceId} limit={12} showFilters itemsPerPage={3} />
                 </div>
-                <div className="lg:col-span-1 space-y-6">
-                    <div ref={activityRef}>
-                        <RecentActivity
-                            orders={ordersData?.orders || []}
-                            loading={ordersLoading}
-                            date={recentActivityDate}
-                            onDateChange={setRecentActivityDate}
-                            workspaceId={workspaceId}
-                        />
-                    </div>
-                    <div ref={quickReplyRef}>
-                        <QuickReplyQuestions
-                            workspaceId={workspaceId}
-                            questions={questions?.items || []}
-                            totalUnanswered={questions?.unanswered || 0}
-                            loading={questionsLoading}
-                        />
-                    </div>
-                </div>
+
+                <AutoPriceStockPlanCard workspaceId={workspaceId} periodDays={30} />
             </div>
         </div>
     );

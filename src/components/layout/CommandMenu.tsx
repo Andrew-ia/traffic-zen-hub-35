@@ -200,8 +200,8 @@ function CommandMenu({ isOpen, onOpenChange, section, recentRoutes, onSelectRout
           action: () => onSelectRoute("/products"),
         },
         {
-          label: "Catálogo (Hub)",
-          hint: "Produtos centralizados para marketplaces",
+          label: "Produtos SKU",
+          hint: "Base central de produtos para marketplaces",
           icon: Package,
           shortcut: "H",
           action: () => onSelectRoute("/product-hub"),

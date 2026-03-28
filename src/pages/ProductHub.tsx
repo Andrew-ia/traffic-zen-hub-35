@@ -1,13 +1,18 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useProductHub } from "@/hooks/useProductHub";
+import { useProductHub, type ProductHubItem } from "@/hooks/useProductHub";
+import {
+  useCreateProductHubProduct,
+  useUpdateProductHubProduct,
+} from "@/hooks/useProductHubManagement";
 import {
   useCreateProductHubPurchaseList,
   useProductHubPurchaseListItems,
   useProductHubPurchaseLists,
   useUpdateProductHubPurchaseList,
 } from "@/hooks/useProductHubPurchaseLists";
+import { ProductHubProductDialog } from "@/components/product-hub/ProductHubProductDialog";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +20,34 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Package, Search, ShoppingBag, ExternalLink, Plus, Save, X, Printer } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Package,
+  Search,
+  ShoppingBag,
+  ExternalLink,
+  Plus,
+  Save,
+  X,
+  Printer,
+  LayoutGrid,
+  Rows3,
+  Pencil,
+} from "lucide-react";
 
 type SizeEntry = {
   size: string;
@@ -116,16 +142,20 @@ export default function ProductHub() {
   const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
   const workspaceId = currentWorkspace?.id || fallbackWorkspaceId;
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [search, setSearch] = useState("");
   const [searchBy, setSearchBy] = useState<"name" | "mlb">("name");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 48;
+  const [createOpen, setCreateOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftItems, setDraftItems] = useState<DraftPurchaseItem[]>([]);
   const [draftOpen, setDraftOpen] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [editingProduct, setEditingProduct] = useState<ProductHubItem | null>(null);
 
   const { data, isLoading, isError } = useProductHub(workspaceId, {
     search: search.trim() || undefined,
@@ -138,6 +168,8 @@ export default function ProductHub() {
     workspaceId,
     selectedListId
   );
+  const createProductMutation = useCreateProductHubProduct(workspaceId);
+  const updateProductMutation = useUpdateProductHubProduct(workspaceId, editingProduct?.id || null);
   const createListMutation = useCreateProductHubPurchaseList(workspaceId);
   const updateListMutation = useUpdateProductHubPurchaseList(workspaceId);
 
@@ -162,11 +194,30 @@ export default function ProductHub() {
     return acc;
   }, [items]);
 
+  const availableStockTotal = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.available_stock || 0), 0),
+    [items]
+  );
+
+  const linkedListingsTotal = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.linked_listings || 0), 0),
+    [items]
+  );
+
   useEffect(() => {
     if (!selectedListId && listsData?.lists?.length) {
       setSelectedListId(listsData.lists[0].id);
     }
   }, [listsData, selectedListId]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const key = `productHubViewMode:${workspaceId}`;
+    const saved = localStorage.getItem(key);
+    if (saved === "grid" || saved === "list") {
+      setViewMode(saved);
+    }
+  }, [workspaceId]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -203,6 +254,11 @@ export default function ProductHub() {
       console.warn("Failed to restore draft list:", error);
     }
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    localStorage.setItem(`productHubViewMode:${workspaceId}`, viewMode);
+  }, [workspaceId, viewMode]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -448,11 +504,48 @@ export default function ProductHub() {
     win.document.close();
   };
 
+  const handleCreateProduct = async (payload: any) => {
+    try {
+      const response = await createProductMutation.mutateAsync(payload);
+      setCreateOpen(false);
+      toast({
+        title: "Produto criado",
+        description: `${response.product.name} foi adicionado a base de Produtos SKU.`,
+      });
+      if (response.product.id) {
+        navigate(`/product-hub/${response.product.id}`);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erro ao criar produto",
+        description: error?.message || "Nao foi possivel criar o produto.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateProduct = async (payload: any) => {
+    try {
+      const response = await updateProductMutation.mutateAsync(payload);
+      setEditingProduct(null);
+      toast({
+        title: "Produto atualizado",
+        description: `${response.product.name} foi atualizado na base de Produtos SKU.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Erro ao atualizar produto",
+        description: error?.message || "Nao foi possivel salvar o produto.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!workspaceId) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-3">
         <Package className="h-12 w-12 text-muted-foreground" />
-        <p className="text-muted-foreground">Selecione um workspace para ver o catálogo de produtos.</p>
+        <p className="text-muted-foreground">Selecione um workspace para ver a base de produtos SKU.</p>
       </div>
     );
   }
@@ -463,16 +556,20 @@ export default function ProductHub() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <Package className="h-7 w-7 text-primary" />
-            Catálogo de Produtos
+            Produtos SKU
           </h1>
           <p className="text-muted-foreground">
-            Produtos centralizados (Products Hub) — prontos para replicar em outros marketplaces.
+            Base central de produtos para publicar e replicar em outros marketplaces.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="bg-primary/10 text-primary px-3 py-2 rounded-lg text-sm font-medium">
             {data?.total ?? 0} produtos
           </div>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo produto
+          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate("/products")}>
             Ver anúncios ML
           </Button>
@@ -490,7 +587,7 @@ export default function ProductHub() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Plataformas</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground">Origens</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
             {Object.keys(byPlatform).length === 0 ? (
@@ -507,10 +604,34 @@ export default function ProductHub() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Busca</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground">Estoque disponível</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-2">
+            <div className="text-2xl font-bold">{availableStockTotal}</div>
+            <div className="text-sm text-muted-foreground">Saldo central disponível nesta página</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs text-muted-foreground">Canais vinculados</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm text-muted-foreground">
+            <div className="text-2xl font-bold text-foreground">{linkedListingsTotal}</div>
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4" />
+              Mercado Livre e Shopee prontos para vinculo
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="grid gap-3 md:grid-cols-[180px_1fr_auto] xl:grid-cols-[200px_1fr_auto] xl:items-end">
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Busca
+              </div>
               <Select
                 value={searchBy}
                 onValueChange={(value) => {
@@ -518,18 +639,23 @@ export default function ProductHub() {
                   setCurrentPage(1);
                 }}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-10">
                   <SelectValue placeholder="Filtro" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="name">Nome</SelectItem>
-                  <SelectItem value="mlb">MLB</SelectItem>
+                  <SelectItem value="mlb">ID canal</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Procurar produto
+              </div>
               <div className="flex items-center gap-2">
                 <Search className="h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder={searchBy === "mlb" ? "Buscar por MLB (ex: MLB123)" : "Buscar por nome"}
+                  placeholder={searchBy === "mlb" ? "Buscar por MLB ou HUB..." : "Buscar por nome"}
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -538,24 +664,39 @@ export default function ProductHub() {
                 />
               </div>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Exportação</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <ShoppingBag className="h-4 w-4" />
-              Pronto para marketplaces (Shopee, etc.)
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Visualizacao
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={viewMode === "grid" ? "default" : "outline"}
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  Grade
+                </Button>
+                <Button
+                  type="button"
+                  variant={viewMode === "list" ? "default" : "outline"}
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setViewMode("list")}
+                >
+                  <Rows3 className="h-4 w-4" />
+                  Lista
+                </Button>
+              </div>
             </div>
-            <div className="text-muted-foreground">Breve: exportar diretamente</div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[420px_1fr] xl:grid-cols-[460px_1fr]">
-        <div className="lg:sticky lg:top-6 lg:self-start">
+      <div className="grid gap-6">
+        <div className="order-2">
           <Card>
             <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
@@ -797,21 +938,33 @@ export default function ProductHub() {
             </CardContent>
           </Card>
         </div>
-        <div>
+        <div className="order-1">
           {isError ? (
             <div className="text-sm text-red-600">Erro ao carregar produtos.</div>
           ) : isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {Array.from({ length: 8 }).map((_, idx) => (
-                <Card key={idx}>
-                  <Skeleton className="h-40 w-full" />
-                  <CardContent className="space-y-2 pt-4">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            viewMode === "grid" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {Array.from({ length: 8 }).map((_, idx) => (
+                  <Card key={idx}>
+                    <Skeleton className="h-40 w-full" />
+                    <CardContent className="space-y-2 pt-4">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    {Array.from({ length: 8 }).map((_, idx) => (
+                      <Skeleton key={idx} className="h-16 w-full" />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[40vh] space-y-3">
               <Package className="h-10 w-10 text-muted-foreground" />
@@ -820,91 +973,249 @@ export default function ProductHub() {
           ) : (
             <div className="space-y-4">
               <ScrollArea className="h-[70vh]">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pr-3">
-                  {items.map((product) => {
-                    const img = primaryImage(product.assets);
-                    const isDrafted = draftIds.has(product.id);
-                    return (
-                      <Card
-                        key={product.id}
-                        className="overflow-hidden hover:shadow-lg transition cursor-pointer"
-                        onClick={() => navigate(`/product-hub/${product.id}`)}
-                      >
-                        {img ? (
-                          <div className="h-40 w-full overflow-hidden bg-muted/40">
-                            <img
-                              src={img}
-                              alt={product.name}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-40 w-full bg-muted/40 flex items-center justify-center text-muted-foreground text-sm">
-                            Sem imagem
-                          </div>
-                        )}
-                        <CardContent className="space-y-2 pt-4">
-                          <div className="flex items-start gap-2">
-                            <Badge variant="outline" className="capitalize">{product.platform}</Badge>
-                            {product.sku && <Badge variant="secondary">SKU {product.sku}</Badge>}
-                          </div>
-                          <div className="font-semibold leading-tight line-clamp-2">{product.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {product.category || "Sem categoria"}
-                          </div>
-                          <div className="text-sm font-semibold">{formatCurrency(product.price)}</div>
-                          <div className="text-xs text-muted-foreground">
-                            ID plataforma: {product.platform_product_id}
-                          </div>
-                          {product.assets && product.assets.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {product.assets.slice(0, 3).map((asset) => (
-                                <Badge key={asset.id} variant="outline" className="text-[11px]">
-                                  {asset.type}
-                                </Badge>
-                              ))}
-                              {product.assets.length > 3 && (
-                                <Badge variant="outline" className="text-[11px]">
-                                  +{product.assets.length - 3}
-                                </Badge>
-                              )}
+                {viewMode === "grid" ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pr-3">
+                    {items.map((product) => {
+                      const img = primaryImage(product.assets);
+                      const isDrafted = draftIds.has(product.id);
+                      return (
+                        <Card
+                          key={product.id}
+                          className="overflow-hidden hover:shadow-lg transition cursor-pointer"
+                          onClick={() => navigate(`/product-hub/${product.id}`)}
+                        >
+                          {img ? (
+                            <div className="h-40 w-full overflow-hidden bg-muted/40">
+                              <img
+                                src={img}
+                                alt={product.name}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            </div>
+                          ) : (
+                            <div className="h-40 w-full bg-muted/40 flex items-center justify-center text-muted-foreground text-sm">
+                              Sem imagem
                             </div>
                           )}
-                          {product.platform === "mercadolivre" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-2"
-                              onClick={() => {
-                                const url = product.assets?.find((a) => a.type === "image")?.url;
-                                if (url) window.open(url, "_blank");
-                              }}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              Ver mídia
-                            </Button>
-                          )}
-                          {draftOpen && (
-                            <Button
-                              variant={isDrafted ? "secondary" : "outline"}
-                              size="sm"
-                              className="gap-2"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (!isDrafted) addToDraft(product);
-                              }}
-                              disabled={isDrafted}
-                            >
-                              <Plus className="h-4 w-4" />
-                              {isDrafted ? "Adicionado" : "Adicionar à lista"}
-                            </Button>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
+                          <CardContent className="space-y-2 pt-4">
+                            <div className="flex items-start gap-2">
+                              <Badge variant="outline" className="capitalize">{product.platform}</Badge>
+                              {product.source && (
+                                <Badge variant="outline" className="capitalize">
+                                  {product.source}
+                                </Badge>
+                              )}
+                              {product.sku && <Badge variant="secondary">SKU {product.sku}</Badge>}
+                            </div>
+                            <div className="font-semibold leading-tight line-clamp-2">{product.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {product.category || "Sem categoria"}
+                            </div>
+                            <div className="text-sm font-semibold">{formatCurrency(product.price)}</div>
+                            <div className="grid gap-1 text-xs text-muted-foreground">
+                              <div>
+                                Estoque disp.: {Number(product.available_stock || 0)} • Reservado:{" "}
+                                {Number(product.stock_reserved || 0)}
+                              </div>
+                              <div>
+                                Canais: {Number(product.linked_listings || 0)} • ML:{" "}
+                                {Number(product.mercado_livre_listings || 0)} • Shopee:{" "}
+                                {Number(product.shopee_listings || 0)}
+                              </div>
+                              <div>
+                                {product.platform === "hub"
+                                  ? `ID base: ${product.platform_product_id}`
+                                  : `ID canal: ${product.platform_product_id}`}
+                              </div>
+                            </div>
+                            {product.assets && product.assets.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {product.assets.slice(0, 3).map((asset) => (
+                                  <Badge key={asset.id} variant="outline" className="text-[11px]">
+                                    {asset.type}
+                                  </Badge>
+                                ))}
+                                {product.assets.length > 3 && (
+                                  <Badge variant="outline" className="text-[11px]">
+                                    +{product.assets.length - 3}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs text-muted-foreground">
+                                Custo: {formatCurrency(product.cost_price)}
+                              </div>
+                              {product.assets?.find((asset) => asset.type === "image")?.url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-2"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    const url = product.assets?.find((a) => a.type === "image")?.url;
+                                    if (url) window.open(url, "_blank");
+                                  }}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                  Ver mídia
+                                </Button>
+                              )}
+                            </div>
+                            {draftOpen && (
+                              <Button
+                                variant={isDrafted ? "secondary" : "outline"}
+                                size="sm"
+                                className="gap-2"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (!isDrafted) addToDraft(product);
+                                }}
+                                disabled={isDrafted}
+                              >
+                                <Plus className="h-4 w-4" />
+                                {isDrafted ? "Adicionado" : "Adicionar à lista"}
+                              </Button>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Produto</TableHead>
+                            <TableHead>Categoria</TableHead>
+                            <TableHead>Preço</TableHead>
+                            <TableHead>Custo</TableHead>
+                            <TableHead>Estoque</TableHead>
+                            <TableHead>Canais</TableHead>
+                            <TableHead>Origem</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items.map((product) => {
+                            const img = primaryImage(product.assets);
+                            const isDrafted = draftIds.has(product.id);
+                            return (
+                              <TableRow
+                                key={product.id}
+                                className="cursor-pointer"
+                                onClick={() => navigate(`/product-hub/${product.id}`)}
+                              >
+                                <TableCell>
+                                  <div className="flex items-center gap-3">
+                                    {img ? (
+                                      <img
+                                        src={img}
+                                        alt={product.name}
+                                        className="h-12 w-12 rounded-lg object-cover"
+                                        loading="lazy"
+                                      />
+                                    ) : (
+                                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-[10px] text-muted-foreground">
+                                        Sem img
+                                      </div>
+                                    )}
+                                    <div className="space-y-1">
+                                      <div className="font-medium leading-tight">{product.name}</div>
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <Badge variant="outline" className="capitalize">
+                                          {product.platform}
+                                        </Badge>
+                                        {product.sku && <Badge variant="secondary">SKU {product.sku}</Badge>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {product.category || "Sem categoria"}
+                                </TableCell>
+                                <TableCell className="font-medium">
+                                  {formatCurrency(product.price)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-semibold text-foreground">
+                                    {formatCurrency(product.cost_price)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">Custo base do SKU</div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-medium">{Number(product.available_stock || 0)} disp.</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Reservado {Number(product.stock_reserved || 0)}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-medium">{Number(product.linked_listings || 0)} total</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    ML {Number(product.mercado_livre_listings || 0)} • Shopee{" "}
+                                    {Number(product.shopee_listings || 0)}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {product.platform === "hub"
+                                    ? `Base ${product.platform_product_id}`
+                                    : `Canal ${product.platform_product_id}`}
+                                </TableCell>
+                                <TableCell>
+                                  <div
+                                    className="flex justify-end gap-2"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-2"
+                                      onClick={() => setEditingProduct(product)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                      Editar
+                                    </Button>
+                                    {product.assets?.find((asset) => asset.type === "image")?.url && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2"
+                                        onClick={() => {
+                                          const url = product.assets?.find((a) => a.type === "image")?.url;
+                                          if (url) window.open(url, "_blank");
+                                        }}
+                                      >
+                                        <ExternalLink className="h-4 w-4" />
+                                        Mídia
+                                      </Button>
+                                    )}
+                                    {draftOpen && (
+                                      <Button
+                                        variant={isDrafted ? "secondary" : "outline"}
+                                        size="sm"
+                                        className="gap-2"
+                                        onClick={() => {
+                                          if (!isDrafted) addToDraft(product);
+                                        }}
+                                        disabled={isDrafted}
+                                      >
+                                        <Plus className="h-4 w-4" />
+                                        {isDrafted ? "Adicionado" : "Lista"}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
               </ScrollArea>
 
               {data?.totalPages && data.totalPages > 1 && (
@@ -936,6 +1247,24 @@ export default function ProductHub() {
           )}
         </div>
       </div>
+
+      <ProductHubProductDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        mode="create"
+        isSubmitting={createProductMutation.isPending}
+        onSubmit={handleCreateProduct}
+      />
+      <ProductHubProductDialog
+        open={Boolean(editingProduct)}
+        onOpenChange={(open) => {
+          if (!open) setEditingProduct(null);
+        }}
+        mode="edit"
+        initialProduct={editingProduct}
+        isSubmitting={updateProductMutation.isPending}
+        onSubmit={handleUpdateProduct}
+      />
     </div>
   );
 }

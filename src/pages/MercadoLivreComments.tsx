@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
     type MercadoLivreProductReview,
@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, ImageIcon, Search, Star } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, ImageIcon, Search, Star } from "lucide-react";
 
 type FilteredReviewItem = MercadoLivreReviewItem & {
     visibleReviews: MercadoLivreProductReview[];
@@ -72,6 +72,7 @@ const ReviewCardSkeleton = () => (
 );
 
 export default function MercadoLivreComments() {
+    const ITEMS_PER_PAGE = 5;
     const { currentWorkspace } = useWorkspace();
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const workspaceId = currentWorkspace?.id || fallbackWorkspaceId;
@@ -79,6 +80,8 @@ export default function MercadoLivreComments() {
     const [days, setDays] = useState<"30" | "90" | "365" | "all">("365");
     const [search, setSearch] = useState("");
     const [ratingFilter, setRatingFilter] = useState<"all" | "5" | "4plus" | "3minus">("all");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
 
     const { data, isLoading, error } = useMercadoLivreReviews(
         workspaceId,
@@ -158,6 +161,28 @@ export default function MercadoLivreComments() {
             averageRating: totalRatings > 0 ? weightedSum / totalRatings : null,
         };
     }, [filteredItems]);
+
+    const totalPages = useMemo(
+        () => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)),
+        [filteredItems.length, ITEMS_PER_PAGE]
+    );
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [workspaceId, days, search, ratingFilter]);
+
+    useEffect(() => {
+        setExpandedItems({});
+    }, [workspaceId, days, search, ratingFilter, currentPage]);
+
+    useEffect(() => {
+        setCurrentPage((page) => Math.min(page, totalPages));
+    }, [totalPages]);
+
+    const paginatedItems = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    }, [currentPage, filteredItems, ITEMS_PER_PAGE]);
 
     if (!workspaceId) {
         return (
@@ -277,130 +302,201 @@ export default function MercadoLivreComments() {
                 </Card>
             ) : (
                 <div className="space-y-4">
-                    {filteredItems.map((item) => (
+                    {paginatedItems.map((item) => (
                         <Card key={item.productId} className="overflow-hidden">
-                            <CardHeader className="space-y-4">
-                                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                                    <div className="flex min-w-0 gap-4">
-                                        {item.productThumbnail ? (
-                                            <img
-                                                src={item.productThumbnail}
-                                                alt={item.productTitle}
-                                                className="h-16 w-16 rounded-2xl object-cover border bg-muted"
-                                            />
-                                        ) : (
-                                            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border bg-muted">
-                                                <Star className="h-6 w-6 text-muted-foreground" />
-                                            </div>
-                                        )}
+                            {(() => {
+                                const isExpanded = Boolean(expandedItems[item.productId]);
+                                const reviewsToRender = isExpanded ? item.visibleReviews : [];
 
-                                        <div className="min-w-0 space-y-2">
-                                            <CardTitle className="text-lg leading-tight line-clamp-2">
-                                                {item.productTitle}
-                                            </CardTitle>
-                                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                                <span>{item.productId}</span>
-                                                <span>Ultimo comentario: {formatDateTime(item.latestReviewDate)}</span>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <ReviewStars value={Number(item.ratingAverage || 0)} />
-                                                <Badge variant="secondary">
-                                                    {formatRating(item.ratingAverage)} / 5
-                                                </Badge>
-                                                <Badge variant="outline">
-                                                    {item.totalReviews} avaliacoes
-                                                </Badge>
-                                                <Badge variant="outline">
-                                                    {item.reviewsWithComment} com comentario
-                                                </Badge>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {item.productPermalink ? (
-                                        <Button asChild variant="outline" size="sm" className="w-fit">
-                                            <a href={item.productPermalink} target="_blank" rel="noreferrer">
-                                                Ver anuncio
-                                                <ExternalLink className="ml-2 h-4 w-4" />
-                                            </a>
-                                        </Button>
-                                    ) : null}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground md:grid-cols-5">
-                                    <div className="rounded-xl border px-3 py-2">
-                                        5 estrelas: <strong className="text-foreground">{item.ratingLevels.fiveStar}</strong>
-                                    </div>
-                                    <div className="rounded-xl border px-3 py-2">
-                                        4 estrelas: <strong className="text-foreground">{item.ratingLevels.fourStar}</strong>
-                                    </div>
-                                    <div className="rounded-xl border px-3 py-2">
-                                        3 estrelas: <strong className="text-foreground">{item.ratingLevels.threeStar}</strong>
-                                    </div>
-                                    <div className="rounded-xl border px-3 py-2">
-                                        2 estrelas: <strong className="text-foreground">{item.ratingLevels.twoStar}</strong>
-                                    </div>
-                                    <div className="rounded-xl border px-3 py-2">
-                                        1 estrela: <strong className="text-foreground">{item.ratingLevels.oneStar}</strong>
-                                    </div>
-                                </div>
-                            </CardHeader>
-
-                            <CardContent className="space-y-4">
-                                {item.visibleReviews.map((review) => (
-                                    <div key={review.id} className="rounded-2xl border bg-muted/20 p-4">
-                                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                            <div className="space-y-2">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <ReviewStars value={review.rate} />
-                                                    <span className="text-sm font-semibold">
-                                                        {review.title || "Comentario sem titulo"}
-                                                    </span>
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Publicado em {formatDateTime(review.dateCreated)}
-                                                    {review.buyingDate ? ` • compra em ${formatDateTime(review.buyingDate)}` : ""}
-                                                </div>
-                                            </div>
-
-                                            <Badge variant="secondary">{review.rate} estrelas</Badge>
-                                        </div>
-
-                                        {review.content ? (
-                                            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                                                {review.content}
-                                            </p>
-                                        ) : null}
-
-                                        {review.mediaUrls.length > 0 ? (
-                                            <div className="mt-4 flex flex-wrap gap-3">
-                                                {review.mediaUrls.map((url, index) => (
-                                                    <a
-                                                        key={`${review.id}-${index}`}
-                                                        href={url}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="group relative overflow-hidden rounded-2xl border bg-background"
-                                                    >
+                                return (
+                                    <>
+                                        <CardHeader className="space-y-4">
+                                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                                <div className="flex min-w-0 gap-4">
+                                                    {item.productThumbnail ? (
                                                         <img
-                                                            src={url}
-                                                            alt={`Midia do review ${review.id}`}
-                                                            className="h-20 w-20 object-cover transition-transform duration-200 group-hover:scale-105"
+                                                            src={item.productThumbnail}
+                                                            alt={item.productTitle}
+                                                            className="h-16 w-16 rounded-2xl object-cover border bg-muted"
                                                         />
-                                                    </a>
-                                                ))}
+                                                    ) : (
+                                                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl border bg-muted">
+                                                            <Star className="h-6 w-6 text-muted-foreground" />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="min-w-0 space-y-2">
+                                                        <CardTitle className="text-lg leading-tight line-clamp-2">
+                                                            {item.productTitle}
+                                                        </CardTitle>
+                                                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                                            <span>{item.productId}</span>
+                                                            <span>Ultimo comentario: {formatDateTime(item.latestReviewDate)}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <ReviewStars value={Number(item.ratingAverage || 0)} />
+                                                            <Badge variant="secondary">
+                                                                {formatRating(item.ratingAverage)} / 5
+                                                            </Badge>
+                                                            <Badge variant="outline">
+                                                                {item.totalReviews} avaliacoes
+                                                            </Badge>
+                                                            <Badge variant="outline">
+                                                                {item.reviewsWithComment} com comentario
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {item.productPermalink ? (
+                                                    <Button asChild variant="outline" size="sm" className="w-fit">
+                                                        <a href={item.productPermalink} target="_blank" rel="noreferrer">
+                                                            Ver anuncio
+                                                            <ExternalLink className="ml-2 h-4 w-4" />
+                                                        </a>
+                                                    </Button>
+                                                ) : null}
                                             </div>
-                                        ) : (
-                                            <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-                                                <ImageIcon className="h-4 w-4" />
-                                                Sem fotos anexadas neste review
+
+                                            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground md:grid-cols-5">
+                                                <div className="rounded-xl border px-3 py-2">
+                                                    5 estrelas: <strong className="text-foreground">{item.ratingLevels.fiveStar}</strong>
+                                                </div>
+                                                <div className="rounded-xl border px-3 py-2">
+                                                    4 estrelas: <strong className="text-foreground">{item.ratingLevels.fourStar}</strong>
+                                                </div>
+                                                <div className="rounded-xl border px-3 py-2">
+                                                    3 estrelas: <strong className="text-foreground">{item.ratingLevels.threeStar}</strong>
+                                                </div>
+                                                <div className="rounded-xl border px-3 py-2">
+                                                    2 estrelas: <strong className="text-foreground">{item.ratingLevels.twoStar}</strong>
+                                                </div>
+                                                <div className="rounded-xl border px-3 py-2">
+                                                    1 estrela: <strong className="text-foreground">{item.ratingLevels.oneStar}</strong>
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </CardContent>
+                                        </CardHeader>
+
+                                        <CardContent className="space-y-4">
+                                            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-muted/10 px-3 py-2">
+                                                <span className="text-xs text-muted-foreground">
+                                                    {isExpanded
+                                                        ? `Exibindo ${reviewsToRender.length} de ${item.visibleReviews.length} comentarios`
+                                                        : `${item.visibleReviews.length} comentarios disponiveis`}
+                                                </span>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 border-primary/30 bg-primary/5 px-2 text-[10px] uppercase tracking-widest text-primary hover:bg-primary/10 hover:text-primary"
+                                                    onClick={() =>
+                                                        setExpandedItems((current) => ({
+                                                            ...current,
+                                                            [item.productId]: !current[item.productId],
+                                                        }))
+                                                    }
+                                                >
+                                                    {isExpanded ? (
+                                                        <>
+                                                            <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                                                            Recolher
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                                                            Ver comentarios
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+
+                                            {isExpanded ? (
+                                                <div className="space-y-4 border-t border-border/10 pt-4">
+                                                    {reviewsToRender.map((review) => (
+                                                        <div key={review.id} className="rounded-2xl border bg-muted/20 p-4">
+                                                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                                <div className="space-y-2">
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <ReviewStars value={review.rate} />
+                                                                        <span className="text-sm font-semibold">
+                                                                            {review.title || "Comentario sem titulo"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        Publicado em {formatDateTime(review.dateCreated)}
+                                                                        {review.buyingDate ? ` • compra em ${formatDateTime(review.buyingDate)}` : ""}
+                                                                    </div>
+                                                                </div>
+
+                                                                <Badge variant="secondary">{review.rate} estrelas</Badge>
+                                                            </div>
+
+                                                            {review.content ? (
+                                                                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                                                                    {review.content}
+                                                                </p>
+                                                            ) : null}
+
+                                                            {review.mediaUrls.length > 0 ? (
+                                                                <div className="mt-4 flex flex-wrap gap-3">
+                                                                    {review.mediaUrls.map((url, index) => (
+                                                                        <a
+                                                                            key={`${review.id}-${index}`}
+                                                                            href={url}
+                                                                            target="_blank"
+                                                                            rel="noreferrer"
+                                                                            className="group relative overflow-hidden rounded-2xl border bg-background"
+                                                                        >
+                                                                            <img
+                                                                                src={url}
+                                                                                alt={`Midia do review ${review.id}`}
+                                                                                className="h-20 w-20 object-cover transition-transform duration-200 group-hover:scale-105"
+                                                                            />
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+                                                                    <ImageIcon className="h-4 w-4" />
+                                                                    Sem fotos anexadas neste review
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                        </CardContent>
+                                    </>
+                                );
+                            })()}
                         </Card>
                     ))}
+
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-between py-2">
+                            <div className="text-sm text-muted-foreground">
+                                Página {currentPage} de {totalPages}
+                            </div>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                                    disabled={currentPage === 1}
+                                >
+                                    Anterior
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    Próxima
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

@@ -1,239 +1,392 @@
+const MESSAGE_GET_CONTEXT = 'GET_MARKET_CONTEXT';
+const MESSAGE_TOGGLE_PANEL = 'TOGGLE_MARKET_PANEL';
+const MESSAGE_OPEN_PANEL = 'OPEN_MARKET_PANEL';
+const DEFAULT_PLATFORM_URL = 'http://localhost:8080';
+const STORAGE_KEY = 'trafficpro.ml.extension.settings';
+const SAVED_CANDIDATES_KEY = 'trafficpro.ml.extension.saved';
+
+const platformUrlInput = document.getElementById('platform-url');
+const saveSettingsButton = document.getElementById('save-settings');
+const openResearchButton = document.getElementById('open-research');
+const openSidePanelButton = document.getElementById('open-side-panel');
 const statusEl = document.getElementById('status');
-const topStatusEl = document.getElementById('top-status');
-const outputEl = document.getElementById('output');
-const scrapeBtn = document.getElementById('scrape');
-const copyBtn = document.getElementById('copy');
-const downloadBtn = document.getElementById('download');
-const topForm = document.getElementById('top-form');
-const categoryInput = document.getElementById('category');
-const subcategoryInput = document.getElementById('subcategory');
-const limitInput = document.getElementById('limit');
-const minSoldInput = document.getElementById('minSold');
-const topSubmitBtn = document.getElementById('top-submit');
+const pageBadgeEl = document.getElementById('page-badge');
+const contextSummaryEl = document.getElementById('context-summary');
+const primaryActionsEl = document.getElementById('primary-actions');
+const itemsListEl = document.getElementById('items-list');
+const itemsCountEl = document.getElementById('items-count');
+const savedListEl = document.getElementById('saved-list');
+const clearSavedButton = document.getElementById('clear-saved');
 
-const MESSAGE_SCRAPE = 'SCRAPE_PAGE';
-const MESSAGE_SCRAPE_FILTERED = 'SCRAPE_SEARCH_FILTER';
+let currentContext = null;
+let currentSettings = { platformUrl: DEFAULT_PLATFORM_URL };
 
-let lastResult = null;
-
-const setStatus = (text, variant = 'neutral') => {
-  statusEl.textContent = text;
-  statusEl.dataset.variant = variant;
+const setStatus = (message) => {
+  statusEl.textContent = message;
 };
 
-const setTopStatus = (text, variant = 'neutral') => {
-  topStatusEl.textContent = text;
-  topStatusEl.dataset.variant = variant;
+const normalizePlatformUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return DEFAULT_PLATFORM_URL;
+  return raw.replace(/\/+$/, '');
 };
 
-const setButtonsEnabled = (enabled) => {
-  copyBtn.disabled = !enabled;
-  downloadBtn.disabled = !enabled;
-};
-
-const setTopFormDisabled = (disabled) => {
-  [categoryInput, subcategoryInput, limitInput, minSoldInput, topSubmitBtn].forEach((el) => {
-    el.disabled = disabled;
-  });
-};
-
-const sendMessageToTab = (tabId, payload) =>
-  new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, payload, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
-
-const formatStatus = (data) => {
-  if (!data?.data) return 'Nenhum dado retornado.';
-  if (data.data.mode === 'search') {
-    const count = data.data.items?.length || 0;
-    return `Resultados: ${count} itens${data.data.query ? ` | Termo: ${data.data.query}` : ''}`;
-  }
-  if (data.data.mode === 'product') {
-    return `Produto capturado${data.data.price ? ` | Preço: ${data.data.price} ${data.data.currency || ''}` : ''}`;
-  }
-  if (data.data.mode === 'category_api') {
-    const count = data.data.items?.length || 0;
-    return `Top ${count} via API pública (categoria ${data.data.categoryId})`;
-  }
-  return 'Coleta concluída.';
-};
-
-const renderResult = (result) => {
-  lastResult = result;
-  outputEl.textContent = JSON.stringify(result, null, 2);
-  setButtonsEnabled(true);
-  setStatus(formatStatus(result), 'success');
-};
-
-const onScrape = async () => {
-  setStatus('Coletando dados...', 'pending');
-  setButtonsEnabled(false);
-  outputEl.textContent = '';
-
+const extractHostLabel = (url) => {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) {
-      throw new Error('Aba ativa não encontrada.');
-    }
-
-    const response = await sendMessageToTab(tab.id, { type: MESSAGE_SCRAPE });
-    if (!response?.ok) {
-      throw new Error(response?.error || 'A página não respondeu.');
-    }
-    renderResult(response);
-  } catch (error) {
-    setStatus(
-      error.message.includes('Receiving end does not exist')
-        ? 'Abra uma página do Mercado Livre e tente novamente.'
-        : `Erro: ${error.message}`,
-      'error'
-    );
-    outputEl.textContent = '';
-    lastResult = null;
+    return new URL(url).host;
+  } catch {
+    return url;
   }
 };
 
-const onCopy = async () => {
-  if (!lastResult) return;
-  await navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2));
-  setStatus('JSON copiado para a área de transferência.', 'success');
-};
-
-const onDownload = () => {
-  if (!lastResult) return;
-  const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  const suffix = new Date().toISOString().replace(/[:.]/g, '-');
-  link.download = `mercadolivre-scrape-${suffix}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
-  setStatus('Arquivo JSON baixado.', 'success');
-};
-
-const fetchCategoryTopFromApi = async ({ categoryId, limit, minSold }) => {
-  const items = [];
-  let offset = 0;
-  const pageSize = 50;
-
-  while (items.length < limit && offset < 1000) {
-    const url = `https://api.mercadolibre.com/sites/MLB/search?category=${encodeURIComponent(
-      categoryId
-    )}&sort=best_seller&offset=${offset}&limit=${pageSize}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`API pública falhou (${res.status}): ${err || 'sem detalhe'}`);
-    }
-    const data = await res.json();
-    const mapped =
-      Array.isArray(data.results) && data.results.length
-        ? data.results.map((r) => ({
-            id: r.id,
-            title: r.title,
-            price: r.price,
-            currency: r.currency_id,
-            sellerId: r.seller?.id || null,
-            permalink: r.permalink,
-            thumbnail: r.thumbnail,
-            condition: r.condition,
-            domainId: r.domain_id,
-            soldQuantity: r.sold_quantity ?? r.available_quantity ?? 0
-          }))
-        : [];
-    const filtered = mapped.filter((item) => (item.soldQuantity || 0) >= minSold);
-    items.push(...filtered);
-
-    const total = data.paging?.total ?? 0;
-    offset += pageSize;
-    if (offset >= total) break;
-  }
-
-  return items.slice(0, limit);
-};
-
-const attemptFallbackScrape = async ({ minSold, limit }) => {
+const queryActiveTab = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) throw new Error('Aba ativa não encontrada para fallback.');
-  if (!tab.url || !/mercadolivre\.com/.test(tab.url)) {
-    throw new Error('Abra a categoria no Mercado Livre (ordenada por Mais vendidos) e tente de novo.');
-  }
-  try {
-    const response = await sendMessageToTab(tab.id, {
-      type: MESSAGE_SCRAPE_FILTERED,
-      minSold,
-      limit
-    });
-    if (!response?.ok) {
-      throw new Error(response?.error || 'Fallback via página falhou.');
-    }
-    return response;
-  } catch (err) {
-    throw new Error(
-      err?.message?.includes('Receiving end does not exist')
-        ? 'Content script não respondeu. Recarregue a aba do Mercado Livre e tente novamente.'
-        : err.message || 'Fallback via página falhou.'
-    );
-  }
+  return tab || null;
 };
 
-const onTopSubmit = async (event) => {
-  event.preventDefault();
-  setTopFormDisabled(true);
-  setTopStatus('Consultando API pública...', 'pending');
-  setButtonsEnabled(false);
-  outputEl.textContent = '';
+const sendMessageToTab = (tabId, payload) => new Promise((resolve, reject) => {
+  chrome.tabs.sendMessage(tabId, payload, (response) => {
+    if (chrome.runtime.lastError) {
+      reject(new Error(chrome.runtime.lastError.message));
+      return;
+    }
+    resolve(response);
+  });
+});
 
-  const categoryId = (subcategoryInput.value || categoryInput.value || '').trim();
-  const limit = Number(limitInput.value || 30);
-  const minSold = Number(minSoldInput.value || 0);
+const openPlatformPage = async (path) => {
+  const base = normalizePlatformUrl(currentSettings.platformUrl);
+  await chrome.tabs.create({ url: `${base}${path}` });
+};
 
-  if (!categoryId) {
-    setTopStatus('Informe uma categoria ou subcategoria.', 'error');
-    setTopFormDisabled(false);
+const openSidePanelInActiveTab = async () => {
+  const tab = await queryActiveTab();
+  if (!tab?.id) {
+    setStatus('Aba ativa não encontrada.');
     return;
   }
 
   try {
-    const items = await fetchCategoryTopFromApi({ categoryId, limit, minSold });
-    if (!items.length) {
-      throw new Error('API não retornou itens suficientes ou filtrou tudo.');
+    const response = await sendMessageToTab(tab.id, { type: MESSAGE_OPEN_PANEL });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Não foi possível abrir o painel.');
     }
-    const result = {
-      ok: true,
-      scrapedAt: new Date().toISOString(),
-      data: {
-        mode: 'category_api',
-        categoryId,
-        minSold,
-        limit,
-        items
-      }
-    };
-    setTopStatus(`API pública: ${items.length} itens coletados.`, 'success');
-    renderResult(result);
+    setStatus('Painel lateral aberto na aba atual.');
+    window.close();
   } catch (error) {
-    setTopStatus('API pública falhou; tentando scraping da página ativa...', 'pending');
-    try {
-      const fallback = await attemptFallbackScrape({ minSold, limit });
-      setTopStatus('Scraping da página concluído.', 'success');
-      renderResult(fallback);
-    } catch (fallbackError) {
-      setTopStatus(fallbackError.message, 'error');
-    }
-  } finally {
-    setTopFormDisabled(false);
+    setStatus(
+      error.message.includes('Receiving end does not exist')
+        ? 'Recarregue a aba do Mercado Livre e tente novamente.'
+        : `Erro: ${error.message}`
+    );
   }
 };
 
-scrapeBtn.addEventListener('click', onScrape);
-copyBtn.addEventListener('click', onCopy);
-downloadBtn.addEventListener('click', onDownload);
-topForm.addEventListener('submit', onTopSubmit);
+const saveSettings = async () => {
+  currentSettings = {
+    platformUrl: normalizePlatformUrl(platformUrlInput.value),
+  };
+  await chrome.storage.sync.set({ [STORAGE_KEY]: currentSettings });
+  platformUrlInput.value = currentSettings.platformUrl;
+  setStatus(`Plataforma salva em ${extractHostLabel(currentSettings.platformUrl)}.`);
+};
+
+const loadSettings = async () => {
+  const stored = await chrome.storage.sync.get(STORAGE_KEY);
+  currentSettings = {
+    platformUrl: normalizePlatformUrl(stored?.[STORAGE_KEY]?.platformUrl || DEFAULT_PLATFORM_URL),
+  };
+  platformUrlInput.value = currentSettings.platformUrl;
+};
+
+const getSavedCandidates = async () => {
+  const stored = await chrome.storage.local.get(SAVED_CANDIDATES_KEY);
+  return Array.isArray(stored?.[SAVED_CANDIDATES_KEY]) ? stored[SAVED_CANDIDATES_KEY] : [];
+};
+
+const setSavedCandidates = async (items) => {
+  await chrome.storage.local.set({ [SAVED_CANDIDATES_KEY]: items.slice(0, 50) });
+};
+
+const saveCandidate = async (item) => {
+  if (!item?.mlbId) return;
+  const saved = await getSavedCandidates();
+  const next = [item, ...saved.filter((entry) => entry.mlbId !== item.mlbId)];
+  await setSavedCandidates(next);
+  await renderSavedCandidates();
+  setStatus(`Candidato ${item.mlbId} salvo.`);
+};
+
+const clearSavedCandidates = async () => {
+  await setSavedCandidates([]);
+  await renderSavedCandidates();
+  setStatus('Candidatos limpos.');
+};
+
+const buildMetaChip = (label) => `<span class="meta-chip">${label}</span>`;
+
+const formatCurrency = (value, currency = 'BRL') => {
+  if (!Number.isFinite(Number(value))) return '—';
+  try {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(Number(value));
+  } catch {
+    return `R$ ${Number(value).toFixed(2)}`;
+  }
+};
+
+const formatCompactInteger = (value) => {
+  if (!Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(Number(value));
+};
+
+const formatDatePtBr = (value) => {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleDateString('pt-BR');
+};
+
+const renderPrimaryActions = (context) => {
+  primaryActionsEl.innerHTML = '';
+
+  if (context?.mode === 'product' && context.product?.mlbId) {
+    const analyzeButton = document.createElement('button');
+    analyzeButton.className = 'btn btn-primary';
+    analyzeButton.textContent = 'Abrir análise';
+    analyzeButton.addEventListener('click', () => openPlatformPage(`/mercado-livre-analyzer?mlb=${context.product.mlbId}`));
+
+    const saveButton = document.createElement('button');
+    saveButton.className = 'btn btn-secondary';
+    saveButton.textContent = 'Salvar candidato';
+    saveButton.addEventListener('click', () => saveCandidate({
+      mlbId: context.product.mlbId,
+      title: context.product.title,
+      price: context.product.price,
+      permalink: context.product.url || context.pageUrl,
+    }));
+
+    primaryActionsEl.append(analyzeButton, saveButton);
+    return;
+  }
+
+  if (context?.mode === 'search' && (context.items?.length || 0) > 0) {
+    const saveAllButton = document.createElement('button');
+    saveAllButton.className = 'btn btn-secondary';
+    saveAllButton.textContent = 'Salvar visíveis';
+    saveAllButton.addEventListener('click', async () => {
+      for (const item of context.items.slice(0, 10)) {
+        if (item.mlbId) {
+          await saveCandidate({
+            mlbId: item.mlbId,
+            title: item.title,
+            price: item.price,
+            permalink: item.url,
+          });
+        }
+      }
+      setStatus('Itens visíveis salvos.');
+    });
+
+    const researchButton = document.createElement('button');
+    researchButton.className = 'btn btn-primary';
+    researchButton.textContent = 'Abrir pesquisa';
+    researchButton.addEventListener('click', () => openPlatformPage('/mercado-livre/pesquisa-mercado'));
+
+    primaryActionsEl.append(saveAllButton, researchButton);
+  }
+};
+
+const renderContextSummary = (context) => {
+  contextSummaryEl.innerHTML = '';
+
+  if (!context) {
+    contextSummaryEl.innerHTML = '<div class="empty-state">Abra uma página do Mercado Livre e recarregue a extensão.</div>';
+    return;
+  }
+
+  if (context.mode === 'product' && context.product) {
+    const { product } = context;
+    const card = document.createElement('div');
+    card.className = 'summary__card';
+    card.innerHTML = `
+      <p class="summary__title">${product.title || 'Produto atual'}</p>
+      <div class="summary__meta">
+        ${product.mlbId ? buildMetaChip(product.mlbId) : ''}
+        ${Number.isFinite(product.price) ? buildMetaChip(formatCurrency(product.price, product.currency || 'BRL')) : ''}
+        ${product.isCatalog ? buildMetaChip('Catálogo') : ''}
+        ${product.seller ? buildMetaChip(product.seller) : ''}
+        ${product.shipping ? buildMetaChip(product.shipping) : ''}
+        ${product.soldText ? buildMetaChip(product.soldText) : ''}
+        ${product.estimatedRevenue ? buildMetaChip(`Fat. ${formatCurrency(product.estimatedRevenue, product.currency || 'BRL')}`) : ''}
+        ${product.dateCreated ? buildMetaChip(`Criado ${formatDatePtBr(product.dateCreated)}`) : ''}
+        ${Number.isFinite(product.ageDays) ? buildMetaChip(`${product.ageDays} dias`) : ''}
+      </div>
+    `;
+    contextSummaryEl.append(card);
+    return;
+  }
+
+  if (context.mode === 'search') {
+    const card = document.createElement('div');
+    card.className = 'summary__card';
+    card.innerHTML = `
+      <p class="summary__title">${context.query || 'Resultados da busca'}</p>
+      <div class="summary__meta">
+        ${buildMetaChip(`${context.items.length} itens visíveis`)}
+        ${context.pageUrl ? buildMetaChip('Busca aberta pelo usuário') : ''}
+        ${context.items?.[0]?.position ? buildMetaChip('Com posição visível') : ''}
+      </div>
+    `;
+    contextSummaryEl.append(card);
+    return;
+  }
+
+  contextSummaryEl.innerHTML = '<div class="empty-state">Nenhum contexto útil detectado nesta página.</div>';
+};
+
+const createItemElement = (item, { saved = false } = {}) => {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'item';
+  wrapper.innerHTML = `
+    <div class="item__top">
+      <div>
+        <p class="item__title">${item.title || 'Sem título'}</p>
+      </div>
+      <div class="item__price">${Number.isFinite(item.price) ? formatCurrency(item.price, item.currency || 'BRL') : '—'}</div>
+    </div>
+    <div class="item__meta">
+      ${Number.isFinite(item.position) ? buildMetaChip(`#${item.position}`) : ''}
+      ${item.mlbId ? buildMetaChip(item.mlbId) : ''}
+      ${item.isCatalog ? buildMetaChip('Catálogo') : ''}
+      ${item.seller ? buildMetaChip(item.seller) : ''}
+      ${item.shipping ? buildMetaChip(item.shipping) : ''}
+      ${item.soldText ? buildMetaChip(item.soldText) : ''}
+      ${item.badge ? buildMetaChip(item.badge) : ''}
+      ${item.estimatedRevenue ? buildMetaChip(`Fat. ${formatCurrency(item.estimatedRevenue, item.currency || 'BRL')}`) : ''}
+      ${Number.isFinite(item.soldCount) ? buildMetaChip(`${formatCompactInteger(item.soldCount)} vendidos`) : ''}
+    </div>
+    <div class="item__actions"></div>
+  `;
+
+  const actions = wrapper.querySelector('.item__actions');
+
+  if (item.mlbId) {
+    const analyzeButton = document.createElement('button');
+    analyzeButton.className = 'btn btn-primary';
+    analyzeButton.textContent = 'Analisar';
+    analyzeButton.addEventListener('click', () => openPlatformPage(`/mercado-livre-analyzer?mlb=${item.mlbId}`));
+    actions.append(analyzeButton);
+  }
+
+  const secondaryButton = document.createElement('button');
+  secondaryButton.className = `btn ${saved ? 'btn-danger' : 'btn-secondary'}`;
+  secondaryButton.textContent = saved ? 'Abrir anúncio' : 'Salvar';
+  secondaryButton.addEventListener('click', async () => {
+    if (saved) {
+      if (item.permalink) {
+        await chrome.tabs.create({ url: item.permalink });
+      }
+      return;
+    }
+    await saveCandidate({
+      mlbId: item.mlbId,
+      title: item.title,
+      price: item.price,
+      permalink: item.url || item.permalink,
+      seller: item.seller,
+      soldText: item.soldText,
+      shipping: item.shipping,
+    });
+  });
+  actions.append(secondaryButton);
+
+  return wrapper;
+};
+
+const renderItems = (context) => {
+  itemsListEl.innerHTML = '';
+  const items = context?.mode === 'search'
+    ? context.items || []
+    : context?.mode === 'product' && context.product
+      ? [context.product]
+      : [];
+
+  itemsCountEl.textContent = String(items.length);
+
+  if (!items.length) {
+    itemsListEl.innerHTML = '<div class="empty-state">Nenhum item visível para analisar.</div>';
+    return;
+  }
+
+  items.slice(0, 8).forEach((item) => {
+    itemsListEl.append(createItemElement(item));
+  });
+};
+
+const renderSavedCandidates = async () => {
+  const saved = await getSavedCandidates();
+  savedListEl.innerHTML = '';
+
+  if (!saved.length) {
+    savedListEl.innerHTML = '<div class="empty-state">Nenhum candidato salvo.</div>';
+    return;
+  }
+
+  saved.slice(0, 8).forEach((item) => {
+    savedListEl.append(createItemElement(item, { saved: true }));
+  });
+};
+
+const extractContext = async () => {
+  const tab = await queryActiveTab();
+  if (!tab?.id) {
+    setStatus('Aba ativa não encontrada.');
+    return;
+  }
+
+  try {
+    const response = await sendMessageToTab(tab.id, { type: MESSAGE_GET_CONTEXT });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'A página não respondeu.');
+    }
+
+    currentContext = response.data || null;
+    pageBadgeEl.textContent =
+      currentContext?.mode === 'product'
+        ? 'Produto'
+        : currentContext?.mode === 'search'
+          ? 'Busca'
+          : 'Sem contexto';
+    setStatus(
+      currentContext?.mode === 'product'
+        ? 'Produto detectado. Abra a análise completa na plataforma.'
+        : currentContext?.mode === 'search'
+          ? 'Busca detectada. Você pode analisar os itens visíveis.'
+          : 'Nenhum contexto útil detectado.'
+    );
+    renderContextSummary(currentContext);
+    renderPrimaryActions(currentContext);
+    renderItems(currentContext);
+  } catch (error) {
+    setStatus(
+      error.message.includes('Receiving end does not exist')
+        ? 'Recarregue a aba do Mercado Livre e abra a extensão novamente.'
+        : `Erro: ${error.message}`
+    );
+    currentContext = null;
+    renderContextSummary(null);
+    renderPrimaryActions(null);
+    renderItems(null);
+  }
+};
+
+saveSettingsButton.addEventListener('click', saveSettings);
+openResearchButton.addEventListener('click', () => openPlatformPage('/mercado-livre/pesquisa-mercado'));
+openSidePanelButton.addEventListener('click', openSidePanelInActiveTab);
+clearSavedButton.addEventListener('click', clearSavedCandidates);
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadSettings();
+  await renderSavedCandidates();
+  await extractContext();
+});

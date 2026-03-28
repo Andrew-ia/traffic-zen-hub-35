@@ -108,30 +108,29 @@ export default function Integrations() {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-4">
                             <div className="text-sm text-muted-foreground">
                                 {isConnected 
                                     ? "Sua conta está sincronizando dados automaticamente." 
                                     : "Clique no botão para iniciar a conexão com o Mercado Livre."}
                             </div>
-                            
-                            {isConnected ? (
-                                <Button 
-                                    variant="destructive" 
-                                    onClick={handleDisconnect}
-                                    disabled={isLoading}
-                                >
-                                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                                    Desconectar
-                                </Button>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    <MercadoLivreManualTokenDialog 
-                                        onSuccess={checkConnection} 
-                                    />
+
+                            <div className="flex items-center gap-2">
+                                <MercadoLivreManualTokenDialog onSuccess={checkConnection} />
+
+                                {isConnected ? (
+                                    <Button
+                                        variant="destructive"
+                                        onClick={handleDisconnect}
+                                        disabled={isLoading}
+                                    >
+                                        {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                                        Desconectar
+                                    </Button>
+                                ) : (
                                     <MercadoLivreConnectButton />
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     </CardContent>
                 </Card>

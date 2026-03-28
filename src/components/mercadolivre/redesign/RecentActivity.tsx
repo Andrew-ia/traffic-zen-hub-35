@@ -1,7 +1,7 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingBag, ChevronRight, ChevronLeft, Clock, Box, Calendar as CalendarIcon, ExternalLink, User, Truck, CreditCard, Package } from "lucide-react";
+import { ShoppingBag, ChevronRight, ChevronLeft, Clock, Box, Calendar as CalendarIcon, ExternalLink, User, Truck, CreditCard, Package, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,11 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-    const itemsPerPage = 6;
+    const itemsPerPage = 3;
+    const productsById = useMemo(
+        () => new Map(products.map((product) => [String(product.id || '').trim().toUpperCase(), product])),
+        [products]
+    );
 
     useEffect(() => {
         setCurrentPage(1);
@@ -125,21 +129,80 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
         }
     };
 
-    const totalPages = Math.ceil((orders?.length || 0) / itemsPerPage);
+    const totalPages = Math.max(1, Math.ceil((orders?.length || 0) / itemsPerPage));
     const startIndex = (currentPage - 1) * itemsPerPage;
     const currentOrders = orders?.slice(startIndex, startIndex + itemsPerPage) || [];
+    const topProfitProduct = useMemo(() => {
+        if (!orders?.length || !products?.length) return null;
+        const aggregatedByItem = new Map<string, {
+            itemId: string;
+            title: string;
+            thumbnail?: string | null;
+            permalink?: string | null;
+            units: number;
+            revenue: number;
+            profitAmount: number;
+        }>();
+
+        orders.forEach((order) => {
+            const normalizedOrderStatus = normalizeStatus(order?.status);
+            if (normalizedOrderStatus === "cancelled" || normalizedOrderStatus === "canceled") return;
+
+            const orderItems = Array.isArray(order?.items) ? order.items : [];
+            orderItems.forEach((item: any) => {
+                const itemId = String(item?.itemId || "").trim().toUpperCase();
+                if (!itemId) return;
+
+                const quantity = Number(item?.quantity || 0);
+                if (quantity <= 0) return;
+
+                const product = productsById.get(itemId);
+                const profitPerUnit = Number(product?.pricing_summary?.profitPerUnitCurrentPrice ?? 0);
+                if (!(profitPerUnit > 0)) return;
+
+                const unitPrice = Number(item?.unitPrice ?? item?.fullUnitPrice ?? 0);
+                const existing = aggregatedByItem.get(itemId) || {
+                    itemId,
+                    title: item?.title || product?.title || itemId,
+                    thumbnail: item?.thumbnail || product?.thumbnail || null,
+                    permalink: item?.permalink || product?.permalink || null,
+                    units: 0,
+                    revenue: 0,
+                    profitAmount: 0,
+                };
+
+                existing.units += quantity;
+                existing.revenue += Math.max(0, unitPrice * quantity);
+                existing.profitAmount += profitPerUnit * quantity;
+                if (!existing.thumbnail) {
+                    existing.thumbnail = item?.thumbnail || product?.thumbnail || null;
+                }
+                if (!existing.permalink) {
+                    existing.permalink = item?.permalink || product?.permalink || null;
+                }
+                aggregatedByItem.set(itemId, existing);
+            });
+        });
+
+        return Array.from(aggregatedByItem.values())
+            .sort((a, b) => {
+                if (b.profitAmount !== a.profitAmount) return b.profitAmount - a.profitAmount;
+                if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+                return b.units - a.units;
+            })[0] || null;
+    }, [orders, products, productsById]);
 
     // If date is provided, we display it.
     // We rely on the parent to pass the correct filtered orders.
 
     if (loading) {
         return (
-            <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
+            <Card className="h-full overflow-hidden rounded-3xl border border-slate-200/80 bg-white/88 shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-md lg:min-h-[560px]">
                 <CardHeader>
                     <Skeleton className="h-6 w-32" />
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {[...Array(5)].map((_, i) => (
+                    {[...Array(4)].map((_, i) => (
                         <Skeleton key={i} className="h-16 w-full rounded-2xl" />
                     ))}
                 </CardContent>
@@ -149,11 +212,12 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
 
     return (
         <>
-            <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden group">
-                <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-border/10 bg-muted/5">
+            <Card className="group relative flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-md lg:min-h-[560px]">
+                <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(37,99,235,0.90),rgba(16,185,129,0.55),rgba(255,255,255,0))]" />
+                <CardHeader className="flex flex-row items-center justify-between border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.92))] pb-4">
                     <div className="flex items-center gap-2">
                         <CardTitle className="text-lg font-bold flex items-center gap-2">
-                            <ShoppingBag className="h-5 w-5 text-primary" />
+                            <ShoppingBag className="h-5 w-5 text-blue-600" />
                             Atividade Recente
                         </CardTitle>
                     </div>
@@ -163,7 +227,7 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 <Button
                                     variant={"outline"}
                                     className={cn(
-                                        "h-8 w-[140px] justify-start text-left font-normal text-xs border-dashed",
+                                        "h-8 w-[140px] justify-start border-slate-200/80 bg-white text-left text-xs font-normal shadow-sm",
                                         !date && "text-muted-foreground"
                                     )}
                                 >
@@ -181,20 +245,93 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 />
                             </PopoverContent>
                         </Popover>
-                        <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2.5 py-0.5 font-bold uppercase text-[10px]">
+                        <Badge variant="secondary" className="border-none bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold uppercase text-blue-700">
                             Live
                         </Badge>
                     </div>
                 </CardHeader>
-                <CardContent className="p-0">
-                    <div className="divide-y divide-border/10">
+                <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+                    {topProfitProduct && (
+                        <>
+                            <div className="p-4 pb-0">
+                                <div className="overflow-hidden rounded-[1.75rem] border border-emerald-200/80 bg-white shadow-[0_12px_24px_rgba(15,23,42,0.06)]">
+                                    <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
+                                                <TrendingUp className="h-4 w-4 text-emerald-700" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-widest text-slate-900">
+                                                    Top Lucro
+                                                </p>
+                                                <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                                                    Melhor desempenho do dia
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <Separator className="bg-emerald-100" />
+                                    <div className="flex items-center gap-3 px-4 py-3">
+                                        <div className="relative shrink-0">
+                                            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-emerald-100">
+                                                {topProfitProduct.thumbnail ? (
+                                                    <img src={topProfitProduct.thumbnail} alt="" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <ShoppingBag className="h-5 w-5 text-muted-foreground" />
+                                                )}
+                                            </div>
+                                            <div className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full border border-amber-200 bg-white shadow-[0_6px_14px_rgba(245,158,11,0.18)]">
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="text-[20px] leading-none drop-shadow-[0_2px_4px_rgba(245,158,11,0.35)]"
+                                                >
+                                                    🔥
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-bold text-slate-900" title={topProfitProduct.title}>
+                                                {topProfitProduct.title}
+                                            </p>
+                                            <div className="mt-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-widest text-slate-500">
+                                                <span>{topProfitProduct.itemId}</span>
+                                                {topProfitProduct.permalink && (
+                                                    <a
+                                                        href={topProfitProduct.permalink}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+                                                        onClick={(event) => event.stopPropagation()}
+                                                    >
+                                                        Abrir
+                                                        <ExternalLink className="h-3 w-3" />
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-base font-black text-emerald-700">
+                                                {formatCurrency(topProfitProduct.revenue)}
+                                            </p>
+                                            <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                                                {topProfitProduct.units} {topProfitProduct.units === 1 ? "unidade" : "unidades"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="px-4 pt-4">
+                                <Separator className="bg-border/10" />
+                            </div>
+                        </>
+                    )}
+                    <div className="flex-1 divide-y divide-border/10">
                         {currentOrders.length > 0 ? (
                             currentOrders.map((order) => {
                                 const item = order.items?.[0];
-                                const currentProduct = products.find(
-                                    (product) => String(product.id || "").trim().toUpperCase() === String(item?.itemId || "").trim().toUpperCase()
-                                );
-                                const remainingStock = typeof currentProduct?.stock === "number" ? currentProduct.stock : null;
+                                const itemId = String(item?.itemId || '').trim().toUpperCase();
+                                const currentProduct = itemId ? productsById.get(itemId) : null;
+                                const remainingStock = typeof currentProduct?.stock === 'number' ? currentProduct.stock : null;
                                 const imageUrl = item?.thumbnail;
                                 const title = item?.title || `Pedido #${order.id}`;
                                 const quantity = item?.quantity || 1;
@@ -206,55 +343,55 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 const isCancelled = normalizedOrderStatus === "cancelled" || normalizedOrderStatus === "canceled";
                                 const createdAtLabel = formatShortDateTime(order.dateCreated);
                                 const cancelledAtLabel = formatShortDateTime(order.dateClosed);
-                                const badgeClass = isCancelled ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground";
+                                const badgeClass = isCancelled ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500";
 
                                 return (
                                     <button
                                         key={order.id}
                                         type="button"
                                         onClick={() => handleOpenDetails(order)}
-                                        className="w-full p-5 hover:bg-muted/10 transition-all cursor-pointer flex items-center gap-4 group/item text-left"
+                                        className="group/item flex w-full cursor-pointer items-center gap-3 p-4 text-left transition-all hover:bg-slate-50/80"
                                         aria-label={`Ver detalhes do pedido ${order.id}`}
                                     >
-                                        <div className="h-12 w-12 rounded-2xl bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden relative group-hover/item:ring-2 ring-primary/20 transition-all">
+                                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100/90 transition-all group-hover/item:ring-2 ring-blue-200/60">
                                             {imageUrl ? (
                                                 <img src={imageUrl} alt="" className="w-full h-full object-cover" />
                                             ) : (
-                                                <ShoppingBag className="h-5 w-5 text-muted-foreground group-hover/item:text-primary transition-colors" />
+                                                <ShoppingBag className="h-4 w-4 text-muted-foreground group-hover/item:text-primary transition-colors" />
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
                                             <div className="min-w-0">
-                                                <p className="text-sm font-bold truncate text-foreground/90" title={title}>{title}</p>
+                                                <p className="truncate text-sm font-bold text-foreground/90" title={title}>{title}</p>
                                             </div>
                                             <div className="text-right flex flex-col items-end">
-                                                <p className="text-sm font-black text-primary">
+                                                <p className="text-sm font-black text-blue-700">
                                                     {formatCurrency(order.totalAmount, currency)}
                                                 </p>
                                                 <p
-                                                    className="text-[10px] font-bold text-success"
+                                                    className="text-[10px] font-bold text-emerald-700"
                                                     title={`Taxas: ${formatCurrency(order.saleFee || 0, currency)} | Envio: ${formatCurrency(order.shippingCost || 0, currency)}${discountAmount > 0 ? ` | Desconto: ${formatCurrency(discountAmount, currency)}` : ""}`}
                                                 >
                                                     Recebido ML: {formatCurrency(receivedFromMl, currency)}
                                                 </p>
                                                 {discountAmount > 0 && (
-                                                    <p className="text-[10px] font-bold text-warning">
+                                                    <p className="text-[10px] font-bold text-amber-600">
                                                         Desconto: {formatCurrency(discountAmount, currency)}
                                                     </p>
                                                 )}
                                             </div>
 
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-0.5 rounded-md shrink-0">
+                                            <div className="flex min-w-0 items-center gap-3">
+                                                <div className="flex shrink-0 items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5">
                                                     <Box className="h-3 w-3 text-muted-foreground" />
                                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                                                         {quantity} {quantity === 1 ? "un" : "uns"}
                                                     </p>
                                                 </div>
                                                 {remainingStock !== null && (
-                                                    <div className="flex items-center gap-1.5 bg-warning/10 px-2 py-0.5 rounded-md shrink-0">
-                                                        <Package className="h-3 w-3 text-warning" />
-                                                        <p className="text-[10px] font-bold text-warning uppercase tracking-wider">
+                                                    <div className="flex shrink-0 items-center gap-1.5 rounded-md bg-amber-50 px-2 py-0.5">
+                                                        <Package className="h-3 w-3 text-amber-700" />
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
                                                             {remainingStock === 0 ? "Sem estoque" : `${remainingStock} un. restantes`}
                                                         </p>
                                                     </div>
@@ -281,18 +418,20 @@ export function RecentActivity({ orders, loading, date, onDateChange, workspaceI
                                 );
                             })
                         ) : (
-                            <div className="p-12 text-center">
+                            <div className="flex h-full min-h-[220px] items-center justify-center p-10 text-center">
+                              <div>
                                 <ShoppingBag className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
                                 <p className="text-sm text-muted-foreground font-bold uppercase tracking-widest">
                                     {date && (date.getDate() !== new Date().getDate() || date.getMonth() !== new Date().getMonth() || date.getFullYear() !== new Date().getFullYear())
                                         ? "Sem vendas nesta data"
                                         : "Sem vendas hoje"}
                                 </p>
+                              </div>
                             </div>
                         )}
                     </div>
                     {totalPages > 1 && (
-                        <div className="flex items-center justify-between p-4 border-t border-border/10 bg-muted/5">
+                        <div className="mt-auto flex items-center justify-between border-t border-border/10 bg-muted/5 p-4">
                             <Button
                                 variant="ghost"
                                 size="sm"

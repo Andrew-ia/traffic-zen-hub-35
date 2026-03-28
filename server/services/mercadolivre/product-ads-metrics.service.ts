@@ -22,8 +22,9 @@ const getBrazilDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const getDateRange = (days: number = 30) => {
-  const todayKey = getBrazilDateKey(new Date());
+const getDateRange = (days: number = 30, anchorDateKey?: string) => {
+  const normalizedAnchor = String(anchorDateKey || '').trim();
+  const todayKey = normalizedAnchor || getBrazilDateKey(new Date());
   const [yearStr, monthStr, dayStr] = todayKey.split('-');
   const dateToObj = new Date(Number(yearStr), Number(monthStr) - 1, Number(dayStr), 12, 0, 0);
   const dateFromObj = new Date(dateToObj);
@@ -300,25 +301,8 @@ async function fetchCategoryAvgPrice(
   } catch (err: any) {
     const status = err?.response?.status || err?.status;
     if (status === 401 || status === 403) {
-      try {
-        const url = new URL(`${MERCADO_LIVRE_API_BASE}/sites/MLB/search`);
-        url.searchParams.set('category', categoryId);
-        url.searchParams.set('limit', '30');
-        url.searchParams.set('sort', 'sold_quantity_desc');
-        const resp = await fetch(url.toString());
-        if (resp.ok) {
-          const data = await resp.json();
-          const results = data?.results || [];
-          const prices = results
-            .map((item: any) => Number(item?.price || 0))
-            .filter((price: number) => Number.isFinite(price) && price > 0);
-          const avg = prices.length ? prices.reduce((acc: number, val: number) => acc + val, 0) / prices.length : null;
-          cache.set(categoryId, avg);
-          return avg;
-        }
-      } catch (fallbackErr: any) {
-        console.warn('[ML Product Ads Metrics] Fallback público falhou (categoria):', categoryId, fallbackErr?.message || fallbackErr);
-      }
+      cache.set(categoryId, null);
+      return null;
     }
     console.warn('[ML Product Ads Metrics] Falha ao calcular preço médio da categoria:', categoryId, err?.message || err);
     cache.set(categoryId, null);
@@ -345,7 +329,7 @@ export async function syncProductAdsMetricsForWorkspace(
   await ensureProductAdsMetricsSchema();
   const pool = getPool();
   const dateKey = options.date || getBrazilDateKey(new Date());
-  const { dateFrom, dateTo } = getDateRange(options.days || 30);
+  const { dateFrom, dateTo } = getDateRange(options.days || 30, dateKey);
   const adsAutomation = new MercadoAdsAutomationService();
 
   const { rows: adsRows, error: adsError } = await adsAutomation.fetchAdsMetricsByAd(workspaceId, {

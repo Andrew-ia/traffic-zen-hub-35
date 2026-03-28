@@ -1,7 +1,6 @@
 
 import { getPool } from "../../config/database.js";
 import { requestWithAuth, getMercadoLivreCredentials } from "../../api/integrations/mercadolivre.js";
-import { TelegramNotificationService } from "../telegramNotification.service.js";
 
 const MERCADO_LIVRE_API_BASE = "https://api.mercadolibre.com";
 
@@ -349,18 +348,7 @@ async function sendAlerts(workspaceId: string, alerts: Array<{ item: any, oldCla
         message += "\n";
     }
 
-    // Send via Telegram Service (using a direct method we assume or creating one)
-    // Assuming TelegramNotificationService has a generic send method or we use the config getter
-    try {
-        // We can access the private method via 'any' cast or add a public method.
-        // Or better, just implement a simple send here using the config, as TelegramNotificationService is a class with private methods.
-        // Let's assume we can add a method to TelegramNotificationService or use the getTelegramConfig from it if it was public.
-        // Since getTelegramConfig is private, let's just duplicate the config fetch for now to avoid modifying the service extensively if not needed,
-        // OR better: Add a public method to TelegramNotificationService.
-        
-        // Using a public method that I will add: notifyFullAnalyticsAlert
-        await TelegramNotificationService.notifyFullAnalyticsAlert(workspaceId, message);
-    } catch (e) {
-        console.error("Failed to send telegram alert:", e);
-    }
+    // Telegram de Full Analytics foi desativado.
+    void workspaceId;
+    void message;
 }

@@ -1,6 +1,6 @@
 import { getPool } from '../../config/database.js';
 import { ensureRuntimeSchema } from '../../config/runtimeSchema.js';
-import { getMercadoLivreCredentials, requestWithAuth } from '../../api/integrations/mercadolivre.js';
+import { getMercadoLivreCredentials, requestWithAuth } from './client.js';
 
 const ADS_PRODUCT_API_BASE = 'https://api.mercadolibre.com/advertising/product_ads';
 // API v2 usa o mesmo prefixo para campanhas e ads: /advertising/product_ads/advertisers/{id}
@@ -2264,6 +2264,10 @@ export class MercadoAdsAutomationService {
       [workspaceId],
     );
     return { campaigns: rows, metrics };
+  }
+
+  async getCampaignMetrics(workspaceId: string, range?: { dateFrom: string; dateTo: string }) {
+    return this.fetchCampaignMetrics(workspaceId, range);
   }
 
   private async syncExistingCampaigns(workspaceId: string) {

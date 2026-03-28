@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMLBAnalyzer } from '@/hooks/useMLBAnalyzer';
 import { MLBAnalyzerInput } from '@/components/analyzer/MLBAnalyzerInput';
 import { MLBAnalysisResults } from '@/components/analyzer/MLBAnalysisResults';
-import { MarketTrends } from "@/components/mercadolivre/MarketTrends";
-import { History, ShoppingBag } from 'lucide-react';
+import { History, Search, ShoppingBag } from 'lucide-react';
 import {
     Sheet,
     SheetContent,
@@ -15,9 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function MercadoLivreAnalyzer() {
+    const navigate = useNavigate();
     const {
         currentAnalysis,
         isAnalyzing,
@@ -106,7 +106,7 @@ export default function MercadoLivreAnalyzer() {
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-2 max-w-[480px] mb-8 mx-auto">
                         <TabsTrigger value="direct">Análise Direta</TabsTrigger>
-                        <TabsTrigger value="trends">Tendências de Mercado</TabsTrigger>
+                        <TabsTrigger value="trends">Pesquisa de Mercado</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="direct" className="space-y-4">
@@ -124,12 +124,23 @@ export default function MercadoLivreAnalyzer() {
 
                     <TabsContent value="trends" className="space-y-4">
                         <div className="max-w-3xl mx-auto text-center mb-8">
-                            <h2 className="text-2xl font-semibold mb-2">Tendências de Mercado</h2>
+                            <h2 className="text-2xl font-semibold mb-2">Pesquisa de Mercado</h2>
                             <p className="text-muted-foreground">
-                                Explore as tendências de busca e produtos em alta no Mercado Livre para identificar oportunidades.
+                                Abra a nova tela de sourcing para validar concorrência, demanda, saturação e margem antes de comprar para revender.
                             </p>
                         </div>
-                        <MarketTrends workspaceId={currentWorkspace?.id} />
+                        <div className="max-w-4xl mx-auto rounded-3xl border bg-card p-8 text-center shadow-sm">
+                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-yellow-700">
+                                <Search className="h-7 w-7" />
+                            </div>
+                            <h3 className="mt-4 text-xl font-semibold">Nova Pesquisa de Mercado ML</h3>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                                Descubra top oportunidades por subcategoria, anúncios recentes que aceleraram, dominância de lojas oficiais e simulação de margem para revenda.
+                            </p>
+                            <Button className="mt-6" onClick={() => navigate("/mercado-livre/pesquisa-mercado")}>
+                                Abrir Pesquisa de Mercado
+                            </Button>
+                        </div>
                     </TabsContent>
                 </Tabs>
             )}

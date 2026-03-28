@@ -15,6 +15,7 @@ import { useCommandMenu } from "./CommandMenu";
 import { useResponsive } from "@/hooks/use-responsive";
 import { useAuth } from "@/hooks/useAuth";
 import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
+import { MercadoLivrePeriodControl } from "./MercadoLivrePeriodControl";
 
 function isEditableElement(element: EventTarget | null) {
   if (!element || !(element instanceof HTMLElement)) return false;
@@ -116,6 +117,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         </div>
 
         <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+          <MercadoLivrePeriodControl />
           <WorkspaceSwitcher />
         </div>
 

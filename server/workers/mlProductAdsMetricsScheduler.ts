@@ -51,6 +51,29 @@ export function startMLProductAdsMetricsScheduler() {
   setInterval(checkAndRun, CHECK_INTERVAL_MS);
 }
 
+export async function backfillMLProductAdsMetrics(workspaceId: string, days: number = 30) {
+  await ensureProductAdsMetricsSchema();
+  const normalizedDays = Math.min(60, Math.max(1, Number(days || 30)));
+  const processedDates: string[] = [];
+
+  for (let offset = normalizedDays - 1; offset >= 0; offset -= 1) {
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() - offset);
+    const dateKey = getBrazilDateKey(targetDate);
+    await syncProductAdsMetricsForWorkspace(workspaceId, { date: dateKey, days: SNAPSHOT_DAYS });
+    processedDates.push(dateKey);
+  }
+
+  return {
+    workspaceId,
+    days: normalizedDays,
+    from: processedDates[0] || null,
+    to: processedDates[processedDates.length - 1] || null,
+    processedDates,
+    snapshotWindowDays: SNAPSHOT_DAYS,
+  };
+}
+
 async function checkAndRun() {
   const now = new Date();
   const { hour, minute } = getBrazilParts(now);

@@ -5,6 +5,10 @@ export interface ProductHubAsset {
   type: "image" | "video" | string;
   url: string;
   is_primary?: boolean;
+  storage_mode?: "url" | "inline" | string;
+  file_name?: string | null;
+  mime_type?: string | null;
+  file_size_bytes?: number | null;
   created_at?: string;
 }
 
@@ -17,7 +21,24 @@ export interface ProductHubItem {
   name: string;
   category?: string | null;
   price?: number | null;
+  source?: string | null;
+  description?: string | null;
+  barcode?: string | null;
+  supplier?: string | null;
+  cost_price?: number | null;
+  stock_on_hand?: number | null;
+  stock_reserved?: number | null;
+  available_stock?: number | null;
+  status?: string | null;
+  weight_kg?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  length_cm?: number | null;
+  notes?: string | null;
   video_url?: string | null;
+  linked_listings?: number | null;
+  mercado_livre_listings?: number | null;
+  shopee_listings?: number | null;
   created_at?: string;
   updated_at?: string;
   assets?: ProductHubAsset[];

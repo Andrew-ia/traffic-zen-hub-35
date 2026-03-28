@@ -38,6 +38,7 @@ interface SalesBoostBoardProps {
     workspaceId: string | null;
     limit?: number;
     showFilters?: boolean;
+    itemsPerPage?: number;
 }
 
 const PRIORITY_META: Record<string, { label: string; className: string }> = {
@@ -81,7 +82,7 @@ const COOLDOWN_OPTIONS = [
     { label: "14 dias", value: 14 },
 ];
 
-export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true }: SalesBoostBoardProps) {
+export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true, itemsPerPage }: SalesBoostBoardProps) {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { data, isLoading, error, refetch, isFetching } = useMercadoLivreGrowthReport(workspaceId, {
@@ -99,6 +100,7 @@ export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true }: 
     const [search, setSearch] = useState("");
     const [priorityFilter, setPriorityFilter] = useState<string>("all");
     const [sortBy, setSortBy] = useState<string>("priority");
+    const [currentPage, setCurrentPage] = useState(1);
     const [cooldownDays, setCooldownDays] = useState<number>(7);
     const [adjustments, setAdjustments] = useState<Record<string, { adjustedAt: string }>>({});
 
@@ -197,10 +199,29 @@ export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true }: 
         return [...items].sort(sorter);
     }, [rawPlans, priorityFilter, search, sortBy]);
 
-    const visiblePlans = useMemo(() => {
+    const displayPlans = useMemo(() => {
         if (!limit || limit <= 0) return filteredPlans;
         return filteredPlans.slice(0, limit);
     }, [filteredPlans, limit]);
+
+    const totalPages = useMemo(() => {
+        if (!itemsPerPage || itemsPerPage <= 0) return 1;
+        return Math.max(1, Math.ceil(displayPlans.length / itemsPerPage));
+    }, [displayPlans.length, itemsPerPage]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [workspaceId, search, priorityFilter, sortBy, limit, itemsPerPage]);
+
+    useEffect(() => {
+        setCurrentPage((page) => Math.min(page, totalPages));
+    }, [totalPages]);
+
+    const visiblePlans = useMemo(() => {
+        if (!itemsPerPage || itemsPerPage <= 0) return displayPlans;
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return displayPlans.slice(startIndex, startIndex + itemsPerPage);
+    }, [currentPage, displayPlans, itemsPerPage]);
 
     const handleApplyPrice = async () => {
         if (!pendingPrice || !workspaceId) return;
@@ -251,7 +272,7 @@ export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true }: 
                             30d
                         </Badge>
                         <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-                            {filteredPlans.length} itens
+                            {displayPlans.length} itens
                         </Badge>
                         <Button
                             size="sm"
@@ -529,6 +550,32 @@ export function SalesBoostBoard({ workspaceId, limit = 8, showFilters = true }: 
                         </div>
                     );
                 })}
+
+                {!isLoading && !error && itemsPerPage && itemsPerPage > 0 && totalPages > 1 && (
+                    <div className="flex flex-col gap-3 border-t border-border/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-xs text-muted-foreground">
+                            Página {currentPage} de {totalPages}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                Anterior
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                Próxima
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </CardContent>
 
             <AlertDialog open={Boolean(pendingPrice)} onOpenChange={(open) => !open && setPendingPrice(null)}>

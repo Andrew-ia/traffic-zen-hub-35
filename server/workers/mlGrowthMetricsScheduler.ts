@@ -14,6 +14,18 @@ const DAILY_HOUR = Number(process.env.ML_GROWTH_DAILY_HOUR || 2);
 const DAILY_MINUTE = Number(process.env.ML_GROWTH_DAILY_MINUTE || 10);
 const VISITS_MAX_ITEMS = Math.max(1, Number(process.env.ML_DAILY_VISITS_MAX_ITEMS || 500));
 const VISITS_CONCURRENCY = Math.max(1, Number(process.env.ML_DAILY_VISITS_CONCURRENCY || 5));
+const VISITS_BACKFILL_MAX_ITEMS = Math.max(
+  1,
+  Math.min(200, Number(process.env.ML_DAILY_VISITS_BACKFILL_MAX_ITEMS || 120)),
+);
+const VISITS_BACKFILL_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.ML_DAILY_VISITS_BACKFILL_CONCURRENCY || 1),
+);
+const VISITS_BACKFILL_DELAY_MS = Math.max(
+  0,
+  Number(process.env.ML_DAILY_VISITS_BACKFILL_DELAY_MS || 250),
+);
 const VISITS_STATUSES = String(process.env.ML_DAILY_VISITS_STATUSES || 'active,paused')
   .split(',')
   .map((s) => s.trim())
@@ -61,6 +73,52 @@ export function startMercadoLivreGrowthMetricsScheduler() {
   console.log('[ML Growth Metrics] Scheduler started');
   checkAndRun();
   setInterval(checkAndRun, CHECK_INTERVAL_MS);
+}
+
+export async function backfillMercadoLivreGrowthMetrics(workspaceId: string, days: number = 30) {
+  await ensureGrowthMetricsSchema();
+  const normalizedDays = Math.min(90, Math.max(1, Number(days || 30)));
+  const credentials = await getMercadoLivreCredentials(workspaceId);
+  const userId = credentials?.userId || (credentials as any)?.user_id;
+
+  if (!userId) {
+    throw new Error('ml_not_connected');
+  }
+
+  await syncMercadoLivreOrders(workspaceId, Math.max(normalizedDays, HOURLY_SYNC_DAYS));
+  const itemIds = await fetchItemIds(
+    workspaceId,
+    String(userId),
+    Math.min(VISITS_MAX_ITEMS, VISITS_BACKFILL_MAX_ITEMS),
+    {
+      preferRecentSoldItems: true,
+      recentSoldDays: normalizedDays,
+    },
+  );
+
+  const processedDates: string[] = [];
+  for (let offset = normalizedDays - 1; offset >= 0; offset -= 1) {
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() - offset);
+    const dateKey = getBrazilDateKey(targetDate);
+
+    await syncDailyVisitsForItems(workspaceId, dateKey, itemIds, {
+      concurrency: VISITS_BACKFILL_CONCURRENCY,
+      delayMs: VISITS_BACKFILL_DELAY_MS,
+    });
+    await upsertDailyAccountMetrics(workspaceId, String(userId), dateKey);
+    processedDates.push(dateKey);
+  }
+
+  await upsertHourlyMetrics(workspaceId);
+
+  return {
+    workspaceId,
+    days: normalizedDays,
+    from: processedDates[0] || null,
+    to: processedDates[processedDates.length - 1] || null,
+    processedDates,
+  };
 }
 
 async function checkAndRun() {
@@ -207,12 +265,28 @@ async function upsertHourlyMetrics(workspaceId: string) {
 }
 
 async function syncDailyVisits(workspaceId: string, userId: string, dateKey: string) {
-  const pool = getPool();
   const itemIds = await fetchItemIds(workspaceId, userId, VISITS_MAX_ITEMS);
+  await syncDailyVisitsForItems(workspaceId, dateKey, itemIds);
+}
+
+async function syncDailyVisitsForItems(
+  workspaceId: string,
+  dateKey: string,
+  itemIds: string[],
+  options: {
+    concurrency?: number;
+    delayMs?: number;
+  } = {},
+) {
+  const pool = getPool();
   if (itemIds.length === 0) return;
 
   let index = 0;
-  const concurrency = Math.max(1, Math.min(VISITS_CONCURRENCY, itemIds.length));
+  const concurrency = Math.max(
+    1,
+    Math.min(Number(options.concurrency || VISITS_CONCURRENCY), itemIds.length),
+  );
+  const delayMs = Math.max(0, Number(options.delayMs || 0));
 
   const worker = async () => {
     while (index < itemIds.length) {
@@ -238,6 +312,10 @@ async function syncDailyVisits(workspaceId: string, userId: string, dateKey: str
         );
       } catch (err) {
         console.warn(`[ML Growth Metrics] Falha visitas item ${itemId}:`, err);
+      } finally {
+        if (delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
       }
     }
   };
@@ -245,14 +323,57 @@ async function syncDailyVisits(workspaceId: string, userId: string, dateKey: str
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
 }
 
-async function fetchItemIds(workspaceId: string, userId: string, limit: number) {
+async function fetchItemIds(
+  workspaceId: string,
+  userId: string,
+  limit: number,
+  options: {
+    preferRecentSoldItems?: boolean;
+    recentSoldDays?: number;
+  } = {},
+) {
   const ids: string[] = [];
   const seen = new Set<string>();
+  const normalizedLimit = Math.max(1, limit);
+
+  if (options.preferRecentSoldItems) {
+    const dateFrom = new Date();
+    dateFrom.setDate(dateFrom.getDate() - (Math.max(1, Number(options.recentSoldDays || 30)) - 1));
+
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `
+        select
+          oi.item_id,
+          sum(coalesce(oi.quantity, 0)) as units_sold,
+          sum(coalesce(oi.total_amount, 0)) as revenue
+        from ml_order_items oi
+        inner join ml_orders o
+          on o.workspace_id = oi.workspace_id
+         and o.order_id = oi.order_id
+        where oi.workspace_id = $1
+          and coalesce(oi.item_id, '') <> ''
+          and lower(coalesce(o.status, '')) not in ('cancelled', 'canceled')
+          and o.date_created >= $2
+        group by oi.item_id
+        order by units_sold desc, revenue desc, oi.item_id asc
+        limit $3
+      `,
+      [workspaceId, dateFrom, normalizedLimit],
+    );
+
+    for (const row of rows || []) {
+      const itemId = String(row.item_id || '').trim();
+      if (!itemId || seen.has(itemId)) continue;
+      ids.push(itemId);
+      seen.add(itemId);
+    }
+  }
 
   for (const status of VISITS_STATUSES) {
     let offset = 0;
     let hasMore = true;
-    while (hasMore && ids.length < limit) {
+    while (hasMore && ids.length < normalizedLimit) {
       try {
         const resp = await requestWithAuth<any>(
           workspaceId,
@@ -265,7 +386,7 @@ async function fetchItemIds(workspaceId: string, userId: string, limit: number) 
             ids.push(id);
             seen.add(id);
           }
-          if (ids.length >= limit) break;
+          if (ids.length >= normalizedLimit) break;
         }
         offset += 50;
         const total = Number(resp?.paging?.total || 0);
@@ -279,7 +400,7 @@ async function fetchItemIds(workspaceId: string, userId: string, limit: number) 
     }
   }
 
-  return ids.slice(0, limit);
+  return ids.slice(0, normalizedLimit);
 }
 
 async function upsertDailyAccountMetrics(workspaceId: string, userId: string, dateKey: string) {

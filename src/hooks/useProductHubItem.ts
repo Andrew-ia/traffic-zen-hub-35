@@ -16,9 +16,39 @@ export interface ProductHubAdsEntry {
   updated_at?: string | null;
 }
 
+export interface ProductHubChannelLink {
+  source: string;
+  source_id: string;
+  internal_product_id?: string | null;
+  channel: string;
+  external_listing_id: string;
+  sku?: string | null;
+  title?: string | null;
+  status?: string | null;
+  price?: number | null;
+  published_stock?: number | null;
+  permalink?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProductHubInventoryMovement {
+  id: string;
+  movement_type: string;
+  delta_quantity: number;
+  balance_before: number;
+  balance_after: number;
+  reason?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+}
+
 export interface ProductHubDetailResponse {
   product: ProductHubItem & { metadata?: any };
   ads: ProductHubAdsEntry[];
+  channelLinks: ProductHubChannelLink[];
+  inventoryMovements: ProductHubInventoryMovement[];
 }
 
 export function useProductHubItem(id: string | null, workspaceId: string | null) {

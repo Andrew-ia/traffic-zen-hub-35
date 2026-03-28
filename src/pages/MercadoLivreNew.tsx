@@ -7,53 +7,43 @@ import {
     Package,
     ExternalLink,
     AlertCircle,
-    RefreshCcw,
     Users,
     MousePointer,
     ShoppingCart,
     Layers,
-    Search,
-    Calendar as CalendarIcon,
-    CalendarRange,
-    Sparkles
+    ChevronLeft,
+    ChevronRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import {
     useMercadoLivreMetrics,
+    useMercadoLivreAdsFinance,
     useMercadoLivreProducts,
-    useMercadoLivreQuestions,
     useMercadoLivreAuthStatus,
-    useSyncMercadoLivre,
     useMercadoLivreAnalyticsTop,
-    useSyncMercadoLivreAnalytics,
-    useRunMercadoLivrePriceStockAutomation
 } from "@/hooks/useMercadoLivre";
-import type { MercadoLivrePriceStockAutomationResult } from "@/hooks/useMercadoLivre";
-import type { OrdersResponse } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreDailySales, useMercadoLivreOrders } from "@/hooks/useMercadoLivreOrders";
 import { useMercadoLivreShipments } from "@/hooks/useMercadoLivreShipments";
 import { Skeleton } from "@/components/ui/skeleton";
 import { differenceInCalendarDays, format, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import MercadoLivreConnectButton from "@/components/MercadoLivreConnectButton";
-import { MercadoLivreManualTokenDialog } from "@/components/MercadoLivreManualTokenDialog";
 import { supabase } from "@/lib/supabaseClient";
-import { ExportReportButton } from "@/components/mercadolivre/ExportReportButton";
 import { PremiumKPICard } from "@/components/mercadolivre/redesign/PremiumKPICard";
 import { MainPerformanceChart } from "@/components/mercadolivre/redesign/MainPerformanceChart";
 import { RecentActivity } from "@/components/mercadolivre/redesign/RecentActivity";
 import { FinancialAnalysis } from "@/components/mercadolivre/FinancialAnalysis";
-import { QuickReplyQuestions } from "@/components/mercadolivre/QuickReplyQuestions";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { useMercadoAdsCampaigns } from "@/hooks/useMercadoAds";
-import type { DateRange } from "react-day-picker";
+import { useSearchParams } from "react-router-dom";
+import {
+    ML_PERIOD_PARAM,
+    getMercadoLivreBillingCycleRange,
+    normalizeMercadoLivrePeriod,
+    parseMercadoLivreCustomRange,
+} from "@/lib/mercadolivre-period";
 
 const formatCurrency = (value: number, fractionDigits: number = 0) =>
     new Intl.NumberFormat("pt-BR", {
@@ -73,31 +63,27 @@ const BRAZIL_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 
 const formatBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
 const TOP_LIST_OPTIONS = [5, 10, 20];
+const SURFACE_CARD_CLASS = "relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,249,252,0.94))] shadow-[0_24px_60px_rgba(15,23,42,0.09)] backdrop-blur-md";
+const SURFACE_HEADER_CLASS = "relative pb-4 border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))]";
 const getProductListingHref = (product: { mlPermalink?: string | null }) => {
     const permalink = product.mlPermalink?.trim();
     return permalink && /^https?:\/\//i.test(permalink) ? permalink : null;
 };
 
 export default function MercadoLivreNew() {
-    const { workspaces, currentWorkspace, switchWorkspace, isLoading: workspacesLoading } = useWorkspace();
+    const { currentWorkspace } = useWorkspace();
+    const [searchParams] = useSearchParams();
     const queryClient = useQueryClient();
     const processedOrdersRef = useRef<Set<string>>(new Set());
-    const [dateRange, setDateRange] = useState("30");
-    const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>(() => {
-        const to = new Date();
-        to.setHours(0, 0, 0, 0);
-        const from = subDays(new Date(to), 29);
-        return { from, to };
-    });
     const [workspaceId, setWorkspaceId] = useState<string | null>(
         (import.meta.env.VITE_WORKSPACE_ID as string) || null
     );
-    const [replaying, setReplaying] = useState(false);
     const [recentActivityDate, setRecentActivityDate] = useState<Date | undefined>(new Date());
     const [sseConnected, setSseConnected] = useState(false);
-    const [automationPreview, setAutomationPreview] = useState<MercadoLivrePriceStockAutomationResult | null>(null);
     const [topSalesDisplayCount, setTopSalesDisplayCount] = useState("5");
+    const [topSalesPage, setTopSalesPage] = useState(1);
     const [topProfitDisplayCount, setTopProfitDisplayCount] = useState("5");
+    const [topProfitPage, setTopProfitPage] = useState(1);
     const [lowSalesDisplayCount, setLowSalesDisplayCount] = useState("5");
     const autoConnectEnabled =
         String(import.meta.env.VITE_ML_AUTO_CONNECT || "").toLowerCase() === "true";
@@ -126,14 +112,15 @@ export default function MercadoLivreNew() {
         fetchWorkspace();
     }, [currentWorkspace?.id]);
 
+    const dateRange = useMemo(
+        () => normalizeMercadoLivrePeriod(searchParams.get(ML_PERIOD_PARAM)),
+        [searchParams]
+    );
+    const customDateRange = useMemo(
+        () => parseMercadoLivreCustomRange(searchParams),
+        [searchParams]
+    );
     const isCustomRange = dateRange === "custom";
-    const dateRangeLabel = useMemo(() => {
-        if (!customDateRange?.from || !customDateRange?.to) return "Selecione o período";
-        const sameDay = customDateRange.from.toDateString() === customDateRange.to.toDateString();
-        const formattedFrom = format(customDateRange.from, "dd/MM/yy");
-        const formattedTo = format(customDateRange.to, "dd/MM/yy");
-        return sameDay ? formattedFrom : `${formattedFrom} - ${formattedTo}`;
-    }, [customDateRange]);
 
     const resolvedRange = useMemo(() => {
         const today = new Date();
@@ -143,6 +130,16 @@ export default function MercadoLivreNew() {
             const from = new Date(customDateRange.from);
             from.setHours(0, 0, 0, 0);
             const to = new Date(customDateRange.to ?? customDateRange.from);
+            to.setHours(0, 0, 0, 0);
+            const days = Math.max(1, differenceInCalendarDays(to, from) + 1);
+            return { from, to, days };
+        }
+
+        if (dateRange === "billing") {
+            const billingRange = getMercadoLivreBillingCycleRange(today);
+            const from = new Date(billingRange.from ?? today);
+            from.setHours(0, 0, 0, 0);
+            const to = new Date(billingRange.to ?? today);
             to.setHours(0, 0, 0, 0);
             const days = Math.max(1, differenceInCalendarDays(to, from) + 1);
             return { from, to, days };
@@ -233,10 +230,9 @@ export default function MercadoLivreNew() {
         }
     );
     const { data: products } = useMercadoLivreProducts(workspaceId);
-    const { data: questions, isLoading: questionsLoading } = useMercadoLivreQuestions(workspaceId, resolvedRange.days);
-    const { data: adsCampaignsData } = useMercadoAdsCampaigns(
+    const { data: adsFinance, isLoading: adsFinanceLoading } = useMercadoLivreAdsFinance(
         workspaceId,
-        { dateFrom: period.start_date, dateTo: period.end_date }
+        { days: resolvedRange.days, dateFrom: period.start_date, dateTo: period.end_date }
     );
     const { data: dailySales, isLoading: dailySalesLoading } = useMercadoLivreDailySales(
         workspaceId,
@@ -447,10 +443,15 @@ export default function MercadoLivreNew() {
         // Traz todos os envios do dia (Normal, Full, etc) para contagens corretas
         limit: 50
     });
-    const syncMutation = useSyncMercadoLivre();
-    const analyticsSyncMutation = useSyncMercadoLivreAnalytics();
-    const priceStockAutomationMutation = useRunMercadoLivrePriceStockAutomation();
-    const { data: analyticsTop, isLoading: analyticsTopLoading } = useMercadoLivreAnalyticsTop(workspaceId, 20);
+    const { data: analyticsTop, isLoading: analyticsTopLoading } = useMercadoLivreAnalyticsTop(
+        workspaceId,
+        20,
+        {
+            days: resolvedRange.days,
+            dateFrom: period.start_date,
+            dateTo: period.end_date,
+        }
+    );
 
     const todayMetrics = useMemo(() => {
         if (!recentActivityDate) return { revenue: 0, orders: 0, revenueTrend: 0, ordersTrend: 0 };
@@ -494,103 +495,12 @@ export default function MercadoLivreNew() {
         };
     }, [dailySales, recentActivityDate, ordersData]);
 
-    const handleSyncData = async () => {
-        if (!workspaceId) return;
-        try {
-            await syncMutation.mutateAsync(workspaceId);
-            toast.success("Sincronização iniciada com sucesso!");
-        } catch (error) {
-            toast.error("Erro ao iniciar sincronização.");
-        }
-    };
-
-    const handleSyncAnalytics = async () => {
-        if (!workspaceId) return;
-        try {
-            await analyticsSyncMutation.mutateAsync(workspaceId);
-            toast.success("Analytics 30d atualizada com sucesso!");
-        } catch (error) {
-            toast.error("Erro ao atualizar analytics 30d.");
-        }
-    };
-
-    const handleRunPriceStockAutomation = async () => {
-        if (!workspaceId) return;
-        try {
-            const result = await priceStockAutomationMutation.mutateAsync({
-                workspaceId,
-                mode: "dry-run",
-                source: "topSales",
-                topN: 20,
-                lowStockThreshold: 3,
-                highStockThreshold: 20,
-                sendTelegramStockAlerts: true,
-                sendTelegramPriceSuggestions: false,
-            });
-            setAutomationPreview(result);
-
-            const summary = result?.summary;
-            toast.success(
-                `Automação pronta: ${summary?.priceSuggestions || 0} sugestões de preço e ${summary?.stockAlerts || 0} alertas de estoque.`
-            );
-        } catch (error: any) {
-            toast.error(error?.message || "Erro ao rodar automação de preço/estoque.");
-        }
-    };
-
-    const handleApplyPriceStockAutomation = async () => {
-        if (!workspaceId) return;
-        try {
-            const result = await priceStockAutomationMutation.mutateAsync({
-                workspaceId,
-                mode: "apply",
-                source: "topSales",
-                topN: 20,
-                lowStockThreshold: 3,
-                highStockThreshold: 20,
-                sendTelegramStockAlerts: true,
-                sendTelegramPriceSuggestions: false,
-            });
-            setAutomationPreview(result);
-
-            const summary = result?.summary;
-            toast.success(
-                `Aplicado: ${summary?.priceUpdatesApplied || 0} preços atualizados, ${summary?.priceUpdatesFailed || 0} falhas.`
-            );
-        } catch (error: any) {
-            toast.error(error?.message || "Erro ao aplicar automação de preço/estoque.");
-        }
-    };
-
-    const handleReplayNotifications = async () => {
-        if (!workspaceId) return;
-        setReplaying(true);
-        try {
-            const resp = await fetch("/api/integrations/mercadolivre/notifications/replay", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ workspaceId, days: 1, maxOrders: 200, dryRun: false })
-            });
-            const data = await resp.json();
-            toast.success(`Reenvio concluído: enviados ${data?.sent || 0}`);
-        } catch (e) {
-            toast.error("Erro ao reenviar notificações.");
-        } finally {
-            setReplaying(false);
-        }
-    };
-
     // Cálculos
     const totalRevenue = metrics?.totalRevenue ?? 0;
     const totalOrders = metrics?.totalOrders ?? 0;
     const totalSales = metrics?.totalSales ?? 0;
     const totalVisits = metrics?.totalVisits ?? 0;
     const conversionRate = metrics?.conversionRate ?? 0;
-
-    const handleWorkspaceChange = (value: string) => {
-        setWorkspaceId(value);
-        switchWorkspace(value);
-    };
 
     const getTrend = (current: number, previous: number) => {
         if (!previous) return { value: "0%", up: true };
@@ -635,299 +545,212 @@ export default function MercadoLivreNew() {
     const averageTicket = (metrics?.totalRevenue && metrics?.totalSales) 
         ? metrics.totalRevenue / metrics.totalSales 
         : 0;
+    const keyMetricsItems = [
+        {
+            key: "anuncios",
+            label: "Anúncios",
+            value: formatNumber(products?.activeCount || 0),
+            icon: Layers,
+            iconWrapClass: "bg-blue-50",
+            iconClass: "text-blue-700",
+            valueClass: "text-slate-950",
+        },
+        {
+            key: "ticket",
+            label: "Ticket Médio",
+            value: formatCurrency(averageTicket, 2),
+            icon: DollarSign,
+            iconWrapClass: "bg-blue-50",
+            iconClass: "text-blue-700",
+            valueClass: "text-slate-950",
+        },
+        {
+            key: "cancelados",
+            label: "Cancelados",
+            value: formatNumber(metrics?.canceledOrders || 0),
+            icon: AlertCircle,
+            iconWrapClass: "bg-rose-50",
+            iconClass: "text-rose-700",
+            valueClass: "text-rose-700",
+        },
+        {
+            key: "unidades",
+            label: "Und. Vendidas",
+            value: formatNumber(metrics?.totalSales || 0),
+            icon: Package,
+            iconWrapClass: "bg-blue-50",
+            iconClass: "text-blue-700",
+            valueClass: "text-slate-950",
+        },
+        {
+            key: "visitas",
+            label: "Visitas",
+            value: formatNumber(totalVisits),
+            icon: MousePointer,
+            iconWrapClass: "bg-blue-50",
+            iconClass: "text-blue-700",
+            valueClass: "text-slate-950",
+        },
+        {
+            key: "conversao",
+            label: "Conversão",
+            value: `${conversionRate.toFixed(2)}%`,
+            icon: TrendingUp,
+            iconWrapClass: "bg-emerald-50",
+            iconClass: "text-emerald-700",
+            valueClass: "text-emerald-700",
+        },
+        {
+            key: "compradores",
+            label: "Compradores",
+            value: formatNumber(metrics?.totalBuyers || 0),
+            icon: Users,
+            iconWrapClass: "bg-blue-50",
+            iconClass: "text-blue-700",
+            valueClass: "text-slate-950",
+        },
+        {
+            key: "valor-cancelado",
+            label: "Valor Cancelado",
+            value: formatCurrency(metrics?.canceledRevenue || 0),
+            icon: DollarSign,
+            iconWrapClass: "bg-rose-50",
+            iconClass: "text-rose-700",
+            valueClass: "text-rose-700",
+        },
+    ];
 
     const topSales = analyticsTop?.topSales || [];
     const topProfit = analyticsTop?.topProfit || [];
     const lowSalesWithStock = analyticsTop?.lowSalesWithStock || [];
-    const visibleTopSales = topSales.slice(0, Number(topSalesDisplayCount));
-    const visibleTopProfit = topProfit.slice(0, Number(topProfitDisplayCount));
+    const topSalesPageSize = Number(topSalesDisplayCount);
+    const topProfitPageSize = Number(topProfitDisplayCount);
+    const topSalesTotalPages = Math.max(1, Math.ceil(topSales.length / topSalesPageSize));
+    const topProfitTotalPages = Math.max(1, Math.ceil(topProfit.length / topProfitPageSize));
+    const topSalesStartIndex = (topSalesPage - 1) * topSalesPageSize;
+    const topProfitStartIndex = (topProfitPage - 1) * topProfitPageSize;
+    const visibleTopSales = topSales.slice(topSalesStartIndex, topSalesStartIndex + topSalesPageSize);
+    const visibleTopProfit = topProfit.slice(topProfitStartIndex, topProfitStartIndex + topProfitPageSize);
     const visibleLowSalesWithStock = lowSalesWithStock.slice(0, Number(lowSalesDisplayCount));
+    const analyticsPeriodLabel = `${analyticsTop?.days ?? resolvedRange.days}d`;
     const analyticsLastSync = analyticsTop?.lastSyncedAt
         ? new Date(analyticsTop.lastSyncedAt).toLocaleString("pt-BR")
         : null;
     const liveTimestamp = format(new Date(), "dd 'de' MMMM, HH:mm", { locale: ptBR });
-    const automationGeneratedAt = automationPreview?.summary?.generatedAt
-        ? new Date(automationPreview.summary.generatedAt).toLocaleString("pt-BR")
-        : null;
-    const automationItems = automationPreview?.items || [];
 
-    const getPriceReasonLabel = (reason: string | null) => {
-        switch (reason) {
-            case "low_stock_protection":
-                return "Proteção de margem (estoque baixo)";
-            case "unit_loss_recovery":
-                return "Recuperar prejuízo unitário";
-            case "target_margin_recovery":
-                return "Recuperar margem-alvo";
-            case "high_stock_acceleration":
-                return "Acelerar giro (estoque alto)";
-            default:
-                return "Sem ajuste";
-        }
-    };
+    useEffect(() => {
+        setTopSalesPage(1);
+    }, [topSalesDisplayCount, period.start_date, period.end_date]);
+
+    useEffect(() => {
+        setTopProfitPage(1);
+    }, [topProfitDisplayCount, period.start_date, period.end_date]);
+
+    useEffect(() => {
+        setTopSalesPage((currentPage) => Math.min(currentPage, topSalesTotalPages));
+    }, [topSalesTotalPages]);
+
+    useEffect(() => {
+        setTopProfitPage((currentPage) => Math.min(currentPage, topProfitTotalPages));
+    }, [topProfitTotalPages]);
 
     return (
-        <div className="min-h-screen bg-background text-foreground px-4 pb-12 pt-4 sm:px-8 sm:pt-8 animate-in fade-in duration-700">
-            <section className="relative overflow-hidden rounded-[3rem] border border-border/60 bg-gradient-to-b from-amber-200/80 via-amber-100/50 to-background shadow-[0_30px_80px_rgba(15,23,42,0.18)] dark:from-amber-500/10 dark:via-amber-500/5 dark:to-background">
-                <div className="absolute -top-32 left-1/2 h-64 w-[900px] -translate-x-1/2 rounded-[999px] bg-amber-300/80 blur-3xl dark:bg-amber-500/20" />
-                <div className="absolute -bottom-28 left-10 h-56 w-56 rounded-full bg-primary/10 blur-3xl dark:bg-primary/20" />
-                <div className="absolute right-12 top-16 h-24 w-24 rounded-full bg-white/70 blur-2xl dark:bg-white/10" />
+        <div className="min-h-screen animate-in fade-in bg-white px-4 pb-12 pt-4 text-foreground duration-700 sm:px-8 sm:pt-8">
+            <section className="relative overflow-hidden rounded-[2.5rem] border border-[#ead34d] bg-[linear-gradient(180deg,#ffe600_0%,#ffe600_58%,#fff7cc_100%)] shadow-[0_24px_60px_rgba(15,23,42,0.10)]">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.16),rgba(255,255,255,0))]" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40">
+                    <div className="absolute inset-x-[-8%] bottom-[-5.25rem] h-40 rounded-[100%] bg-white" />
+                    <div className="absolute left-[-6%] bottom-[-4.25rem] h-24 w-[58%] rounded-[100%] bg-[#fff3b0]" />
+                    <div className="absolute right-[-6%] bottom-[-4.25rem] h-24 w-[58%] rounded-[100%] bg-[#fff3b0]" />
+                </div>
 
-                <div className="relative z-10 space-y-10 p-6 sm:p-10">
-                    <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="flex items-center gap-5">
-                            <div className="h-16 w-16 bg-primary/10 rounded-3xl flex items-center justify-center shadow-lg shadow-black/10 dark:shadow-black/40">
-                                <ShoppingBag className="h-8 w-8 text-primary" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <h1 className="text-3xl font-black tracking-tight text-foreground">
-                                        Mercado Livre Pro
-                                    </h1>
-                                    <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-[10px] uppercase tracking-widest">
-                                        Live
-                                    </Badge>
-                                </div>
-                                <p className="text-sm text-muted-foreground font-medium mt-0.5">
-                                    {format(new Date(), "EEEE, dd 'de' MMMM", { locale: ptBR })}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 rounded-3xl bg-background/70 border border-border/60 p-3 backdrop-blur">
-                            <div className="relative group hidden sm:block">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                                <Input
-                                    placeholder="Buscar anúncio..."
-                                    className="pl-10 h-11 w-64 bg-background/80 border-border/40 rounded-2xl focus:ring-primary/20 transition-all"
-                                />
-                            </div>
-
-                            <div className="h-10 w-[1px] bg-border/40 mx-1 hidden lg:block" />
-
-                            <div className="flex items-center gap-2">
-                                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Loja</div>
-                                <Select
-                                    value={workspaceId || ""}
-                                    onValueChange={handleWorkspaceChange}
-                                    disabled={workspacesLoading || !workspaces?.length}
-                                >
-                                    <SelectTrigger className="h-11 w-[200px] rounded-2xl bg-background/80 border-border/40">
-                                        <SelectValue placeholder={workspacesLoading ? "Carregando..." : "Selecionar loja"} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {workspaces?.map((ws) => (
-                                            <SelectItem key={ws.id} value={ws.id}>
-                                                {ws.name || ws.slug || ws.id}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="h-10 w-[1px] bg-border/40 mx-1 hidden lg:block" />
-
-                            <div className="flex items-center gap-2">
-                                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Período</div>
-                                <div className="flex items-center gap-2">
-                                    <Select value={dateRange} onValueChange={setDateRange}>
-                                        <SelectTrigger className="h-11 w-[180px] rounded-2xl bg-background/80 border-border/40">
-                                            <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                                            <SelectValue placeholder="Últimos 30 dias" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="1">Hoje</SelectItem>
-                                            <SelectItem value="7">Últimos 7 dias</SelectItem>
-                                            <SelectItem value="15">Últimos 15 dias</SelectItem>
-                                            <SelectItem value="30">Últimos 30 dias</SelectItem>
-                                            <SelectItem value="60">Últimos 60 dias</SelectItem>
-                                            <SelectItem value="90">Últimos 90 dias</SelectItem>
-                                            <SelectItem value="custom">Personalizado</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-
-                                    {isCustomRange && (
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-11 rounded-2xl border-border/40 bg-background/80 gap-2"
-                                                >
-                                                    <CalendarRange className="h-4 w-4 text-muted-foreground" />
-                                                    <span className="text-xs font-semibold">{dateRangeLabel}</span>
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="range"
-                                                    selected={customDateRange}
-                                                    defaultMonth={customDateRange?.from ?? new Date()}
-                                                    onSelect={setCustomDateRange}
-                                                    numberOfMonths={2}
-                                                    disabled={(date) => date > new Date()}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                    )}
-                                </div>
-                            </div>
-
-                            <Button
-                                variant="outline"
-                                onClick={handleSyncData}
-                                disabled={syncMutation.isPending}
-                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
-                            >
-                                <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                                <span className="font-bold text-xs uppercase tracking-tight">Sync</span>
-                            </Button>
-
-                            <Button
-                                variant="outline"
-                                onClick={handleSyncAnalytics}
-                                disabled={analyticsSyncMutation.isPending}
-                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
-                            >
-                                <TrendingUp className={`h-4 w-4 ${analyticsSyncMutation.isPending ? 'animate-pulse' : ''}`} />
-                                <span className="font-bold text-xs uppercase tracking-tight">Analytics 30d</span>
-                            </Button>
-
-                            <Button
-                                variant="outline"
-                                onClick={handleRunPriceStockAutomation}
-                                disabled={priceStockAutomationMutation.isPending}
-                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
-                            >
-                                <Sparkles className={`h-4 w-4 ${priceStockAutomationMutation.isPending ? 'animate-pulse' : ''}`} />
-                                <span className="font-bold text-xs uppercase tracking-tight">Auto Preço+Estoque</span>
-                            </Button>
-
-                            <Button
-                                variant="outline"
-                                onClick={handleApplyPriceStockAutomation}
-                                disabled={
-                                    priceStockAutomationMutation.isPending ||
-                                    !automationPreview ||
-                                    (automationPreview.summary?.priceSuggestions || 0) <= 0
-                                }
-                                className="h-11 px-5 rounded-2xl border-border/40 bg-background/80 hover:bg-background hover:scale-[1.02] transition-all gap-2"
-                            >
-                                <Sparkles className={`h-4 w-4 ${priceStockAutomationMutation.isPending ? 'animate-pulse' : ''}`} />
-                                <span className="font-bold text-xs uppercase tracking-tight">Aplicar Sugestões</span>
-                            </Button>
-
-                            <MercadoLivreManualTokenDialog />
-
-                            <MercadoLivreConnectButton
-                                size="sm"
-                                variant="outline"
-                                className="h-11 px-4 rounded-2xl border-border/40 bg-background/80 hover:bg-background"
-                            />
-
-                            <ExportReportButton
-                                workspaceId={workspaceId || ""}
-                                dateRangeDays={String(resolvedRange.days)}
-                                dateFrom={period.start_date}
-                                dateTo={period.end_date}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col items-center text-center gap-4">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-background/80 border border-border/60 px-4 py-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground shadow-sm">
-                            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                <div className="relative z-10 flex flex-col items-center px-6 pb-16 pt-10 text-center sm:px-10 sm:pb-20 sm:pt-12">
+                        <div className="text-3xl font-bold tracking-tight text-[#333333] sm:text-5xl">
                             Vendas de hoje ao vivo
-                            <span className="text-foreground/70 font-semibold normal-case">{liveTimestamp}</span>
                         </div>
-                        <div className="w-full max-w-3xl rounded-[2.5rem] border border-border/60 bg-card/90 backdrop-blur-md shadow-2xl p-6 sm:p-10">
-                            <div className="text-xs uppercase text-muted-foreground font-bold tracking-widest">Faturamento do Dia</div>
-                            <div className="mt-3 text-7xl sm:text-8xl font-black tracking-tight leading-none text-foreground">
+                        <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#ececec] px-5 py-2 text-sm font-medium text-[#333333] shadow-[0_4px_14px_rgba(0,0,0,0.08)]">
+                            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+                            {liveTimestamp}
+                        </div>
+                        <div className="relative mt-5 w-full max-w-[600px] overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white px-6 py-7 shadow-[0_12px_28px_rgba(0,0,0,0.10)] sm:px-8 sm:py-8">
+                            <div className="relative z-10 text-[11px] font-bold uppercase tracking-[0.26em] text-slate-500">Faturamento do Dia</div>
+                            <div className="relative z-10 mt-3 text-5xl font-medium leading-none tracking-tight text-[#333333] sm:text-7xl">
                                 {formatCurrency(todayMetrics.revenue, 2)}
                             </div>
-                            <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs">
-                                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${todayMetrics.revenueTrend >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                            <div className="relative z-10 mt-5 flex flex-wrap items-center justify-center gap-3 text-xs">
+                                <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${todayMetrics.revenueTrend >= 0 ? "border-emerald-200/80 bg-emerald-50 text-emerald-700" : "border-rose-200/80 bg-rose-50 text-rose-700"}`}>
                                     {todayMetrics.revenueTrend >= 0 ? "+" : ""}{Math.abs(todayMetrics.revenueTrend).toFixed(1)}%
                                 </span>
-                                <span className="flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1 font-semibold text-muted-foreground">
+                                <span className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 font-semibold text-slate-500">
                                     <ShoppingCart className="h-3.5 w-3.5" />
                                     {formatNumber(todayMetrics.orders)} pedidos hoje
                                 </span>
                             </div>
                         </div>
-                    </div>
                 </div>
             </section>
 
-            <div className="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-3 space-y-6">
-                    <Card className="border-border/60 bg-card/70 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
-                        <CardHeader className="pb-3 border-b border-border/10 bg-muted/10">
+            <div className="mt-10 space-y-8">
+                <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
+                    <Card className={`${SURFACE_CARD_CLASS} flex flex-col lg:col-span-3`}>
+                        <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(37,99,235,0.90),rgba(125,211,252,0.65),rgba(255,255,255,0))]" />
+                        <CardHeader className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.92))] pb-3">
                             <CardTitle className="text-base font-bold flex items-center gap-2">
-                                <Layers className="h-4 w-4 text-primary" />
+                                <Layers className="h-4 w-4 text-blue-600" />
                                 Métricas-chave
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-4 grid grid-cols-2 gap-3">
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                                    <Layers className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Anúncios</p>
-                                    <p className="text-sm font-black">{products?.activeCount || 0}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                                    <DollarSign className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Médio</p>
-                                    <p className="text-sm font-black">{formatCurrency(averageTicket, 2)}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-destructive/10 flex items-center justify-center">
-                                    <AlertCircle className="h-4 w-4 text-destructive" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Cancelados</p>
-                                    <p className="text-sm font-black text-destructive">{metrics?.canceledOrders || 0}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                                    <Package className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Und. Vendidas</p>
-                                    <p className="text-sm font-black">{metrics?.totalSales || 0}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                                    <Users className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Compradores</p>
-                                    <p className="text-sm font-black">{metrics?.totalBuyers || 0}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3 rounded-2xl bg-background/60 border border-border/40">
-                                <div className="h-8 w-8 rounded-xl bg-destructive/10 flex items-center justify-center">
-                                    <DollarSign className="h-4 w-4 text-destructive" />
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Valor Cancelado</p>
-                                    <p className="text-sm font-black text-destructive">{formatCurrency(metrics?.canceledRevenue || 0)}</p>
-                                </div>
-                            </div>
+                        <CardContent className="grid flex-1 grid-cols-2 grid-rows-4 gap-3 p-4">
+                            {keyMetricsItems.map((item) => {
+                                const Icon = item.icon;
+                                return (
+                                    <div
+                                        key={item.key}
+                                        className="flex h-full min-h-[102px] items-center gap-4 rounded-2xl border border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))] px-4 py-3 shadow-sm"
+                                    >
+                                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${item.iconWrapClass}`}>
+                                            <Icon className={`h-5 w-5 ${item.iconClass}`} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                                {item.label}
+                                            </p>
+                                            <p className={`mt-1 text-[1.45rem] font-black leading-none ${item.valueClass}`}>
+                                                {item.value}
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </CardContent>
                     </Card>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                    <div className="lg:col-span-6">
+                        <MainPerformanceChart
+                            data={dailySales?.dailySales || []}
+                            hourlyData={hourlyTodayMetrics?.hourlySales}
+                            comparisonHourlyData={hourlyYesterdayMetrics?.hourlySales}
+                            comparisonLabel="Ontem"
+                            loading={dailySalesLoading}
+                            hourlyLoading={hourlyTodayLoading || hourlyYesterdayLoading}
+                            title="Tendências em vendas brutas"
+                        />
+                    </div>
+
+                    <div className="lg:col-span-3">
+                        <RecentActivity 
+                            orders={ordersData?.orders || []} 
+                            loading={ordersLoading} 
+                            date={recentActivityDate}
+                            onDateChange={setRecentActivityDate}
+                            workspaceId={workspaceId}
+                            products={products?.items || []}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-1 lg:grid-rows-5">
                         <PremiumKPICard
                             title="Vendas do Dia"
                             value={formatNumber(todayMetrics.orders)}
@@ -979,33 +802,22 @@ export default function MercadoLivreNew() {
                             loading={metricsLoading}
                         />
                     </div>
-                </div>
 
-                <div className="lg:col-span-6 space-y-6">
-                    <MainPerformanceChart
-                        data={dailySales?.dailySales || []}
-                        hourlyData={hourlyTodayMetrics?.hourlySales}
-                        comparisonHourlyData={hourlyYesterdayMetrics?.hourlySales}
-                        comparisonLabel="Ontem"
-                        loading={dailySalesLoading}
-                        hourlyLoading={hourlyTodayLoading || hourlyYesterdayLoading}
-                        title="Tendências em vendas brutas"
-                    />
-
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
-                            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+                    <div className="flex h-full flex-col gap-6 lg:col-span-6">
+                        <Card className={`${SURFACE_CARD_CLASS} flex flex-1 flex-col`}>
+                            <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(37,99,235,0.90),rgba(125,211,252,0.65),rgba(255,255,255,0))]" />
+                            <CardHeader className={SURFACE_HEADER_CLASS}>
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                     <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                        <ShoppingBag className="h-5 w-5 text-primary" />
-                                        Top Vendidos (30d)
+                                        <ShoppingBag className="h-5 w-5 text-blue-600" />
+                                        {`Top Vendidos (${analyticsPeriodLabel})`}
                                     </CardTitle>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">
                                             {analyticsLastSync ? `Atualizado ${analyticsLastSync}` : "Sem sync"}
                                         </div>
                                         <Select value={topSalesDisplayCount} onValueChange={setTopSalesDisplayCount}>
-                                            <SelectTrigger className="h-9 w-[110px] rounded-2xl bg-background/80 border-border/40 text-xs">
+                                            <SelectTrigger className="h-9 w-[110px] rounded-2xl border-slate-200/80 bg-white text-xs">
                                                 <SelectValue placeholder="Mostrar 5" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1019,55 +831,82 @@ export default function MercadoLivreNew() {
                                     </div>
                                 </div>
                             </CardHeader>
-                            <CardContent className="p-6">
+                            <CardContent className="flex flex-1 flex-col p-6">
                                 {analyticsTopLoading ? (
                                     <Skeleton className="h-48 w-full" />
                                 ) : (
-                                    <div className="space-y-3">
-                                        <div className="max-h-[560px] space-y-3 overflow-y-auto pr-2">
-                                        {visibleTopSales.map((product, index) => {
-                                            const href = getProductListingHref(product);
-                                            return (
-                                                <a
-                                                    key={product.id}
-                                                    href={href || undefined}
-                                                    target={href ? "_blank" : undefined}
-                                                    rel={href ? "noreferrer" : undefined}
-                                                    className={`group flex items-center justify-between gap-3 rounded-2xl bg-muted/10 p-3 transition-colors ${
-                                                        href
-                                                            ? "cursor-pointer hover:bg-primary/5"
-                                                            : "cursor-default hover:bg-muted/20"
-                                                    }`}
-                                                >
-                                                    <div className="flex min-w-0 items-center gap-3">
-                                                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-xs font-black text-primary">
-                                                            {index + 1}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-bold transition-colors group-hover:text-primary">
-                                                                {product.title}
-                                                            </p>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <p className="truncate text-[10px] text-muted-foreground">
-                                                                    {product.mlItemId}
+                                    <div className="flex min-h-0 flex-1 flex-col space-y-3">
+                                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
+                                            {visibleTopSales.map((product, index) => {
+                                                const href = getProductListingHref(product);
+                                                return (
+                                                    <a
+                                                        key={product.id}
+                                                        href={href || undefined}
+                                                        target={href ? "_blank" : undefined}
+                                                        rel={href ? "noreferrer" : undefined}
+                                                        className={`group flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 transition-colors ${
+                                                            href
+                                                                ? "cursor-pointer hover:border-blue-200/70 hover:bg-blue-50/50"
+                                                                : "cursor-default hover:bg-slate-100"
+                                                        }`}
+                                                    >
+                                                        <div className="flex min-w-0 items-center gap-3">
+                                                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-xs font-black text-blue-700">
+                                                                {topSalesStartIndex + index + 1}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <p className="truncate text-sm font-bold transition-colors group-hover:text-blue-700">
+                                                                    {product.title}
                                                                 </p>
-                                                                {href ? (
-                                                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-                                                                ) : null}
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <p className="truncate text-[10px] text-muted-foreground">
+                                                                        {product.mlItemId}
+                                                                    </p>
+                                                                    {href ? (
+                                                                        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-blue-700" />
+                                                                    ) : null}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="shrink-0 text-right">
-                                                        <p className="text-sm font-black">{formatNumber(product.sales30d)}</p>
-                                                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">vendas</p>
-                                                    </div>
-                                                </a>
-                                            );
-                                        })}
+                                                        <div className="shrink-0 text-right">
+                                                            <p className="text-sm font-black">{formatNumber(product.sales30d)}</p>
+                                                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">vendas</p>
+                                                        </div>
+                                                    </a>
+                                                );
+                                            })}
                                         </div>
                                         {topSales.length === 0 && (
-                                            <div className="text-sm text-muted-foreground text-center py-8">
-                                                Sem dados. Rode o Analytics 30d.
+                                            <div className="py-8 text-center text-sm text-muted-foreground">
+                                                Sem dados. Atualize o analytics do período.
+                                            </div>
+                                        )}
+                                        {topSales.length > 0 && (
+                                            <div className="flex items-center justify-between border-t border-slate-200/70 pt-3">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-9 w-9 rounded-full"
+                                                    onClick={() => setTopSalesPage((currentPage) => Math.max(1, currentPage - 1))}
+                                                    disabled={topSalesPage === 1}
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </Button>
+                                                <p className="text-xs font-semibold text-slate-500">
+                                                    Página {topSalesPage} de {topSalesTotalPages}
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-9 w-9 rounded-full"
+                                                    onClick={() => setTopSalesPage((currentPage) => Math.min(topSalesTotalPages, currentPage + 1))}
+                                                    disabled={topSalesPage === topSalesTotalPages}
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </Button>
                                             </div>
                                         )}
                                     </div>
@@ -1075,12 +914,13 @@ export default function MercadoLivreNew() {
                             </CardContent>
                         </Card>
 
-                        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
-                            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
+                        <Card className={`${SURFACE_CARD_CLASS} flex flex-1 flex-col`}>
+                            <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(5,150,105,0.90),rgba(52,211,153,0.65),rgba(255,255,255,0))]" />
+                            <CardHeader className={SURFACE_HEADER_CLASS}>
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                     <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                        <DollarSign className="h-5 w-5 text-success" />
-                                        Top Lucro (30d)
+                                        <DollarSign className="h-5 w-5 text-emerald-600" />
+                                        {`Top Lucro (${analyticsPeriodLabel})`}
                                     </CardTitle>
                                     <div className="flex flex-wrap items-center gap-2">
                                         {analyticsTop?.missingCostCount ? (
@@ -1089,7 +929,7 @@ export default function MercadoLivreNew() {
                                             </Badge>
                                         ) : null}
                                         <Select value={topProfitDisplayCount} onValueChange={setTopProfitDisplayCount}>
-                                            <SelectTrigger className="h-9 w-[110px] rounded-2xl bg-background/80 border-border/40 text-xs">
+                                            <SelectTrigger className="h-9 w-[110px] rounded-2xl border-slate-200/80 bg-white text-xs">
                                                 <SelectValue placeholder="Mostrar 5" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1103,149 +943,91 @@ export default function MercadoLivreNew() {
                                     </div>
                                 </div>
                             </CardHeader>
-                            <CardContent className="p-6">
+                            <CardContent className="flex flex-1 flex-col p-6">
                                 {analyticsTopLoading ? (
                                     <Skeleton className="h-48 w-full" />
                                 ) : (
-                                    <div className="space-y-3">
-                                        <div className="max-h-[560px] space-y-3 overflow-y-auto pr-2">
-                                        {visibleTopProfit.map((product, index) => {
-                                            const href = getProductListingHref(product);
-                                            return (
-                                                <a
-                                                    key={product.id}
-                                                    href={href || undefined}
-                                                    target={href ? "_blank" : undefined}
-                                                    rel={href ? "noreferrer" : undefined}
-                                                    className={`group flex items-center justify-between gap-3 rounded-2xl bg-muted/10 p-3 transition-colors ${
-                                                        href
-                                                            ? "cursor-pointer hover:bg-success/5"
-                                                            : "cursor-default hover:bg-muted/20"
-                                                    }`}
-                                                >
-                                                    <div className="flex min-w-0 items-center gap-3">
-                                                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-success/10 text-xs font-black text-success">
-                                                            {index + 1}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-bold transition-colors group-hover:text-success">
-                                                                {product.title}
-                                                            </p>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <p className="truncate text-[10px] text-muted-foreground">
-                                                                    {product.mlItemId}
+                                    <div className="flex min-h-0 flex-1 flex-col space-y-3">
+                                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
+                                            {visibleTopProfit.map((product, index) => {
+                                                const href = getProductListingHref(product);
+                                                return (
+                                                    <a
+                                                        key={product.id}
+                                                        href={href || undefined}
+                                                        target={href ? "_blank" : undefined}
+                                                        rel={href ? "noreferrer" : undefined}
+                                                        className={`group flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 transition-colors ${
+                                                            href
+                                                                ? "cursor-pointer hover:border-emerald-200/70 hover:bg-emerald-50/50"
+                                                                : "cursor-default hover:bg-slate-100"
+                                                        }`}
+                                                    >
+                                                        <div className="flex min-w-0 items-center gap-3">
+                                                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-xs font-black text-emerald-700">
+                                                                {topProfitStartIndex + index + 1}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <p className="truncate text-sm font-bold transition-colors group-hover:text-emerald-700">
+                                                                    {product.title}
                                                                 </p>
-                                                                {href ? (
-                                                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-success" />
-                                                                ) : null}
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <p className="truncate text-[10px] text-muted-foreground">
+                                                                        {product.mlItemId}
+                                                                    </p>
+                                                                    {href ? (
+                                                                        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-emerald-700" />
+                                                                    ) : null}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="shrink-0 text-right">
-                                                        <p className="text-sm font-black text-success">
-                                                            {formatCurrency(product.profit30d, 2)}
-                                                        </p>
-                                                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                                            margem {(product.profitMargin * 100).toFixed(1)}%
-                                                        </p>
-                                                        {product.costMissing && (
-                                                            <Badge variant="outline" className="mt-2 text-[10px] uppercase tracking-widest">
-                                                                custo pendente
-                                                            </Badge>
-                                                        )}
-                                                    </div>
-                                                </a>
-                                            );
-                                        })}
+                                                        <div className="shrink-0 text-right">
+                                                            <p className="text-sm font-black text-emerald-700">
+                                                                {formatCurrency(product.profit30d, 2)}
+                                                            </p>
+                                                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                                                margem {(product.profitMargin * 100).toFixed(1)}%
+                                                            </p>
+                                                            {product.costMissing && (
+                                                                <Badge variant="outline" className="mt-2 text-[10px] uppercase tracking-widest">
+                                                                    custo pendente
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    </a>
+                                                );
+                                            })}
                                         </div>
                                         {topProfit.length === 0 && (
-                                            <div className="text-sm text-muted-foreground text-center py-8">
-                                                Sem dados. Rode o Analytics 30d.
+                                            <div className="py-8 text-center text-sm text-muted-foreground">
+                                                Sem dados. Atualize o analytics do período.
                                             </div>
                                         )}
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden xl:col-span-2">
-                            <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
-                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                        <Package className="h-5 w-5 text-warning" />
-                                        Menos Vendidos c/ Estoque (30d)
-                                    </CardTitle>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-                                            estoque ativo
-                                        </Badge>
-                                        <Select value={lowSalesDisplayCount} onValueChange={setLowSalesDisplayCount}>
-                                            <SelectTrigger className="h-9 w-[110px] rounded-2xl bg-background/80 border-border/40 text-xs">
-                                                <SelectValue placeholder="Mostrar 5" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {TOP_LIST_OPTIONS.map((option) => (
-                                                    <SelectItem key={option} value={String(option)}>
-                                                        Top {option}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="p-6">
-                                {analyticsTopLoading ? (
-                                    <Skeleton className="h-48 w-full" />
-                                ) : (
-                                    <div className="space-y-3">
-                                        <div className="max-h-[560px] space-y-3 overflow-y-auto pr-2">
-                                        {visibleLowSalesWithStock.map((product, index) => {
-                                            const href = getProductListingHref(product);
-                                            return (
-                                                <a
-                                                    key={product.id}
-                                                    href={href || undefined}
-                                                    target={href ? "_blank" : undefined}
-                                                    rel={href ? "noreferrer" : undefined}
-                                                    className={`group flex items-center justify-between gap-3 rounded-2xl bg-muted/10 p-3 transition-colors ${
-                                                        href
-                                                            ? "cursor-pointer hover:bg-warning/5"
-                                                            : "cursor-default hover:bg-muted/20"
-                                                    }`}
+                                        {topProfit.length > 0 && (
+                                            <div className="flex items-center justify-between border-t border-slate-200/70 pt-3">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-9 w-9 rounded-full"
+                                                    onClick={() => setTopProfitPage((currentPage) => Math.max(1, currentPage - 1))}
+                                                    disabled={topProfitPage === 1}
                                                 >
-                                                    <div className="flex min-w-0 items-center gap-3">
-                                                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-warning/10 text-xs font-black text-warning">
-                                                            {index + 1}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-bold transition-colors group-hover:text-warning">
-                                                                {product.title}
-                                                            </p>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <p className="truncate text-[10px] text-muted-foreground">
-                                                                    {product.mlItemId}
-                                                                </p>
-                                                                {href ? (
-                                                                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-warning" />
-                                                                ) : null}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="shrink-0 text-right">
-                                                        <p className="text-sm font-black">{formatNumber(product.sales30d)}</p>
-                                                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">vendas</p>
-                                                        <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                                                            estoque {formatNumber(product.availableQuantity)}
-                                                        </p>
-                                                    </div>
-                                                </a>
-                                            );
-                                        })}
-                                        </div>
-                                        {lowSalesWithStock.length === 0 && (
-                                            <div className="text-sm text-muted-foreground text-center py-8">
-                                                Nenhum produto com estoque parado no período.
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </Button>
+                                                <p className="text-xs font-semibold text-slate-500">
+                                                    Página {topProfitPage} de {topProfitTotalPages}
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-9 w-9 rounded-full"
+                                                    onClick={() => setTopProfitPage((currentPage) => Math.min(topProfitTotalPages, currentPage + 1))}
+                                                    disabled={topProfitPage === topProfitTotalPages}
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </Button>
                                             </div>
                                         )}
                                     </div>
@@ -1254,175 +1036,119 @@ export default function MercadoLivreNew() {
                         </Card>
                     </div>
 
-                    <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-lg rounded-3xl overflow-hidden">
-                        <CardHeader className="pb-4 border-b border-border/10 bg-muted/5">
-                            <div className="flex items-center justify-between gap-3">
-                                <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                    <Sparkles className="h-5 w-5 text-primary" />
-                                    Plano de Ações: Auto Preço + Estoque
-                                </CardTitle>
-                                <div className="text-[10px] text-muted-foreground uppercase tracking-widest text-right">
-                                    {automationGeneratedAt ? `Última execução ${automationGeneratedAt}` : "Sem execução"}
-                                </div>
+                    <div className="lg:col-span-3">
+                        <FinancialAnalysis
+                            totalRevenue={totalRevenue}
+                            totalSales={totalSales}
+                            periodDays={resolvedRange.days}
+                            loading={metricsLoading || adsFinanceLoading}
+                            realTotalNetReceivedAmount={metrics?.totalNetReceivedAmount}
+                            realTotalAdsSpend={adsFinance?.usedInEstimate.amount}
+                            realTotalAdsSpendLabel={adsFinance?.usedInEstimate.label}
+                            realTotalAdsSpendExact={adsFinance?.usedInEstimate.exact}
+                        />
+                    </div>
+                </div>
+
+                <Card className={SURFACE_CARD_CLASS}>
+                    <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(217,119,6,0.90),rgba(253,224,71,0.65),rgba(255,255,255,0))]" />
+                    <CardHeader className={SURFACE_HEADER_CLASS}>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                <Package className="h-5 w-5 text-amber-600" />
+                                {`Menos Vendidos c/ Estoque (${analyticsPeriodLabel})`}
+                            </CardTitle>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
+                                    estoque ativo
+                                </Badge>
+                                <Select value={lowSalesDisplayCount} onValueChange={setLowSalesDisplayCount}>
+                                    <SelectTrigger className="h-9 w-[110px] rounded-2xl border-slate-200/80 bg-white text-xs">
+                                        <SelectValue placeholder="Mostrar 5" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {TOP_LIST_OPTIONS.map((option) => (
+                                            <SelectItem key={option} value={String(option)}>
+                                                Top {option}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
-                        </CardHeader>
-                        <CardContent className="p-6 space-y-4">
-                            {!automationPreview ? (
-                                <div className="text-sm text-muted-foreground">
-                                    Clique em <span className="font-semibold">Auto Preço+Estoque</span> para gerar a pré-visualização das ações.
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                        {analyticsTopLoading ? (
+                            <Skeleton className="h-48 w-full" />
+                        ) : (
+                            <div className="space-y-3">
+                                <div className="max-h-[560px] space-y-3 overflow-y-auto pr-2">
+                                    {visibleLowSalesWithStock.map((product, index) => {
+                                        const href = getProductListingHref(product);
+                                        return (
+                                            <a
+                                                key={product.id}
+                                                href={href || undefined}
+                                                target={href ? "_blank" : undefined}
+                                                rel={href ? "noreferrer" : undefined}
+                                                className={`group flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 transition-colors ${
+                                                    href
+                                                        ? "cursor-pointer hover:border-amber-200/70 hover:bg-amber-50/50"
+                                                        : "cursor-default hover:bg-slate-100"
+                                                }`}
+                                            >
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-xs font-black text-amber-700">
+                                                        {index + 1}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-bold transition-colors group-hover:text-amber-700">
+                                                            {product.title}
+                                                        </p>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <p className="truncate text-[10px] text-muted-foreground">
+                                                                {product.mlItemId}
+                                                            </p>
+                                                            {href ? (
+                                                                <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-amber-700" />
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-right">
+                                                    <p className="text-sm font-black">{formatNumber(product.sales30d)}</p>
+                                                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">vendas</p>
+                                                    <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                                                        estoque {formatNumber(product.availableQuantity)}
+                                                    </p>
+                                                </div>
+                                            </a>
+                                        );
+                                    })}
                                 </div>
-                            ) : (
-                                <>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Badge variant="secondary" className="text-[10px] uppercase tracking-widest">
-                                            Modo {automationPreview.mode}
-                                        </Badge>
-                                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-                                            Avaliados {automationPreview.summary.evaluatedCount}
-                                        </Badge>
-                                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-                                            Sugestões {automationPreview.summary.priceSuggestions}
-                                        </Badge>
-                                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-                                            Alertas estoque {automationPreview.summary.stockAlerts}
-                                        </Badge>
-                                        {automationPreview.mode === "apply" && (
-                                            <>
-                                                <Badge variant="outline" className="text-[10px] uppercase tracking-widest text-success">
-                                                    Aplicados {automationPreview.summary.priceUpdatesApplied}
-                                                </Badge>
-                                                <Badge variant="outline" className="text-[10px] uppercase tracking-widest text-destructive">
-                                                    Falhas {automationPreview.summary.priceUpdatesFailed}
-                                                </Badge>
-                                            </>
-                                        )}
+                                {lowSalesWithStock.length === 0 && (
+                                    <div className="py-8 text-center text-sm text-muted-foreground">
+                                        Nenhum produto com estoque parado no período.
                                     </div>
-
-                                    <div className="overflow-x-auto rounded-2xl border border-border/40">
-                                        <table className="w-full min-w-[980px] text-xs">
-                                            <thead className="bg-muted/20 text-muted-foreground">
-                                                <tr>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">SKU</th>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">Produto</th>
-                                                    <th className="text-right px-3 py-2 font-semibold uppercase tracking-widest">Estoque</th>
-                                                    <th className="text-right px-3 py-2 font-semibold uppercase tracking-widest">Preço Atual</th>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">Ação Sugerida</th>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">Motivo</th>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">Alerta</th>
-                                                    <th className="text-left px-3 py-2 font-semibold uppercase tracking-widest">Resultado</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {automationItems.slice(0, 40).map((item) => {
-                                                    const hasSuggestion = item.suggestedPrice !== null;
-                                                    const deltaPct = Number(item.priceDelta?.pct || 0);
-                                                    const deltaLabel = `${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%`;
-                                                    const actionLabel = hasSuggestion
-                                                        ? `${item.priceAction === "increase" ? "Aumentar" : "Reduzir"} para ${formatCurrency(item.suggestedPrice as number, 2)} (${deltaLabel})`
-                                                        : "Manter preço";
-                                                    const resultLabel = automationPreview.mode === "apply"
-                                                        ? (item.updateApplied ? "Aplicado" : (item.updateError ? "Falhou" : "Sem alteração"))
-                                                        : "Prévia";
-
-                                                    return (
-                                                        <tr key={item.mlItemId} className="border-t border-border/30 hover:bg-muted/10">
-                                                            <td className="px-3 py-2 font-semibold">{item.mlItemId}</td>
-                                                            <td className="px-3 py-2 max-w-[280px]">
-                                                                <div className="truncate font-medium">{item.title || "-"}</div>
-                                                                <div className="text-[10px] text-muted-foreground uppercase">{item.sales30d} vendas/30d</div>
-                                                            </td>
-                                                            <td className="px-3 py-2 text-right font-semibold">{item.stock}</td>
-                                                            <td className="px-3 py-2 text-right">{formatCurrency(item.currentPrice, 2)}</td>
-                                                            <td className="px-3 py-2">
-                                                                <span className={hasSuggestion ? "font-semibold text-primary" : "text-muted-foreground"}>
-                                                                    {actionLabel}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-3 py-2">{getPriceReasonLabel(item.priceReason)}</td>
-                                                            <td className="px-3 py-2">
-                                                                {item.stockAlert ? (
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className={`text-[10px] uppercase tracking-widest ${
-                                                                            item.stockAlert.level === "critical" ? "text-destructive" : "text-warning"
-                                                                        }`}
-                                                                    >
-                                                                        {item.stockAlert.level === "critical" ? "Ruptura" : "Baixo"}
-                                                                    </Badge>
-                                                                ) : (
-                                                                    <span className="text-muted-foreground">-</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-3 py-2">
-                                                                <span
-                                                                    className={
-                                                                        resultLabel === "Aplicado"
-                                                                            ? "text-success font-semibold"
-                                                                            : resultLabel === "Falhou"
-                                                                                ? "text-destructive font-semibold"
-                                                                                : "text-muted-foreground"
-                                                                    }
-                                                                >
-                                                                    {resultLabel}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {automationItems.length > 40 && (
-                                        <p className="text-xs text-muted-foreground">
-                                            Mostrando 40 de {automationItems.length} ações.
-                                        </p>
-                                    )}
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-8">
-                    <RecentActivity 
-                        orders={ordersData?.orders || []} 
-                        loading={ordersLoading} 
-                        date={recentActivityDate}
-                        onDateChange={setRecentActivityDate}
-                        workspaceId={workspaceId}
-                        products={products?.items || []}
-                    />
-
-                    <QuickReplyQuestions
-                        workspaceId={workspaceId}
-                        questions={questions?.items || []}
-                        totalUnanswered={questions?.unanswered || 0}
-                        loading={questionsLoading}
-                    />
-
-                    <FinancialAnalysis
-                        totalRevenue={totalRevenue}
-                        totalSales={totalSales}
-                        loading={metricsLoading}
-                        realTotalNetReceivedAmount={metrics?.totalNetReceivedAmount}
-                        realTotalAdsSpend={adsCampaignsData?.metrics?.summary?.cost}
-                    />
-                </div>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
 
             {/* System Notifications / Warnings Footer */}
             {metrics?.alerts && metrics.alerts.length > 0 && (
-                <div className="bg-warning/10 border border-warning/20 p-6 rounded-[2.5rem] mt-12">
+                <div className="mt-12 rounded-[2.5rem] border border-amber-200/70 bg-[linear-gradient(180deg,rgba(255,251,235,0.96),rgba(255,255,255,0.92))] p-6">
                     <div className="flex items-center gap-3 mb-4">
-                        <AlertCircle className="h-5 w-5 text-warning" />
-                        <h3 className="text-lg font-black uppercase tracking-widest text-warning">Notificações Críticas</h3>
+                        <AlertCircle className="h-5 w-5 text-amber-700" />
+                        <h3 className="text-lg font-black uppercase tracking-widest text-amber-700">Notificações Críticas</h3>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {metrics.alerts.map((alert: any, idx: number) => (
-                            <div key={idx} className="bg-background/40 backdrop-blur-sm p-4 rounded-3xl border border-warning/20 hover:border-warning/40 transition-colors">
-                                <p className="text-sm font-black text-warning uppercase tracking-tighter">{alert.title}</p>
-                                <p className="text-xs text-warning/80 mt-1 font-medium leading-relaxed">{alert.message}</p>
+                            <div key={idx} className="rounded-3xl border border-amber-200/70 bg-white/80 p-4 backdrop-blur-sm transition-colors hover:border-amber-300/80">
+                                <p className="text-sm font-black uppercase tracking-tighter text-amber-700">{alert.title}</p>
+                                <p className="mt-1 text-xs font-medium leading-relaxed text-amber-700/80">{alert.message}</p>
                             </div>
                         ))}
                     </div>

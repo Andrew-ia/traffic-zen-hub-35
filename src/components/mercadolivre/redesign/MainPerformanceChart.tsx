@@ -127,26 +127,27 @@ export function MainPerformanceChart({
 
     if (loading || (isHourlyView && hourlyLoading)) {
         return (
-            <Card className="border-border/40 bg-card/50 backdrop-blur-sm overflow-hidden">
+            <Card className="h-full overflow-hidden border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-sm">
                 <CardHeader>
                     <Skeleton className="h-6 w-48" />
                 </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-[300px] w-full" />
-                </CardContent>
+            <CardContent className="flex-1">
+                <Skeleton className="h-[420px] w-full" />
+            </CardContent>
             </Card>
         );
     }
 
     return (
-        <Card className="border-border/40 bg-card/50 backdrop-blur-md shadow-xl overflow-hidden group">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-7 border-b border-border/10 bg-muted/5">
+        <Card className="group relative h-full overflow-hidden border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-md">
+            <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,rgba(37,99,235,0.90),rgba(125,211,252,0.7),rgba(255,255,255,0))]" />
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.92))] pb-7">
                 <div className="space-y-1">
                     <CardTitle className="text-xl font-bold flex items-center gap-2">
-                        <TrendingUp className="h-5 w-5 text-primary" />
+                        <TrendingUp className="h-5 w-5 text-blue-600" />
                         {title}
                     </CardTitle>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-slate-500">
                         {isHourlyView
                             ? "Faturamento acumulado por hora: hoje vs ontem"
                             : "Faturamento diário e volume de pedidos"}
@@ -162,7 +163,7 @@ export function MainPerformanceChart({
                             }}
                             variant="outline"
                             size="sm"
-                            className="rounded-full bg-background/60 p-1"
+                            className="rounded-full border border-slate-200/70 bg-slate-100/90 p-1"
                         >
                             <ToggleGroupItem value="daily" className="text-[11px]">
                                 Diário
@@ -170,16 +171,17 @@ export function MainPerformanceChart({
                             <ToggleGroupItem value="hourly" className="text-[11px]">
                                 Horário
                             </ToggleGroupItem>
-                        </ToggleGroup>
+                            </ToggleGroup>
                     )}
-                    <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-xs font-semibold">
-                        <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                    <div className="flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+                        <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
                         Live Data
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="pt-6">
-                <div className="h-[350px] w-full">
+            <CardContent className="relative pt-6 pb-5">
+                <div className="pointer-events-none absolute inset-x-5 bottom-5 top-4 rounded-[2rem] bg-[linear-gradient(180deg,rgba(248,250,252,0.7),rgba(239,246,255,0.28))]" />
+                <div className="relative h-[420px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart
                             data={chartData}
@@ -253,8 +255,8 @@ export function MainPerformanceChart({
                                             })();
                                         
                                         return (
-                                            <div className="bg-background/90 backdrop-blur-md border border-border/50 p-4 rounded-2xl shadow-2xl ring-1 ring-black/5">
-                                                <p className="text-xs font-bold text-muted-foreground uppercase mb-2">
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_20px_45px_rgba(15,23,42,0.10)] ring-1 ring-slate-900/5 backdrop-blur-md">
+                                                <p className="mb-2 text-xs font-bold uppercase text-slate-500">
                                                     {labelText}
                                                 </p>
                                                 <div className="space-y-1.5">

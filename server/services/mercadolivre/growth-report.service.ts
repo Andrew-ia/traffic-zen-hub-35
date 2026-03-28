@@ -16,8 +16,13 @@ const VISITS_FALLBACK_MAX_ITEMS = Math.max(50, Number(process.env.ML_GROWTH_REPO
 const VISITS_FALLBACK_CONCURRENCY = Math.max(1, Number(process.env.ML_GROWTH_REPORT_VISITS_CONCURRENCY || 4));
 const SKU_PLAN_MAX = Math.max(20, Number(process.env.ML_GROWTH_REPORT_SKU_PLANS_MAX || 60));
 const SKU_PLAN_MAX_ACTIONS = Math.max(4, Number(process.env.ML_GROWTH_REPORT_SKU_PLAN_ACTIONS_MAX || 6));
+const ML_ITEM_ID_PATTERN = /^ML[A-Z]\d+$/i;
 
 const formatBrazilDateKey = (date: Date) => BRAZIL_DATE_FORMATTER.format(date);
+const weekdayFormatter = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: BRAZIL_TIME_ZONE,
+  weekday: 'long',
+});
 
 const toBrazilDayBoundary = (dateKey: string, endOfDay: boolean) => {
   const time = endOfDay ? '23:59:59.999' : '00:00:00.000';
@@ -110,6 +115,46 @@ type SkuPlan = {
   flags?: string[];
 };
 
+type SalesDayDiagnostic = {
+  date: string;
+  weekday: string;
+  grossRevenue: number;
+  orders: number;
+  buyers: number;
+  units: number;
+  avgTicket: number;
+  topProductId: string | null;
+  topProductTitle: string | null;
+  topProductRevenue: number;
+  topProductShare: number | null;
+  biggestOrderId: string | null;
+  biggestOrderTotal: number;
+  biggestOrderUnits: number;
+  biggestOrderShare: number | null;
+};
+
+type DataFreshness = {
+  ordersLastDate: string | null;
+  visitsLastDate: string | null;
+  adsLastDate: string | null;
+  visitsStaleDays: number | null;
+  adsStaleDays: number | null;
+};
+
+type SalesRhythm = {
+  days: number;
+  range: { from: string; to: string };
+  baseline: {
+    averageRevenue: number;
+    medianRevenue: number;
+    averageOrders: number;
+    averageTicket: number;
+  };
+  peakDays: SalesDayDiagnostic[];
+  weakDays: SalesDayDiagnostic[];
+  insights: string[];
+};
+
 export type GrowthReport = {
   generatedAt: string;
   workspaceId: string;
@@ -133,6 +178,8 @@ export type GrowthReport = {
   checklist: string[];
   productOpportunityRanking: ItemMetric[];
   skuPlans: SkuPlan[];
+  dataFreshness: DataFreshness;
+  salesRhythm: SalesRhythm | null;
   notes: string[];
 };
 
@@ -154,6 +201,24 @@ const sumMap = (map: Map<string, number>) => {
     total += Number(val || 0);
   });
   return total;
+};
+
+const roundValue = (value: number, digits = 2) => {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+};
+
+const getWeekdayLabel = (dateKey: string) =>
+  weekdayFormatter.format(new Date(`${dateKey}T12:00:00-03:00`));
+
+const median = (values: number[]) => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
 };
 
 const sortByDeltaAsc = (a: ItemMetric, b: ItemMetric, key: 'visits' | 'conversion') => {
@@ -205,7 +270,9 @@ export async function buildMercadoLivreGrowthReport(
   const notes: string[] = [];
   const periodItems = new Map<number, ItemMetric[]>();
 
-  const allProductItemIds = productRows.map((row) => String(row.ml_item_id)).filter(Boolean);
+  const allProductItemIds = productRows
+    .map((row) => String(row.ml_item_id))
+    .filter((itemId) => Boolean(itemId) && ML_ITEM_ID_PATTERN.test(itemId));
 
   for (const days of periods) {
     const dateToKey = formatBrazilDateKey(new Date());
@@ -368,6 +435,29 @@ export async function buildMercadoLivreGrowthReport(
   }
 
   const latestAccountMetrics = await fetchLatestAccountMetrics(workspaceId);
+  const dataFreshness = await fetchDataFreshness(workspaceId);
+  const salesRhythm = await buildSalesRhythm(workspaceId, 30);
+
+  if (dataFreshness.visitsStaleDays !== null && dataFreshness.visitsStaleDays > 3) {
+    notes.push(
+      `Visitas por dia desatualizadas desde ${dataFreshness.visitsLastDate || '-'} (${dataFreshness.visitsStaleDays} dias de atraso).`,
+    );
+  }
+
+  if (dataFreshness.adsStaleDays !== null && dataFreshness.adsStaleDays > 3) {
+    notes.push(
+      `Snapshots de ads desatualizados desde ${dataFreshness.adsLastDate || '-'} (${dataFreshness.adsStaleDays} dias de atraso).`,
+    );
+  }
+
+  if (salesRhythm?.insights?.length) {
+    salesRhythm.insights.forEach((insight) => {
+      if (!notes.includes(insight)) {
+        notes.push(insight);
+      }
+    });
+  }
+
   if (latestAccountMetrics) {
     const responseRate = latestAccountMetrics.response_rate;
     if (typeof responseRate === 'number' && responseRate < 0.8) {
@@ -410,7 +500,249 @@ export async function buildMercadoLivreGrowthReport(
     checklist,
     productOpportunityRanking,
     skuPlans,
+    dataFreshness,
+    salesRhythm,
     notes,
+  };
+}
+
+async function fetchDataFreshness(workspaceId: string): Promise<DataFreshness> {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      select
+        (
+          select max((date_created at time zone 'America/Sao_Paulo')::date)::text
+          from ml_orders
+          where workspace_id = $1
+        ) as orders_last_date,
+        (
+          select max(visit_date)::text
+          from ml_item_visits_daily
+          where workspace_id = $1
+        ) as visits_last_date,
+        (
+          select max(metric_date)::text
+          from ml_product_ads_metrics
+          where workspace_id = $1
+        ) as ads_last_date
+    `,
+    [workspaceId],
+  );
+
+  const currentDateKey = formatBrazilDateKey(new Date());
+  const currentDate = new Date(`${currentDateKey}T12:00:00-03:00`);
+  const calcStaleDays = (dateKey?: string | null) => {
+    if (!dateKey) return null;
+    const parsed = new Date(`${dateKey}T12:00:00-03:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return Math.max(0, Math.floor((currentDate.getTime() - parsed.getTime()) / (1000 * 60 * 60 * 24)));
+  };
+
+  const row = rows[0] || {};
+  return {
+    ordersLastDate: row.orders_last_date || null,
+    visitsLastDate: row.visits_last_date || null,
+    adsLastDate: row.ads_last_date || null,
+    visitsStaleDays: calcStaleDays(row.visits_last_date || null),
+    adsStaleDays: calcStaleDays(row.ads_last_date || null),
+  };
+}
+
+async function buildSalesRhythm(workspaceId: string, days: number = 30): Promise<SalesRhythm | null> {
+  const pool = getPool();
+  const normalizedDays = Math.min(60, Math.max(7, Number(days || 30)));
+  const endKey = formatBrazilDateKey(subDays(new Date(), 1));
+  const startKey = formatBrazilDateKey(subDays(new Date(`${endKey}T12:00:00-03:00`), normalizedDays - 1));
+
+  const { rows } = await pool.query(
+    `
+      with days as (
+        select generate_series($2::date, $3::date, interval '1 day')::date as day
+      ),
+      orders_daily as (
+        select
+          (o.date_created at time zone 'America/Sao_Paulo')::date as day,
+          count(distinct o.order_id)::int as orders,
+          count(distinct o.buyer_id)::int as buyers,
+          coalesce(sum(o.total_amount), 0)::numeric(14,2) as gross_revenue
+        from ml_orders o
+        where o.workspace_id = $1
+          and (o.date_created at time zone 'America/Sao_Paulo')::date between $2::date and $3::date
+          and lower(coalesce(o.status, '')) not in ('cancelled', 'canceled')
+        group by 1
+      ),
+      expanded as (
+        select
+          (o.date_created at time zone 'America/Sao_Paulo')::date as day,
+          o.order_id,
+          o.total_amount,
+          item->'item'->>'id' as item_id,
+          coalesce(item->'item'->>'title', item->>'title', 'Sem titulo') as title,
+          coalesce((item->>'quantity')::int, 0) as quantity,
+          coalesce((item->>'unit_price')::numeric, (item->>'full_unit_price')::numeric, 0) as unit_price
+        from ml_orders o
+        cross join lateral jsonb_array_elements(coalesce(o.order_json->'order_items', '[]'::jsonb)) item
+        where o.workspace_id = $1
+          and (o.date_created at time zone 'America/Sao_Paulo')::date between $2::date and $3::date
+          and lower(coalesce(o.status, '')) not in ('cancelled', 'canceled')
+      ),
+      units_daily as (
+        select
+          day,
+          coalesce(sum(quantity), 0)::int as units
+        from expanded
+        group by 1
+      ),
+      product_rank as (
+        select
+          day,
+          item_id,
+          max(title) as title,
+          coalesce(sum(quantity * unit_price), 0)::numeric(14,2) as revenue,
+          row_number() over (partition by day order by coalesce(sum(quantity * unit_price), 0) desc, item_id) as rn
+        from expanded
+        group by day, item_id
+      ),
+      biggest_order as (
+        select
+          day,
+          order_id,
+          max(total_amount)::numeric(14,2) as order_total,
+          coalesce(sum(quantity), 0)::int as units,
+          row_number() over (partition by day order by max(total_amount) desc, order_id) as rn
+        from expanded
+        group by day, order_id
+      )
+      select
+        d.day::text as day,
+        coalesce(od.orders, 0) as orders,
+        coalesce(od.buyers, 0) as buyers,
+        coalesce(ud.units, 0) as units,
+        coalesce(od.gross_revenue, 0)::float8 as gross_revenue,
+        case
+          when coalesce(od.orders, 0) > 0 then round((coalesce(od.gross_revenue, 0) / od.orders)::numeric, 2)::float8
+          else 0
+        end as avg_ticket,
+        pr.item_id as top_product_id,
+        pr.title as top_product_title,
+        coalesce(pr.revenue, 0)::float8 as top_product_revenue,
+        case
+          when coalesce(od.gross_revenue, 0) > 0 then round((pr.revenue / od.gross_revenue * 100)::numeric, 1)::float8
+          else null
+        end as top_product_share,
+        bo.order_id as biggest_order_id,
+        coalesce(bo.order_total, 0)::float8 as biggest_order_total,
+        coalesce(bo.units, 0) as biggest_order_units,
+        case
+          when coalesce(od.gross_revenue, 0) > 0 then round((bo.order_total / od.gross_revenue * 100)::numeric, 1)::float8
+          else null
+        end as biggest_order_share
+      from days d
+      left join orders_daily od on od.day = d.day
+      left join units_daily ud on ud.day = d.day
+      left join product_rank pr on pr.day = d.day and pr.rn = 1
+      left join biggest_order bo on bo.day = d.day and bo.rn = 1
+      order by d.day
+    `,
+    [workspaceId, startKey, endKey],
+  );
+
+  const daysData: SalesDayDiagnostic[] = rows.map((row: any) => ({
+    date: String(row.day),
+    weekday: getWeekdayLabel(String(row.day)),
+    grossRevenue: Number(row.gross_revenue || 0),
+    orders: Number(row.orders || 0),
+    buyers: Number(row.buyers || 0),
+    units: Number(row.units || 0),
+    avgTicket: Number(row.avg_ticket || 0),
+    topProductId: row.top_product_id ? String(row.top_product_id) : null,
+    topProductTitle: row.top_product_title ? String(row.top_product_title) : null,
+    topProductRevenue: Number(row.top_product_revenue || 0),
+    topProductShare: row.top_product_share === null || row.top_product_share === undefined ? null : Number(row.top_product_share),
+    biggestOrderId: row.biggest_order_id ? String(row.biggest_order_id) : null,
+    biggestOrderTotal: Number(row.biggest_order_total || 0),
+    biggestOrderUnits: Number(row.biggest_order_units || 0),
+    biggestOrderShare: row.biggest_order_share === null || row.biggest_order_share === undefined ? null : Number(row.biggest_order_share),
+  }));
+
+  if (daysData.length === 0) {
+    return null;
+  }
+
+  const peakDays = [...daysData]
+    .sort((a, b) => b.grossRevenue - a.grossRevenue || b.orders - a.orders)
+    .slice(0, 3);
+  const weakSource = daysData.filter((item) => item.orders > 0 || item.grossRevenue > 0);
+  const weakDays = [...(weakSource.length >= 3 ? weakSource : daysData)]
+    .sort((a, b) => a.grossRevenue - b.grossRevenue || a.orders - b.orders)
+    .slice(0, 3);
+
+  const averageRevenue = daysData.reduce((sum, item) => sum + item.grossRevenue, 0) / daysData.length;
+  const averageOrders = daysData.reduce((sum, item) => sum + item.orders, 0) / daysData.length;
+  const averageTicket = daysData.reduce((sum, item) => sum + item.avgTicket, 0) / daysData.length;
+  const medianRevenue = median(daysData.map((item) => item.grossRevenue));
+
+  const peakOrdersAvg = peakDays.reduce((sum, item) => sum + item.orders, 0) / Math.max(1, peakDays.length);
+  const weakOrdersAvg = weakDays.reduce((sum, item) => sum + item.orders, 0) / Math.max(1, weakDays.length);
+  const peakTicketAvg = peakDays.reduce((sum, item) => sum + item.avgTicket, 0) / Math.max(1, peakDays.length);
+  const weakTicketAvg = weakDays.reduce((sum, item) => sum + item.avgTicket, 0) / Math.max(1, weakDays.length);
+  const peakBiggestOrderShareAvg = peakDays.reduce((sum, item) => sum + Number(item.biggestOrderShare || 0), 0) / Math.max(1, peakDays.length);
+  const peakTopProductShareAvg = peakDays.reduce((sum, item) => sum + Number(item.topProductShare || 0), 0) / Math.max(1, peakDays.length);
+  const weakTopProductShareAvg = weakDays.reduce((sum, item) => sum + Number(item.topProductShare || 0), 0) / Math.max(1, weakDays.length);
+
+  const recurringPeakTitles = Array.from(
+    peakDays.reduce((acc, item) => {
+      if (!item.topProductTitle) return acc;
+      acc.set(item.topProductTitle, (acc.get(item.topProductTitle) || 0) + 1);
+      return acc;
+    }, new Map<string, number>()),
+  )
+    .filter(([, count]) => count >= 2)
+    .map(([title]) => title);
+
+  const insights: string[] = [];
+
+  if (peakOrdersAvg >= weakOrdersAvg * 1.8) {
+    insights.push(
+      `Dias de pico vendem principalmente por volume: média de ${roundValue(peakOrdersAvg, 1)} pedidos nos picos vs ${roundValue(weakOrdersAvg, 1)} nos dias fracos.`,
+    );
+  }
+
+  if (peakTicketAvg >= weakTicketAvg * 1.2) {
+    insights.push(
+      `O ticket médio também sobe nos picos: ${roundValue(peakTicketAvg)} vs ${roundValue(weakTicketAvg)}.`,
+    );
+  }
+
+  if (peakBiggestOrderShareAvg >= 25) {
+    insights.push(
+      `Existe concentração em pedidos grandes: o maior pedido representa em média ${roundValue(peakBiggestOrderShareAvg, 1)}% do faturamento dos dias de pico.`,
+    );
+  }
+
+  if (peakTopProductShareAvg >= weakTopProductShareAvg + 8) {
+    insights.push(
+      `Os picos dependem mais de SKU líder: o produto campeão pesa ${roundValue(peakTopProductShareAvg, 1)}% do dia nos picos vs ${roundValue(weakTopProductShareAvg, 1)}% nos dias fracos.`,
+    );
+  }
+
+  if (recurringPeakTitles.length > 0) {
+    insights.push(`SKU recorrente nos dias fortes: ${recurringPeakTitles.slice(0, 2).join(' | ')}.`);
+  }
+
+  return {
+    days: normalizedDays,
+    range: { from: startKey, to: endKey },
+    baseline: {
+      averageRevenue: roundValue(averageRevenue),
+      medianRevenue: roundValue(medianRevenue),
+      averageOrders: roundValue(averageOrders, 1),
+      averageTicket: roundValue(averageTicket),
+    },
+    peakDays,
+    weakDays,
+    insights,
   };
 }
 
@@ -543,7 +875,7 @@ async function fetchVisitsByItemFromApi(
   toKey: string,
   itemIds: string[],
 ) {
-  const unique = Array.from(new Set(itemIds.filter(Boolean)));
+  const unique = Array.from(new Set(itemIds.filter((itemId) => Boolean(itemId) && ML_ITEM_ID_PATTERN.test(itemId))));
   if (unique.length === 0) return new Map<string, number>();
 
   const limited = unique.slice(0, VISITS_FALLBACK_MAX_ITEMS);
@@ -966,6 +1298,33 @@ export function renderGrowthReportMarkdown(report: GrowthReport) {
   lines.push(`- Conversao: ${formatPct(summary.conversion.deltaPct)} (${formatPct(summary.conversion.current, 2)})`);
   lines.push('');
 
+  if (report.salesRhythm) {
+    lines.push('## Ritmo diario de vendas');
+    lines.push(`Janela: ${report.salesRhythm.range.from} a ${report.salesRhythm.range.to}`);
+    lines.push(`- Media diaria: ${report.salesRhythm.baseline.averageRevenue.toFixed(2)}`);
+    lines.push(`- Mediana diaria: ${report.salesRhythm.baseline.medianRevenue.toFixed(2)}`);
+    lines.push(`- Pedidos medios/dia: ${report.salesRhythm.baseline.averageOrders.toFixed(1)}`);
+    lines.push(`- Ticket medio/dia: ${report.salesRhythm.baseline.averageTicket.toFixed(2)}`);
+    lines.push('');
+    lines.push('Dias de pico:');
+    report.salesRhythm.peakDays.forEach((day) => {
+      lines.push(
+        `- ${day.date} (${day.weekday}): ${day.grossRevenue.toFixed(2)} | ${day.orders} pedidos | ticket ${day.avgTicket.toFixed(2)} | maior pedido ${day.biggestOrderTotal.toFixed(2)} | SKU lider ${day.topProductTitle || day.topProductId || '-'}`,
+      );
+    });
+    lines.push('Dias fracos:');
+    report.salesRhythm.weakDays.forEach((day) => {
+      lines.push(
+        `- ${day.date} (${day.weekday}): ${day.grossRevenue.toFixed(2)} | ${day.orders} pedidos | ticket ${day.avgTicket.toFixed(2)} | maior pedido ${day.biggestOrderTotal.toFixed(2)} | SKU lider ${day.topProductTitle || day.topProductId || '-'}`,
+      );
+    });
+    if (report.salesRhythm.insights.length > 0) {
+      lines.push('Leituras:');
+      report.salesRhythm.insights.forEach((item) => lines.push(`- ${item}`));
+    }
+    lines.push('');
+  }
+
   report.periods.forEach((period) => {
     lines.push(`## Periodo ${period.days}d (${period.range.from} a ${period.range.to})`);
     lines.push(`Comparacao: ${period.range.previousFrom} a ${period.range.previousTo}`);
@@ -1084,6 +1443,30 @@ export function renderGrowthReportHtml(report: GrowthReport) {
     `;
   }).join('');
 
+  const salesRhythmHtml = report.salesRhythm
+    ? `
+      <section>
+        <h2>Ritmo diario de vendas</h2>
+        <p>Janela: ${report.salesRhythm.range.from} a ${report.salesRhythm.range.to}</p>
+        <ul>
+          <li>Media diaria: ${formatCurrency(report.salesRhythm.baseline.averageRevenue)}</li>
+          <li>Mediana diaria: ${formatCurrency(report.salesRhythm.baseline.medianRevenue)}</li>
+          <li>Pedidos medios/dia: ${report.salesRhythm.baseline.averageOrders.toFixed(1)}</li>
+          <li>Ticket medio/dia: ${formatCurrency(report.salesRhythm.baseline.averageTicket)}</li>
+        </ul>
+        <h3>Dias de pico</h3>
+        <table><thead><tr><th>Data</th><th>Receita</th><th>Pedidos</th><th>Ticket</th><th>Maior pedido</th><th>SKU lider</th></tr></thead><tbody>
+          ${report.salesRhythm.peakDays.map((day) => `<tr><td>${day.date} (${day.weekday})</td><td>${formatCurrency(day.grossRevenue)}</td><td>${day.orders}</td><td>${formatCurrency(day.avgTicket)}</td><td>${formatCurrency(day.biggestOrderTotal)}</td><td>${day.topProductTitle || day.topProductId || '-'}</td></tr>`).join('')}
+        </tbody></table>
+        <h3>Dias fracos</h3>
+        <table><thead><tr><th>Data</th><th>Receita</th><th>Pedidos</th><th>Ticket</th><th>Maior pedido</th><th>SKU lider</th></tr></thead><tbody>
+          ${report.salesRhythm.weakDays.map((day) => `<tr><td>${day.date} (${day.weekday})</td><td>${formatCurrency(day.grossRevenue)}</td><td>${day.orders}</td><td>${formatCurrency(day.avgTicket)}</td><td>${formatCurrency(day.biggestOrderTotal)}</td><td>${day.topProductTitle || day.topProductId || '-'}</td></tr>`).join('')}
+        </tbody></table>
+        ${report.salesRhythm.insights.length ? `<h3>Leituras</h3><ul>${report.salesRhythm.insights.map((item) => `<li>${item}</li>`).join('')}</ul>` : ''}
+      </section>
+    `
+    : '';
+
   const skuPlanSection = report.skuPlans.length
     ? `
       <section>
@@ -1167,6 +1550,7 @@ export function renderGrowthReportHtml(report: GrowthReport) {
         <ul>${summary.mainCauses.map((c) => `<li>${c}</li>`).join('')}</ul>
         <p><strong>Receita:</strong> ${formatPct(summary.metrics.revenue.deltaPct)} | <strong>Pedidos:</strong> ${formatPct(summary.metrics.orders.deltaPct)} | <strong>Visitas:</strong> ${formatPct(summary.metrics.visits.deltaPct)} | <strong>Conversao:</strong> ${formatPct(summary.metrics.conversion.deltaPct)}</p>
       </section>
+      ${salesRhythmHtml}
       ${sections}
       ${skuPlanSection}
       ${adsSection}

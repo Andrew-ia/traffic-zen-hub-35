@@ -32,19 +32,19 @@ export function PremiumKPICard({
     tone = "primary",
     loading
 }: PremiumKPICardProps) {
-    const toneStyles: Record<NonNullable<PremiumKPICardProps["tone"]>, { text: string; bg: string; stroke: string }> = {
-        primary: { text: "text-primary", bg: "bg-primary/10", stroke: "hsl(var(--chart-1))" },
-        info: { text: "text-info", bg: "bg-info/10", stroke: "hsl(var(--chart-2))" },
-        success: { text: "text-success", bg: "bg-success/10", stroke: "hsl(var(--success))" },
-        warning: { text: "text-warning", bg: "bg-warning/10", stroke: "hsl(var(--warning))" },
-        danger: { text: "text-destructive", bg: "bg-destructive/10", stroke: "hsl(var(--destructive))" },
-        muted: { text: "text-muted-foreground", bg: "bg-muted/40", stroke: "hsl(var(--muted-foreground))" },
+    const toneStyles: Record<NonNullable<PremiumKPICardProps["tone"]>, { text: string; bg: string; stroke: string; glow: string; ring: string; line: string }> = {
+        primary: { text: "text-blue-700", bg: "bg-blue-50", stroke: "hsl(var(--chart-1))", glow: "from-blue-300/25 via-blue-200/10 to-transparent", ring: "ring-blue-100", line: "from-blue-600 via-sky-400 to-transparent" },
+        info: { text: "text-cyan-700", bg: "bg-cyan-50", stroke: "hsl(var(--chart-2))", glow: "from-cyan-300/20 via-cyan-200/10 to-transparent", ring: "ring-cyan-100", line: "from-cyan-600 via-sky-400 to-transparent" },
+        success: { text: "text-emerald-700", bg: "bg-emerald-50", stroke: "hsl(var(--success))", glow: "from-emerald-300/20 via-emerald-200/10 to-transparent", ring: "ring-emerald-100", line: "from-emerald-600 via-emerald-300 to-transparent" },
+        warning: { text: "text-amber-700", bg: "bg-amber-50", stroke: "hsl(var(--warning))", glow: "from-amber-300/20 via-amber-200/10 to-transparent", ring: "ring-amber-100", line: "from-amber-500 via-yellow-300 to-transparent" },
+        danger: { text: "text-rose-700", bg: "bg-rose-50", stroke: "hsl(var(--destructive))", glow: "from-rose-300/20 via-rose-200/10 to-transparent", ring: "ring-rose-100", line: "from-rose-600 via-pink-300 to-transparent" },
+        muted: { text: "text-slate-600", bg: "bg-slate-100", stroke: "hsl(var(--muted-foreground))", glow: "from-slate-300/15 via-slate-200/10 to-transparent", ring: "ring-slate-200", line: "from-slate-500 via-slate-300 to-transparent" },
     };
     const palette = toneStyles[tone];
 
     if (loading) {
         return (
-            <Card className="p-6 overflow-hidden border-border/40 bg-card/50 backdrop-blur-sm">
+            <Card className="h-full overflow-hidden border border-slate-200/80 bg-white/85 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)] backdrop-blur-sm">
                 <div className="flex justify-between items-start mb-4">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="h-10 w-10 rounded-xl" />
@@ -56,26 +56,27 @@ export function PremiumKPICard({
     }
 
     return (
-        <Card className="relative p-6 overflow-hidden border-border/40 bg-card/50 backdrop-blur-md shadow-lg transition-all duration-300 hover:shadow-xl hover:translate-y-[-2px] group">
+        <Card className="group relative h-full overflow-hidden border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-6 shadow-[0_20px_45px_rgba(15,23,42,0.08)] backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_28px_60px_rgba(15,23,42,0.12)]">
             {/* Background Pattern */}
-            <div className="absolute top-0 right-0 w-32 h-32 -mr-8 -mt-8 bg-gradient-to-br from-primary/5 to-transparent rounded-full blur-3xl group-hover:from-primary/10 transition-colors" />
+            <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${palette.line}`} />
+            <div className={`absolute right-0 top-0 h-32 w-32 -mt-8 -mr-8 rounded-full bg-gradient-to-br ${palette.glow} blur-3xl transition-colors`} />
 
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-4">
-                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-                    <div className={`p-2.5 rounded-xl ${palette.bg} ${palette.text} ring-1 ring-border/60`}>
+                    <p className="text-sm font-medium uppercase tracking-wider text-slate-500">{title}</p>
+                    <div className={`rounded-xl p-2.5 ring-1 ${palette.bg} ${palette.text} ${palette.ring}`}>
                         <Icon className="h-5 w-5" />
                     </div>
                 </div>
 
                 <div className="space-y-1">
-                    <h3 className="text-3xl font-bold tracking-tight">{value}</h3>
+                    <h3 className="text-3xl font-bold tracking-tight text-slate-950">{value}</h3>
                     {trend && (
                         <div className="flex items-center gap-1.5 pt-1">
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${trendUp ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                            <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${trendUp ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                                 {trendUp ? "+" : ""}{trend}
                             </span>
-                            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">vs período anterior</span>
+                            <span className="text-[10px] font-medium uppercase tracking-tighter text-slate-400">vs período anterior</span>
                         </div>
                     )}
                 </div>
