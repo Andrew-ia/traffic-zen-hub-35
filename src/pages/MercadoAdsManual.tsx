@@ -407,6 +407,9 @@ export default function MercadoAdsManual() {
     if (item.hasAdsMetrics) {
       return `Total 30d: ${totalSales} • Ads 30d: ${formatNumber(getAdsSales(item))}`;
     }
+    if (item.currentAdId) {
+      return `Total 30d: ${totalSales} • Ads 30d: indisponível`;
+    }
     return `Total 30d: ${totalSales}`;
   }, [formatNumber, getAdsSales, getTotalSales]);
   const formatDate = (value?: string | null) => {
