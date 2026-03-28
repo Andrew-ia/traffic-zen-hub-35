@@ -174,6 +174,7 @@ export function useMercadoAdsPreview(workspaceId: string | null) {
       visits30d?: number | null;
       conversionRate30d?: number | null;
       profitUnit?: number | null;
+      cac?: number | null;
       stock?: number | null;
       status?: string | null;
       publishedAt?: string | null;

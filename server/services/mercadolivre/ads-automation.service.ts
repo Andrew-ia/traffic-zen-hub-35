@@ -66,6 +66,7 @@ type ClassifiedProduct = {
   visits30d?: number | null;
   conversionRate30d?: number | null;
   profitUnit?: number | null;
+  cac?: number | null;
   stock?: number | null;
   status?: string | null;
   publishedAt?: string | null;
@@ -1150,6 +1151,7 @@ export class MercadoAdsAutomationService {
           p.visits_30d,
           p.conversion_rate_30d,
           p.profit_unit,
+          p.cac,
           p.ads_active,
           p.title,
           p.sku,
@@ -1224,6 +1226,8 @@ export class MercadoAdsAutomationService {
         : visits30d !== null
           ? (visits30d > 0 ? totalSales30d / visits30d : 0)
           : null;
+      const cacRaw = row.cac !== null && row.cac !== undefined ? Number(row.cac) : null;
+      const cac = Number.isFinite(cacRaw as number) ? (cacRaw as number) : null;
       const lifetimeSales = Number(row.sold_quantity || 0);
       const stock = row.available_quantity !== null && row.available_quantity !== undefined ? Number(row.available_quantity) : null;
       const status = row.status ? String(row.status) : null;
@@ -1280,6 +1284,7 @@ export class MercadoAdsAutomationService {
         visits30d,
         conversionRate30d,
         profitUnit,
+        cac,
         stock,
         status,
         publishedAt,

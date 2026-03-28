@@ -94,6 +94,11 @@ type SuggestedCampaignDraft = {
   budget: number;
   productIds: string[];
   totalProducts: number;
+  safeBudgetTotal: number;
+  safeBudgetBy3d: number;
+  safeBudgetBy5d: number;
+  safeBudgetBy7d: number;
+  usesEstimatedSafeCac: boolean;
 };
 
 type SuggestedExistingCampaignDraft = {
@@ -187,6 +192,40 @@ export default function MercadoAdsManual() {
     return null;
   }, [getTotalSales]);
   const getSalesVelocity30d = useCallback((item: (typeof items)[number]) => getTotalSales(item) / 30, [getTotalSales]);
+  const getSafeCac = useCallback((item: (typeof items)[number]) => {
+    const rawCac = item.cac !== null && item.cac !== undefined ? Number(item.cac) : 0;
+    const profitUnit = item.profitUnit !== null && item.profitUnit !== undefined ? Number(item.profitUnit) : 0;
+    if (Number.isFinite(rawCac) && rawCac > 0) {
+      return Math.max(0, Math.min(rawCac, profitUnit > 0 ? profitUnit : rawCac));
+    }
+    if (Number.isFinite(profitUnit) && profitUnit > 0) {
+      return profitUnit * 0.6;
+    }
+    return 0;
+  }, []);
+  const isSafeCacEstimated = useCallback((item: (typeof items)[number]) => {
+    const rawCac = item.cac !== null && item.cac !== undefined ? Number(item.cac) : 0;
+    return !(Number.isFinite(rawCac) && rawCac > 0);
+  }, []);
+  const getMaxSafeSpend = useCallback((item: (typeof items)[number]) => {
+    const stock = item.stock !== null && item.stock !== undefined ? Number(item.stock) : 0;
+    if (!Number.isFinite(stock) || stock <= 0) return 0;
+    return stock * getSafeCac(item);
+  }, [getSafeCac]);
+  const getGroupBudgetGuidance = useCallback((groupItems: Array<(typeof items)[number]>) => {
+    const safeBudgetTotal = groupItems.reduce((sum, item) => sum + getMaxSafeSpend(item), 0);
+    const safeBudgetBy3d = safeBudgetTotal > 0 ? safeBudgetTotal / 3 : 0;
+    const safeBudgetBy5d = safeBudgetTotal > 0 ? safeBudgetTotal / 5 : 0;
+    const safeBudgetBy7d = safeBudgetTotal > 0 ? safeBudgetTotal / 7 : 0;
+    const usesEstimatedSafeCac = groupItems.some((item) => isSafeCacEstimated(item));
+    return {
+      safeBudgetTotal,
+      safeBudgetBy3d,
+      safeBudgetBy5d,
+      safeBudgetBy7d,
+      usesEstimatedSafeCac,
+    };
+  }, [getMaxSafeSpend, isSafeCacEstimated]);
   const getStockCoverageDays = useCallback((item: (typeof items)[number]) => {
     const stock = item.stock;
     if (stock === null || stock === undefined) return null;
@@ -876,6 +915,11 @@ export default function MercadoAdsManual() {
     const dominantCurve = group.items
       .slice()
       .sort((a, b) => getTotalSales(b) - getTotalSales(a))[0]?.curve || "B";
+    const budgetGuidance = getGroupBudgetGuidance(group.items);
+    const curveBudget = getCurveBudget(dominantCurve) || getCurveBudget("B") || 50;
+    const safeSuggestedBudget = budgetGuidance.safeBudgetBy5d > 0
+      ? Math.max(1, Math.floor(Math.min(curveBudget, budgetGuidance.safeBudgetBy5d)))
+      : Math.max(1, Math.floor(curveBudget));
     setPendingSuggestedCampaign({
       name: buildSuggestedCampaignName(
         group.items.map((item) => item.title || ""),
@@ -883,9 +927,14 @@ export default function MercadoAdsManual() {
         group.priceMin,
         group.priceMax,
       ),
-      budget: getCurveBudget(dominantCurve) || getCurveBudget("B") || 50,
+      budget: safeSuggestedBudget,
       productIds: group.items.map((item) => item.productId),
       totalProducts: group.items.length,
+      safeBudgetTotal: budgetGuidance.safeBudgetTotal,
+      safeBudgetBy3d: budgetGuidance.safeBudgetBy3d,
+      safeBudgetBy5d: budgetGuidance.safeBudgetBy5d,
+      safeBudgetBy7d: budgetGuidance.safeBudgetBy7d,
+      usesEstimatedSafeCac: budgetGuidance.usesEstimatedSafeCac,
     });
     setSuggestedCampaignConfirmOpen(true);
   };
@@ -1329,7 +1378,9 @@ export default function MercadoAdsManual() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {manualCampaignGroups.map((group) => (
+                      {manualCampaignGroups.map((group) => {
+                        const budgetGuidance = getGroupBudgetGuidance(group.items);
+                        return (
                         <div key={`campaign-group-${group.index}`} className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <div className="font-medium">Campanha sugerida {group.index + 1}</div>
@@ -1346,6 +1397,14 @@ export default function MercadoAdsManual() {
                           <div className="text-xs text-muted-foreground">
                             Vendas totais somadas 30d: {formatNumber(group.totalSales)} • cobertura mínima {formatCoverageDays(group.minCoverageDays)}
                           </div>
+                          <div className="text-xs text-muted-foreground">
+                            Teto seguro pelo estoque atual: {formatCurrency(budgetGuidance.safeBudgetTotal)} total • 3d: {formatCurrency(budgetGuidance.safeBudgetBy3d)}/dia • 5d: {formatCurrency(budgetGuidance.safeBudgetBy5d)}/dia • 7d: {formatCurrency(budgetGuidance.safeBudgetBy7d)}/dia
+                          </div>
+                          {budgetGuidance.usesEstimatedSafeCac ? (
+                            <div className="text-xs text-amber-700">
+                              CAC seguro estimado em 60% do lucro unitário para itens sem CAC preenchido.
+                            </div>
+                          ) : null}
                           <div className="mt-2 rounded-md border border-white/70 bg-white/70 p-2 text-xs text-slate-600">
                             {group.verification.description}
                             {group.verification.campaignName ? ` Campanha detectada: ${group.verification.campaignName}.` : ""}
@@ -1405,6 +1464,9 @@ export default function MercadoAdsManual() {
                                   <span>
                                     Estoque: {item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}
                                   </span>
+                                  <span>
+                                    CAC seguro: {formatCurrency(getSafeCac(item))}
+                                  </span>
                                   <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
                                   <span>{item.mlItemId}</span>
                                 </div>
@@ -1420,7 +1482,8 @@ export default function MercadoAdsManual() {
                             ))}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2167,6 +2230,21 @@ export default function MercadoAdsManual() {
                   )
                 }
               />
+              {pendingSuggestedCampaign ? (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <div>
+                    Teto seguro pelo estoque atual: {formatCurrency(pendingSuggestedCampaign.safeBudgetTotal)} total
+                  </div>
+                  <div>
+                    3 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy3d)}/dia • 5 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy5d)}/dia • 7 dias: {formatCurrency(pendingSuggestedCampaign.safeBudgetBy7d)}/dia
+                  </div>
+                  {pendingSuggestedCampaign.usesEstimatedSafeCac ? (
+                    <div className="text-amber-700">
+                      CAC seguro estimado em 60% do lucro unitário para itens sem CAC preenchido.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
           <AlertDialogFooter>
