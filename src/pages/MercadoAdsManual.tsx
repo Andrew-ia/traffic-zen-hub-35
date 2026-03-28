@@ -187,13 +187,6 @@ export default function MercadoAdsManual() {
     return null;
   }, [getTotalSales]);
   const getSalesVelocity30d = useCallback((item: (typeof items)[number]) => getTotalSales(item) / 30, [getTotalSales]);
-  const getSalesSourceLabel = useCallback((item: (typeof items)[number]) => {
-    const totalSales = formatNumber(getTotalSales(item));
-    if (item.hasAdsMetrics) {
-      return `Total 30d: ${totalSales} • Ads 30d: ${formatNumber(getAdsSales(item))}`;
-    }
-    return `Total 30d: ${totalSales}`;
-  }, [formatNumber, getAdsSales, getTotalSales]);
   const getStockCoverageDays = useCallback((item: (typeof items)[number]) => {
     const stock = item.stock;
     if (stock === null || stock === undefined) return null;
@@ -409,6 +402,13 @@ export default function MercadoAdsManual() {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
     return `${formatNumber(value * 100, digits)}%`;
   }, [formatNumber]);
+  const getSalesSourceLabel = useCallback((item: (typeof items)[number]) => {
+    const totalSales = formatNumber(getTotalSales(item));
+    if (item.hasAdsMetrics) {
+      return `Total 30d: ${totalSales} • Ads 30d: ${formatNumber(getAdsSales(item))}`;
+    }
+    return `Total 30d: ${totalSales}`;
+  }, [formatNumber, getAdsSales, getTotalSales]);
   const formatDate = (value?: string | null) => {
     if (!value) return "—";
     const date = new Date(value);
