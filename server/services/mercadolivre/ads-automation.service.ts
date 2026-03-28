@@ -1128,7 +1128,10 @@ export class MercadoAdsAutomationService {
     return { curve: 'C' as const, action: 'active' as const, reason: `Teste: ${clicks} cliques (novo/sazonal)` };
   }
 
-  async classifyProducts(workspaceId: string): Promise<{
+  async classifyProducts(
+    workspaceId: string,
+    options?: { refreshCampaignLinks?: boolean },
+  ): Promise<{
     items: ClassifiedProduct[];
     summary: Record<string, number>;
     diagnostics: {
@@ -1140,6 +1143,15 @@ export class MercadoAdsAutomationService {
       adsMetricsError?: { message: string; status?: number };
     };
   }> {
+    if (options?.refreshCampaignLinks) {
+      await this.syncExistingCampaigns(workspaceId).catch((err) => {
+        console.warn('[MercadoAds] Não foi possível sincronizar campanhas antes da prévia:', err?.message || err);
+      });
+      await this.syncCampaignProducts(workspaceId).catch((err) => {
+        console.warn('[MercadoAds] Não foi possível sincronizar anúncios das campanhas antes da prévia:', err?.message || err);
+      });
+    }
+
     const pool = getPool();
     const { rows } = await pool.query(
       `select
@@ -1179,8 +1191,12 @@ export class MercadoAdsAutomationService {
          from ml_ads_campaign_products cp
          left join ml_ads_campaigns c on c.id = cp.campaign_id
          where cp.workspace_id = $1
-           and cp.product_id = p.id
+           and (
+             cp.product_id = p.id
+             or (cp.product_id is null and cp.ml_item_id = p.ml_item_id)
+           )
          order by
+           case when cp.product_id = p.id then 0 else 1 end,
            case when cp.ml_ad_id is not null then 0 else 1 end,
            cp.last_moved_at desc nulls last,
            cp.added_at desc nulls last
@@ -2840,10 +2856,19 @@ export class MercadoAdsAutomationService {
       campaigns.forEach((c) => {
         if (c.ml_campaign_id) campaignByRemoteId.set(String(c.ml_campaign_id), { id: c.id, curve: c.curve });
       });
+      const localCampaignIds = campaigns.map((campaign) => String(campaign.id));
 
       const productIdCache = new Map<string, string | null>();
       const { dateFrom, dateTo } = this.getDateRange(30);
       const limit = 200;
+      const snapshotRows = new Map<string, {
+        campaignId: string;
+        productId: string | null;
+        mlItemId: string | null;
+        mlAdId: string | null;
+        curve: string;
+        status: string;
+      }>();
 
       let useMarketplace = false;
       const fetchAdsPage = async (params: Record<string, any>) => {
@@ -2919,27 +2944,25 @@ export class MercadoAdsAutomationService {
                   productIdCache.set(mlItemId, productId);
                 }
               }
-
-              await pool.query(
-                `insert into ml_ads_campaign_products (
-                   workspace_id, campaign_id, product_id, ml_item_id, ml_ad_id, curve, source, status, added_at, last_moved_at
-                 ) values ($1,$2,$3,$4,$5,$6,'manual',$7, now(), now())
-                 on conflict (campaign_id, ml_item_id) do update set
-                   product_id = coalesce(excluded.product_id, ml_ads_campaign_products.product_id),
-                   ml_ad_id = coalesce(excluded.ml_ad_id, ml_ads_campaign_products.ml_ad_id),
-                   curve = excluded.curve,
-                   status = excluded.status,
-                   last_moved_at = now()`,
-                [
-                  workspaceId,
-                  campaignRef.id,
-                  productId,
-                  mlItemId || null,
-                  mlAdId,
-                  campaignRef.curve || 'C',
-                  (ad.status || 'active').toLowerCase(),
-                ],
-              );
+              const snapshotKey = `${campaignRef.id}:${mlItemId || mlAdId || 'unknown'}`;
+              const nextRow = {
+                campaignId: campaignRef.id,
+                productId,
+                mlItemId: mlItemId || null,
+                mlAdId,
+                curve: campaignRef.curve || 'C',
+                status: (ad.status || 'active').toLowerCase(),
+              };
+              const existingRow = snapshotRows.get(snapshotKey);
+              if (!existingRow) {
+                snapshotRows.set(snapshotKey, nextRow);
+              } else {
+                snapshotRows.set(snapshotKey, {
+                  ...nextRow,
+                  productId: nextRow.productId || existingRow.productId,
+                  mlAdId: nextRow.mlAdId || existingRow.mlAdId,
+                });
+              }
             }
 
             const bucket = byCampaign.get(cid) || { total: 0, active: 0 };
@@ -2966,17 +2989,61 @@ export class MercadoAdsAutomationService {
         }
       }
 
-      for (const [cid, counts] of byCampaign.entries()) {
-        await pool.query(
-          `update ml_ads_campaigns
-             set total_products = $1,
-                 active_products = $2,
-                 last_synced_at = now(),
-                 updated_at = now()
-           where workspace_id = $3 and ml_campaign_id = $4`,
-          [counts.total, counts.active, workspaceId, cid],
-        );
+      await pool.query('begin');
+
+      try {
+        if (localCampaignIds.length > 0) {
+          await pool.query(
+            `delete from ml_ads_campaign_products
+             where workspace_id = $1
+               and campaign_id = any($2::uuid[])`,
+            [workspaceId, localCampaignIds],
+          );
+        }
+
+        for (const row of snapshotRows.values()) {
+          await pool.query(
+            `insert into ml_ads_campaign_products (
+               workspace_id, campaign_id, product_id, ml_item_id, ml_ad_id, curve, source, status, added_at, last_moved_at
+             ) values ($1,$2,$3,$4,$5,$6,'import',$7, now(), now())
+             on conflict (campaign_id, ml_item_id) do update set
+               product_id = coalesce(excluded.product_id, ml_ads_campaign_products.product_id),
+               ml_ad_id = coalesce(excluded.ml_ad_id, ml_ads_campaign_products.ml_ad_id),
+               curve = excluded.curve,
+               source = excluded.source,
+               status = excluded.status,
+               last_moved_at = now()`,
+            [
+              workspaceId,
+              row.campaignId,
+              row.productId,
+              row.mlItemId,
+              row.mlAdId,
+              row.curve,
+              row.status,
+            ],
+          );
+        }
+
+        for (const campaign of campaigns) {
+          const counts = byCampaign.get(String(campaign.ml_campaign_id)) || { total: 0, active: 0 };
+          await pool.query(
+            `update ml_ads_campaigns
+               set total_products = $1,
+                   active_products = $2,
+                   last_synced_at = now(),
+                   updated_at = now()
+             where workspace_id = $3 and ml_campaign_id = $4`,
+            [counts.total, counts.active, workspaceId, String(campaign.ml_campaign_id)],
+          );
+        }
+
+        await pool.query('commit');
+      } catch (err) {
+        await pool.query('rollback');
+        throw err;
       }
+
     } catch (err: any) {
       const status = err?.response?.status;
       if (status === 401 || status === 403 || status === 404 || status === 405) return;

@@ -224,7 +224,7 @@ router.get('/automation/preview', async (req, res) => {
     const { id: workspaceId } = resolveWorkspaceId(req);
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
 
-    const result = await automation.classifyProducts(workspaceId);
+    const result = await automation.classifyProducts(workspaceId, { refreshCampaignLinks: true });
     return res.json({ success: true, ...result });
   } catch (err: any) {
     console.error('[MercadoAds] Preview error:', err);
