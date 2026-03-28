@@ -1402,6 +1402,9 @@ export default function MercadoAdsManual() {
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <span>{item.price !== null && item.price !== undefined ? formatCurrency(item.price) : "—"}</span>
                                   <span>{getSalesSourceLabel(item)}</span>
+                                  <span>
+                                    Estoque: {item.stock !== null && item.stock !== undefined ? formatNumber(item.stock) : "—"}
+                                  </span>
                                   <span>{formatCoverageDays(getStockCoverageDays(item))}</span>
                                   <span>{item.mlItemId}</span>
                                 </div>
