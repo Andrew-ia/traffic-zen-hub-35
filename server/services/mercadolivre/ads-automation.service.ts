@@ -43,6 +43,27 @@ type CampaignRow = {
   metadata?: any;
 };
 
+type CampaignProductRow = {
+  campaign_id: string;
+  product_id: string | null;
+  ml_item_id: string | null;
+  ml_ad_id: string | null;
+  ad_status: string | null;
+  resolved_product_id: string | null;
+  title: string | null;
+  sku: string | null;
+  price: number | null;
+  available_quantity: number | null;
+  sales_30d: number | null;
+  revenue_30d: number | null;
+  visits_30d: number | null;
+  conversion_rate_30d: number | null;
+  sold_quantity: number | null;
+  product_status: string | null;
+  published_at: string | null;
+  created_at: string | null;
+};
+
 type ClassifiedProduct = {
   productId: string;
   mlItemId: string;
@@ -1154,7 +1175,7 @@ export class MercadoAdsAutomationService {
 
     const pool = getPool();
     const { rows } = await pool.query(
-      `select
+       `select
           p.id,
           p.ml_item_id,
           p.classification,
@@ -1163,6 +1184,10 @@ export class MercadoAdsAutomationService {
           p.visits_30d,
           p.conversion_rate_30d,
           p.profit_unit,
+          p.ml_tax_rate,
+          p.fixed_fee,
+          p.cost_price,
+          p.overhead_cost,
           p.cac,
           p.ads_active,
           p.title,
@@ -1227,12 +1252,21 @@ export class MercadoAdsAutomationService {
       const clicks = Number(adsMetrics.clicks || 0);
       const prints = Number(adsMetrics.prints || 0);
       const profitUnitRaw = row.profit_unit !== null && row.profit_unit !== undefined ? Number(row.profit_unit) : null;
-      const profitUnit = Number.isFinite(profitUnitRaw as number) ? (profitUnitRaw as number) : null;
+      const storedProfitUnit = Number.isFinite(profitUnitRaw as number) ? (profitUnitRaw as number) : null;
       const priceRaw = row.price !== null && row.price !== undefined ? Number(row.price) : null;
       const price = Number.isFinite(priceRaw as number) ? (priceRaw as number) : null;
       const classification = String(row.classification || '').toUpperCase();
       const totalSales30d = Number(row.sales_30d || 0);
       const totalRevenue30d = Number(row.revenue_30d || 0);
+      const averageRealizedPrice30d = totalSales30d > 0 && totalRevenue30d > 0 ? totalRevenue30d / totalSales30d : null;
+      const taxRate = row.ml_tax_rate !== null && row.ml_tax_rate !== undefined
+        ? Number(row.ml_tax_rate)
+        : 0.11;
+      const fixedFee = row.fixed_fee !== null && row.fixed_fee !== undefined
+        ? Number(row.fixed_fee)
+        : ((averageRealizedPrice30d ?? price ?? 0) < 79 ? 6 : 0);
+      const costPrice = row.cost_price !== null && row.cost_price !== undefined ? Number(row.cost_price) : 0;
+      const overheadCost = row.overhead_cost !== null && row.overhead_cost !== undefined ? Number(row.overhead_cost) : 0;
       const visits30d = row.visits_30d !== null && row.visits_30d !== undefined ? Number(row.visits_30d) : null;
       const conversionRateRaw = row.conversion_rate_30d !== null && row.conversion_rate_30d !== undefined
         ? Number(row.conversion_rate_30d)
@@ -1244,6 +1278,12 @@ export class MercadoAdsAutomationService {
           : null;
       const cacRaw = row.cac !== null && row.cac !== undefined ? Number(row.cac) : null;
       const cac = Number.isFinite(cacRaw as number) ? (cacRaw as number) : null;
+      const realizedProfitUnit = averageRealizedPrice30d !== null
+        ? averageRealizedPrice30d - (averageRealizedPrice30d * taxRate) - fixedFee - costPrice - overheadCost - Number(cac || 0)
+        : null;
+      const profitUnit = realizedProfitUnit !== null && Number.isFinite(realizedProfitUnit)
+        ? realizedProfitUnit
+        : storedProfitUnit;
       const lifetimeSales = Number(row.sold_quantity || 0);
       const stock = row.available_quantity !== null && row.available_quantity !== undefined ? Number(row.available_quantity) : null;
       const status = row.status ? String(row.status) : null;
@@ -2543,7 +2583,130 @@ export class MercadoAdsAutomationService {
        group by c.id, cv.daily_budget, cv.min_revenue_30d, cv.min_orders_30d, cv.min_roas, cv.min_conversion`,
       [workspaceId],
     );
-    return { campaigns: rows, metrics };
+    const { rows: productRows } = await pool.query<CampaignProductRow>(
+      `select
+         cp.campaign_id,
+         cp.product_id,
+         cp.ml_item_id,
+         cp.ml_ad_id,
+         cp.status as ad_status,
+         prod.id as resolved_product_id,
+         prod.title,
+         prod.sku,
+         prod.price,
+         prod.available_quantity,
+         prod.sales_30d,
+         prod.revenue_30d,
+         prod.visits_30d,
+         prod.conversion_rate_30d,
+         prod.sold_quantity,
+         prod.status as product_status,
+         prod.published_at,
+         prod.created_at
+       from ml_ads_campaign_products cp
+       left join lateral (
+         select
+           p.id,
+           p.title,
+           p.sku,
+           p.price,
+           p.available_quantity,
+           p.sales_30d,
+           p.revenue_30d,
+           p.visits_30d,
+           p.conversion_rate_30d,
+           p.sold_quantity,
+           p.status,
+           p.published_at,
+           p.created_at
+         from products p
+         where p.workspace_id = $1
+           and (
+             p.id = cp.product_id
+             or (cp.product_id is null and cp.ml_item_id is not null and p.ml_item_id = cp.ml_item_id)
+           )
+         order by
+           case when p.id = cp.product_id then 0 else 1 end,
+           p.created_at desc nulls last
+         limit 1
+       ) prod on true
+       where cp.workspace_id = $1
+       order by
+         cp.campaign_id,
+         coalesce(prod.sales_30d, 0) desc,
+         prod.title asc nulls last,
+         cp.ml_item_id asc nulls last`,
+      [workspaceId],
+    );
+
+    const productsByCampaign = new Map<string, Array<{
+      productId: string | null;
+      mlItemId: string | null;
+      mlAdId: string | null;
+      adStatus: string | null;
+      title: string | null;
+      sku: string | null;
+      price: number | null;
+      stock: number | null;
+      totalSales30d: number;
+      totalRevenue30d: number;
+      visits30d: number | null;
+      conversionRate30d: number | null;
+      lifetimeSales: number;
+      status: string | null;
+      publishedAt: string | null;
+      coverageDays: number | null;
+    }>>();
+
+    for (const row of productRows) {
+      const totalSales30d = Number(row.sales_30d || 0);
+      const totalRevenue30d = Number(row.revenue_30d || 0);
+      const stock = row.available_quantity !== null && row.available_quantity !== undefined
+        ? Number(row.available_quantity)
+        : null;
+      const visits30d = row.visits_30d !== null && row.visits_30d !== undefined
+        ? Number(row.visits_30d)
+        : null;
+      const conversionRate30d = row.conversion_rate_30d !== null && row.conversion_rate_30d !== undefined
+        ? Number(row.conversion_rate_30d)
+        : (visits30d !== null ? (visits30d > 0 ? totalSales30d / visits30d : 0) : null);
+      const salesVelocity30d = totalSales30d > 0 ? totalSales30d / 30 : 0;
+      const coverageDays = stock !== null && stock > 0 && salesVelocity30d > 0
+        ? stock / salesVelocity30d
+        : null;
+      const publishedAtRaw = row.published_at || row.created_at || null;
+
+      const nextProduct = {
+        productId: row.product_id || row.resolved_product_id || null,
+        mlItemId: row.ml_item_id || null,
+        mlAdId: row.ml_ad_id || null,
+        adStatus: row.ad_status || null,
+        title: row.title || null,
+        sku: row.sku || null,
+        price: row.price !== null && row.price !== undefined ? Number(row.price) : null,
+        stock,
+        totalSales30d,
+        totalRevenue30d,
+        visits30d,
+        conversionRate30d,
+        lifetimeSales: Number(row.sold_quantity || 0),
+        status: row.product_status || null,
+        publishedAt: publishedAtRaw ? new Date(publishedAtRaw).toISOString() : null,
+        coverageDays,
+      };
+
+      const currentProducts = productsByCampaign.get(row.campaign_id) || [];
+      currentProducts.push(nextProduct);
+      productsByCampaign.set(row.campaign_id, currentProducts);
+    }
+
+    return {
+      campaigns: rows.map((row) => ({
+        ...row,
+        products: productsByCampaign.get(row.id) || [],
+      })),
+      metrics,
+    };
   }
 
   async getCampaignMetrics(workspaceId: string, range?: { dateFrom: string; dateTo: string }) {

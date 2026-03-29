@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   BadgeDollarSign,
   CheckCheck,
   ExternalLink,
@@ -10,8 +11,6 @@ import {
   Search,
   ShoppingCart,
   Sparkles,
-  Store,
-  Truck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/hooks/useWorkspace';
@@ -27,10 +26,12 @@ import {
   type MercadoLivreCatalogSourcingMatch,
 } from '@/hooks/useMercadoLivre';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -147,6 +148,12 @@ export default function MercadoLivreCatalogSourcing() {
   const [supplierName, setSupplierName] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewRows, setPreviewRows] = useState<ParsedCatalogRow[]>([]);
+  const [previewSearch, setPreviewSearch] = useState('');
+  const [previewMode, setPreviewMode] = useState<'spreadsheet' | 'pdf_text' | 'pdf_ocr' | null>(null);
+  const [enableScannedPdfConversion, setEnableScannedPdfConversion] = useState(true);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [fileReadStatus, setFileReadStatus] = useState<string | null>(null);
+  const [fileReadError, setFileReadError] = useState<string | null>(null);
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
   const [simulator, setSimulator] = useState<SimulatorState>(simulatorDefaults);
   const [rowFilter, setRowFilter] = useState<'all' | 'with_margin' | 'approved' | 'no_match'>('all');
@@ -204,6 +211,37 @@ export default function MercadoLivreCatalogSourcing() {
 
   const approvedRows = useMemo(() => rows.filter((row) => row.approvedForPurchase), [rows]);
 
+  const filteredPreviewRows = useMemo(() => {
+    const normalizedSearch = previewSearch.trim().toLowerCase();
+    if (!normalizedSearch) return previewRows;
+
+    return previewRows.filter((row) => {
+      const haystack = [
+        row.productName,
+        row.supplierSku,
+        row.categoryHint,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [previewRows, previewSearch]);
+
+  const previewSummary = useMemo(() => {
+    const withSku = previewRows.filter((row) => row.supplierSku).length;
+    const averageCost = previewRows.length
+      ? previewRows.reduce((sum, row) => sum + (row.costPrice || 0), 0) / previewRows.length
+      : 0;
+
+    return {
+      total: previewRows.length,
+      withSku,
+      averageCost,
+    };
+  }, [previewRows]);
+
   const liveSummary = useMemo(() => {
     const positive = rows.filter((row) => row.estimatedProfit > 0);
     const averageMargin = positive.length
@@ -216,24 +254,50 @@ export default function MercadoLivreCatalogSourcing() {
     };
   }, [rows, topOpportunities]);
 
-  const handleFileChange = async (file: File | null) => {
-    setSelectedFile(file);
-    if (!file) {
-      setPreviewRows([]);
-      return;
-    }
+  const processCatalogFile = async (file: File) => {
+    setIsReadingFile(true);
+    setFileReadError(null);
+    setFileReadStatus('Lendo catálogo...');
+
     try {
-      const rowsParsed = await parseCatalogFile(file);
-      setPreviewRows(rowsParsed);
+      const parsed = await parseCatalogFile(file, {
+        enableOcrFallback: enableScannedPdfConversion,
+        onProgress: (progress) => setFileReadStatus(progress.message),
+      });
+      setPreviewRows(parsed.rows);
+      setPreviewMode(parsed.mode);
+      setFileReadError(null);
       if (!supplierName) {
         const suggestedSupplier = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
         setSupplierName(suggestedSupplier);
       }
-      toast.success(`${rowsParsed.length} itens lidos do catálogo.`);
+
+      if (parsed.mode === 'pdf_ocr') {
+        toast.success(`${parsed.rows.length} itens lidos do catálogo com conversão automática do PDF escaneado.`);
+      } else {
+        toast.success(`${parsed.rows.length} itens lidos do catálogo.`);
+      }
     } catch (error: any) {
+      const message = error.message || 'Não foi possível ler o catálogo.';
       setPreviewRows([]);
-      toast.error(error.message || 'Não foi possível ler o catálogo.');
+      setPreviewMode(null);
+      setFileReadError(message);
+      toast.error(message);
+    } finally {
+      setIsReadingFile(false);
     }
+  };
+
+  const handleFileChange = async (file: File | null) => {
+    setSelectedFile(file);
+    if (!file) {
+      setPreviewRows([]);
+      setPreviewMode(null);
+      setFileReadStatus(null);
+      setFileReadError(null);
+      return;
+    }
+    await processCatalogFile(file);
   };
 
   const handleImportCatalog = async () => {
@@ -258,6 +322,40 @@ export default function MercadoLivreCatalogSourcing() {
       toast.success('Catálogo importado com sucesso.');
     } catch (error: any) {
       toast.error(error.message || 'Falha ao importar o catálogo.');
+    }
+  };
+
+  const handleImportAndAnalyzeCatalog = async () => {
+    if (!selectedFile || !previewRows.length) {
+      toast.error('Selecione um catálogo válido antes de analisar.');
+      return;
+    }
+    if (!supplierName.trim()) {
+      toast.error('Informe o nome do fornecedor.');
+      return;
+    }
+
+    try {
+      const created = await createImportMutation.mutateAsync({
+        workspaceId,
+        supplierName: supplierName.trim(),
+        sourceFileName: selectedFile.name,
+        sourceType: getCatalogSourceType(selectedFile.name),
+        rows: previewRows,
+      });
+
+      const createdImportId = created.import.id;
+      setSelectedImportId(createdImportId);
+
+      await analyzeImportMutation.mutateAsync({
+        importId: createdImportId,
+        limit: 12,
+        matchesPerItem: 3,
+      });
+
+      toast.success('Catálogo importado e analisado com sucesso.');
+    } catch (error: any) {
+      toast.error(error.message || 'Falha ao importar e analisar o catálogo.');
     }
   };
 
@@ -314,13 +412,13 @@ export default function MercadoLivreCatalogSourcing() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
               <Sparkles className="h-3.5 w-3.5" />
-              Sourcing de catálogo
+              Pesquisa por catálogo
             </div>
             <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-950">
-              Transforme o catálogo do fornecedor em shortlist de compra para o Full
+              Suba o PDF do fornecedor, gere a tabela e compare com o Mercado Livre
             </h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-              Importe uma planilha, gere buscas sugeridas, encontre poucos matches oficiais do Mercado Livre e veja a margem item a item antes de decidir o que comprar.
+              A tela agora começa pelo que interessa: ler o catálogo, separar os produtos em tabela, abrir a busca no Mercado Livre e estimar margem antes de decidir o que comprar para revender.
             </p>
           </div>
           <div className="grid gap-3 rounded-3xl border border-slate-200/80 bg-white/90 p-4 shadow-sm sm:grid-cols-3 lg:w-[540px]">
@@ -337,9 +435,9 @@ export default function MercadoLivreCatalogSourcing() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-2xl font-black">
                 <FileSpreadsheet className="h-6 w-6 text-blue-600" />
-                Importar catálogo
+                Upload do catálogo
               </CardTitle>
-              <CardDescription>Use `xlsx`, `xls`, `csv` ou PDF textual. O parser tenta mapear SKU, produto, custo e categoria.</CardDescription>
+              <CardDescription>Use `xlsx`, `xls`, `csv` ou PDF. Se o PDF for escaneado, a tela pode tentar converter automaticamente com OCR antes de montar a tabela.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -352,30 +450,89 @@ export default function MercadoLivreCatalogSourcing() {
                 <Input
                   type="file"
                   accept=".xlsx,.xls,.csv,.pdf,application/pdf"
+                  disabled={isReadingFile}
                   onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
                 />
-                <p className="text-xs text-slate-500">PDF agora e aceito quando tiver texto selecionavel. PDF escaneado ainda precisa ser convertido para planilha.</p>
+                <p className="text-xs text-slate-500">PDF com texto selecionável entra direto. PDF escaneado pode ser convertido automaticamente se a opção abaixo estiver ligada.</p>
+              </div>
+
+              <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
+                <div className="space-y-1">
+                  <Label htmlFor="catalog-ocr-toggle" className="text-sm font-semibold text-slate-900">
+                    Converter PDF escaneado automaticamente
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Usa OCR quando o PDF não tiver texto selecionável ou quando a extração normal não conseguir separar os itens.
+                  </p>
+                </div>
+                <Switch
+                  id="catalog-ocr-toggle"
+                  checked={enableScannedPdfConversion}
+                  onCheckedChange={setEnableScannedPdfConversion}
+                  disabled={isReadingFile}
+                />
               </div>
 
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">
-                {selectedFile ? (
+                {isReadingFile ? (
+                  <div className="flex items-start gap-3">
+                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-blue-600" />
+                    <div className="space-y-1">
+                      <p className="font-semibold text-slate-900">Processando arquivo</p>
+                      <p>{fileReadStatus || 'Lendo catálogo...'}</p>
+                    </div>
+                  </div>
+                ) : fileReadError ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <p className="font-semibold text-slate-900">{selectedFile?.name}</p>
+                      <p className="text-rose-600">{fileReadError}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl"
+                      onClick={() => selectedFile && processCatalogFile(selectedFile)}
+                    >
+                      Tentar extrair novamente
+                    </Button>
+                  </div>
+                ) : selectedFile ? (
                   <div className="space-y-1">
                     <p className="font-semibold text-slate-900">{selectedFile.name}</p>
-                    <p>{previewRows.length} itens prontos para importar.</p>
+                    <p>{previewRows.length} itens extraídos do catálogo.</p>
+                    {previewMode === 'pdf_ocr' ? (
+                      <p className="text-xs font-semibold text-emerald-700">PDF escaneado convertido automaticamente por OCR.</p>
+                    ) : null}
+                    {previewMode === 'pdf_text' ? (
+                      <p className="text-xs text-slate-500">Leitura feita pelo texto nativo do PDF.</p>
+                    ) : null}
                   </div>
                 ) : (
-                  <p>Selecione a planilha ou PDF do fornecedor para gerar a fila de sourcing.</p>
+                  <p>Selecione a planilha ou PDF do fornecedor para montar a tabela de produtos.</p>
                 )}
               </div>
 
-              <Button
-                className="w-full rounded-2xl"
-                onClick={handleImportCatalog}
-                disabled={createImportMutation.isPending || !previewRows.length}
-              >
-                {createImportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
-                Importar catálogo
-              </Button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  className="rounded-2xl"
+                  onClick={handleImportAndAnalyzeCatalog}
+                  disabled={isReadingFile || Boolean(fileReadError) || createImportMutation.isPending || analyzeImportMutation.isPending || !previewRows.length}
+                >
+                  {createImportMutation.isPending || analyzeImportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                  Importar e analisar
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={handleImportCatalog}
+                  disabled={isReadingFile || Boolean(fileReadError) || createImportMutation.isPending || analyzeImportMutation.isPending || !previewRows.length}
+                >
+                  {createImportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
+                  Só importar
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -453,14 +610,114 @@ export default function MercadoLivreCatalogSourcing() {
         </div>
 
         <div className="space-y-6">
+          {fileReadError && selectedFile ? (
+            <Alert variant="destructive" className="rounded-[24px] border-rose-200 bg-rose-50 text-rose-900">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Não consegui extrair os produtos do PDF</AlertTitle>
+              <AlertDescription>
+                <p>{fileReadError}</p>
+                <p className="mt-2">
+                  Arquivo: <span className="font-semibold">{selectedFile.name}</span>
+                </p>
+                <p className="mt-2">
+                  Se quiser, eu deixei o botão `Tentar extrair novamente` no card de upload. Se mesmo assim falhar, esse PDF provavelmente está difícil demais para OCR automático.
+                </p>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {previewRows.length ? (
+            <Card className="rounded-[30px] border-slate-200/80 shadow-sm">
+              <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <CardTitle className="text-2xl font-black">Tabela extraída do catálogo</CardTitle>
+                  <CardDescription>
+                    Revise os itens lidos do arquivo e abra a busca manual no Mercado Livre antes mesmo de importar.
+                  </CardDescription>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <SummaryMetric label="Itens lidos" value={formatNumber(previewSummary.total)} helper="Linhas extraídas" />
+                  <SummaryMetric label="Com SKU" value={formatNumber(previewSummary.withSku)} helper="Identificados no parser" />
+                  <SummaryMetric label="Custo médio" value={formatCurrency(previewSummary.averageCost)} helper="Base fornecedor" />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="max-w-md space-y-2">
+                  <Label>Filtrar itens extraídos</Label>
+                  <Input
+                    value={previewSearch}
+                    onChange={(e) => setPreviewSearch(e.target.value)}
+                    placeholder="Buscar por nome, SKU ou categoria"
+                  />
+                </div>
+
+                <div className="overflow-hidden rounded-3xl border border-slate-200/80">
+                  <ScrollArea className="h-[380px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/90">
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Produto</TableHead>
+                          <TableHead>Custo</TableHead>
+                          <TableHead>Categoria</TableHead>
+                          <TableHead>Busca sugerida</TableHead>
+                          <TableHead className="text-right">Ação</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredPreviewRows.map((row, index) => {
+                          const searchQuery = row.productName.trim();
+
+                          return (
+                            <TableRow key={`${row.supplierSku || row.productName}-${index}`}>
+                              <TableCell className="align-top text-sm text-slate-500">{row.supplierSku || '—'}</TableCell>
+                              <TableCell className="align-top">
+                                <div className="max-w-[280px]">
+                                  <p className="font-semibold text-slate-950">{row.productName}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell className="align-top font-semibold">{formatCurrency(row.costPrice)}</TableCell>
+                              <TableCell className="align-top text-sm text-slate-500">{row.categoryHint || '—'}</TableCell>
+                              <TableCell className="align-top">
+                                <p className="max-w-[260px] truncate text-sm text-slate-700">{searchQuery}</p>
+                              </TableCell>
+                              <TableCell className="align-top text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl"
+                                  onClick={() => window.open(buildMlSearchUrl(searchQuery), '_blank', 'noopener,noreferrer')}
+                                >
+                                  Buscar no ML
+                                  <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredPreviewRows.length ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                              Nenhum item encontrado nesse filtro.
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {!selectedImportId ? (
             <Card className="rounded-[32px] border-slate-200/80 shadow-sm">
               <CardContent className="flex min-h-[420px] items-center justify-center">
                 <div className="max-w-xl text-center">
                   <PackageSearch className="mx-auto h-12 w-12 text-blue-500" />
-                  <h2 className="mt-4 text-2xl font-black text-slate-950">Selecione ou importe um catálogo</h2>
+                  <h2 className="mt-4 text-2xl font-black text-slate-950">Envie um catálogo para começar</h2>
                   <p className="mt-2 text-slate-600">
-                    Depois da importação, a plataforma cria a fila de sourcing, sugere poucos matches oficiais do Mercado Livre e calcula a margem produto por produto.
+                    Depois do upload, a plataforma separa os produtos em tabela, sugere buscas no Mercado Livre e calcula a margem produto por produto.
                   </p>
                 </div>
               </CardContent>

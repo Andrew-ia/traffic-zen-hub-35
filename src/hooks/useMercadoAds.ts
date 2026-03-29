@@ -21,6 +21,24 @@ type MercadoAdsCampaign = {
   avg_revenue?: number;
   last_synced_at?: string | null;
   last_automation_at?: string | null;
+  products?: Array<{
+    productId: string | null;
+    mlItemId: string | null;
+    mlAdId: string | null;
+    adStatus: string | null;
+    title: string | null;
+    sku: string | null;
+    price: number | null;
+    stock: number | null;
+    totalSales30d: number;
+    totalRevenue30d: number;
+    visits30d: number | null;
+    conversionRate30d: number | null;
+    lifetimeSales: number;
+    status: string | null;
+    publishedAt: string | null;
+    coverageDays: number | null;
+  }>;
 };
 
 type MercadoAdsCurve = {

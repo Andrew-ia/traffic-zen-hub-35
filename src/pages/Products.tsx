@@ -20,15 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Dialog,
     DialogContent,
@@ -63,7 +55,12 @@ import {
     Info,
     DownloadCloud,
     FileText,
-    RefreshCw
+    RefreshCw,
+    Calendar,
+    Image,
+    Video,
+    Store,
+    Tag
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
@@ -79,10 +76,16 @@ export default function Products() {
     const [search, setSearch] = useState("");
     const debouncedSearch = useDebounce(search, 500);
     const [categoryFilter, setCategoryFilter] = useState<string>("all");
+    const [segmentFilter, setSegmentFilter] = useState<"all" | "active" | "paused" | "closed" | "full" | "catalog">("all");
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
     const [pdfFormat, setPdfFormat] = useState<"a4" | "10x15">("a4");
-    const [priceDialog, setPriceDialog] = useState<{ id: string; title: string; price: number } | null>(null);
+    const [priceDialog, setPriceDialog] = useState<{
+        id: string;
+        title: string;
+        price: number;
+        storefrontPrice: number;
+    } | null>(null);
     const [priceDraft, setPriceDraft] = useState("");
     const [costDraft, setCostDraft] = useState("");
     const [toggleDialog, setToggleDialog] = useState<{ id: string; title: string; nextStatus: "active" | "paused" } | null>(null);
@@ -94,7 +97,7 @@ export default function Products() {
         error,
         refetch,
         isFetching
-    } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch);
+    } = useMercadoLivreProducts(workspaceId, "all", debouncedSearch, { statuses: "all" });
     const updatePriceMutation = useUpdateMercadoLivrePrice();
     const updatePricingControlMutation = useUpdateMercadoLivrePricingControl();
     const toggleStatusMutation = useToggleMercadoLivreProduct();
@@ -115,16 +118,49 @@ export default function Products() {
         return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
     }, [productsData]);
 
+    const listingCounts = useMemo(() => {
+        const base = productsData?.items || [];
+        return {
+            all: base.length,
+            active: base.filter((product: any) => product.status === "active").length,
+            paused: base.filter((product: any) => product.status === "paused").length,
+            closed: base.filter((product: any) => product.status === "closed").length,
+            full: base.filter((product: any) => product.isFull).length,
+            catalog: base.filter((product: any) => product.catalog_listing || product.catalog_product_id).length,
+        };
+    }, [productsData]);
+
     const filteredProducts = productsData?.items?.filter((product: any) => {
-        const matchesSearch = debouncedSearch 
-            ? true 
-            : (product.title?.toLowerCase().includes(search.toLowerCase()) ||
-               product.id?.toLowerCase().includes(search.toLowerCase()));
+        const normalizedSearch = debouncedSearch.trim().toLowerCase();
+        const matchesSearch = !normalizedSearch || [
+            product.title,
+            product.id,
+            product.sku,
+            product.category_name,
+            product.category_path,
+        ]
+            .filter(Boolean)
+            .some((value: string) => String(value).toLowerCase().includes(normalizedSearch));
 
         const productCategory = String(product.category || "").trim();
         const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
 
-        return matchesSearch && matchesCategory;
+        const matchesSegment = (() => {
+            switch (segmentFilter) {
+                case "active":
+                case "paused":
+                case "closed":
+                    return product.status === segmentFilter;
+                case "full":
+                    return Boolean(product.isFull);
+                case "catalog":
+                    return Boolean(product.catalog_listing || product.catalog_product_id);
+                default:
+                    return true;
+            }
+        })();
+
+        return matchesSearch && matchesCategory && matchesSegment;
     }) || [];
 
     const totalProducts = filteredProducts.length;
@@ -157,6 +193,32 @@ export default function Products() {
             default:
                 return { label: "Sem custo", className: "bg-slate-100 text-slate-700 border-slate-200" };
         }
+    };
+
+    const getRiskExplanation = (pricingSummary: any) => {
+        if (!pricingSummary) {
+            return "Resumo de precificação indisponível.";
+        }
+
+        const reasons = Array.isArray(pricingSummary.riskReasons) ? pricingSummary.riskReasons : [];
+
+        if (!pricingSummary.costConfigured || reasons.includes("cost_missing")) {
+            return "Sem custo configurado. Configure o custo para liberar a margem real.";
+        }
+
+        if (reasons.includes("unit_loss")) {
+            return "Risco alto: prejuízo unitário no preço atual.";
+        }
+
+        if (reasons.includes("ads_net_loss_30d")) {
+            return "Risco alto: Ads 30d no negativo. O anúncio dá lucro por unidade, mas os anúncios pagos consumiram mais do que geraram.";
+        }
+
+        if (reasons.includes("ads_limit_exceeded")) {
+            return "Risco médio: gasto diário de ads acima do limite configurado.";
+        }
+
+        return "Margem unitária positiva no preço atual.";
     };
 
     const parsePrice = (value: string) => {
@@ -246,6 +308,112 @@ export default function Products() {
         if (product.shipping?.free_shipping) parts.push("Frete grátis");
         return parts.join(" • ");
     };
+
+    const formatPercent = (value: number | undefined | null, digits = 1) => {
+        const normalized = Number(value || 0);
+        return `${normalized.toFixed(digits)}%`;
+    };
+
+    const getBasePrice = (product: any) => {
+        const value = Number(product.base_price ?? product.price ?? 0);
+        return Number.isFinite(value) ? value : 0;
+    };
+
+    const getStorefrontPrice = (product: any) => {
+        const salePrice = Number(product.sale_price);
+        if (Number.isFinite(salePrice) && salePrice > 0) {
+            return salePrice;
+        }
+
+        return getBasePrice(product);
+    };
+
+    const getPromotionMeta = (product: any) => {
+        const currentPrice = getStorefrontPrice(product);
+        const originalCandidates = [
+            Number(product.sale_price_regular_amount || 0),
+            Number(product.original_price || 0),
+        ];
+        const originalPrice = originalCandidates.find((value) => Number.isFinite(value) && value > currentPrice) || 0;
+        if (!Number.isFinite(originalPrice) || !Number.isFinite(currentPrice) || originalPrice <= currentPrice || currentPrice <= 0) {
+            return null;
+        }
+
+        const discountPct = ((originalPrice - currentPrice) / originalPrice) * 100;
+        return {
+            originalPrice,
+            currentPrice,
+            discountPct,
+        };
+    };
+
+    const getNetReceivedAmount = (product: any) => {
+        const pricingSummary = product?.pricing_summary;
+        const summaryValue = Number(pricingSummary?.netReceivedBeforeCompanyTax);
+        if (Number.isFinite(summaryValue) && summaryValue >= 0) {
+            return summaryValue;
+        }
+
+        if (!pricingSummary) {
+            return null;
+        }
+
+        const storefrontPrice = getStorefrontPrice(product);
+        const mlFeeRate = Number(pricingSummary.mlFeeRate || 0);
+        const paymentFeeRate = Number(pricingSummary.paymentFeeRate || 0);
+        const fixedFee = Number(pricingSummary.fixedFee || 0);
+        const variableRate = mlFeeRate + paymentFeeRate;
+
+        if (!Number.isFinite(storefrontPrice) || storefrontPrice <= 0) {
+            return null;
+        }
+
+        return Math.max(0, (storefrontPrice * (1 - variableRate)) - fixedFee);
+    };
+
+    const formatRelativeAge = (value?: string | null) => {
+        if (!value) return "Sem data";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return "Sem data";
+        const diffMs = Date.now() - parsed.getTime();
+        const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+        if (diffDays === 0) return "Criado hoje";
+        if (diffDays === 1) return "Criado há 1 dia";
+        return `Criado há ${formatNumber(diffDays)} dias`;
+    };
+
+    const isCatalogListing = (product: any) => Boolean(product.catalog_listing || product.catalog_product_id);
+
+    const getShippingLine = (product: any) => {
+        if (product.shipping?.free_shipping) return "Frete grátis";
+        if (product.shipping?.mode) return `Frete via ${product.shipping.mode}`;
+        return "Frete por conta do comprador";
+    };
+
+    const getChannelLabels = (channels?: string[]) => {
+        const values = Array.isArray(channels) ? channels : [];
+        if (!values.length) return ["Marketplace"];
+
+        return values.map((channel) => {
+            const normalized = String(channel || "").toLowerCase();
+            if (normalized === "mshops") return "MShops";
+            if (normalized === "marketplace") return "Marketplace";
+            return channel;
+        });
+    };
+
+    const segmentOptions: Array<{
+        key: "all" | "active" | "paused" | "closed" | "full" | "catalog";
+        label: string;
+        count: number;
+    }> = [
+        { key: "all", label: "Todos", count: listingCounts.all },
+        { key: "active", label: "Ativos", count: listingCounts.active },
+        { key: "paused", label: "Pausados", count: listingCounts.paused },
+        { key: "closed", label: "Fechados", count: listingCounts.closed },
+        { key: "full", label: "Full", count: listingCounts.full },
+        { key: "catalog", label: "Catálogo", count: listingCounts.catalog },
+    ];
 
     const handleExportPurchaseList = () => {
         const items = filteredProducts.map((p: any) => ({
@@ -389,12 +557,14 @@ export default function Products() {
 
     const handleOpenPriceDialog = (product: any) => {
         hydratedCostDialogRef.current = null;
+        const basePrice = getBasePrice(product);
         setPriceDialog({
             id: product.id,
             title: product.title,
-            price: Number(product.price || 0),
+            price: basePrice,
+            storefrontPrice: getStorefrontPrice(product),
         });
-        setPriceDraft(String(product.price || ""));
+        setPriceDraft(String(basePrice || ""));
         setCostDraft("");
     };
 
@@ -658,17 +828,31 @@ export default function Products() {
                 </Card>
             </div>
 
-            {/* Alertas de estoque */}
-            <LowStockAlerts
-                products={productsData?.items || []}
-                loading={isLoading}
-                threshold={5}
-            />
-
             {/* Filters & Search */}
             <Card className="bg-card/50 backdrop-blur-sm">
                 <CardContent className="p-4">
-                    <div className="flex flex-col md:flex-row md:items-center gap-3">
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                            {segmentOptions.map((option) => (
+                                <Button
+                                    key={option.key}
+                                    type="button"
+                                    variant={segmentFilter === option.key ? "default" : "outline"}
+                                    className="h-9 rounded-full"
+                                    onClick={() => {
+                                        setSegmentFilter(option.key);
+                                        setCurrentPage(1);
+                                    }}
+                                >
+                                    {option.label}
+                                    <Badge variant="secondary" className="ml-2 h-5 rounded-full px-1.5 text-[10px]">
+                                        {formatNumber(option.count)}
+                                    </Badge>
+                                </Button>
+                            ))}
+                        </div>
+
+                        <div className="flex flex-col md:flex-row md:items-center gap-3">
                         <div className="relative flex-1 max-w-md">
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -702,6 +886,10 @@ export default function Products() {
                                 </SelectContent>
                             </Select>
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                            {formatNumber(totalProducts)} anúncios na visualização atual
+                        </div>
+                    </div>
                     </div>
                 </CardContent>
             </Card>
@@ -745,260 +933,281 @@ export default function Products() {
                         </div>
                     ) : (
                         <ScrollArea className="h-[calc(100vh-350px)] w-full">
-                            <div className="min-w-[1520px]"> {/* Horizontal scroll */}
-                                <Table>
-                                    <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
-                                        <TableRow className="hover:bg-muted/50">
-                                            <TableHead className="w-[70px] pl-4">Img</TableHead>
-                                            <TableHead className="w-[300px]">Produto / Categoria</TableHead>
-                                            <TableHead className="w-[100px]">Status</TableHead>
-                                            <TableHead className="w-[120px] text-right">Preço</TableHead>
-                                            <TableHead className="w-[120px] text-right">Custo</TableHead>
-                                            <TableHead className="w-[100px] text-right">Estoque</TableHead>
-                                            <TableHead className="w-[100px] text-right">Vendas</TableHead>
-                                            <TableHead className="w-[100px] text-right">Receita</TableHead>
-                                            <TableHead className="w-[160px] text-right">Lucro estimado</TableHead>
-                                            <TableHead className="w-[170px]">Risco</TableHead>
-                                            <TableHead className="w-[100px] text-right">Visitas</TableHead>
-                                            <TableHead className="w-[200px]">Tipo / Logística</TableHead>
-                                            <TableHead className="w-[240px] text-center pr-4">Ações</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {paginatedProducts.map((product: any) => {
-                                            const sortedAttributes = getSortedAttributes(product.attributes);
-                                            const mlLink = product.permalink ||
-                                                (product.id ? `https://produto.mercadolivre.com.br/MLB-${product.id.replace(/^MLB/, '')}` : '#');
-                                            const pricingSummary = product.pricing_summary;
-                                            const riskMeta = getPricingRiskMeta(pricingSummary?.riskLevel);
+                            <div className="space-y-3 p-4">
+                                {paginatedProducts.map((product: any) => {
+                                    const sortedAttributes = getSortedAttributes(product.attributes);
+                                    const mlLink = product.permalink ||
+                                        (product.id ? `https://produto.mercadolivre.com.br/MLB-${product.id.replace(/^MLB/, '')}` : '#');
+                                    const pricingSummary = product.pricing_summary;
+                                    const riskMeta = getPricingRiskMeta(pricingSummary?.riskLevel);
+                                    const channels = getChannelLabels(product.channels);
+                                    const promotionMeta = getPromotionMeta(product);
+                                    const storefrontPrice = getStorefrontPrice(product);
+                                    const basePrice = getBasePrice(product);
+                                    const netReceivedAmount = getNetReceivedAmount(product);
+                                    const hasStorefrontDifference = Math.abs(storefrontPrice - basePrice) > 0.0001;
 
-                                            return (
-                                                <Dialog key={product.id}>
-                                                    <TableRow className="hover:bg-muted/30 transition-colors group">
-                                                        {/* Img */}
-                                                        <TableCell className="pl-4 py-3 align-middle">
-                                                            <div className="h-12 w-12 rounded-md overflow-hidden border bg-white">
-                                                                {product.thumbnail ? (
-                                                                    <img
-                                                                        src={product.thumbnail}
-                                                                        alt={product.title}
-                                                                        className="h-full w-full object-cover"
-                                                                    />
-                                                                ) : (
-                                                                    <Package className="h-full w-full p-2 text-muted-foreground" />
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-
-                                                        {/* Produto / Categoria */}
-                                                        <TableCell className="align-middle">
-                                                            <div className="space-y-1">
-                                                                <div className="font-medium text-sm line-clamp-2" title={product.title}>
-                                                                    {product.title}
-                                                                </div>
-                                                                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                                                                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal">
-                                                                        {getCategoryDisplay(product)}
-                                                                    </Badge>
-
-                                                                    <span className="text-border mx-1">|</span>
-
-                                                                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-mono">
-                                                                        {product.id}
-                                                                    </Badge>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="h-5 w-5 hover:bg-muted"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            copyToClipboard(product.id, "MLB ID");
-                                                                        }}
-                                                                        title="Copiar MLB ID"
-                                                                    >
-                                                                        <Copy className="h-2.5 w-2.5 text-muted-foreground" />
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        </TableCell>
-
-                                                        {/* Status */}
-                                                        <TableCell className="align-middle">
-                                                            {getStatusBadge(product.status)}
-                                                        </TableCell>
-
-                                                        {/* Preço */}
-                                                        <TableCell className="text-right align-middle font-semibold">
-                                                            {formatCurrency(product.price)}
-                                                        </TableCell>
-
-                                                        {/* Custo */}
-                                                        <TableCell className="text-right align-middle">
-                                                            {pricingSummary?.costConfigured && pricingSummary.costPrice != null ? (
-                                                                <div className="font-semibold text-slate-700">
-                                                                    {formatCurrency(pricingSummary.costPrice)}
-                                                                </div>
+                                    return (
+                                        <Dialog key={product.id}>
+                                            <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition hover:border-primary/30 hover:shadow-md">
+                                                <div className="grid gap-4 xl:grid-cols-[96px,minmax(0,1fr)]">
+                                                    <div className="space-y-2">
+                                                        <div className="h-24 w-24 overflow-hidden rounded-2xl border bg-white">
+                                                            {product.thumbnail ? (
+                                                                <img
+                                                                    src={product.thumbnail}
+                                                                    alt={product.title}
+                                                                    className="h-full w-full object-cover"
+                                                                />
                                                             ) : (
-                                                                <Badge variant="outline" className="text-[10px]">
-                                                                    Sem custo
-                                                                </Badge>
+                                                                <Package className="h-full w-full p-5 text-muted-foreground" />
                                                             )}
-                                                        </TableCell>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {isCatalogListing(product) ? <Badge className="bg-sky-100 text-sky-700 hover:bg-sky-100">Catálogo</Badge> : null}
+                                                            {product.isFull ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Full</Badge> : null}
+                                                            {product.shipping?.free_shipping ? <Badge variant="secondary">Frete grátis</Badge> : null}
+                                                        </div>
+                                                    </div>
 
-                                                        {/* Estoque */}
-                                                        <TableCell className="text-right align-middle">
-                                                            <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="font-mono">
-                                                                {formatNumber(product.stock)}
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-3">
+                                                            <div className="space-y-2">
+                                                                <div className="flex flex-wrap items-start gap-2">
+                                                                    <h3 className="text-base font-semibold leading-6 text-foreground">{product.title}</h3>
+                                                                    {getStatusBadge(product.status)}
+                                                                    {product.official_store_id ? <Badge variant="secondary">Loja oficial</Badge> : null}
+                                                                </div>
+                                                                <p className="text-sm text-muted-foreground">
+                                                                    {product.category_path || getCategoryDisplay(product)}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="rounded-2xl border bg-muted/20 p-4">
+                                                                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr),repeat(4,minmax(0,180px))]">
+                                                                    <div className="rounded-2xl border bg-background p-4">
+                                                                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Preço de vitrine</div>
+                                                                        <div className="mt-1 text-4xl font-bold leading-none text-foreground">{formatCurrency(storefrontPrice)}</div>
+                                                                        {promotionMeta ? (
+                                                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                                                                                <span className="text-muted-foreground line-through">
+                                                                                    {formatCurrency(promotionMeta.originalPrice)}
+                                                                                </span>
+                                                                                <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">
+                                                                                    Promoção {formatPercent(promotionMeta.discountPct, 1)}
+                                                                                </Badge>
+                                                                            </div>
+                                                                        ) : null}
+                                                                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                                                            {hasStorefrontDifference ? (
+                                                                                <span>Preço-base no anúncio: {formatCurrency(basePrice)}</span>
+                                                                            ) : null}
+                                                                            <span>{getShippingLine(product)}</span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="rounded-xl border bg-background p-3">
+                                                                        <div className="text-xs text-muted-foreground">Custo</div>
+                                                                        <div className="mt-1 font-semibold">
+                                                                            {pricingSummary?.costConfigured && pricingSummary.costPrice != null
+                                                                                ? formatCurrency(pricingSummary.costPrice)
+                                                                                : "Sem custo"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="rounded-xl border bg-background p-3">
+                                                                        <div className="text-xs text-muted-foreground">Recebido</div>
+                                                                        <div className="mt-1 font-semibold text-sky-700">
+                                                                            {netReceivedAmount != null ? formatCurrency(netReceivedAmount) : "N/D"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="rounded-xl border bg-background p-3">
+                                                                        <div className="text-xs text-muted-foreground">Lucro / un</div>
+                                                                        <div className={`mt-1 font-semibold ${(pricingSummary?.profitPerUnitCurrentPrice ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                                                                            {pricingSummary?.profitPerUnitCurrentPrice != null
+                                                                                ? formatCurrency(pricingSummary.profitPerUnitCurrentPrice)
+                                                                                : "N/D"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="rounded-xl border bg-background p-3">
+                                                                        <div className="text-xs text-muted-foreground">Margem</div>
+                                                                        <div className="mt-1 font-semibold">
+                                                                            {pricingSummary?.marginCurrentPrice != null
+                                                                                ? formatPercent(pricingSummary.marginCurrentPrice * 100, 1)
+                                                                                : "N/D"}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex flex-wrap gap-2 text-xs">
+                                                            <Badge variant="outline" className="gap-1">
+                                                                <Tag className="h-3 w-3" />
+                                                                MLB {product.id}
                                                             </Badge>
-                                                        </TableCell>
+                                                            {product.sku ? (
+                                                                <Badge variant="outline" className="gap-1">
+                                                                    SKU {product.sku}
+                                                                </Badge>
+                                                            ) : null}
+                                                            <Badge variant="outline" className="gap-1">
+                                                                <Calendar className="h-3 w-3" />
+                                                                {formatRelativeAge(product.date_created)}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="gap-1">
+                                                                Tarifa ML {formatPercent((pricingSummary?.mlFeeRate || 0) * 100, 2)}
+                                                            </Badge>
+                                                            {pricingSummary?.fixedFee ? (
+                                                                <Badge variant="outline">
+                                                                    Taxa fixa {formatCurrency(pricingSummary.fixedFee)}
+                                                                </Badge>
+                                                            ) : null}
+                                                        </div>
 
-                                                        {/* Vendas */}
-                                                        <TableCell className="text-right align-middle">
-                                                            <div className="flex items-center justify-end gap-1 text-green-600 font-medium">
-                                                                <TrendingUp className="h-3 w-3" />
-                                                                {formatNumber(product.sales || 0)}
-                                                            </div>
-                                                        </TableCell>
-
-                                                        {/* Receita */}
-                                                        <TableCell className="text-right align-middle text-emerald-600 font-semibold">
-                                                            {formatCurrency(product.revenue || 0)}
-                                                        </TableCell>
-
-                                                        {/* Lucro estimado */}
-                                                        <TableCell className="text-right align-middle">
-                                                            {!pricingSummary ? (
-                                                                <span className="text-xs text-muted-foreground">N/D</span>
-                                                            ) : !pricingSummary.costConfigured ? (
-                                                                <Badge variant="outline" className="text-[10px]">Sem custo</Badge>
-                                                            ) : (
-                                                                <div className="space-y-0.5">
-                                                                    <div className={`text-xs font-semibold ${(pricingSummary.profitPerUnitCurrentPrice ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-                                                                        {formatCurrency(pricingSummary.profitPerUnitCurrentPrice ?? 0)} / un
-                                                                    </div>
-                                                                    <div className="text-[11px] text-muted-foreground">
-                                                                        {((pricingSummary.marginCurrentPrice ?? 0) * 100).toFixed(1)}%
-                                                                    </div>
-                                                                    <div className={`text-[11px] ${(pricingSummary.estimatedAdsNetProfit30d ?? 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-                                                                        Ads30d: {formatCurrency(pricingSummary.estimatedAdsNetProfit30d ?? 0)}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </TableCell>
-
-                                                        {/* Risco */}
-                                                        <TableCell className="align-middle">
-                                                            {!pricingSummary ? (
-                                                                <span className="text-xs text-muted-foreground">N/D</span>
-                                                            ) : (
-                                                                <div className="space-y-1">
-                                                                    <Badge variant="outline" className={`text-[10px] border ${riskMeta.className}`}>
-                                                                        {riskMeta.label}
-                                                                    </Badge>
-                                                                    <div className="text-[11px] text-muted-foreground">
-                                                                        {!pricingSummary.costConfigured
-                                                                            ? "Configure custo"
-                                                                            : (pricingSummary.lossRisk ? "Prejuízo detectado" : "Sem prejuízo unitário")}
-                                                                        {pricingSummary.maxAdsSpendDaily > 0 && (
-                                                                            <span>
-                                                                                {" • "}
-                                                                                Ads: {pricingSummary.adsLimitExceeded ? "acima" : "dentro"} do limite
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </TableCell>
-
-                                                        {/* Visitas */}
-                                                        <TableCell className="text-right align-middle">
-                                                            <div className="flex items-center justify-end gap-1 text-blue-600">
+                                                        <div className="flex flex-wrap gap-2 text-xs">
+                                                            <Badge variant="secondary" className="gap-1">
                                                                 <Eye className="h-3 w-3" />
-                                                                {formatNumber(product.visits || 0)}
-                                                            </div>
-                                                        </TableCell>
+                                                                {formatNumber(product.visits || 0)} visitas
+                                                            </Badge>
+                                                            <Badge variant="secondary" className="gap-1">
+                                                                <TrendingUp className="h-3 w-3" />
+                                                                {formatNumber(product.sales || 0)} vendidos
+                                                            </Badge>
+                                                            <Badge variant="secondary">
+                                                                Conversão {formatPercent(product.conversionRate || 0, 2)}
+                                                            </Badge>
+                                                            <Badge variant="secondary">
+                                                                Estoque {formatNumber(product.stock || 0)}
+                                                            </Badge>
+                                                            <Badge variant="secondary" className="gap-1">
+                                                                <Image className="h-3 w-3" />
+                                                                {formatNumber(product.pictures_count || 0)} imagens
+                                                            </Badge>
+                                                            <Badge variant="secondary" className="gap-1">
+                                                                <Video className="h-3 w-3" />
+                                                                {product.has_video ? "Com vídeo" : "Sem vídeo"}
+                                                            </Badge>
+                                                        </div>
 
-                                                        {/* Tipo / Logística */}
-                                                        <TableCell className="align-middle">
-                                                            <div className="flex flex-col gap-1 text-xs">
-                                                                <div className="flex items-center gap-1">
-                                                                    <Badge variant="secondary" className="h-5 text-[10px]">
-                                                                        {getListingTypeLabel(product.listing_type_id)}
+                                                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                                            <span className="inline-flex items-center gap-1">
+                                                                <Truck className="h-3 w-3" />
+                                                                {getShippingLine(product)}
+                                                            </span>
+                                                            <span className="inline-flex items-center gap-1">
+                                                                <Store className="h-3 w-3" />
+                                                                {channels.join(" • ")}
+                                                            </span>
+                                                            <span>{getListingTypeLabel(product.listing_type_id)}</span>
+                                                        </div>
+
+                                                        <div className="rounded-2xl border bg-muted/30 p-3 text-sm">
+                                                            {!pricingSummary ? (
+                                                                <span className="text-muted-foreground">Resumo de precificação indisponível.</span>
+                                                            ) : (
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge variant="outline" className={`border ${riskMeta.className}`}>
+                                                                        Risco {riskMeta.label}
                                                                     </Badge>
+                                                                    <span className="text-muted-foreground">
+                                                                        {getRiskExplanation(pricingSummary)}
+                                                                    </span>
                                                                 </div>
-                                                                <div className="flex items-center gap-1 text-muted-foreground">
-                                                                    <Truck className="h-3 w-3" />
-                                                                    <span>{getDeliveryLabel(product)}</span>
-                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        
+                                                        <div className="grid gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Receita</div>
+                                                                <div className="mt-1 font-semibold text-emerald-700">{formatCurrency(product.revenue || 0)}</div>
                                                             </div>
-                                                        </TableCell>
-
-                                                        {/* Ações */}
-                                                        <TableCell className="text-center align-middle pr-4">
-                                                            <div className="flex items-center justify-center gap-2 flex-wrap">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 text-xs text-blue-600 hover:text-blue-700"
-                                                                    onClick={() => window.open(mlLink, '_blank')}
-                                                                >
-                                                                    <ExternalLink className="h-3 w-3 mr-1" />
-                                                                    Abrir
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 text-xs text-emerald-600 hover:text-emerald-700"
-                                                                    onClick={() => handleOpenPriceDialog(product)}
-                                                                >
-                                                                    <DollarSign className="h-3 w-3 mr-1" />
-                                                                    Preço
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 text-xs text-amber-600 hover:text-amber-700"
-                                                                    onClick={() => navigate(`/mercado-livre-price-calculator?mlb=${product.id}`)}
-                                                                >
-                                                                    Precificar
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 text-xs text-purple-600 hover:text-purple-700"
-                                                                    onClick={() => navigate(`/mercado-livre-analyzer?mlb=${product.id}`)}
-                                                                >
-                                                                    <Target className="h-3 w-3 mr-1" />
-                                                                    Analisar
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 text-xs text-orange-600 hover:text-orange-700"
-                                                                    disabled={!(product.status === "active" || product.status === "paused")}
-                                                                    onClick={() => {
-                                                                        if (!(product.status === "active" || product.status === "paused")) return;
-                                                                        setToggleDialog({
-                                                                            id: product.id,
-                                                                            title: product.title,
-                                                                            nextStatus: product.status === "active" ? "paused" : "active",
-                                                                        });
-                                                                    }}
-                                                                >
-                                                                    <AlertCircle className="h-3 w-3 mr-1" />
-                                                                    {product.status === "active" ? "Pausar" : "Ativar"}
-                                                                </Button>
-                                                                <DialogTrigger asChild>
-                                                                    <Button variant="outline" size="sm" className="h-8 text-xs">
-                                                                        <Info className="h-3 w-3 mr-1" />
-                                                                        Detalhes
-                                                                    </Button>
-                                                                </DialogTrigger>
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Visitas</div>
+                                                                <div className="mt-1 font-semibold">{formatNumber(product.visits || 0)}</div>
                                                             </div>
-                                                        </TableCell>
-                                                    </TableRow>
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Vendidos</div>
+                                                                <div className="mt-1 font-semibold">{formatNumber(product.sales || 0)}</div>
+                                                            </div>
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Conversão</div>
+                                                                <div className="mt-1 font-semibold">{formatPercent(product.conversionRate || 0, 2)}</div>
+                                                            </div>
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Estoque</div>
+                                                                <div className="mt-1 font-semibold">{formatNumber(product.stock || 0)}</div>
+                                                            </div>
+                                                            <div className="rounded-xl border bg-background p-3">
+                                                                <div className="text-xs text-muted-foreground">Conteúdo</div>
+                                                                <div className="mt-1 font-semibold">{formatNumber(product.pictures_count || 0)} img • {product.has_video ? "vídeo" : "sem vídeo"}</div>
+                                                            </div>
+                                                        </div>
 
-                                                    <DialogContent className="max-w-6xl w-[95vw]">
+                                                        <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 text-xs text-blue-600 hover:text-blue-700"
+                                                                onClick={() => window.open(mlLink, '_blank')}
+                                                            >
+                                                                <ExternalLink className="mr-1 h-3 w-3" />
+                                                                Abrir
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 text-xs text-emerald-600 hover:text-emerald-700"
+                                                                onClick={() => handleOpenPriceDialog(product)}
+                                                            >
+                                                                <DollarSign className="mr-1 h-3 w-3" />
+                                                                Preço
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 text-xs text-amber-600 hover:text-amber-700"
+                                                                onClick={() => navigate(`/mercado-livre-price-calculator?mlb=${product.id}`)}
+                                                            >
+                                                                Precificar
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 text-xs text-purple-600 hover:text-purple-700"
+                                                                onClick={() => navigate(`/mercado-livre-analyzer?mlb=${product.id}`)}
+                                                            >
+                                                                <Target className="mr-1 h-3 w-3" />
+                                                                Analisar
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 text-xs text-orange-600 hover:text-orange-700"
+                                                                disabled={!(product.status === "active" || product.status === "paused")}
+                                                                onClick={() => {
+                                                                    if (!(product.status === "active" || product.status === "paused")) return;
+                                                                    setToggleDialog({
+                                                                        id: product.id,
+                                                                        title: product.title,
+                                                                        nextStatus: product.status === "active" ? "paused" : "active",
+                                                                    });
+                                                                }}
+                                                            >
+                                                                <AlertCircle className="mr-1 h-3 w-3" />
+                                                                {product.status === "active" ? "Pausar" : "Ativar"}
+                                                            </Button>
+                                                            <DialogTrigger asChild>
+                                                                <Button variant="outline" size="sm" className="h-8 text-xs">
+                                                                    <Info className="mr-1 h-3 w-3" />
+                                                                    Detalhes
+                                                                </Button>
+                                                            </DialogTrigger>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <DialogContent className="max-w-6xl w-[95vw]">
                                                         <DialogHeader className="pb-2">
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <div>
@@ -1075,12 +1284,46 @@ export default function Products() {
                                                                         <div className="font-medium">{formatNumber(product.stock)}</div>
                                                                     </div>
                                                                     <div className="space-y-1">
-                                                                        <div className="text-muted-foreground text-xs">Preço</div>
-                                                                        <div className="font-medium">{formatCurrency(product.price)}</div>
+                                                                        <div className="text-muted-foreground text-xs">Catálogo</div>
+                                                                        <div className="font-medium">
+                                                                            {isCatalogListing(product)
+                                                                                ? `Sim${product.catalog_product_id ? ` • ${product.catalog_product_id}` : ""}`
+                                                                                : "Não"}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Preço de vitrine</div>
+                                                                        <div className="font-medium">
+                                                                            {formatCurrency(storefrontPrice)}
+                                                                            {promotionMeta ? (
+                                                                                <span className="ml-2 text-xs text-muted-foreground line-through">
+                                                                                    {formatCurrency(promotionMeta.originalPrice)}
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        {hasStorefrontDifference ? (
+                                                                            <div className="text-xs text-muted-foreground">
+                                                                                Base do anúncio: {formatCurrency(basePrice)}
+                                                                            </div>
+                                                                        ) : null}
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Tarifa ML / taxa fixa</div>
+                                                                        <div className="font-medium">
+                                                                            {pricingSummary
+                                                                                ? `${formatPercent((pricingSummary.mlFeeRate || 0) * 100, 2)} • ${formatCurrency(pricingSummary.fixedFee || 0)}`
+                                                                                : "-"}
+                                                                        </div>
                                                                     </div>
                                                                     <div className="space-y-1">
                                                                         <div className="text-muted-foreground text-xs">Status</div>
                                                                         <div>{getStatusBadge(product.status)}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Criado em</div>
+                                                                        <div className="font-medium">
+                                                                            {product.date_created ? new Date(product.date_created).toLocaleDateString("pt-BR") : "-"} • {formatRelativeAge(product.date_created)}
+                                                                        </div>
                                                                     </div>
                                                                     <div className="space-y-1">
                                                                         <div className="text-muted-foreground text-xs">Garantia</div>
@@ -1091,12 +1334,22 @@ export default function Products() {
                                                                         <div className="font-medium">{getDeliveryLabel(product)}</div>
                                                                     </div>
                                                                     <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Canais</div>
+                                                                        <div className="font-medium">{getChannelLabels(product.channels).join(" • ")}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
                                                                         <div className="text-muted-foreground text-xs">Tipo de anúncio</div>
                                                                         <div className="font-medium">{getListingTypeLabel(product.listing_type_id)}</div>
                                                                     </div>
                                                                     <div className="space-y-1">
                                                                         <div className="text-muted-foreground text-xs">Categoria</div>
                                                                         <div className="font-medium">{product.category || "-"}</div>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <div className="text-muted-foreground text-xs">Visitas / vendas / conversão</div>
+                                                                        <div className="font-medium">
+                                                                            {formatNumber(product.visits || 0)} / {formatNumber(product.sales || 0)} / {formatPercent(product.conversionRate || 0, 2)}
+                                                                        </div>
                                                                     </div>
                                                                     <div className="space-y-1 sm:col-span-2 lg:col-span-3">
                                                                         <div className="text-muted-foreground text-xs">Descrição</div>
@@ -1203,13 +1456,10 @@ export default function Products() {
                                                             </Card>
                                                         </div>
                                                     </DialogContent>
-                                                </Dialog>
-                                            );
-                                        })}
-                                    </TableBody>
-                                </Table>
+                                        </Dialog>
+                                    );
+                                })}
                             </div>
-                            <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     )}
                 </CardContent>
@@ -1241,6 +1491,13 @@ export default function Products() {
                     </div>
                 </div>
             )}
+
+            {/* Alertas de estoque */}
+            <LowStockAlerts
+                products={productsData?.items || []}
+                loading={isLoading}
+                threshold={5}
+            />
             </div>
 
             <Dialog
@@ -1255,18 +1512,23 @@ export default function Products() {
             >
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Atualizar preço e custo</DialogTitle>
+                    <DialogTitle>Atualizar preço-base e custo</DialogTitle>
                     <DialogDescription>
                         {priceDialog?.title}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
                     <div>
-                        <div className="text-xs text-muted-foreground mb-1">Preço atual</div>
+                        <div className="text-xs text-muted-foreground mb-1">Preço-base atual do anúncio</div>
                         <div className="text-lg font-semibold">{priceDialog ? formatCurrency(priceDialog.price) : "—"}</div>
+                        {priceDialog && Math.abs(priceDialog.storefrontPrice - priceDialog.price) > 0.0001 ? (
+                            <div className="mt-1 text-[11px] text-muted-foreground">
+                                Preço de vitrine atual: {formatCurrency(priceDialog.storefrontPrice)}
+                            </div>
+                        ) : null}
                     </div>
                     <div>
-                        <div className="text-xs text-muted-foreground mb-1">Novo preço</div>
+                        <div className="text-xs text-muted-foreground mb-1">Novo preço-base</div>
                         <Input
                             value={priceDraft}
                             onChange={(event) => setPriceDraft(event.target.value)}

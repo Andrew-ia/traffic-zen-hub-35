@@ -4620,6 +4620,15 @@ const parseDimensions = (dimensions?: string) => {
     };
 };
 
+type MercadoLivreSalePriceResponse = {
+    price_id?: string;
+    amount?: number;
+    regular_amount?: number | null;
+    currency_id?: string;
+    reference_date?: string;
+    metadata?: Record<string, unknown>;
+};
+
 router.get("/products", async (req, res) => {
     try {
         const { id: targetWorkspaceId } = resolveWorkspaceId(req);
@@ -4794,10 +4803,13 @@ router.get("/products", async (req, res) => {
             const saleTerms = Array.isArray(item.sale_terms) ? item.sale_terms : [];
             let visits = 0;
             let description = "";
+            let salePriceAmount: number | null = null;
+            let salePriceRegularAmount: number | null = null;
+            let salePriceReferenceDate: string | null = null;
             try {
                 const dateFrom = new Date();
                 dateFrom.setDate(dateFrom.getDate() - 30);
-                const [visitsResponse, descResponse] = await Promise.allSettled([
+                const [visitsResponse, descResponse, salePriceResponse] = await Promise.allSettled([
                     mlRequest<any>({
                         url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/visits`,
                         params: {
@@ -4811,6 +4823,14 @@ router.get("/products", async (req, res) => {
                     mlRequest<any>({
                         url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/description`,
                         headers: { Authorization: `Bearer ${credentials.accessToken}` },
+                    }),
+                    mlRequest<MercadoLivreSalePriceResponse>({
+                        url: `${MERCADO_LIVRE_API_BASE}/items/${itemId}/sale_price`,
+                        params: {
+                            context: "channel_marketplace",
+                            quantity: 1,
+                        },
+                        headers: { Authorization: `Bearer ${credentials.accessToken}` },
                     })
                 ]);
                 if (visitsResponse.status === "fulfilled") {
@@ -4819,12 +4839,22 @@ router.get("/products", async (req, res) => {
                 if (descResponse.status === "fulfilled") {
                     description = descResponse.value.data?.plain_text || descResponse.value.data?.text || "";
                 }
+                if (salePriceResponse.status === "fulfilled") {
+                    const salePriceData = salePriceResponse.value.data;
+                    const amount = Number(salePriceData?.amount);
+                    const regularAmount = Number(salePriceData?.regular_amount);
+                    salePriceAmount = Number.isFinite(amount) && amount > 0 ? amount : null;
+                    salePriceRegularAmount = Number.isFinite(regularAmount) && regularAmount > 0 ? regularAmount : null;
+                    salePriceReferenceDate = salePriceData?.reference_date || null;
+                }
             } catch (error) {
-                console.error(`Error fetching visits/description for item ${itemId}:`, error);
+                console.error(`Error fetching visits/description/sale price for item ${itemId}:`, error);
             }
 
+            const basePrice = Number(item.price || 0);
+            const storefrontPrice = salePriceAmount ?? basePrice;
             const sales = item.sold_quantity || 0;
-            const revenue = sales * item.price;
+            const revenue = sales * storefrontPrice;
             const conversionRate = visits > 0 ? (sales / visits) * 100 : 0;
             const logisticType = item?.shipping?.logistic_type || null;
             const tags: string[] = Array.isArray(item?.tags) ? item.tags : [];
@@ -4860,8 +4890,16 @@ router.get("/products", async (req, res) => {
             items.push({
                 id: item.id,
                 title: item.title,
-                price: item.price,
+                price: basePrice,
+                base_price: basePrice,
+                sale_price: storefrontPrice,
+                sale_price_regular_amount: salePriceRegularAmount,
+                sale_price_reference_date: salePriceReferenceDate,
+                original_price: item.original_price || null,
                 thumbnail: item.thumbnail,
+                permalink: item.permalink || null,
+                date_created: item.date_created || null,
+                last_updated: item.last_updated || null,
                 sales,
                 visits,
                 conversionRate,
@@ -4871,6 +4909,12 @@ router.get("/products", async (req, res) => {
                 category_name: undefined,
                 category_path: undefined,
                 stock: item.available_quantity,
+                catalog_product_id: item.catalog_product_id || null,
+                catalog_listing: Boolean(item.catalog_listing || item.catalog_product_id),
+                official_store_id: item.official_store_id || null,
+                channels: Array.isArray(item.channels) ? item.channels : [],
+                has_video: Boolean(item.video_id),
+                pictures_count: Array.isArray(item.pictures) ? item.pictures.length : 0,
                 logisticType,
                 isFull,
                 sku,
@@ -4957,7 +5001,7 @@ router.get("/products", async (req, res) => {
         try {
             pricingSummaries = await listProductPricingSummariesForItems(String(targetWorkspaceId), filteredItems.map((item: any) => ({
                 mlItemId: item.id,
-                price: Number(item.price || 0),
+                price: Number(item.sale_price || item.price || 0),
                 listingType: item.listing_type_id || null,
             })));
         } catch (error: any) {

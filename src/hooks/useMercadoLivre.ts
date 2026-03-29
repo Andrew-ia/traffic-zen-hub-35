@@ -265,8 +265,15 @@ export interface MercadoLivreProduct {
     id: string;
     title: string;
     price: number;
+    base_price?: number | null;
+    sale_price?: number | null;
+    sale_price_regular_amount?: number | null;
+    sale_price_reference_date?: string | null;
+    original_price?: number | null;
     thumbnail?: string;
     permalink?: string;
+    date_created?: string | null;
+    last_updated?: string | null;
     description?: string;
     sku?: string;
     variation?: string;
@@ -280,6 +287,10 @@ export interface MercadoLivreProduct {
         hasControls: boolean;
         costConfigured: boolean;
         costPrice: number | null;
+        mlFeeRate: number;
+        fixedFee: number;
+        paymentFeeRate: number;
+        netReceivedBeforeCompanyTax: number;
         profitPerUnitCurrentPrice: number | null;
         marginCurrentPrice: number | null;
         estimatedAdsNetProfit30d: number | null;
@@ -291,7 +302,15 @@ export interface MercadoLivreProduct {
         riskReasons: string[];
     } | null;
     category: string;
+    category_name?: string;
+    category_path?: string;
     stock: number;
+    catalog_product_id?: string | null;
+    catalog_listing?: boolean;
+    official_store_id?: number | null;
+    channels?: string[];
+    has_video?: boolean;
+    pictures_count?: number;
     logisticType?: string | null;
     isFull?: boolean;
     warranty?: string;
@@ -424,6 +443,9 @@ export interface MercadoLivrePricingControlData {
     };
     calculations: {
         variableRate: number;
+        netReceivedBeforeCompanyTax: number;
+        companyTaxRate: number;
+        companyTaxesCurrentPrice: number;
         totalUnitCost: number;
         breakEvenPrice: number | null;
         targetPrice: number | null;
@@ -1412,7 +1434,10 @@ export function useMercadoLivreGrowthReport(
 export function useMercadoLivreProducts(
     workspaceId: string | null,
     category: string = "all",
-    search: string = ""
+    search: string = "",
+    options?: {
+        statuses?: string;
+    }
 ) {
     const fallbackWorkspaceId = (import.meta.env.VITE_WORKSPACE_ID as string | undefined)?.trim() || null;
     const effectiveWorkspaceId = workspaceId || fallbackWorkspaceId;
@@ -1420,7 +1445,7 @@ export function useMercadoLivreProducts(
     const isConnected = authStatus?.connected ?? false;
 
     return useQuery({
-        queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category, search],
+        queryKey: ["mercadolivre", "products", effectiveWorkspaceId, category, search, options?.statuses],
         queryFn: async (): Promise<{
             items: MercadoLivreProduct[];
             totalCount: number;
@@ -1446,6 +1471,7 @@ export function useMercadoLivreProducts(
                 workspaceId: effectiveWorkspaceId,
                 ...(category !== "all" && { category }),
                 ...(search && { search }),
+                ...(options?.statuses ? { statuses: options.statuses } : {}),
                 page: String(1),
                 limit: String(1000), // Buscar até 1000 produtos
             });

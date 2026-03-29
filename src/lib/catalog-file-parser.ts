@@ -12,6 +12,20 @@ export type ParsedCatalogRow = {
   rawPayload?: Record<string, unknown>;
 };
 
+export type CatalogParseMode = 'spreadsheet' | 'pdf_text' | 'pdf_ocr';
+
+export type ParsedCatalogFileResult = {
+  rows: ParsedCatalogRow[];
+  mode: CatalogParseMode;
+  ocrUsed: boolean;
+};
+
+export type CatalogParseProgress = {
+  message: string;
+  progress?: number;
+  usingOcr?: boolean;
+};
+
 type PdfTextChunk = {
   text: string;
   x: number;
@@ -19,8 +33,20 @@ type PdfTextChunk = {
   width: number;
 };
 
+type PdfLine = {
+  pageNumber: number;
+  lineIndex: number;
+  text: string;
+};
+
+type ParseCatalogFileOptions = {
+  enableOcrFallback?: boolean;
+  onProgress?: (progress: CatalogParseProgress) => void;
+};
+
 const PDF_ROW_Y_TOLERANCE = 3;
 const PDF_NAME_BUFFER_LIMIT = 2;
+const PDF_OCR_RENDER_SCALE = 2;
 const PDF_PRICE_PATTERN = /(?:R\$\s*)?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})|\d+(?:,\d{2}|\.\d{2})/g;
 const PDF_IGNORED_LINE_PATTERNS = [
   /^p[aá]gina\b/i,
@@ -81,6 +107,18 @@ function getCatalogSourceTypeFromExtension(extension: string) {
   if (extension === 'csv') return 'csv';
   if (extension === 'pdf') return 'pdf';
   return 'spreadsheet';
+}
+
+function reportParseProgress(
+  onProgress: ParseCatalogFileOptions['onProgress'],
+  message: string,
+  options?: { progress?: number; usingOcr?: boolean },
+) {
+  onProgress?.({
+    message,
+    progress: options?.progress,
+    usingOcr: options?.usingOcr,
+  });
 }
 
 function normalizePdfLine(value: string) {
@@ -263,12 +301,15 @@ async function parseSpreadsheetCatalogFile(file: File): Promise<ParsedCatalogRow
   return parsed;
 }
 
-async function extractPdfLines(file: File) {
+async function extractPdfLines(file: File, onProgress?: ParseCatalogFileOptions['onProgress']) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await getDocument({ data }).promise;
-  const lines: Array<{ pageNumber: number; lineIndex: number; text: string }> = [];
+  const lines: PdfLine[] = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    reportParseProgress(onProgress, `Lendo texto da pagina ${pageNumber} de ${pdf.numPages}...`, {
+      progress: (pageNumber - 1) / Math.max(pdf.numPages, 1),
+    });
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
     const items = (textContent.items || []) as Array<{ str?: string; transform?: number[]; width?: number }>;
@@ -305,12 +346,7 @@ async function extractPdfLines(file: File) {
   return lines;
 }
 
-async function parsePdfCatalogFile(file: File): Promise<ParsedCatalogRow[]> {
-  const pdfLines = await extractPdfLines(file);
-  if (!pdfLines.length) {
-    throw new Error('Nao foi encontrado texto selecionavel no PDF. Se ele for escaneado, converta para XLSX/CSV.');
-  }
-
+function parsePdfLinesToCatalogRows(pdfLines: PdfLine[], source: 'pdf' | 'pdf_ocr') {
   const parsedRows: ParsedCatalogRow[] = [];
   let nameBuffer: string[] = [];
   let currentSectionTitle: string | null = null;
@@ -329,6 +365,10 @@ async function parsePdfCatalogFile(file: File): Promise<ParsedCatalogRow[]> {
 
     const row = buildPdfRow(normalizedLine, line.pageNumber, line.lineIndex, nameBuffer, currentSectionTitle);
     if (row) {
+      row.rawPayload = {
+        ...row.rawPayload,
+        source,
+      };
       parsedRows.push(row);
       nameBuffer = [];
       continue;
@@ -344,24 +384,140 @@ async function parsePdfCatalogFile(file: File): Promise<ParsedCatalogRow[]> {
     }
   }
 
-  if (!parsedRows.length) {
-    throw new Error('Nao foi possivel identificar itens com nome e preco no PDF. Se puder, exporte o catalogo para XLSX ou CSV.');
+  return parsedRows;
+}
+
+async function extractPdfLinesWithOcr(file: File, onProgress?: ParseCatalogFileOptions['onProgress']) {
+  reportParseProgress(onProgress, 'Convertendo PDF escaneado com OCR...', {
+    progress: 0,
+    usingOcr: true,
+  });
+
+  const [{ createWorker, OEM, PSM }, data] = await Promise.all([
+    import('tesseract.js'),
+    file.arrayBuffer(),
+  ]);
+  const pdf = await getDocument({ data: new Uint8Array(data) }).promise;
+  const worker = await createWorker(['por', 'eng'], OEM.DEFAULT, {
+    logger: (event) => {
+      if (event.status !== 'recognizing text') return;
+      reportParseProgress(onProgress, 'Convertendo PDF escaneado com OCR...', {
+        progress: event.progress,
+        usingOcr: true,
+      });
+    },
+  });
+
+  try {
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+      preserve_interword_spaces: '1',
+    });
+
+    const lines: PdfLine[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      reportParseProgress(onProgress, `Aplicando OCR na pagina ${pageNumber} de ${pdf.numPages}...`, {
+        progress: (pageNumber - 1) / Math.max(pdf.numPages, 1),
+        usingOcr: true,
+      });
+
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: PDF_OCR_RENDER_SCALE });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        throw new Error('Nao foi possivel preparar o canvas para OCR.');
+      }
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      await page.render({
+        canvasContext: context,
+        viewport,
+      }).promise;
+
+      const recognized = await worker.recognize(canvas, { rotateAuto: true });
+      const recognizedText = String(recognized?.data?.text || '');
+      const pageLines = recognizedText
+        .split('\n')
+        .map((line) => normalizePdfLine(line))
+        .filter(Boolean)
+        .map((text, index) => ({
+          pageNumber,
+          lineIndex: index + 1,
+          text,
+        }));
+
+      lines.push(...pageLines);
+    }
+
+    return lines;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function parsePdfCatalogFile(
+  file: File,
+  options?: ParseCatalogFileOptions,
+): Promise<ParsedCatalogFileResult> {
+  const enableOcrFallback = options?.enableOcrFallback ?? false;
+
+  reportParseProgress(options?.onProgress, 'Lendo texto do PDF...', { progress: 0 });
+  const pdfLines = await extractPdfLines(file, options?.onProgress);
+  const parsedRows = parsePdfLinesToCatalogRows(pdfLines, 'pdf');
+
+  if (parsedRows.length) {
+    return {
+      rows: parsedRows,
+      mode: 'pdf_text',
+      ocrUsed: false,
+    };
   }
 
-  return parsedRows;
+  if (!enableOcrFallback) {
+    if (!pdfLines.length) {
+      throw new Error('Nao foi encontrado texto selecionavel no PDF. Ative a conversao automatica para PDF escaneado ou envie XLSX/CSV.');
+    }
+    throw new Error('Nao foi possivel identificar itens com nome e preco no PDF. Ative a conversao automatica para PDF escaneado ou envie XLSX/CSV.');
+  }
+
+  const ocrLines = await extractPdfLinesWithOcr(file, options?.onProgress);
+  const ocrRows = parsePdfLinesToCatalogRows(ocrLines, 'pdf_ocr');
+
+  if (!ocrRows.length) {
+    throw new Error('Nao foi possivel converter o PDF escaneado automaticamente. Se puder, envie o catalogo em XLSX ou CSV.');
+  }
+
+  return {
+    rows: ocrRows,
+    mode: 'pdf_ocr',
+    ocrUsed: true,
+  };
 }
 
 export function getCatalogSourceType(fileName: string) {
   return getCatalogSourceTypeFromExtension(getFileExtension(fileName));
 }
 
-export async function parseCatalogFile(file: File): Promise<ParsedCatalogRow[]> {
+export async function parseCatalogFile(
+  file: File,
+  options?: ParseCatalogFileOptions,
+): Promise<ParsedCatalogFileResult> {
   const extension = getFileExtension(file.name);
   if (extension === 'pdf') {
-    return parsePdfCatalogFile(file);
+    return parsePdfCatalogFile(file, options);
   }
   if (['xlsx', 'xls', 'csv'].includes(extension)) {
-    return parseSpreadsheetCatalogFile(file);
+    reportParseProgress(options?.onProgress, 'Lendo planilha do catalogo...', { progress: 0 });
+    return {
+      rows: await parseSpreadsheetCatalogFile(file),
+      mode: 'spreadsheet',
+      ocrUsed: false,
+    };
   }
   throw new Error('Use um arquivo XLSX, XLS, CSV ou PDF textual para importar o catalogo.');
 }

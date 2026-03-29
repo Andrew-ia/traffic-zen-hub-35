@@ -18,6 +18,8 @@ const DEFAULT_ML_FEE_RATE_BY_LISTING_TYPE: Record<string, number> = {
   bronze: 0.09,
   free: 0,
 };
+const DEFAULT_PACKAGING_COST = 1;
+const DEFAULT_COMPANY_TAX_RATE = 0.1;
 
 let schemaReady: Promise<void> | null = null;
 
@@ -91,6 +93,10 @@ export type ProductPricingListItemSummary = {
   hasControls: boolean;
   costConfigured: boolean;
   costPrice: number | null;
+  mlFeeRate: number;
+  fixedFee: number;
+  paymentFeeRate: number;
+  netReceivedBeforeCompanyTax: number;
   profitPerUnitCurrentPrice: number | null;
   marginCurrentPrice: number | null;
   estimatedAdsNetProfit30d: number | null;
@@ -188,27 +194,38 @@ const computePricing = (input: {
 }) => {
   const variableRate = clampRate(input.mlFeeRate + input.paymentFeeRate, 0.23, 0.99);
 
-  const totalUnitCost =
+  const operatingUnitCost =
     input.costPrice +
     input.shippingCost +
     input.packagingCost +
     input.otherCost +
     input.overheadCost +
-    input.fixedFee +
     input.cac;
 
+  const netReceivedBeforeCompanyTax =
+    input.currentPrice > 0
+      ? Math.max(0, (input.currentPrice * (1 - variableRate)) - input.fixedFee)
+      : 0;
+
+  const companyTaxesCurrentPrice = netReceivedBeforeCompanyTax * DEFAULT_COMPANY_TAX_RATE;
+
+  const totalUnitCost =
+    operatingUnitCost +
+    companyTaxesCurrentPrice;
+
   const denominatorBreakEven = 1 - variableRate;
+  const companyTaxBase = 1 - DEFAULT_COMPANY_TAX_RATE;
   const breakEvenPrice = denominatorBreakEven > 0
-    ? totalUnitCost / denominatorBreakEven
+    ? ((operatingUnitCost / companyTaxBase) + input.fixedFee) / denominatorBreakEven
     : null;
 
-  const denominatorTarget = 1 - variableRate - input.targetMarginRate;
+  const denominatorTarget = companyTaxBase - input.targetMarginRate;
   const targetPrice = denominatorTarget > 0
-    ? totalUnitCost / denominatorTarget
+    ? ((operatingUnitCost / denominatorTarget) + input.fixedFee) / (1 - variableRate)
     : null;
 
-  const minPriceForMinProfit = denominatorBreakEven > 0
-    ? (totalUnitCost + input.minProfitValue) / denominatorBreakEven
+  const minPriceForMinProfit = denominatorBreakEven > 0 && companyTaxBase > 0
+    ? (((operatingUnitCost + input.minProfitValue) / companyTaxBase) + input.fixedFee) / denominatorBreakEven
     : null;
 
   const floorByProfit = [breakEvenPrice, minPriceForMinProfit]
@@ -241,12 +258,12 @@ const computePricing = (input: {
 
   const profitPerUnitCurrentPrice =
     input.currentPrice > 0
-      ? (input.currentPrice * (1 - variableRate)) - totalUnitCost
+      ? netReceivedBeforeCompanyTax - totalUnitCost
       : null;
 
   const marginCurrentPrice =
-    input.currentPrice > 0 && profitPerUnitCurrentPrice !== null
-      ? profitPerUnitCurrentPrice / input.currentPrice
+    netReceivedBeforeCompanyTax > 0 && profitPerUnitCurrentPrice !== null
+      ? profitPerUnitCurrentPrice / netReceivedBeforeCompanyTax
       : null;
 
   const avgAdsSpendDaily30d = input.adsSpend30d / 30;
@@ -287,6 +304,9 @@ const computePricing = (input: {
 
   return {
     variableRate: round(variableRate, 6),
+    netReceivedBeforeCompanyTax: round(netReceivedBeforeCompanyTax, 2),
+    companyTaxRate: round(DEFAULT_COMPANY_TAX_RATE, 4),
+    companyTaxesCurrentPrice: round(companyTaxesCurrentPrice, 2),
     totalUnitCost: round(totalUnitCost, 2),
     breakEvenPrice: breakEvenPrice === null ? null : round(breakEvenPrice, 2),
     targetPrice: targetPrice === null ? null : round(targetPrice, 2),
@@ -456,7 +476,7 @@ export async function listProductPricingSummariesForItems(
     const controls = {
       costPrice: clampMoney(toNumber(costPriceRaw, 0)),
       shippingCost: clampMoney(toNumber(control?.shipping_cost, 0)),
-      packagingCost: clampMoney(toNumber(control?.packaging_cost, 0)),
+      packagingCost: clampMoney(toNumber(control ? control.packaging_cost : DEFAULT_PACKAGING_COST, DEFAULT_PACKAGING_COST)),
       otherCost: clampMoney(toNumber(control?.other_cost, 0)),
       overheadCost: clampMoney(toNumber(control?.overhead_cost ?? product?.overhead_cost, 0)),
       fixedFee: clampMoney(toNumber(control?.fixed_fee ?? product?.fixed_fee, 0)),
@@ -523,6 +543,10 @@ export async function listProductPricingSummariesForItems(
       hasControls: Boolean(control),
       costConfigured,
       costPrice: costConfigured ? round(controls.costPrice, 2) : null,
+      mlFeeRate: round(controls.mlFeeRate, 4),
+      fixedFee: round(controls.fixedFee, 2),
+      paymentFeeRate: round(controls.paymentFeeRate, 4),
+      netReceivedBeforeCompanyTax: calculations.netReceivedBeforeCompanyTax,
       profitPerUnitCurrentPrice: unitProfit,
       marginCurrentPrice: calculations.marginCurrentPrice,
       estimatedAdsNetProfit30d: adsNetProfit30d,
@@ -676,7 +700,7 @@ export async function upsertProductPricingControl(
   const packagingCost = clampMoney(
     packagingCostInput !== undefined
       ? toNumber(packagingCostInput, 0)
-      : toNumber(existing?.packaging_cost, 0),
+      : toNumber(existing ? existing.packaging_cost : DEFAULT_PACKAGING_COST, DEFAULT_PACKAGING_COST),
   );
 
   const otherCostInput = toOptionalInput(input.otherCost);
@@ -891,7 +915,7 @@ export async function getProductPricingControlForItem(
   const controls = {
     costPrice: control?.cost_price ?? toNumberOrNull(product?.cost_price),
     shippingCost: clampMoney(toNumber(control?.shipping_cost, 0)),
-    packagingCost: clampMoney(toNumber(control?.packaging_cost, 0)),
+    packagingCost: clampMoney(toNumber(control ? control.packaging_cost : DEFAULT_PACKAGING_COST, DEFAULT_PACKAGING_COST)),
     otherCost: clampMoney(toNumber(control?.other_cost, 0)),
     overheadCost: clampMoney(toNumber(control?.overhead_cost ?? product?.overhead_cost, 0)),
     fixedFee: clampMoney(toNumber(control?.fixed_fee ?? product?.fixed_fee, 0)),

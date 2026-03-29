@@ -124,21 +124,21 @@ export default function MercadoLivreAnalyzer() {
 
                     <TabsContent value="trends" className="space-y-4">
                         <div className="max-w-3xl mx-auto text-center mb-8">
-                            <h2 className="text-2xl font-semibold mb-2">Pesquisa de Mercado</h2>
+                            <h2 className="text-2xl font-semibold mb-2">Pesquisa por Catálogo</h2>
                             <p className="text-muted-foreground">
-                                Abra a nova tela de sourcing para validar concorrência, demanda, saturação e margem antes de comprar para revender.
+                                Suba o PDF do fornecedor, gere a tabela de produtos e compare preço e margem no Mercado Livre antes de comprar para revender.
                             </p>
                         </div>
                         <div className="max-w-4xl mx-auto rounded-3xl border bg-card p-8 text-center shadow-sm">
                             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-yellow-700">
                                 <Search className="h-7 w-7" />
                             </div>
-                            <h3 className="mt-4 text-xl font-semibold">Nova Pesquisa de Mercado ML</h3>
+                            <h3 className="mt-4 text-xl font-semibold">Pesquisa por Catálogo ML</h3>
                             <p className="mt-2 text-sm text-muted-foreground">
-                                Descubra top oportunidades por subcategoria, anúncios recentes que aceleraram, dominância de lojas oficiais e simulação de margem para revenda.
+                                Leia catálogos em PDF, separe os itens em tabela, abra buscas manuais no Mercado Livre e rode a análise para shortlist de compra.
                             </p>
                             <Button className="mt-6" onClick={() => navigate("/mercado-livre/pesquisa-mercado")}>
-                                Abrir Pesquisa de Mercado
+                                Abrir Pesquisa por Catálogo
                             </Button>
                         </div>
                     </TabsContent>

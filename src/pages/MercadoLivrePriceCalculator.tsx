@@ -32,6 +32,8 @@ const LISTING_FEE_TABLE: Record<string, number> = {
     bronze: 0.09,
     free: 0,
 };
+const DEFAULT_PACKAGING_COST = 1;
+const DEFAULT_COMPANY_TAX_RATE = 0.1;
 
 function getFeePercent(listingType?: string): number {
     if (!listingType) return 0.19;
@@ -60,7 +62,7 @@ export default function MercadoLivrePriceCalculator() {
     const [productCost, setProductCost] = useState(0);
     const [shippingCost, setShippingCost] = useState(0);
     const [shippingMode, setShippingMode] = useState<"buyer" | "seller">("buyer");
-    const [packagingCost, setPackagingCost] = useState(0);
+    const [packagingCost, setPackagingCost] = useState(DEFAULT_PACKAGING_COST);
     const [otherCost, setOtherCost] = useState(0);
     const [desiredMargin, setDesiredMargin] = useState(0.2);
     const [manualPrice, setManualPrice] = useState<number | null>(null);
@@ -114,7 +116,7 @@ export default function MercadoLivrePriceCalculator() {
         const controls = pricingQuery.data.controls;
         setProductCost(Number(controls.costPrice || 0));
         setShippingCost(Number(controls.shippingCost || 0));
-        setPackagingCost(Number(controls.packagingCost || 0));
+        setPackagingCost(Number((controls.packagingCost ?? DEFAULT_PACKAGING_COST) || DEFAULT_PACKAGING_COST));
         setOtherCost(Number(controls.otherCost || 0));
         setOverheadCost(Number(controls.overheadCost || 0));
         setMlFlatFeePerUnit(Number(controls.fixedFee || 0));
@@ -134,12 +136,18 @@ export default function MercadoLivrePriceCalculator() {
         const feePayment = price * paymentFeePercent;
         const feeFlat = mlFlatFeePerUnit * Math.max(1, unitsPerOrder);
         const totalFees = feeMl + feePayment + feeFlat;
-        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost;
-        const profit = price - totalFees - costs;
-        const marginPct = price > 0 ? profit / price : 0;
+        const receivedBeforeCompanyTax = Math.max(0, price - totalFees);
+        const companyTaxes = receivedBeforeCompanyTax * DEFAULT_COMPANY_TAX_RATE;
+        const operatingCosts = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost;
+        const costs = operatingCosts + companyTaxes;
+        const profit = receivedBeforeCompanyTax - costs;
+        const marginPct = receivedBeforeCompanyTax > 0 ? profit / receivedBeforeCompanyTax : 0;
         const feeBase = 1 - (feePercent + paymentFeePercent);
-        const breakeven = feeBase > 0 ? (costs + feeFlat) / feeBase : 0;
-        const targetPrice = feeBase - desiredMargin > 0 ? (costs + feeFlat + minProfitValue) / (feeBase - desiredMargin) : 0;
+        const companyTaxBase = 1 - DEFAULT_COMPANY_TAX_RATE;
+        const breakeven = feeBase > 0 ? ((operatingCosts / companyTaxBase) + feeFlat) / feeBase : 0;
+        const targetPrice = feeBase > 0 && companyTaxBase - desiredMargin > 0
+            ? ((operatingCosts / (companyTaxBase - desiredMargin)) + feeFlat) / feeBase
+            : 0;
         const promoPolicyFloor = price > 0 ? price * (1 - maxPromoDiscount) : 0;
         const minimumPromoPrice = Math.max(promoPolicyFloor, breakeven);
         const maxPromoDiscountAllowedRate = price > 0 ? Math.max(0, 1 - (minimumPromoPrice / price)) : 0;
@@ -149,6 +157,9 @@ export default function MercadoLivrePriceCalculator() {
             feeMl,
             feePayment,
             feeFlat,
+            receivedBeforeCompanyTax,
+            companyTaxes,
+            operatingCosts,
             costs,
             profit,
             marginPct,
@@ -157,13 +168,15 @@ export default function MercadoLivrePriceCalculator() {
             minimumPromoPrice: Math.max(0, minimumPromoPrice),
             maxPromoDiscountAllowedRate,
         };
-    }, [priceToUse, feePercent, paymentFeePercent, productCost, effectiveShippingCost, packagingCost, otherCost, overheadCost, cacCost, desiredMargin, mlFlatFeePerUnit, unitsPerOrder, maxPromoDiscount, minProfitValue]);
+    }, [priceToUse, feePercent, paymentFeePercent, productCost, effectiveShippingCost, packagingCost, otherCost, overheadCost, cacCost, desiredMargin, mlFlatFeePerUnit, unitsPerOrder, maxPromoDiscount]);
 
     const simulatePrice = (price: number) => {
-        const fee = price * (feePercent + paymentFeePercent);
-        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost + (mlFlatFeePerUnit * Math.max(1, unitsPerOrder));
-        const profit = price - fee - costs;
-        const marginPct = price > 0 ? profit / price : 0;
+        const fee = price * (feePercent + paymentFeePercent) + (mlFlatFeePerUnit * Math.max(1, unitsPerOrder));
+        const receivedBeforeCompanyTax = Math.max(0, price - fee);
+        const companyTaxes = receivedBeforeCompanyTax * DEFAULT_COMPANY_TAX_RATE;
+        const costs = productCost + effectiveShippingCost + packagingCost + otherCost + overheadCost + cacCost + companyTaxes;
+        const profit = receivedBeforeCompanyTax - costs;
+        const marginPct = receivedBeforeCompanyTax > 0 ? profit / receivedBeforeCompanyTax : 0;
         return { price, fee, profit, marginPct };
     };
 
@@ -570,8 +583,16 @@ export default function MercadoLivrePriceCalculator() {
                             <span>R$ {totals.feeFlat.toFixed(2)} ({unitsPerOrder} un.)</span>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>Custos (produto+frete+outros+overhead+CAC)</span>
-                            <span>R$ {totals.costs.toFixed(2)}</span>
+                            <span>Recebido líquido ML</span>
+                            <span>R$ {totals.receivedBeforeCompanyTax.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Imposto da empresa (10% do líquido)</span>
+                            <span>R$ {totals.companyTaxes.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Custos operacionais</span>
+                            <span>R$ {totals.operatingCosts.toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span className="font-semibold">Lucro</span>
